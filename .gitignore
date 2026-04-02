@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# IDE / Claude
+.claude/
+.vscode/
+
+# Session files
+~/.notepad_ide/
