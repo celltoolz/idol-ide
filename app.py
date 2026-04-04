@@ -494,9 +494,17 @@ class Notepad(Tk):
                     self._completion.hide()
                     return "break"
 
+            prev_ovr = handler.overwrite
             result = handler.handle(e, codeview)
             if mc.active:
                 mc.apply_key(e)
+            # Insert key toggled — update status bar and cursor shape
+            if handler.overwrite != prev_ovr:
+                self._statusbar.set_overwrite(handler.overwrite)
+                codeview.config(
+                    blockcursor=handler.overwrite,
+                    insertwidth=0 if handler.overwrite else 2,
+                )
 
             # Decide whether to (re-)trigger, narrow, or hide completion
             ch = e.char
@@ -616,6 +624,10 @@ class Notepad(Tk):
             return
         self._update_title()
         self._statusbar.set_indent(self._indent_sizes.get(tab_id, 4))
+        # Reflect overwrite state of the new tab's handler
+        handler = self._key_handlers.get(tab_id)
+        ovr = handler.overwrite if handler else False
+        self._statusbar.set_overwrite(ovr)
         cv = self._codeviews.get(tab_id)
         if cv:
             self._update_status_lexer(cv)
@@ -629,6 +641,11 @@ class Notepad(Tk):
             # Apply cached git hunks for this tab; fetch fresh ones
             cv._line_numbers.set_git_hunks(self._git_hunks.get(tab_id, []))
             self._refresh_git_hunks()
+            # Sync cursor shape to this tab's overwrite state
+            cv.config(
+                blockcursor=ovr,
+                insertwidth=0 if ovr else 2,
+            )
 
     def _on_content_changed(self) -> None:
         tab_id = self._current_tab_id

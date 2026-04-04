@@ -89,6 +89,19 @@ class StatusBar(ttk.Frame):
         self._indent_size = size
         self._refresh_indent_label()
 
+    def set_overwrite(self, active: bool) -> None:
+        """Show OVR indicator when Insert/overwrite mode is on."""
+        if active:
+            if not hasattr(self, "_ovr_lbl"):
+                self._ovr_sep = ttk.Separator(self, orient="vertical")
+                self._ovr_lbl = ttk.Label(self, text="OVR", style="SB.Hi.TLabel")
+            self._ovr_sep.pack(side="right", fill="y", padx=4, pady=3)
+            self._ovr_lbl.pack(side="right", padx=(2, 8), pady=2)
+        else:
+            if hasattr(self, "_ovr_lbl"):
+                self._ovr_lbl.pack_forget()
+                self._ovr_sep.pack_forget()
+
     @property
     def indent_size(self) -> int:
         return self._indent_size

@@ -131,6 +131,13 @@ class CodeView(Text):
         self._set_lexer(lexer)
         self.set_color_scheme(color_scheme)
 
+        # Scroll-past-last-line: tag on the final line provides bottom padding
+        super().tag_configure("_scroll_pad", spacing3=0)
+        super().bind("<<ContentChanged>>", self._schedule_scroll_pad, add=True)
+        super().bind("<Configure>",         self._schedule_scroll_pad, add=True)
+        super().bind("<Map>",               self._schedule_scroll_pad, add=True)
+        self._scroll_pad_after: str | None = None
+
     @property
     def context_menu(self) -> Menu:
         if self._context_menu is None:
@@ -397,4 +404,29 @@ class CodeView(Text):
 
     def scroll_line_update(self, event: Event | None = None) -> None:
         self.horizontal_scroll(*self.xview())
+        self.vertical_scroll(*self.yview())
+
+    def _schedule_scroll_pad(self, _event=None) -> None:
+        if self._scroll_pad_after:
+            self.after_cancel(self._scroll_pad_after)
+        self._scroll_pad_after = self.after(50, self._apply_scroll_pad)
+
+    def _apply_scroll_pad(self) -> None:
+        self._scroll_pad_after = None
+        h = self.winfo_height()
+        if h <= 1:
+            self._scroll_pad_after = self.after(100, self._apply_scroll_pad)
+            return
+        line_h = Font(font=self.cget("font")).metrics("linespace")
+        pad_h  = max(0, h - line_h)
+        # Bypass the proxy and set directly on the original Tcl widget
+        self.tk.call(self._orig, "tag", "configure", "_scroll_pad",
+                     "-spacing3", str(pad_h))
+        end_line = int(str(self.tk.call(self._orig, "index", "end")).split(".")[0])
+        last = max(1, end_line - 1)
+        self.tk.call(self._orig, "tag", "remove", "_scroll_pad", "1.0", "end")
+        self.tk.call(self._orig, "tag", "add", "_scroll_pad",
+                     f"{last}.0", f"{last}.end")
+        # Force the widget to recompute its layout and report new scroll fractions
+        self.update_idletasks()
         self.vertical_scroll(*self.yview())

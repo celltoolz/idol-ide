@@ -20,6 +20,7 @@ class KeyHandler:
         self.tab_size = tab_size
         self.smart_pairs = smart_pairs
         self._home_toggle = False
+        self.overwrite = False   # Insert key toggle
 
     def handle(self, event, codeview) -> str | None:
         """Process a key event.  Returns 'break' to suppress default handling."""
@@ -100,8 +101,24 @@ class KeyHandler:
                 if self.smart_pairs:
                     return self._handle_backspace(codeview)
 
+            case "Insert" | "KP_Insert":
+                self._home_toggle = False
+                self.overwrite = not self.overwrite
+                return "break"
+
             case _:
                 self._home_toggle = False
+                # Overwrite mode: replace the char under cursor with the typed char
+                if (
+                    self.overwrite
+                    and event.char
+                    and event.char.isprintable()
+                    and not (event.state & 0x4)   # not Ctrl
+                    and not codeview.tag_ranges("sel")
+                ):
+                    next_char = codeview.get("insert", "insert+1c")
+                    if next_char and next_char != "\n":
+                        codeview.delete("insert", "insert+1c")
 
     # ── Handlers ─────────────────────────────────────────────────────────────
 
