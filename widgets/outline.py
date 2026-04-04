@@ -117,10 +117,10 @@ class OutlinePanel(ttk.Frame):
         return [(n, l) for n, l in args if n not in ("self", "cls")]
 
     @staticmethod
-    def _instance_attrs(class_node) -> list[tuple[str, int]]:
-        """Return (name, lineno) for each unique self.xxx assignment in the class."""
+    def _instance_attrs(func_node) -> list[tuple[str, int]]:
+        """Return (name, lineno) for each unique self.xxx assignment in *func_node*."""
         seen: dict[str, int] = {}
-        for node in ast.walk(class_node):
+        for node in ast.walk(func_node):
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 for t in targets:
@@ -169,7 +169,7 @@ class OutlinePanel(ttk.Frame):
                     tags=("class",),
                     open=True,
                 )
-                # Methods (with their parameters nested inside)
+                # Methods — params then instance attrs, all nested under the method
                 for child in ast.iter_child_nodes(node):
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         prefix = "async " if isinstance(child, ast.AsyncFunctionDef) else ""
@@ -184,12 +184,11 @@ class OutlinePanel(ttk.Frame):
                                              text=f"◦  {pname}",
                                              values=(pline,),
                                              tags=("param",))
-                # Instance attributes at class level
-                for aname, aline in self._instance_attrs(node):
-                    self.tree.insert(class_node, "end",
-                                     text=f"◦  {aname}",
-                                     values=(aline,),
-                                     tags=("attr",))
+                        for aname, aline in self._instance_attrs(child):
+                            self.tree.insert(method_node, "end",
+                                             text=f"◦  {aname}",
+                                             values=(aline,),
+                                             tags=("attr",))
 
             # ── Top-level function ────────────────────────────────────────────
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
