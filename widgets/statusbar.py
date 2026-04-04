@@ -62,8 +62,11 @@ class StatusBar(ttk.Frame):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def set_position(self, line: int, col: int) -> None:
-        self._pos_lbl.config(text=f"Ln {line}, Col {col + 1}")
+    def set_position(self, line: int, col: int, cursors: int = 1) -> None:
+        pos = f"Ln {line}, Col {col + 1}"
+        if cursors > 1:
+            pos += f"  |  {cursors} cursors"
+        self._pos_lbl.config(text=pos)
 
     def set_lexer(self, name: str) -> None:
         self._lexer_lbl.config(text=name)

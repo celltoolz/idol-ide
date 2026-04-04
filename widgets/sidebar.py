@@ -56,7 +56,8 @@ class Sidebar(ttk.Frame):
         self._sash2 = self._make_sash(2)
 
         self._explorer_hdr = self._make_header("EXPLORER",  self._toggle_explorer)
-        self.explorer      = FileExplorer(self, on_open_file=on_file_open)
+        # Wrap callback so clicks from the tree don't reset the explorer root
+        self.explorer      = FileExplorer(self, on_open_file=lambda p: on_file_open(p, update_explorer=False))
 
         self.bind("<Configure>", lambda _: self._relayout())
 
@@ -74,9 +75,18 @@ class Sidebar(ttk.Frame):
         self._refs_visible = False
         self._relayout()
 
-    def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
+    def apply_theme(self, bg: str, fg: str, select_bg: str, codeview=None) -> None:
         self.outline.apply_theme(bg, fg, select_bg)
-        self.references.apply_theme(bg, fg, select_bg)
+        # Pull accent + comment colors from the active theme's token tags
+        accent = "#569cd6"
+        comment = "#6a9955"
+        if codeview is not None:
+            try:
+                accent  = codeview.tag_cget("Token.Name.Function", "foreground") or accent
+                comment = codeview.tag_cget("Token.Comment.Single", "foreground") or comment
+            except Exception:
+                pass
+        self.references.apply_theme(bg, fg, select_bg, accent=accent, comment=comment)
         self.explorer.apply_theme(bg, fg, select_bg)
         for hdr in (self._outline_hdr, self._refs_hdr, self._explorer_hdr):
             hdr.config(bg=bg)
@@ -144,19 +154,22 @@ class Sidebar(ttk.Frame):
         self._relayout()
 
     # ── Sash drag ─────────────────────────────────────────────────────────────
+    # _sash1_y / _sash2_y store the *desired body height* of section 0 (outline)
+    # and section 1 (refs) respectively — NOT absolute y positions.
+    # This means collapsing any section automatically gives its space to neighbors.
 
     def _sash_press(self, event, which: int) -> None:
-        self._drag_sash      = which
-        self._drag_start_y   = event.y_root
+        self._drag_sash       = which
+        self._drag_start_y    = event.y_root
         self._drag_start_sash = (self._sash1_y if which == 1 else self._sash2_y)
 
     def _sash_drag(self, event) -> None:
         delta = event.y_root - self._drag_start_y
-        new_pos = self._drag_start_sash + delta
+        new_h = max(_MIN_BODY, self._drag_start_sash + delta)
         if self._drag_sash == 1:
-            self._sash1_y = new_pos
+            self._sash1_y = new_h
         else:
-            self._sash2_y = new_pos
+            self._sash2_y = new_h
         self._relayout()
 
     # ── Layout engine ─────────────────────────────────────────────────────────
@@ -171,81 +184,60 @@ class Sidebar(ttk.Frame):
         S = _SASH_H
         M = _MIN_BODY
 
-        oc = self._outline_collapsed
-        rc = self._refs_collapsed
-        ec = self._explorer_collapsed
-        rv = self._refs_visible
+        # Build list of visible sections: (header, body, collapsed, slot_index)
+        # slot_index: 0=outline, 1=refs, 2=explorer — used to look up desired heights
+        sections = [(self._outline_hdr, self.outline, self._outline_collapsed, 0)]
+        if self._refs_visible:
+            sections.append((self._refs_hdr, self.references, self._refs_collapsed, 1))
+        sections.append((self._explorer_hdr, self.explorer, self._explorer_collapsed, 2))
 
-        # Build list of visible sections: (header, body, collapsed)
-        sections = [(self._outline_hdr, self.outline, oc)]
-        if rv:
-            sections.append((self._refs_hdr, self.references, rc))
-        sections.append((self._explorer_hdr, self.explorer, ec))
+        n = len(sections)
+        n_sashes = n - 1
+        free_h = max(0, h - H * n - S * n_sashes)
 
-        # Hide everything first
+        # Expanded section slot indices
+        expanded = [slot for _, _, c, slot in sections if not c]
+        n_exp = len(expanded)
+
+        # Desired body heights per slot (0=outline, 1=refs)
+        # Slot 2 (explorer / last section) always gets whatever remains.
+        default_h = max(M, free_h // max(n_exp, 1))
+        if self._sash1_y == 0:
+            self._sash1_y = default_h
+        if self._sash2_y == 0:
+            self._sash2_y = default_h
+
+        desired = {0: max(M, self._sash1_y), 1: max(M, self._sash2_y)}
+
+        # Assign body heights: non-last expanded sections use desired height,
+        # the last expanded section absorbs whatever space remains.
+        body_h: dict[int, int] = {}
+        if n_exp == 0:
+            pass
+        elif n_exp == 1:
+            body_h[expanded[0]] = max(M, free_h)
+        else:
+            used = sum(desired.get(slot, default_h) for slot in expanded[:-1])
+            for slot in expanded[:-1]:
+                body_h[slot] = desired.get(slot, default_h)
+            body_h[expanded[-1]] = max(M, free_h - used)
+
+        # Hide everything, then re-place top-to-bottom
         for widget in (self.outline, self.references, self.explorer,
                        self._sash1, self._sash2):
             widget.place_forget()
         for hdr in (self._outline_hdr, self._refs_hdr, self._explorer_hdr):
             hdr.place_forget()
 
-        n = len(sections)
         sash_widgets = [self._sash1, self._sash2]
-
-        # Total space available for bodies (subtract all headers and sashes)
-        n_sashes = n - 1
-        free_h = h - H * n - S * n_sashes
-
-        # Determine body heights using sash positions
-        # _sash1_y is the y of the sash after section 0
-        # _sash2_y is the y of the sash after section 1 (if refs visible)
-        n_expanded = sum(1 for _, _, c in sections if not c)
-
-        # Initialise sash positions if not set
-        if self._sash1_y == 0:
-            self._sash1_y = H + max(M, free_h // max(n_expanded, 1))
-        if self._sash2_y == 0 and n == 3:
-            self._sash2_y = self._sash1_y + S + H + max(M, free_h // max(n_expanded, 1))
-
-        # Clamp sash 1
-        s1_min = H + M
-        if n == 3:
-            s1_max = self._sash2_y - S - H - M
-        else:
-            s1_max = h - S - H - M
-        self._sash1_y = max(s1_min, min(self._sash1_y, s1_max))
-
-        # Clamp sash 2 (only when refs visible)
-        if n == 3:
-            s2_min = self._sash1_y + S + H + M
-            s2_max = h - H - M
-            self._sash2_y = max(s2_min, min(self._sash2_y, s2_max))
-
-        # Calculate body heights from sash positions
-        if n == 2:
-            body0_h = self._sash1_y - H
-            body1_h = h - self._sash1_y - S - H
-        else:  # n == 3
-            body0_h = self._sash1_y - H
-            body1_h = self._sash2_y - self._sash1_y - S - H
-            body2_h = h - self._sash2_y - S - H
-
-        body_heights_list = []
-        if n == 2:
-            body_heights_list = [body0_h, body1_h]
-        else:
-            body_heights_list = [body0_h, body1_h, body2_h]
-
-        # Place sections top-to-bottom
         y = 0
-
-        for i, (hdr, body, collapsed) in enumerate(sections):
+        for i, (hdr, body, collapsed, slot) in enumerate(sections):
             hdr.place(x=0, y=y, width=w, height=H)
             y += H
             if not collapsed:
-                bh = max(M, body_heights_list[i])
+                bh = body_h.get(slot, M)
                 body.place(x=0, y=y, width=w, height=bh)
                 y += bh
-            if i < n - 1 and i < len(sash_widgets):
+            if i < n - 1:
                 sash_widgets[i].place(x=0, y=y, width=w, height=S)
                 y += S

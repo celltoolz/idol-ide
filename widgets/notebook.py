@@ -80,6 +80,9 @@ class CustomNotebook(ttk.Notebook):
     def _on_drag_motion(self, event) -> None:
         if self._drag_index is None:
             return
+        # Hide hover X while dragging
+        self._hovered_tab = None
+        self._hide_hover_btn()
         try:
             target = self.index(f"@{event.x},{event.y}")
         except Exception:
@@ -239,9 +242,9 @@ class CustomNotebook(ttk.Notebook):
         selected = self.index(self.select())
         for i, tab_id in enumerate(self.tabs()):
             self.tab(tab_id, underline=0 if i == selected else -1)
-        # Refresh hover button bg in case selected state changed
-        if self._hovered_tab is not None:
-            self._show_hover_btn(self._hovered_tab)
+        # Hide hover X on tab change — mouse position unknown here
+        self._hovered_tab = None
+        self._hide_hover_btn()
 
     def _on_scroll(self, event) -> None:
         tabs = self.tabs()

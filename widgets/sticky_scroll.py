@@ -102,8 +102,11 @@ class StickyScroll(Frame):
             self._apply_highlight(i + 1, line_text)
 
         self._display.config(state="disabled", height=len(scope_lines))
+        # Subtract scrollbar and minimap (if visible) so we don't overlap them
         vs_w = self._cv._vs.winfo_width()
-        self.place(x=0, y=0, relwidth=1, width=-vs_w)
+        mm = self._cv._minimap
+        mm_w = mm.winfo_width() if mm.winfo_ismapped() else 0
+        self.place(x=0, y=0, relwidth=1, width=-(vs_w + mm_w))
         self.lift()
 
     # ── Internal ──────────────────────────────────────────────────────────────

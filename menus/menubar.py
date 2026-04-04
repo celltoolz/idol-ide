@@ -13,7 +13,7 @@ def build_menubar(app) -> Menu:
       edit_undo, edit_redo, edit_cut, edit_copy, edit_paste, edit_select_all,
       edit_find_replace
       view_change_theme, view_change_font, view_toggle_highlight,
-      view_active_line_color, view_toggle_output
+      view_active_line_color, view_toggle_output, view_new_terminal
       run_file, run_stop, run_clear
       help_about
       theme_var, highlight_line_var, output_visible_var
@@ -27,6 +27,9 @@ def build_menubar(app) -> Menu:
     file_menu.add_separator()
     file_menu.add_command(label="Save",              command=app.file_save,      accelerator="Ctrl+S")
     file_menu.add_command(label="Save As...",        command=app.file_save_as,   accelerator="Ctrl+Shift+S")
+    file_menu.add_separator()
+    file_menu.add_command(label="New Workspace",     command=app.workspace_new)
+    file_menu.add_command(label="Close Workspace",   command=app.workspace_close)
     file_menu.add_separator()
     file_menu.add_command(label="Save Workspace...", command=app.workspace_save)
     file_menu.add_command(label="Open Workspace...", command=app.workspace_open)
@@ -74,6 +77,16 @@ def build_menubar(app) -> Menu:
         label="Show Output Panel",
         variable=app.output_visible_var,
         command=app.view_toggle_output,
+    )
+    view_menu.add_command(
+        label="New Terminal",
+        command=app.view_new_terminal,
+        accelerator="Ctrl+`",
+    )
+    view_menu.add_checkbutton(
+        label="Show Minimap",
+        variable=app.minimap_visible_var,
+        command=app.view_toggle_minimap,
     )
     menubar.add_cascade(label="View", menu=view_menu)
 

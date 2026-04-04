@@ -1,0 +1,9 @@
+pillow>=12.0
+ptyprocess>=0.7
+pywinpty>=2.0  # Windows only — required by ptyprocess on Windows
+Pygments>=2.18
+pyperclip>=1.8
+tkcolorpicker>=2.1
+tkfontchooser>=2.0
+toml>=0.10
+python-lsp-server>=1.12  # LSP backend (pylsp)

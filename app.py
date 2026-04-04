@@ -15,11 +15,14 @@ from tkcolorpicker import askcolor
 from widgets.codeview import CodeView
 from widgets.notebook import CustomNotebook
 from widgets.sidebar import Sidebar
-from widgets.output import OutputPanel
+from widgets.bottom_panel import BottomPanel
 from widgets.find_replace import FindReplaceBar
 from widgets.statusbar import StatusBar
 from editor.bracket_matcher import BracketMatcher
 from editor.key_handler import KeyHandler
+from editor.multi_cursor import MultiCursor
+from editor.completion import CompletionPopup
+from editor.lsp_manager import LspManager, detect_server, uri_to_path, SEV_ERROR, SEV_WARNING
 from menus.menubar import build_menubar
 from utils import session as session_utils
 
@@ -27,15 +30,83 @@ from utils import session as session_utils
 _SKIP_HIGHLIGHT = (
     set(dir(builtins))
     | {
-        "and", "as", "assert", "async", "await", "break", "case", "class",
-        "continue", "def", "del", "elif", "else", "except", "finally", "for",
-        "from", "global", "if", "import", "in", "is", "lambda", "match", "not",
-        "or", "pass", "raise", "return", "try", "while", "with", "yield",
-        "False", "None", "True",
+        "and",
+        "as",
+        "assert",
+        "async",
+        "await",
+        "break",
+        "case",
+        "class",
+        "continue",
+        "def",
+        "del",
+        "elif",
+        "else",
+        "except",
+        "finally",
+        "for",
+        "from",
+        "global",
+        "if",
+        "import",
+        "in",
+        "is",
+        "lambda",
+        "match",
+        "not",
+        "or",
+        "pass",
+        "raise",
+        "return",
+        "try",
+        "while",
+        "with",
+        "yield",
+        "False",
+        "None",
+        "True",
     }
     | {str(i) for i in range(10)}
     | {"(", ")", "[", "]", "{", "}", ".", ",", ":", ";"}
 )
+
+
+class _HoverPopup:
+    """Lightweight borderless popup for LSP hover documentation."""
+
+    def __init__(self, master, text: str, root_x: int, root_y: int) -> None:
+        import tkinter as tk
+        self._win = tk.Toplevel(master)
+        self._win.overrideredirect(True)
+        self._win.wm_attributes("-topmost", True)
+
+        # Clamp text length
+        lines = text.splitlines()
+        if len(lines) > 20:
+            lines = lines[:20] + ["…"]
+        display = "\n".join(lines)
+
+        lbl = tk.Label(
+            self._win,
+            text=display,
+            bg="#252526", fg="#cccccc",
+            font=("Consolas", 9),
+            justify="left",
+            anchor="w",
+            padx=8, pady=5,
+            wraplength=480,
+        )
+        lbl.pack()
+
+        # Position just below and to the right of the cursor
+        self._win.geometry(f"+{root_x + 16}+{root_y + 8}")
+
+    def destroy(self) -> None:
+        try:
+            self._win.destroy()
+        except Exception:
+            pass
 
 
 class Notepad(Tk):
@@ -51,14 +122,28 @@ class Notepad(Tk):
         self._indent_sizes: dict[str, int] = {}
         self._codeviews: dict[str, CodeView] = {}
         self._key_handlers: dict[str, KeyHandler] = {}
+        self._multi_cursors: dict[str, MultiCursor] = {}
 
         self._bracket_matcher = BracketMatcher()
         self._find_replace: FindReplaceBar | None = None
+
+        # LSP
+        self._lsp: LspManager | None = None
+        self._lsp_diagnostics: dict[str, list] = {}   # uri → diag list
+        self._hover_after_id: str | None = None
+        self._hover_popup = None
+        self._lsp_change_after_id: str | None = None
+
+        # Completion
+        self._completion = CompletionPopup(self, on_accept=self._completion_click_accept)
+        self._completion_after_id: str | None = None
+        self._completion_seq: int = 0   # stale-callback guard
 
         # Settings
         self.theme_var = StringVar(value="monokai")
         self.highlight_line_var = BooleanVar(value=True)
         self.output_visible_var = BooleanVar(value=True)
+        self.minimap_visible_var = BooleanVar(value=True)
         self._active_line_color: str | None = None
 
         self._build_layout()
@@ -109,40 +194,94 @@ class Notepad(Tk):
 
         _btn_kw = dict(
             font=("Segoe UI", 11, "bold"),
-            bg="#2d2d30", activebackground="#2d2d30",
-            cursor="hand2", padx=4, pady=0,
-            relief="flat", bd=0,
-            highlightthickness=1, highlightbackground="#454545",
+            bg="#2d2d30",
+            activebackground="#2d2d30",
+            cursor="hand2",
+            padx=4,
+            pady=0,
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground="#454545",
         )
 
-        self._prev_btn = Button(nb_frame, text=" ‹ ", fg="#858585",
-                                activeforeground="#cccccc",
-                                command=self.notebook.select_prev, **_btn_kw)
-        self._prev_btn.bind("<Enter>", lambda _: self._prev_btn.config(fg="#cccccc", highlightbackground="#666666"))
-        self._prev_btn.bind("<Leave>", lambda _: self._prev_btn.config(fg="#858585", highlightbackground="#454545"))
+        self._prev_btn = Button(
+            nb_frame,
+            text=" ‹ ",
+            fg="#858585",
+            activeforeground="#cccccc",
+            command=self.notebook.select_prev,
+            **_btn_kw,
+        )
+        self._prev_btn.bind(
+            "<Enter>",
+            lambda _: self._prev_btn.config(
+                fg="#cccccc", highlightbackground="#666666"
+            ),
+        )
+        self._prev_btn.bind(
+            "<Leave>",
+            lambda _: self._prev_btn.config(
+                fg="#858585", highlightbackground="#454545"
+            ),
+        )
 
-        self._next_btn = Button(nb_frame, text=" › ", fg="#858585",
-                                activeforeground="#cccccc",
-                                command=self.notebook.select_next, **_btn_kw)
-        self._next_btn.bind("<Enter>", lambda _: self._next_btn.config(fg="#cccccc", highlightbackground="#666666"))
-        self._next_btn.bind("<Leave>", lambda _: self._next_btn.config(fg="#858585", highlightbackground="#454545"))
+        self._next_btn = Button(
+            nb_frame,
+            text=" › ",
+            fg="#858585",
+            activeforeground="#cccccc",
+            command=self.notebook.select_next,
+            **_btn_kw,
+        )
+        self._next_btn.bind(
+            "<Enter>",
+            lambda _: self._next_btn.config(
+                fg="#cccccc", highlightbackground="#666666"
+            ),
+        )
+        self._next_btn.bind(
+            "<Leave>",
+            lambda _: self._next_btn.config(
+                fg="#858585", highlightbackground="#454545"
+            ),
+        )
 
-        self._plus_btn = Button(nb_frame, text=" + ", fg="#858585",
-                                activeforeground="#2ea043",
-                                command=self.file_new, **_btn_kw)
-        self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043", highlightbackground="#2ea043"))
-        self._plus_btn.bind("<Leave>", lambda _: self._plus_btn.config(fg="#858585", highlightbackground="#454545"))
+        self._plus_btn = Button(
+            nb_frame,
+            text=" + ",
+            fg="#858585",
+            activeforeground="#2ea043",
+            command=self.file_new,
+            **_btn_kw,
+        )
+        self._plus_btn.bind(
+            "<Enter>",
+            lambda _: self._plus_btn.config(
+                fg="#2ea043", highlightbackground="#2ea043"
+            ),
+        )
+        self._plus_btn.bind(
+            "<Leave>",
+            lambda _: self._plus_btn.config(
+                fg="#858585", highlightbackground="#454545"
+            ),
+        )
 
         for btn in (self._prev_btn, self._next_btn, self._plus_btn):
             btn.lift()
 
         self._v_pane.add(nb_frame, weight=3)
 
-        self._output = OutputPanel(self._v_pane, run_callback=self.run_file)
+        self._output = BottomPanel(self._v_pane, run_callback=self.run_file)
         self._v_pane.add(self._output, weight=1)
 
         # Snap the sash once the window is actually visible on screen
         self.bind("<Map>", self._init_sash_pos)
+        # Start LSP after the UI is fully mapped
+        self.after(500, self._start_lsp)
+        # Re-position <> + buttons and completion popup whenever the window is moved/resized
+        self.bind("<Configure>", self._on_window_configure)
 
     def _init_sash_pos(self, _=None) -> None:
         """Set the output panel to a small strip on first launch."""
@@ -153,6 +292,21 @@ class Notepad(Tk):
             self._v_pane.sashpos(0, total - 160)
         self._place_plus_btn()
 
+    def _on_window_configure(self, _=None) -> None:
+        self.after(10, self._place_plus_btn)
+        if self._completion.visible:
+            cv = self._current_codeview
+            if cv is None:
+                return
+            bbox = cv.bbox("insert")
+            if not bbox:
+                return
+            bx, by, _, bh = bbox
+            self._completion.reposition(
+                cv.winfo_rootx() + bx,
+                cv.winfo_rooty() + by + bh + 2,
+            )
+
     def _place_plus_btn(self) -> None:
         """Position the ‹ › + buttons directly above the vertical scrollbar."""
         cv = self._current_codeview
@@ -160,23 +314,29 @@ class Notepad(Tk):
             return
         vs = cv._vs
         vs.update_idletasks()
-        vs_x = vs.winfo_x() + cv._frame.winfo_x() + self.notebook.winfo_x()
-        vs_w = vs.winfo_width()
+        vs_x  = vs.winfo_x() + cv._frame.winfo_x() + self.notebook.winfo_x()
+        vs_w  = vs.winfo_width()
         tab_h = self.notebook.winfo_height() - cv._frame.winfo_height()
         btn_h = max(tab_h - 6, 16)
 
+        # Account for minimap + border widths so buttons sit left of them
+        mm       = cv._minimap
+        mm_w     = (mm.winfo_width() + mm._border.winfo_width()) if mm.winfo_ismapped() else 0
+        right_x  = vs_x + vs_w + mm_w   # right edge of the minimap column
+
         # Place ‹ › + side by side, each the same width as the scrollbar
-        self._prev_btn.place(x=vs_x - vs_w * 2, y=3, width=vs_w, height=btn_h, anchor="nw")
-        self._next_btn.place(x=vs_x - vs_w,     y=3, width=vs_w, height=btn_h, anchor="nw")
-        self._plus_btn.place(x=vs_x,             y=3, width=vs_w, height=btn_h, anchor="nw")
+        self._prev_btn.place(x=right_x - vs_w * 3, y=3, width=vs_w, height=btn_h, anchor="nw")
+        self._next_btn.place(x=right_x - vs_w * 2, y=3, width=vs_w, height=btn_h, anchor="nw")
+        self._plus_btn.place(x=right_x - vs_w,     y=3, width=vs_w, height=btn_h, anchor="nw")
+
         for btn in (self._prev_btn, self._next_btn, self._plus_btn):
             btn.lift()
 
-        # Reserve space on the right of the tab bar so tabs never slide under the buttons
+        # Reserve tab bar margin so tabs never slide under the buttons
         btn_area = vs_w * 3 + 6
         if getattr(self, "_last_btn_area", None) != btn_area:
             self._last_btn_area = btn_area
-            ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, btn_area, 0])
+            ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, btn_area + mm_w, 0])
 
     def _bind_shortcuts(self) -> None:
         self.bind("<Control-n>", lambda _: self.file_new())
@@ -187,7 +347,8 @@ class Notepad(Tk):
         self.bind("<Control-q>", lambda _: self.file_exit())
         self.bind("<Control-f>", lambda _: self.edit_find_replace())
         self.bind("<Control-l>", lambda _: self.view_change_font())
-        self.bind("<F5>",        lambda _: self.run_file())
+        self.bind("<F5>",                  lambda _: self.run_file())
+        self.bind("<Control-grave>",        lambda _: self.view_new_terminal())
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
 
@@ -236,19 +397,32 @@ class Notepad(Tk):
         self._indent_sizes[tab_id] = 4
         self._codeviews[tab_id] = codeview
 
-        handler = KeyHandler(tab_size=4)
+        is_code = not isinstance(lexer, (pygments.lexers.TextLexer,))
+        handler = KeyHandler(tab_size=4, smart_pairs=is_code)
+        mc = MultiCursor(codeview, tab_size=4)
         self._key_handlers[tab_id] = handler
-        self._setup_codeview(codeview, handler)
+        self._multi_cursors[tab_id] = mc
+        self._setup_codeview(codeview, handler, mc)
         self._sidebar.apply_theme(
             bg=codeview.cget("bg"),
             fg=codeview.cget("fg"),
             select_bg=codeview.cget("selectbackground"),
+            codeview=codeview,
         )
 
-        self._update_title()
-        self._outline.schedule_refresh(content)
+        if not self.minimap_visible_var.get():
+            codeview.hide_minimap()
 
-    def _setup_codeview(self, codeview: CodeView, handler: KeyHandler) -> None:
+        self._update_title()
+        if isinstance(lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)):
+            self._outline.schedule_refresh(content)
+            if filepath and self._lsp:
+                self._lsp.open_file(filepath, content)
+        else:
+            self._outline.clear()
+
+    def _setup_codeview(self, codeview: CodeView, handler: KeyHandler,
+                        mc: MultiCursor) -> None:
         # Grab the active-line colour from the theme
         if self._active_line_color is None:
             self._active_line_color = codeview.cget("inactiveselectbackground")
@@ -262,11 +436,70 @@ class Notepad(Tk):
         codeview.tag_lower("active_line")
         codeview.tag_raise("sel")
 
-        codeview.bind("<Key>",            lambda e: handler.handle(e, codeview))
-        codeview.bind("<KeyRelease>",     self._bracket_matcher.match)
+        def _on_key(e):
+            # Completion popup navigation takes priority
+            if self._completion.visible:
+                if e.keysym == "Down":
+                    self._completion.select_next()
+                    return "break"
+                if e.keysym == "Up":
+                    self._completion.select_prev()
+                    return "break"
+                if e.keysym in ("Return", "Tab"):
+                    self._accept_completion(codeview)
+                    return "break"
+                if e.keysym == "Escape":
+                    self._completion.hide()
+                    return "break"
+
+            result = handler.handle(e, codeview)
+            if mc.active:
+                mc.apply_key(e)
+
+            # Decide whether to (re-)trigger, narrow, or hide completion
+            ch = e.char
+            sym = e.keysym
+            if ch and (ch.isalnum() or ch in ("_", ".")):
+                self._schedule_completion(codeview)
+            elif sym == "BackSpace":
+                self._schedule_completion(codeview)
+            elif sym not in ("Shift_L", "Shift_R", "Control_L", "Control_R",
+                             "Alt_L", "Alt_R", "Meta_L", "Meta_R",
+                             "Left", "Right"):
+                self._completion.hide()
+
+            return result
+
+        codeview.bind("<Key>", _on_key)
+        codeview.bind("<KeyRelease>", self._bracket_matcher.match)
         codeview.bind("<ButtonRelease-1>", self._on_click_release)
-        codeview.bind("<ButtonPress-3>",   self._on_editor_right_click)
+        codeview.bind("<ButtonPress-3>", self._on_editor_right_click)
         codeview.bind("<<ContentChanged>>", lambda _: self._on_content_changed())
+
+        # Alt+Click — add a secondary cursor; returns "break" so plain-click
+        # handler below doesn't also fire and clear the new cursor.
+        codeview.bind("<Alt-ButtonPress-1>",
+                      lambda e, m=mc: (m.add(f"@{e.x},{e.y}"),
+                                       self._update_cursor_status(), "break")[2])
+        # Plain click — clear secondary cursors and dismiss completion
+        codeview.bind("<ButtonPress-1>",
+                      lambda _, m=mc: (
+                          self._completion.hide(),
+                          m.clear() if m.active else None,
+                          self._update_cursor_status() if m.active else None,
+                      ))
+        # Escape — also clears secondary cursors
+        codeview.bind("<Escape>",
+                      lambda _, m=mc: (m.clear(),
+                                       self._update_cursor_status()) if m.active else None)
+
+        # LSP — diagnostics tags + hover + go-to-definition
+        self._setup_lsp_tags(codeview)
+        codeview.bind("<Motion>",
+                      lambda e, cv=codeview: self._on_hover_motion(e, cv,
+                          self._files.get(self._current_tab_id, "")))
+        codeview.bind("<Leave>", lambda _: self._dismiss_hover())
+        codeview.bind("<F12>",   lambda _: self._goto_definition())
 
         codeview.mark_set("insert", "1.0")
         codeview.focus_set()
@@ -280,9 +513,9 @@ class Notepad(Tk):
             "Unsaved Changes",
             f'"{title}" has unsaved changes.\n\nSave before closing?',
         )
-        if answer is None:   # Cancel
+        if answer is None:  # Cancel
             return False
-        if answer:           # Yes — save first
+        if answer:  # Yes — save first
             if tab_id != self._current_tab_id:
                 self.notebook.select(tab_id)
             if not self.file_save():
@@ -296,12 +529,17 @@ class Notepad(Tk):
         tab_id = tabs[index]
         if not self._confirm_close_tab(tab_id):
             return
-        self._files.pop(tab_id, None)
+        closed_path = self._files.pop(tab_id, None)
         self._titles.pop(tab_id, None)
         self._dirty.pop(tab_id, None)
         self._indent_sizes.pop(tab_id, None)
         self._codeviews.pop(tab_id, None)
         self._key_handlers.pop(tab_id, None)
+        mc = self._multi_cursors.pop(tab_id, None)
+        if mc:
+            mc.clear()
+        if closed_path and closed_path.endswith(".py") and self._lsp:
+            self._lsp.close_file(closed_path)
         self.notebook.forget(index)
         if not self.notebook.tabs():
             self._new_tab("Untitled", "")
@@ -317,7 +555,11 @@ class Notepad(Tk):
         cv = self._codeviews.get(tab_id)
         if cv:
             self._update_status_lexer(cv)
-            self._outline.schedule_refresh(cv.get("1.0", "end-1c"))
+            # Only parse outline for Python files; clear it for everything else
+            if isinstance(cv._lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)):
+                self._outline.schedule_refresh(cv.get("1.0", "end-1c"))
+            else:
+                self._outline.clear()
             self.after(50, self._place_plus_btn)
 
     def _on_content_changed(self) -> None:
@@ -326,8 +568,16 @@ class Notepad(Tk):
             self._dirty[tab_id] = True
             self._refresh_tab_title(tab_id)
         cv = self._current_codeview
-        if cv:
-            self._outline.schedule_refresh(cv.get("1.0", "end-1c"))
+        if cv and isinstance(cv._lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)):
+            text = cv.get("1.0", "end-1c")
+            self._outline.schedule_refresh(text)
+            # LSP: debounced change notification
+            path = self._files.get(tab_id)
+            if path and self._lsp:
+                if self._lsp_change_after_id:
+                    self.after_cancel(self._lsp_change_after_id)
+                self._lsp_change_after_id = self.after(
+                    300, lambda p=path, t=text: self._lsp.change_file(p, t) if self._lsp else None)
 
     def _on_click_release(self, event) -> None:
         self._bracket_matcher.match(event)
@@ -356,19 +606,28 @@ class Notepad(Tk):
 
         if not hasattr(self, "_editor_menu"):
             from tkinter import Menu
+
             self._editor_menu = Menu(self, tearoff=0)
+            self._editor_menu.add_command(
+                label="Go to Definition",
+                command=self._goto_definition,
+            )
             self._editor_menu.add_command(
                 label="Find References",
                 command=self._find_references,
             )
+            self._editor_menu.add_separator()
             self._editor_menu.add_command(
                 label="Find & Replace",
                 command=self.edit_find_replace,
             )
 
-        # Enable/disable Find References based on whether there's a word
-        state = "normal" if (word and word not in _SKIP_HIGHLIGHT and not word[0].isdigit()) else "disabled"
-        self._editor_menu.entryconfigure("Find References", state=state)
+        # Enable/disable word-sensitive items based on whether there's a word
+        has_word = bool(word and word not in _SKIP_HIGHLIGHT and not word[0].isdigit())
+        self._editor_menu.entryconfigure("Go to Definition",
+                                         state="normal" if has_word and self._lsp else "disabled")
+        self._editor_menu.entryconfigure("Find References",
+                                         state="normal" if has_word else "disabled")
         self._editor_menu.tk_popup(event.x_root, event.y_root)
 
     def _find_references(self) -> None:
@@ -404,6 +663,7 @@ class Notepad(Tk):
 
     def _on_indent_change(self, size: int) -> None:
         from tkinter.font import Font
+
         tab_id = self._current_tab_id
         if tab_id is None:
             return
@@ -415,7 +675,259 @@ class Notepad(Tk):
             handler.tab_size = size
         self._indent_sizes[tab_id] = size
 
+    # ── LSP ───────────────────────────────────────────────────────────────────
+
+    def _start_lsp(self) -> None:
+        cmd = detect_server()
+        if not cmd:
+            return
+        root = self._sidebar.explorer._root or os.getcwd()
+        self._lsp = LspManager(root, after_fn=self.after)
+        self._lsp.on_diagnostics = self._on_lsp_diagnostics
+        self._lsp.start(cmd)
+        # Notify LSP of any already-open Python files
+        self.after(800, self._lsp_open_all_tabs)
+
+    def _lsp_open_all_tabs(self) -> None:
+        for tab_id, cv in self._codeviews.items():
+            path = self._files.get(tab_id)
+            if path and path.endswith(".py"):
+                self._lsp.open_file(path, cv.get("1.0", "end-1c"))
+
+    def _setup_lsp_tags(self, codeview: CodeView) -> None:
+        """Configure diagnostic highlight tags on a new codeview."""
+        codeview.tag_configure("lsp_error",   background="#3d0000", underline=True)
+        codeview.tag_configure("lsp_warning", background="#2e2a00", underline=True)
+        codeview.tag_configure("lsp_info",    background="#002040")
+
+    def _on_lsp_diagnostics(self, uri: str, diags: list) -> None:
+        """Called by LspManager when diagnostics arrive for a file."""
+        self._lsp_diagnostics[uri] = diags
+        # Find the codeview for this URI
+        norm_path = uri_to_path(uri).replace("/", os.sep).replace("\\", os.sep)
+        for tab_id, path in self._files.items():
+            if path and os.path.normcase(path) == os.path.normcase(norm_path):
+                cv = self._codeviews.get(tab_id)
+                if cv:
+                    self._apply_diagnostics(cv, diags)
+                break
+
+    def _apply_diagnostics(self, codeview: CodeView, diags: list) -> None:
+        """Paint diagnostic underlines onto *codeview*."""
+        for tag in ("lsp_error", "lsp_warning", "lsp_info"):
+            codeview.tag_remove(tag, "1.0", "end")
+
+        for d in diags:
+            sev   = d.get("severity", SEV_WARNING)
+            tag   = "lsp_error" if sev == SEV_ERROR else \
+                    "lsp_warning" if sev == SEV_WARNING else "lsp_info"
+            start = d["range"]["start"]
+            end   = d["range"]["end"]
+            s_idx = f"{start['line'] + 1}.{start['character']}"
+            e_idx = f"{end['line']   + 1}.{end['character']}"
+            codeview.tag_add(tag, s_idx, e_idx)
+
+    # ── LSP hover popup ───────────────────────────────────────────────────────
+
+    def _on_hover_motion(self, event, cv: CodeView, path: str) -> None:
+        """Debounce mouse motion; trigger hover request after 600 ms of stillness."""
+        if self._completion.visible:
+            return   # don't hover while the completion popup is open
+        if self._hover_after_id:
+            self.after_cancel(self._hover_after_id)
+        self._dismiss_hover()
+        self._hover_after_id = self.after(
+            600, lambda: self._do_hover(event.x, event.y, cv, path))
+
+    def _do_hover(self, mx: int, my: int, cv: CodeView, path: str) -> None:
+        if not self._lsp:
+            return
+        idx  = cv.index(f"@{mx},{my}")
+        line, col = idx.split(".")
+        self._lsp.hover(path, int(line) - 1, int(col),
+                        lambda result: self._show_hover(result, cv, mx, my))
+
+    def _show_hover(self, result, cv: CodeView, mx: int, my: int) -> None:
+        if not result:
+            return
+        # Extract plain text from hover result
+        contents = result.get("contents", "")
+        if isinstance(contents, dict):
+            text = contents.get("value", "")
+        elif isinstance(contents, list):
+            parts = [c.get("value", c) if isinstance(c, dict) else c
+                     for c in contents]
+            text = "\n".join(parts)
+        else:
+            text = str(contents)
+        text = text.strip()
+        if not text:
+            return
+        self._dismiss_hover()
+        self._hover_popup = _HoverPopup(self, text,
+                                        cv.winfo_rootx() + mx,
+                                        cv.winfo_rooty() + my)
+
+    def _dismiss_hover(self) -> None:
+        if self._hover_popup:
+            try:
+                self._hover_popup.destroy()
+            except Exception:
+                pass
+            self._hover_popup = None
+
+    # ── Completion ────────────────────────────────────────────────────────────
+
+    def _schedule_completion(self, cv) -> None:
+        if self._completion_after_id:
+            self.after_cancel(self._completion_after_id)
+        self._completion_seq += 1          # invalidate any in-flight callbacks
+        self._completion_after_id = self.after(
+            350, lambda: self._do_completion(cv, self._completion_seq))
+
+    def _do_completion(self, cv, seq: int) -> None:
+        if not self._lsp or seq != self._completion_seq:
+            return
+        path = None
+        for tid, c in self._codeviews.items():
+            if c is cv:
+                path = self._files.get(tid)
+                break
+        if not path or not path.endswith(".py"):
+            return
+        idx  = cv.index("insert")
+        line, col = idx.split(".")
+        self._lsp.completion(
+            path, int(line) - 1, int(col),
+            lambda items, s=seq: self._show_completion(items, cv, s))
+
+    def _show_completion(self, items: list, cv, seq: int) -> None:
+        if seq != self._completion_seq:
+            return   # stale — a newer request supersedes this one
+        if not items:
+            self._completion.hide()
+            return
+        # Sort: prefix matches first, then alphabetical
+        try:
+            cursor = cv.index("insert")
+            line, _ = cursor.split(".")
+            line_text = cv.get(f"{line}.0", cursor)
+            prefix = ""
+            for ch in reversed(line_text):
+                if ch.isalnum() or ch == "_":
+                    prefix = ch + prefix
+                else:
+                    break
+        except Exception:
+            prefix = ""
+        if prefix:
+            items = sorted(
+                items,
+                key=lambda it: (
+                    not it.get("label", "").lower().startswith(prefix.lower()),
+                    it.get("label", "").lower(),
+                ),
+            )
+        items = items[:20]
+        bbox = cv.bbox("insert")
+        if not bbox:
+            return
+        bx, by, _, bh = bbox
+        root_x = cv.winfo_rootx() + bx
+        root_y = cv.winfo_rooty() + by + bh + 2
+        self._completion.show(items, root_x, root_y)
+
+    def _accept_completion(self, cv) -> None:
+        # Cancel any pending re-trigger so the popup doesn't reappear
+        if self._completion_after_id:
+            self.after_cancel(self._completion_after_id)
+            self._completion_after_id = None
+        self._completion_seq += 1
+        item = self._completion.get_selected()
+        self._completion.hide()
+        if not item:
+            return
+        insert_text = item.get("insertText") or item.get("label", "")
+        # Scan backwards from cursor to find the typed prefix length
+        cursor = cv.index("insert")
+        line, col = cursor.split(".")
+        line_text = cv.get(f"{line}.0", cursor)
+        prefix_len = 0
+        for ch in reversed(line_text):
+            if ch.isalnum() or ch == "_":
+                prefix_len += 1
+            else:
+                break
+        if prefix_len:
+            cv.delete(f"{line}.{int(col) - prefix_len}", cursor)
+        cv.insert("insert", insert_text)
+
+    def _completion_click_accept(self) -> None:
+        """Called when the user double-clicks an item in the popup."""
+        cv = self._current_codeview
+        if cv:
+            self._accept_completion(cv)
+
+    # ── Go to definition ──────────────────────────────────────────────────────
+
+    def _goto_definition(self) -> None:
+        cv   = self._current_codeview
+        path = self._files.get(self._current_tab_id)
+        if not cv or not path or not self._lsp:
+            return
+        line, col = cv.index("insert").split(".")
+        self._lsp.definition(path, int(line) - 1, int(col),
+                             self._handle_definition)
+
+    def _handle_definition(self, result) -> None:
+        if not result:
+            return
+        # result may be a single Location or a list
+        if isinstance(result, dict):
+            result = [result]
+        if not result:
+            return
+        loc  = result[0]
+        uri  = loc.get("uri", "")
+        path = uri_to_path(uri)
+        # Normalise to OS path
+        path = path.replace("/", os.sep)
+        if os.name == "nt" and path.startswith("\\"):
+            path = path[1:]   # strip leading backslash on Windows
+        line = loc["range"]["start"]["line"] + 1
+        col  = loc["range"]["start"]["character"]
+        self._open_file_at(path, line, col)
+
+    def _open_file_at(self, path: str, line: int, col: int) -> None:
+        """Open *path* and position cursor at *line*:*col*."""
+        # If already open in a tab, just switch to it
+        for tab_id, fp in self._files.items():
+            if fp and os.path.normcase(fp) == os.path.normcase(path):
+                self.notebook.select(tab_id)
+                cv = self._codeviews.get(tab_id)
+                if cv:
+                    cv.mark_set("insert", f"{line}.{col}")
+                    cv.see("insert")
+                return
+        # Otherwise open as a new tab
+        if os.path.isfile(path):
+            self._open_file(path)
+            cv = self._current_codeview
+            if cv:
+                cv.mark_set("insert", f"{line}.{col}")
+                cv.see("insert")
+
     # ── Active-line highlight loop ────────────────────────────────────────────
+
+    def _update_cursor_status(self) -> None:
+        """Immediately refresh the status bar cursor count."""
+        cv = self._current_codeview
+        if cv is None:
+            return
+        line, col = cv.index("insert").split(".")
+        mc = self._multi_cursors.get(self._current_tab_id)
+        cursors = mc.count() if mc and mc.active else 1
+        self._statusbar.set_position(int(line), int(col), cursors)
 
     def _start_highlight_loop(self) -> None:
         self._highlight_active_line()
@@ -429,7 +941,9 @@ class Notepad(Tk):
                 cv.tag_add("active_line", "insert linestart", "insert lineend+1c")
             # Keep status bar position in sync
             line, col = cv.index("insert").split(".")
-            self._statusbar.set_position(int(line), int(col))
+            mc = self._multi_cursors.get(self._current_tab_id)
+            cursors = mc.count() if mc and mc.active else 1
+            self._statusbar.set_position(int(line), int(col), cursors)
         self.after(25, self._highlight_active_line)
 
     # ── File operations ───────────────────────────────────────────────────────
@@ -438,15 +952,17 @@ class Notepad(Tk):
         self._new_tab("Untitled", "")
 
     def file_open(self, *_) -> None:
-        path = askopenfilename(filetypes=[
-            ("Python Scripts", "*.py"),
-            ("Text Documents", "*.txt"),
-            ("All Files", "*.*"),
-        ])
+        path = askopenfilename(
+            filetypes=[
+                ("Python Scripts", "*.py"),
+                ("Text Documents", "*.txt"),
+                ("All Files", "*.*"),
+            ]
+        )
         if path:
             self._open_file(path)
 
-    def _open_file(self, path: str) -> None:
+    def _open_file(self, path: str, update_explorer: bool = True) -> None:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -466,7 +982,10 @@ class Notepad(Tk):
         )
 
         self._new_tab(os.path.basename(path), content, filepath=path)
-        self._sidebar.explorer.set_root(path)
+        # Only update the explorer root when opening externally (File > Open),
+        # not when clicking a file inside the tree (would reset root unexpectedly)
+        if update_explorer:
+            self._sidebar.explorer.set_root(path)
 
         if replace:
             old_index = self.notebook.tabs().index(old_tab_id)
@@ -503,14 +1022,28 @@ class Notepad(Tk):
         if cv is None:
             return False
         try:
+            text = cv.get("1.0", "end-1c")
             with open(filepath, "w", encoding="utf-8") as f:
-                f.write(cv.get("1.0", "end-1c"))
+                f.write(text)
+            old_path = self._files.get(tab_id)
             # Update lexer if the filepath (and therefore extension) changed
-            if self._files.get(tab_id) != filepath:
+            if old_path != filepath:
                 try:
-                    cv.configure(lexer=pygments.lexers.get_lexer_for_filename(filepath))
+                    new_lexer = pygments.lexers.get_lexer_for_filename(filepath)
+                    cv.configure(lexer=new_lexer)
+                    handler = self._key_handlers.get(tab_id)
+                    if handler:
+                        handler.smart_pairs = not isinstance(new_lexer, pygments.lexers.TextLexer)
                 except pygments.util.ClassNotFound:
                     pass
+                # LSP: close old file, open new one (Save As changed the path)
+                if self._lsp:
+                    if old_path and old_path.endswith(".py"):
+                        self._lsp.close_file(old_path)
+                    if filepath.endswith(".py"):
+                        self._lsp.open_file(filepath, text)
+            elif filepath.endswith(".py") and self._lsp:
+                self._lsp.save_file(filepath)
             self._files[tab_id] = filepath
             title = os.path.basename(filepath)
             self._titles[tab_id] = title
@@ -537,6 +1070,62 @@ class Notepad(Tk):
     def destroy(self) -> None:
         self.file_exit()
 
+    def workspace_new(self, *_) -> None:
+        """Close the current workspace (with save prompt) and open a fresh one."""
+        answer = askyesnocancel(
+            "New Workspace",
+            "Creating a new workspace will close the current one.\n\nWould you like to save the current workspace before closing?",
+        )
+        if answer is None:
+            return  # Cancel
+        if answer:
+            self.workspace_save()
+        # Check for dirty tabs
+        for tab_id in list(self.notebook.tabs()):
+            if not self._confirm_close_tab(tab_id):
+                return
+        # Close all tabs without auto-opening Untitled yet
+        for tab_id in list(self.notebook.tabs()):
+            self._files.pop(tab_id, None)
+            self._titles.pop(tab_id, None)
+            self._dirty.pop(tab_id, None)
+            self._indent_sizes.pop(tab_id, None)
+            self._codeviews.pop(tab_id, None)
+            self._key_handlers.pop(tab_id, None)
+        mc = self._multi_cursors.pop(tab_id, None)
+        if mc:
+            mc.clear()
+            self.notebook.forget(tab_id)
+        self._new_tab("Untitled", "")
+        self._sidebar.explorer.set_root(os.getcwd())
+
+    def workspace_close(self, *_) -> None:
+        """Close the current workspace (with save prompt) leaving a blank state."""
+        answer = askyesnocancel(
+            "Close Workspace",
+            "You are about to close your current workspace.\n\nWould you like to save before closing?",
+        )
+        if answer is None:
+            return  # Cancel
+        if answer:
+            self.workspace_save()
+        # Check for dirty tabs
+        for tab_id in list(self.notebook.tabs()):
+            if not self._confirm_close_tab(tab_id):
+                return
+        for tab_id in list(self.notebook.tabs()):
+            self._files.pop(tab_id, None)
+            self._titles.pop(tab_id, None)
+            self._dirty.pop(tab_id, None)
+            self._indent_sizes.pop(tab_id, None)
+            self._codeviews.pop(tab_id, None)
+            self._key_handlers.pop(tab_id, None)
+        mc = self._multi_cursors.pop(tab_id, None)
+        if mc:
+            mc.clear()
+            self.notebook.forget(tab_id)
+        self._new_tab("Untitled", "")
+
     def workspace_save(self, *_) -> None:
         path = asksaveasfilename(
             title="Save Workspace",
@@ -561,6 +1150,9 @@ class Notepad(Tk):
             self._indent_sizes.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
             self._key_handlers.pop(tab_id, None)
+        mc = self._multi_cursors.pop(tab_id, None)
+        if mc:
+            mc.clear()
             self.notebook.forget(tab_id)
         if not session_utils.restore(self, path):
             self._new_tab("Untitled", "")
@@ -614,6 +1206,7 @@ class Notepad(Tk):
                 bg=cv.cget("bg"),
                 fg=cv.cget("fg"),
                 select_bg=cv.cget("selectbackground"),
+                codeview=cv,
             )
             self._update_status_lexer(cv)
 
@@ -645,6 +1238,21 @@ class Notepad(Tk):
         else:
             self._v_pane.forget(self._output)
 
+    def view_new_terminal(self) -> None:
+        """Show the bottom panel and switch to the Terminal tab."""
+        if not self.output_visible_var.get():
+            self.output_visible_var.set(True)
+            self.view_toggle_output()
+        self._output._set_active("terminal")
+
+    def view_toggle_minimap(self) -> None:
+        show = self.minimap_visible_var.get()
+        for cv in self._codeviews.values():
+            if show:
+                cv.show_minimap()
+            else:
+                cv.hide_minimap()
+
     # ── Run operations ────────────────────────────────────────────────────────
 
     def run_file(self) -> None:
@@ -667,4 +1275,7 @@ class Notepad(Tk):
     # ── Help ─────────────────────────────────────────────────────────────────
 
     def help_about(self) -> None:
-        showinfo("Notepad", "A Python code editor built with tkinter.")
+        showinfo(
+            "Notepad",
+            "A Python code editor built with tkinter.\n\nCreated/Authored By:\nAlex Fero & Claude",
+        )

@@ -3,7 +3,8 @@ from __future__ import annotations
 import inspect
 from contextlib import suppress
 from pathlib import Path
-from tkinter import BaseWidget, Event, Menu, Misc, TclError, Text, ttk
+import tkinter as tk
+from tkinter import BaseWidget, Event, Frame, Menu, Misc, TclError, Text, ttk
 from tkinter.font import Font
 from typing import Any, Callable, Type, Union
 
@@ -14,6 +15,7 @@ import toml
 from pyperclip import copy
 
 from .linenums import TkLineNumbers
+from .minimap import Minimap
 from .sticky_scroll import StickyScroll
 from utils.schemeparser import _parse_scheme
 
@@ -39,7 +41,14 @@ class Scrollbar(ttk.Scrollbar):
 class CodeView(Text):
     _w: str
     builtin_color_schemes = [
-        "ayu-dark", "ayu-light", "dracula", "mariana", "monokai", "material", "rrt", "test"
+        "ayu-dark",
+        "ayu-light",
+        "dracula",
+        "mariana",
+        "monokai",
+        "material",
+        "rrt",
+        "test",
     ]
 
     def __init__(
@@ -54,7 +63,8 @@ class CodeView(Text):
         default_context_menu: bool = False,
         **kwargs,
     ) -> None:
-        self._frame = ttk.Frame(master)
+        # Plain tk.Frame so we can set bg directly — ttk.Frame ignores bg on Windows
+        self._frame = Frame(master, bg="#000000")
         self._frame.grid_rowconfigure(0, weight=1)
         self._frame.grid_columnconfigure(1, weight=1)
 
@@ -71,8 +81,18 @@ class CodeView(Text):
             colors=linenums_theme,
             borderwidth=kwargs.get("borderwidth", linenums_border),
         )
-        self._vs = Scrollbar(self._frame, autohide=autohide_scrollbar, orient="vertical", command=self.yview)
-        self._hs = Scrollbar(self._frame, autohide=autohide_scrollbar, orient="horizontal", command=self.xview)
+        self._vs = Scrollbar(
+            self._frame,
+            autohide=autohide_scrollbar,
+            orient="vertical",
+            command=self.yview,
+        )
+        self._hs = Scrollbar(
+            self._frame,
+            autohide=autohide_scrollbar,
+            orient="horizontal",
+            command=self.xview,
+        )
 
         self._line_numbers.grid(row=0, column=0, sticky="ns")
         self._vs.grid(row=0, column=2, sticky="ns")
@@ -97,11 +117,16 @@ class CodeView(Text):
         super().bind("<<ContentChanged>>", self.scroll_line_update, add=True)
         super().bind("<Button-1>", self._line_numbers.redraw, add=True)
 
+        # _orig must be set before Minimap so the peer can use it
         self._orig = f"{self._w}_widget"
         self.tk.call("rename", self._w, self._orig)
         self.tk.createcommand(self._w, self._cmd_proxy)
 
         self._sticky = StickyScroll(self._frame, self, self._line_numbers)
+        # Minimap.grid() also places its border widget in column 3;
+        # the peer widget itself goes in column 4.
+        self._minimap = Minimap(self._frame, self)
+        self._minimap.grid()
 
         self._set_lexer(lexer)
         self.set_color_scheme(color_scheme)
@@ -124,17 +149,31 @@ class CodeView(Text):
 
         if self._default_context_menu:
             mod = "⌘" if self._windowingsystem == "aqua" else "Ctrl"
-            context_menu.add_command(label="Undo", accelerator=f"{mod}+Z",
-                                     command=lambda: self.event_generate("<<Undo>>"))
-            context_menu.add_command(label="Redo", accelerator=f"{mod}+Y",
-                                     command=lambda: self.event_generate("<<Redo>>"))
+            context_menu.add_command(
+                label="Undo",
+                accelerator=f"{mod}+Z",
+                command=lambda: self.event_generate("<<Undo>>"),
+            )
+            context_menu.add_command(
+                label="Redo",
+                accelerator=f"{mod}+Y",
+                command=lambda: self.event_generate("<<Redo>>"),
+            )
             context_menu.add_separator()
-            context_menu.add_command(label="Cut", accelerator=f"{mod}+X",
-                                     command=lambda: self.event_generate("<<Cut>>"))
-            context_menu.add_command(label="Copy", accelerator=f"{mod}+C", command=self._copy)
-            context_menu.add_command(label="Paste", accelerator=f"{mod}+V", command=self._paste)
-            context_menu.add_command(label="Select all", accelerator=f"{mod}+A",
-                                     command=self._select_all)
+            context_menu.add_command(
+                label="Cut",
+                accelerator=f"{mod}+X",
+                command=lambda: self.event_generate("<<Cut>>"),
+            )
+            context_menu.add_command(
+                label="Copy", accelerator=f"{mod}+C", command=self._copy
+            )
+            context_menu.add_command(
+                label="Paste", accelerator=f"{mod}+V", command=self._paste
+            )
+            context_menu.add_command(
+                label="Select all", accelerator=f"{mod}+A", command=self._select_all
+            )
         return context_menu
 
     def _select_all(self, *_) -> str:
@@ -167,14 +206,27 @@ class CodeView(Text):
     def _cmd_proxy(self, command: str, *args) -> Any:
         try:
             if command in {"insert", "delete", "replace"}:
-                start_line = int(str(self.tk.call(self._orig, "index", args[0])).split(".")[0])
+                start_line = int(
+                    str(self.tk.call(self._orig, "index", args[0])).split(".")[0]
+                )
                 end_line = start_line
                 if len(args) == 3:
-                    end_line = int(str(self.tk.call(self._orig, "index", args[1])).split(".")[0]) - 1
+                    end_line = (
+                        int(
+                            str(self.tk.call(self._orig, "index", args[1])).split(".")[
+                                0
+                            ]
+                        )
+                        - 1
+                    )
             result = self.tk.call(self._orig, command, *args)
         except TclError as e:
             error = str(e)
-            if 'tagged with "sel"' in error or "nothing to" in error or "bad text index" in error:
+            if (
+                'tagged with "sel"' in error
+                or "nothing to" in error
+                or "bad text index" in error
+            ):
                 return ""
             raise e from None
 
@@ -225,7 +277,9 @@ class CodeView(Text):
                 self.tag_remove(tag, "1.0", "end")
         lines = self.get("1.0", "end")
         line_offset = lines.count("\n") - lines.lstrip().count("\n")
-        start_index = str(self.tk.call(self._orig, "index", f"1.0 + {line_offset} lines"))
+        start_index = str(
+            self.tk.call(self._orig, "index", f"1.0 + {line_offset} lines")
+        )
         for token, text in pygments.lex(lines, self._lexer):
             token = str(token)
             end_index = self.index(f"{start_index} + {len(text)} chars")
@@ -233,13 +287,17 @@ class CodeView(Text):
                 self.tag_add(token, start_index, end_index)
             start_index = end_index
 
-    def highlight_area(self, start_line: int | None = None, end_line: int | None = None) -> None:
+    def highlight_area(
+        self, start_line: int | None = None, end_line: int | None = None
+    ) -> None:
         for tag in self.tag_names(index=None):
             if tag.startswith("Token"):
                 self.tag_remove(tag, f"{start_line}.0", f"{end_line}.end")
         text = self.get(f"{start_line}.0", f"{end_line}.end")
         line_offset = text.count("\n") - text.lstrip().count("\n")
-        start_index = str(self.tk.call(self._orig, "index", f"{start_line}.0 + {line_offset} lines"))
+        start_index = str(
+            self.tk.call(self._orig, "index", f"{start_line}.0 + {line_offset} lines")
+        )
         for token, text in pygments.lex(text, self._lexer):
             token = str(token)
             end_index = self.index(f"{start_index} + {len(text)} indices")
@@ -247,21 +305,31 @@ class CodeView(Text):
                 self.tag_add(token, start_index, end_index)
             start_index = end_index
 
-    def set_color_scheme(self, color_scheme: dict[str, dict[str, str | int]] | str | None) -> None:
+    def set_color_scheme(
+        self, color_scheme: dict[str, dict[str, str | int]] | str | None
+    ) -> None:
         if isinstance(color_scheme, str) and color_scheme in self.builtin_color_schemes:
             color_scheme = toml.load(color_schemes_dir / f"{color_scheme}.toml")
         elif color_scheme is None:
             color_scheme = toml.load(color_schemes_dir / "dracula.toml")
-        assert isinstance(color_scheme, dict), "Must be a dictionary or a built-in color scheme"
+        assert isinstance(color_scheme, dict), (
+            "Must be a dictionary or a built-in color scheme"
+        )
         config, tags = _parse_scheme(color_scheme)
         self.configure(**config)
         self._setup_tags(tags)
         self.highlight_all()
+        # Keep the outer frame background in sync so no fringe shows between columns.
+        self._frame.configure(bg=self["background"])
         self._sticky.apply_colors(
             bg=self["background"],
             fg=self["foreground"],
             sep="#44475a",
             font=self.cget("font"),
+        )
+        self._minimap.apply_colors(
+            bg=self["background"],
+            fg=self["foreground"],
         )
 
     def _set_lexer(self, lexer: LexerType) -> None:
@@ -284,6 +352,9 @@ class CodeView(Text):
         if color_scheme is not None:
             self.set_color_scheme(color_scheme)
         super().configure(**kwargs)
+        # Re-sync minimap font if font changed
+        if "font" in kwargs and hasattr(self, "_minimap"):
+            self._minimap.apply_colors(self["background"], self["foreground"])
 
     config = configure
 
@@ -312,6 +383,12 @@ class CodeView(Text):
 
     def horizontal_scroll(self, first: str | float, last: str | float) -> None:
         self._hs.set(first, last)
+
+    def show_minimap(self) -> None:
+        self._minimap.grid()  # also re-shows the border widget
+
+    def hide_minimap(self) -> None:
+        self._minimap.grid_remove()  # also hides the border widget
 
     def vertical_scroll(self, first: str | float, last: str | float) -> None:
         self._vs.set(first, last)

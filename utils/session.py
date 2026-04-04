@@ -44,6 +44,19 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     except (ValueError, Exception):
         pass
 
+    # ── Appearance ────────────────────────────────────────────────────────────
+    appearance: dict = {
+        "theme":            app.theme_var.get(),
+        "minimap_visible":  app.minimap_visible_var.get(),
+    }
+    # Grab the font from the active codeview (all tabs share the same font)
+    cv_any = next(iter(app._codeviews.values()), None)
+    if cv_any is not None:
+        try:
+            appearance["font"] = cv_any.cget("font")
+        except Exception:
+            pass
+
     # ── Layout ────────────────────────────────────────────────────────────────
     layout: dict = {}
     try:
@@ -72,6 +85,7 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
                     "active_index":  active_index,
                     "explorer_root": explorer_root,
                     "layout":        layout,
+                    "appearance":    appearance,
                 },
                 indent=2,
             ),
@@ -122,6 +136,24 @@ def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
     root = data.get("explorer_root")
     if root and os.path.isdir(root):
         app._sidebar.explorer.set_root(root)
+
+    # ── Appearance ────────────────────────────────────────────────────────────
+    appearance = data.get("appearance", {})
+    theme = appearance.get("theme")
+    if theme:
+        app.theme_var.set(theme)
+        app.view_change_theme()
+    font = appearance.get("font")
+    if font:
+        for cv in app._codeviews.values():
+            try:
+                cv.configure(font=font)
+            except Exception:
+                pass
+
+    minimap = appearance.get("minimap_visible", True)
+    app.minimap_visible_var.set(minimap)
+    app.view_toggle_minimap()
 
     # ── Layout — must wait until widgets have real pixel dimensions ───────────
     layout = data.get("layout")
