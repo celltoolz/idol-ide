@@ -8,6 +8,7 @@ from typing import Callable
 from .outline import OutlinePanel
 from .references import ReferencesPanel
 from .explorer import FileExplorer
+from .source_control import SourceControlPanel
 
 
 _HEADER_H = 28   # px height of each section header
@@ -16,7 +17,7 @@ _MIN_BODY = 40   # minimum body height before collapsing stops
 
 
 class Sidebar(ttk.Frame):
-    """Left sidebar: Outline / References (closeable) / Explorer.
+    """Left sidebar: Outline / References (closeable) / Source Control (closeable) / Explorer.
 
     Click a header to collapse/expand that section.
     Drag a sash to resize adjacent sections.
@@ -27,19 +28,23 @@ class Sidebar(ttk.Frame):
         parent,
         on_file_open: Callable[[str], None],
         on_navigate: Callable[[int], None],
+        sc_callbacks: dict | None = None,
     ) -> None:
         super().__init__(parent, style="Sidebar.TFrame")
 
         self._outline_collapsed   = False
         self._refs_visible        = False   # references hidden until triggered
         self._refs_collapsed      = False
+        self._sc_visible          = False   # source control hidden until triggered
+        self._sc_collapsed        = False
         self._explorer_collapsed  = False
 
         # Sash positions (0 = unset, calculated on first layout)
-        self._sash1_y: int = 0   # between outline and refs
-        self._sash2_y: int = 0   # between refs/outline and explorer
+        self._sash1_y: int = 0   # outline body height
+        self._sash2_y: int = 0   # refs body height
+        self._sash3_y: int = 0   # source control body height
 
-        self._drag_sash: int = 0          # which sash is being dragged (1 or 2)
+        self._drag_sash: int = 0
         self._drag_start_y: int = 0
         self._drag_start_sash: int = 0
 
@@ -54,6 +59,23 @@ class Sidebar(ttk.Frame):
         self.references = ReferencesPanel(self, on_navigate=on_navigate)
 
         self._sash2 = self._make_sash(2)
+
+        self._sc_hdr = self._make_header("SOURCE CONTROL", self._toggle_sc,
+                                         closeable=True,
+                                         on_close=self.hide_source_control)
+        sc_cb = sc_callbacks or {}
+        self.source_control = SourceControlPanel(
+            self,
+            on_stage=sc_cb.get("stage",   lambda p: None),
+            on_unstage=sc_cb.get("unstage", lambda p: None),
+            on_discard=sc_cb.get("discard", lambda p: None),
+            on_commit=sc_cb.get("commit",  lambda m: None),
+            on_push=sc_cb.get("push",    lambda: None),
+            on_pull=sc_cb.get("pull",    lambda: None),
+            on_diff=sc_cb.get("diff",    lambda p: None),
+        )
+
+        self._sash3 = self._make_sash(3)
 
         self._explorer_hdr = self._make_header("EXPLORER",  self._toggle_explorer)
         # Wrap callback so clicks from the tree don't reset the explorer root
@@ -75,6 +97,17 @@ class Sidebar(ttk.Frame):
         self._refs_visible = False
         self._relayout()
 
+    def show_source_control(self) -> None:
+        """Make the Source Control panel visible and expanded."""
+        self._sc_visible   = True
+        self._sc_collapsed = False
+        self._sc_hdr._arrow.config(text="▾")
+        self._relayout()
+
+    def hide_source_control(self) -> None:
+        self._sc_visible = False
+        self._relayout()
+
     def apply_theme(self, bg: str, fg: str, select_bg: str, codeview=None) -> None:
         self.outline.apply_theme(bg, fg, select_bg)
         # Pull accent + comment colors from the active theme's token tags
@@ -87,19 +120,21 @@ class Sidebar(ttk.Frame):
             except Exception:
                 pass
         self.references.apply_theme(bg, fg, select_bg, accent=accent, comment=comment)
+        self.source_control.apply_theme(bg, fg, select_bg)
         self.explorer.apply_theme(bg, fg, select_bg)
-        for hdr in (self._outline_hdr, self._refs_hdr, self._explorer_hdr):
+        for hdr in (self._outline_hdr, self._refs_hdr, self._sc_hdr, self._explorer_hdr):
             hdr.config(bg=bg)
             for child in hdr.winfo_children():
                 child.config(bg=bg, fg="#cccccc")
-        for sash in (self._sash1, self._sash2):
+        for sash in (self._sash1, self._sash2, self._sash3):
             sash.config(bg="#3c3c3c")
         ttk.Style().configure("Sidebar.TFrame", background=bg)
 
     # ── Header / sash factories ───────────────────────────────────────────────
 
     def _make_header(self, title: str, command: Callable,
-                     closeable: bool = False) -> Frame:
+                     closeable: bool = False,
+                     on_close: Callable | None = None) -> Frame:
         hdr = Frame(self, bg="#252526", cursor="hand2", height=_HEADER_H)
         hdr.pack_propagate(False)
 
@@ -113,13 +148,14 @@ class Sidebar(ttk.Frame):
         lbl.pack(side="left", fill="both", expand=True)
 
         if closeable:
+            _close_fn = on_close if on_close else self.hide_references
             close_lbl = Label(hdr, text="×", bg="#252526", fg="#858585",
                               font=("Segoe UI", 10, "bold"), cursor="hand2",
                               padx=6)
             close_lbl.pack(side="right")
             close_lbl.bind("<Enter>", lambda _: close_lbl.config(fg="#cccccc"))
             close_lbl.bind("<Leave>", lambda _: close_lbl.config(fg="#858585"))
-            close_lbl.bind("<Button-1>", lambda _: self.hide_references())
+            close_lbl.bind("<Button-1>", lambda _: _close_fn())
 
         for widget in (hdr, arrow, lbl):
             widget.bind("<Button-1>", lambda _, c=command: c())
@@ -147,6 +183,12 @@ class Sidebar(ttk.Frame):
             text="▸" if self._refs_collapsed else "▾")
         self._relayout()
 
+    def _toggle_sc(self) -> None:
+        self._sc_collapsed = not self._sc_collapsed
+        self._sc_hdr._arrow.config(
+            text="▸" if self._sc_collapsed else "▾")
+        self._relayout()
+
     def _toggle_explorer(self) -> None:
         self._explorer_collapsed = not self._explorer_collapsed
         self._explorer_hdr._arrow.config(
@@ -159,17 +201,24 @@ class Sidebar(ttk.Frame):
     # This means collapsing any section automatically gives its space to neighbors.
 
     def _sash_press(self, event, which: int) -> None:
-        self._drag_sash       = which
-        self._drag_start_y    = event.y_root
-        self._drag_start_sash = (self._sash1_y if which == 1 else self._sash2_y)
+        self._drag_sash    = which
+        self._drag_start_y = event.y_root
+        if which == 1:
+            self._drag_start_sash = self._sash1_y
+        elif which == 2:
+            self._drag_start_sash = self._sash2_y
+        else:
+            self._drag_start_sash = self._sash3_y
 
     def _sash_drag(self, event) -> None:
         delta = event.y_root - self._drag_start_y
         new_h = max(_MIN_BODY, self._drag_start_sash + delta)
         if self._drag_sash == 1:
             self._sash1_y = new_h
-        else:
+        elif self._drag_sash == 2:
             self._sash2_y = new_h
+        else:
+            self._sash3_y = new_h
         self._relayout()
 
     # ── Layout engine ─────────────────────────────────────────────────────────
@@ -185,11 +234,13 @@ class Sidebar(ttk.Frame):
         M = _MIN_BODY
 
         # Build list of visible sections: (header, body, collapsed, slot_index)
-        # slot_index: 0=outline, 1=refs, 2=explorer — used to look up desired heights
+        # slot_index: 0=outline, 1=refs, 2=sc, 3=explorer
         sections = [(self._outline_hdr, self.outline, self._outline_collapsed, 0)]
         if self._refs_visible:
             sections.append((self._refs_hdr, self.references, self._refs_collapsed, 1))
-        sections.append((self._explorer_hdr, self.explorer, self._explorer_collapsed, 2))
+        if self._sc_visible:
+            sections.append((self._sc_hdr, self.source_control, self._sc_collapsed, 2))
+        sections.append((self._explorer_hdr, self.explorer, self._explorer_collapsed, 3))
 
         n = len(sections)
         n_sashes = n - 1
@@ -199,15 +250,21 @@ class Sidebar(ttk.Frame):
         expanded = [slot for _, _, c, slot in sections if not c]
         n_exp = len(expanded)
 
-        # Desired body heights per slot (0=outline, 1=refs)
-        # Slot 2 (explorer / last section) always gets whatever remains.
+        # Desired body heights per slot (slots 0-2 use sash positions;
+        # slot 3 / explorer always gets whatever remains).
         default_h = max(M, free_h // max(n_exp, 1))
         if self._sash1_y == 0:
             self._sash1_y = default_h
         if self._sash2_y == 0:
             self._sash2_y = default_h
+        if self._sash3_y == 0:
+            self._sash3_y = default_h
 
-        desired = {0: max(M, self._sash1_y), 1: max(M, self._sash2_y)}
+        desired = {
+            0: max(M, self._sash1_y),
+            1: max(M, self._sash2_y),
+            2: max(M, self._sash3_y),
+        }
 
         # Assign body heights: non-last expanded sections use desired height,
         # the last expanded section absorbs whatever space remains.
@@ -223,13 +280,14 @@ class Sidebar(ttk.Frame):
             body_h[expanded[-1]] = max(M, free_h - used)
 
         # Hide everything, then re-place top-to-bottom
-        for widget in (self.outline, self.references, self.explorer,
-                       self._sash1, self._sash2):
+        for widget in (self.outline, self.references, self.source_control,
+                       self.explorer, self._sash1, self._sash2, self._sash3):
             widget.place_forget()
-        for hdr in (self._outline_hdr, self._refs_hdr, self._explorer_hdr):
+        for hdr in (self._outline_hdr, self._refs_hdr, self._sc_hdr,
+                    self._explorer_hdr):
             hdr.place_forget()
 
-        sash_widgets = [self._sash1, self._sash2]
+        sash_widgets = [self._sash1, self._sash2, self._sash3]
         y = 0
         for i, (hdr, body, collapsed, slot) in enumerate(sections):
             hdr.place(x=0, y=y, width=w, height=H)

@@ -5,7 +5,7 @@ import os
 import re
 from tkinter import BooleanVar, Button, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
-from tkinter.messagebox import showinfo, showerror, askyesnocancel
+from tkinter.messagebox import showinfo, showerror, askyesnocancel, askyesno
 
 import pygments.lexers
 import pygments.util
@@ -186,11 +186,20 @@ class Notepad(Tk):
         self._h_pane = ttk.PanedWindow(self, orient="horizontal")
         self._h_pane.pack(fill="both", expand=True)
 
-        # Left panel – sidebar (outline + explorer)
+        # Left panel – sidebar (outline + source control + explorer)
         self._sidebar = Sidebar(
             self._h_pane,
             on_file_open=self._open_file,
             on_navigate=self._outline_navigate,
+            sc_callbacks={
+                "stage":   self._sc_stage,
+                "unstage": self._sc_unstage,
+                "discard": self._sc_discard,
+                "commit":  self._sc_commit,
+                "push":    self._sc_push,
+                "pull":    self._sc_pull,
+                "diff":    self._sc_open_diff,
+            },
         )
         self._sidebar.configure(width=220)
         self._h_pane.add(self._sidebar, weight=0)
@@ -378,6 +387,7 @@ class Notepad(Tk):
         self.bind("<Control-l>", lambda _: self.view_change_font())
         self.bind("<F5>", lambda _: self.run_file())
         self.bind("<Control-grave>", lambda _: self.view_new_terminal())
+        self.bind("<Control-G>", lambda _: self.view_source_control())
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
 
@@ -552,7 +562,7 @@ class Notepad(Tk):
                 e, cv, self._files.get(self._current_tab_id, "")
             ),
         )
-        codeview.bind("<Leave>", lambda _: self._dismiss_hover())
+        codeview.bind("<Leave>", lambda _: self._cancel_hover())
         codeview.bind("<F12>", lambda _: self._goto_definition())
 
         codeview.mark_set("insert", "1.0")
@@ -758,6 +768,8 @@ class Notepad(Tk):
 
     def _lsp_open_all_tabs(self) -> None:
         for tab_id, cv in self._codeviews.items():
+            if cv is None:
+                continue
             path = self._files.get(tab_id)
             if path and path.endswith(".py"):
                 self._lsp.open_file(path, cv.get("1.0", "end-1c"))
@@ -799,6 +811,8 @@ class Notepad(Tk):
             s_idx = f"{start['line'] + 1}.{start['character']}"
             e_idx = f"{end['line'] + 1}.{end['character']}"
             codeview.tag_add(tag, s_idx, e_idx)
+        for tag in ("lsp_info", "lsp_warning", "lsp_error"):
+            codeview.tag_raise(tag)
 
     # ── LSP hover popup ───────────────────────────────────────────────────────
 
@@ -845,6 +859,13 @@ class Notepad(Tk):
             self, text, cv.winfo_rootx() + mx, cv.winfo_rooty() + my
         )
 
+    def _cancel_hover(self) -> None:
+        """Cancel any pending hover timer AND dismiss the popup."""
+        if self._hover_after_id:
+            self.after_cancel(self._hover_after_id)
+            self._hover_after_id = None
+        self._dismiss_hover()
+
     def _dismiss_hover(self) -> None:
         if self._hover_popup:
             try:
@@ -887,6 +908,9 @@ class Notepad(Tk):
                 self._refresh_tab_title(tab_id)
         # Fetch fresh diff hunks for whichever tab is active
         self._refresh_git_hunks()
+        # Keep SC panel up to date if it's visible
+        if self._sidebar._sc_visible:
+            self._refresh_sc_panel()
 
     def _refresh_git_hunks(self) -> None:
         tab_id = self._current_tab_id
@@ -903,6 +927,124 @@ class Notepad(Tk):
             cv = self._codeviews.get(tab_id)
             if cv:
                 cv._line_numbers.set_git_hunks(hunks)
+
+    def _refresh_sc_panel(self) -> None:
+        """Re-fetch staged/unstaged status and push it to the Source Control panel."""
+        if not self._git:
+            return
+        self._git.get_full_status(self._on_sc_status)
+
+    def _on_sc_status(self, staged: dict, unstaged: dict) -> None:
+        self._sidebar.source_control.refresh(staged, unstaged)
+
+    # ── Source Control actions ─────────────────────────────────────────────────
+
+    def _sc_stage(self, path: str) -> None:
+        if self._git:
+            self._git.stage(path, callback=self._refresh_sc_panel)
+
+    def _sc_unstage(self, path: str) -> None:
+        if self._git:
+            self._git.unstage(path, callback=self._refresh_sc_panel)
+
+    def _sc_discard(self, path: str) -> None:
+        name = os.path.basename(path)
+        if not askyesno("Discard Changes",
+                        f"Discard all changes to '{name}'? This cannot be undone."):
+            return
+        if self._git:
+            self._git.discard(path, callback=self._refresh_sc_panel)
+
+    def _sc_commit(self, message: str) -> None:
+        if not self._git:
+            return
+        def _done(output: str) -> None:
+            self._output.output.write(f"[git commit]\n{output}\n", "stdout")
+            self._refresh_git()
+            self._refresh_sc_panel()
+        self._git.commit(message, callback=_done)
+
+    def _sc_push(self) -> None:
+        if not self._git:
+            return
+        self._output.output.write("[git push] Running…\n", "stdout")
+        def _done(output: str) -> None:
+            self._output.output.write(f"{output}\n", "stdout")
+            self._refresh_git()
+        self._git.push(callback=_done)
+
+    def _sc_pull(self) -> None:
+        if not self._git:
+            return
+        self._output.output.write("[git pull] Running…\n", "stdout")
+        def _done(output: str) -> None:
+            self._output.output.write(f"{output}\n", "stdout")
+            self._refresh_git()
+            self._refresh_sc_panel()
+        self._git.pull(callback=_done)
+
+    def _sc_open_diff(self, path: str) -> None:
+        """Open a read-only diff tab for *path*."""
+        if not self._git:
+            return
+        def _show(diff_text: str) -> None:
+            if not diff_text:
+                return
+            name = f"Δ {os.path.basename(path)}"
+            self._open_diff_tab(name, diff_text)
+        self._git.get_file_diff(path, _show)
+
+    def _open_diff_tab(self, title: str, diff_text: str) -> None:
+        """Create a read-only syntax-colored tab showing a unified diff."""
+        import tkinter as tk
+        from tkinter import ttk
+
+        frame = ttk.Frame(self.notebook)
+        txt = tk.Text(
+            frame,
+            bg="#1e1e1e",
+            fg="#cccccc",
+            font=self._codeviews[self._current_tab_id].cget("font")
+                 if self._current_tab_id and self._codeviews else ("Consolas", 11),
+            insertwidth=0,
+            relief="flat",
+            padx=8,
+            pady=4,
+            wrap="none",
+            state="normal",
+        )
+        txt.tag_configure("add",    foreground="#4ec994")
+        txt.tag_configure("remove", foreground="#f14c4c")
+        txt.tag_configure("hunk",   foreground="#569cd6")
+        txt.tag_configure("meta",   foreground="#858585")
+
+        for line in diff_text.splitlines(keepends=True):
+            if line.startswith("+++") or line.startswith("---"):
+                txt.insert("end", line, "meta")
+            elif line.startswith("+"):
+                txt.insert("end", line, "add")
+            elif line.startswith("-"):
+                txt.insert("end", line, "remove")
+            elif line.startswith("@@"):
+                txt.insert("end", line, "hunk")
+            else:
+                txt.insert("end", line)
+
+        txt.config(state="disabled")
+
+        sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        txt.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        self.notebook.add(frame, text=f"  {title}  ")
+        self.notebook.select(frame)
+        tab_id = self.notebook.select()
+        self._files[tab_id]   = None
+        self._titles[tab_id]  = title
+        self._dirty[tab_id]   = False
+        self._indent_sizes[tab_id] = 4
+        self._codeviews[tab_id] = None   # not a real codeview
 
     # ── Completion ────────────────────────────────────────────────────────────
 
@@ -1384,10 +1526,20 @@ class Notepad(Tk):
     def view_toggle_minimap(self) -> None:
         show = self.minimap_visible_var.get()
         for cv in self._codeviews.values():
+            if cv is None:
+                continue
             if show:
                 cv.show_minimap()
             else:
                 cv.hide_minimap()
+
+    def view_source_control(self) -> None:
+        """Toggle the Source Control sidebar panel."""
+        if self._sidebar._sc_visible:
+            self._sidebar.hide_source_control()
+        else:
+            self._sidebar.show_source_control()
+            self._refresh_sc_panel()
 
     # ── Run operations ────────────────────────────────────────────────────────
 

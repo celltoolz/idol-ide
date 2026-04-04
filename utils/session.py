@@ -50,7 +50,7 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
         "minimap_visible":  app.minimap_visible_var.get(),
     }
     # Grab the font from the active codeview (all tabs share the same font)
-    cv_any = next(iter(app._codeviews.values()), None)
+    cv_any = next((cv for cv in app._codeviews.values() if cv is not None), None)
     if cv_any is not None:
         try:
             appearance["font"] = cv_any.cget("font")
@@ -70,9 +70,12 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     sb = app._sidebar
     layout["sidebar_sash1"]       = sb._sash1_y
     layout["sidebar_sash2"]       = sb._sash2_y
+    layout["sidebar_sash3"]       = sb._sash3_y
     layout["outline_collapsed"]   = sb._outline_collapsed
     layout["refs_collapsed"]      = sb._refs_collapsed
     layout["refs_visible"]        = sb._refs_visible
+    layout["sc_collapsed"]        = sb._sc_collapsed
+    layout["sc_visible"]          = sb._sc_visible
     layout["explorer_collapsed"]  = sb._explorer_collapsed
 
     explorer_root = str(app._sidebar.explorer._root or os.getcwd())
@@ -146,6 +149,8 @@ def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
     font = appearance.get("font")
     if font:
         for cv in app._codeviews.values():
+            if cv is None:
+                continue
             try:
                 cv.configure(font=font)
             except Exception:
@@ -190,9 +195,15 @@ def _apply_layout(app: "Notepad", layout: dict) -> None:
         sb._toggle_refs()
     if layout.get("refs_visible"):
         sb._refs_visible = True
+    if layout.get("sc_visible"):
+        sb._sc_visible = True
+    if layout.get("sc_collapsed") and not sb._sc_collapsed:
+        sb._toggle_sc()
 
     if layout.get("sidebar_sash1"):
         sb._sash1_y = layout["sidebar_sash1"]
     if layout.get("sidebar_sash2"):
         sb._sash2_y = layout["sidebar_sash2"]
+    if layout.get("sidebar_sash3"):
+        sb._sash3_y = layout["sidebar_sash3"]
     sb._relayout()

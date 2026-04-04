@@ -88,6 +88,12 @@ def build_menubar(app) -> Menu:
         variable=app.minimap_visible_var,
         command=app.view_toggle_minimap,
     )
+    view_menu.add_separator()
+    view_menu.add_command(
+        label="Source Control",
+        command=app.view_source_control,
+        accelerator="Ctrl+Shift+G",
+    )
     menubar.add_cascade(label="View", menu=view_menu)
 
     # ── Run ──────────────────────────────────────────────────────────────────

@@ -45,6 +45,47 @@ def _run_git(args: list[str], cwd: str) -> str:
         return ""
 
 
+def _run_git_output(args: list[str], cwd: str, timeout: int = 30) -> str:
+    """Run git and return combined stdout+stderr regardless of exit code."""
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return (result.stdout + result.stderr).strip() or "(no output)"
+    except Exception as exc:
+        return str(exc)
+
+
+def _parse_staged_unstaged(output: str, root: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Parse `git status --porcelain` → (staged_map, unstaged_map).
+
+    Each map is {normcase_abs_path: status_char} where status_char ∈ M A D U.
+    """
+    staged: dict[str, str] = {}
+    unstaged: dict[str, str] = {}
+    for line in output.splitlines():
+        if len(line) < 4:
+            continue
+        x, y = line[0], line[1]
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ")[1]
+        abs_path = os.path.normcase(os.path.join(root, path.replace("/", os.sep)))
+        # Index (staged)
+        if x not in (" ", "?"):
+            staged[abs_path] = "D" if x == "D" else ("A" if x in ("A", "C") else "M")
+        # Working tree (unstaged / untracked)
+        if x == "?" and y == "?":
+            unstaged[abs_path] = "U"
+        elif y not in (" ", "?"):
+            unstaged[abs_path] = "D" if y == "D" else "M"
+    return staged, unstaged
+
+
 def _parse_status(output: str, root: str) -> dict[str, str]:
     """Parse `git status --porcelain` → {normcase_abs_path: status_char}."""
     result: dict[str, str] = {}
@@ -127,4 +168,64 @@ class GitManager:
             out   = _run_git(["diff", "--unified=0", "--", path], self._root)
             hunks = _parse_hunks(out)
             self._after(0, lambda h=hunks: callback(h))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def get_full_status(self,
+                        callback: Callable[[dict[str, str], dict[str, str]], None]) -> None:
+        """Fetch both staged and unstaged status maps in one call."""
+        def _run() -> None:
+            out = _run_git(["status", "--porcelain", "-u"], self._root)
+            staged, unstaged = _parse_staged_unstaged(out, self._root)
+            self._after(0, lambda s=staged, u=unstaged: callback(s, u))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def get_file_diff(self, path: str, callback: Callable[[str], None]) -> None:
+        """Return unified diff for *path* (working tree first, then staged)."""
+        def _run() -> None:
+            out = _run_git(["diff", "--", path], self._root)
+            if not out:
+                out = _run_git(["diff", "--cached", "--", path], self._root)
+            self._after(0, lambda o=out: callback(o))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def stage(self, path: str, callback: Callable[[], None] | None = None) -> None:
+        def _run() -> None:
+            _run_git(["add", "--", path], self._root)
+            if callback:
+                self._after(0, callback)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def unstage(self, path: str, callback: Callable[[], None] | None = None) -> None:
+        def _run() -> None:
+            _run_git(["restore", "--staged", "--", path], self._root)
+            if callback:
+                self._after(0, callback)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def discard(self, path: str, callback: Callable[[], None] | None = None) -> None:
+        def _run() -> None:
+            _run_git(["restore", "--", path], self._root)
+            if callback:
+                self._after(0, callback)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def commit(self, message: str, callback: Callable[[str], None] | None = None) -> None:
+        def _run() -> None:
+            out = _run_git_output(["commit", "-m", message], self._root)
+            if callback:
+                self._after(0, lambda o=out: callback(o))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def push(self, callback: Callable[[str], None] | None = None) -> None:
+        def _run() -> None:
+            out = _run_git_output(["push"], self._root)
+            if callback:
+                self._after(0, lambda o=out: callback(o))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def pull(self, callback: Callable[[str], None] | None = None) -> None:
+        def _run() -> None:
+            out = _run_git_output(["pull"], self._root)
+            if callback:
+                self._after(0, lambda o=out: callback(o))
         threading.Thread(target=_run, daemon=True).start()
