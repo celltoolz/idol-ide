@@ -1,6 +1,7 @@
 """FileExplorer — a dark-themed file system tree for the sidebar."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from tkinter import Menu, ttk
 from typing import Callable
@@ -33,6 +34,11 @@ class FileExplorer(ttk.Frame):
         self._tree.tag_configure("folder",     foreground="#8be9fd")
         self._tree.tag_configure("file",       foreground="#f8f8f2")
         self._tree.tag_configure("parent_dir", foreground="#6272a4")
+        # Git status tags
+        self._tree.tag_configure("git_M", foreground="#e2c08d")
+        self._tree.tag_configure("git_A", foreground="#73c991")
+        self._tree.tag_configure("git_U", foreground="#cccccc")
+        self._tree.tag_configure("git_D", foreground="#f14c4c")
 
         self._tree.bind("<<TreeviewOpen>>",    self._on_node_expand)
         self._tree.bind("<Double-Button-1>",   self._on_double_click)
@@ -63,16 +69,52 @@ class FileExplorer(ttk.Frame):
             )
         self._populate("", root)
 
+    def apply_git_status(self, status_map: dict[str, str]) -> None:
+        """Recolour and badge visible tree items to reflect git status.
+
+        *status_map* maps normcase absolute path → 'M' | 'A' | 'U' | 'D'.
+        Uses both tag colours (where the theme supports it) and a text suffix
+        so the status is always visible regardless of platform/theme.
+        """
+        def _update(item: str) -> None:
+            item_tags = self._tree.item(item, "tags")
+            if "parent_dir" in item_tags:
+                for child in self._tree.get_children(item):
+                    _update(child)
+                return
+            values = self._tree.item(item, "values")
+            if values and values[0] != self._LOADING:
+                norm   = os.path.normcase(str(values[0]))
+                status = status_map.get(norm)
+                # Tag colours (put git tag first for priority)
+                base_tags = [t for t in item_tags if not t.startswith("git_")]
+                new_tags  = ([f"git_{status}"] + base_tags) if status else base_tags
+                self._tree.item(item, tags=new_tags)
+                # Text badge — works on every platform/theme
+                name     = Path(values[0]).name
+                prefix   = "  "
+                new_text = f"{prefix}{name} {status}" if status else f"{prefix}{name}"
+                self._tree.item(item, text=new_text)
+            for child in self._tree.get_children(item):
+                _update(child)
+
+        for root_item in self._tree.get_children():
+            _update(root_item)
+
     def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
         style = ttk.Style()
+        # No global `foreground` here — item colours come from per-item tags
+        # so that git status tags can override without being blocked by the style.
         style.configure("FileTree.Treeview",
-                         background=bg, foreground=fg,
-                         fieldbackground=bg, borderwidth=0)
+                         background=bg, fieldbackground=bg, borderwidth=0)
         style.configure("FileTree.Treeview.Item", padding=(2, 1))
         style.map("FileTree.Treeview",
                   background=[("selected", select_bg)],
                   foreground=[("selected", fg)])
         style.configure("Explorer.TFrame", background=bg)
+        # Ensure base tag colours reflect the current theme
+        self._tree.tag_configure("file",       foreground=fg)
+        self._tree.tag_configure("parent_dir", foreground="#6272a4")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

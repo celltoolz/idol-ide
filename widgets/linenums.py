@@ -58,6 +58,9 @@ class TkLineNumbers(Canvas):
         self.y: Optional[int] = None
         self._dots: dict[str, Label] = {}
 
+        # Git gutter: maps line_number → 'added' | 'modified' | 'deleted'
+        self._hunk_map: dict[int, str] = {}
+
         self.config(cursor="right_ptr")
         self.set_colors()
 
@@ -149,6 +152,14 @@ class TkLineNumbers(Canvas):
             marker, f"{lineno}.0 lineend", f"{end_lineno}.0 lineend"
         )
 
+    def set_git_hunks(self, hunks: list[tuple[int, int, str]]) -> None:
+        """Update gutter indicators from a list of (start, count, kind) tuples."""
+        self._hunk_map = {}
+        for start, count, kind in hunks:
+            for ln in range(start, start + max(count, 1)):
+                self._hunk_map[ln] = kind
+        self.redraw()
+
     def _draw_line_number(self, lineno: int, dlineinfo: tuple) -> None:
         x = {"left": 0, "right": int(self["width"]), "center": int(self["width"]) / 2}[
             self.justify
@@ -163,6 +174,18 @@ class TkLineNumbers(Canvas):
             font=self.textwidget.cget("font"),
             fill=self.foreground_color,
         )
+        # Git gutter strip (3 px wide on the left edge)
+        kind = self._hunk_map.get(lineno)
+        if kind:
+            _GUTTER_COLORS = {
+                "added":    "#4ec994",
+                "modified": "#c5a028",
+                "deleted":  "#f14c4c",
+            }
+            color = _GUTTER_COLORS.get(kind)
+            if color:
+                y, h = dlineinfo[1], dlineinfo[3]
+                self.create_rectangle(0, y, 3, y + h, fill=color, outline="")
 
     def _draw_fold_marker(self, x: int, y: int, size: int, is_folded: bool) -> None:
         """Draw a circular ⊖ when expanded, ⊕ when folded."""

@@ -52,6 +52,10 @@ class StatusBar(ttk.Frame):
         self._vsep()
 
         # ── Left side ─────────────────────────────────────────────────────────
+        self._branch_lbl = ttk.Label(self, text="", style="SB.Hi.TLabel")
+        # hidden until set_branch() is called with a real name
+        self._branch_sep = ttk.Separator(self, orient="vertical")
+
         self._pos_lbl = ttk.Label(self, text="Ln 1, Col 1", style="SB.TLabel")
         self._pos_lbl.pack(side="left", padx=(10, 2), pady=2)
 
@@ -67,6 +71,16 @@ class StatusBar(ttk.Frame):
         if cursors > 1:
             pos += f"  |  {cursors} cursors"
         self._pos_lbl.config(text=pos)
+
+    def set_branch(self, name: str) -> None:
+        """Show or update the git branch indicator on the left of the status bar."""
+        if name:
+            self._branch_lbl.config(text=f"\u2387 {name}")   # ⎇ branch_name
+            self._branch_lbl.pack(side="left", padx=(10, 2), pady=2)
+            self._branch_sep.pack(side="left", fill="y", padx=4, pady=3)
+        else:
+            self._branch_lbl.pack_forget()
+            self._branch_sep.pack_forget()
 
     def set_lexer(self, name: str) -> None:
         self._lexer_lbl.config(text=name)
