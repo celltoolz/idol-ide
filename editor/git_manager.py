@@ -38,6 +38,8 @@ def _run_git(args: list[str], cwd: str) -> str:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         return result.stdout if result.returncode == 0 else ""
@@ -53,6 +55,8 @@ def _run_git_output(args: list[str], cwd: str, timeout: int = 30) -> str:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
         return (result.stdout + result.stderr).strip() or "(no output)"

@@ -173,7 +173,7 @@ def _apply_layout(app: "Notepad", layout: dict) -> None:
     app.update_idletasks()
 
     h = layout.get("h_sash")
-    if h is not None:
+    if h:  # skip if 0 or missing — sidebar keeps its default width
         try:
             app._h_pane.sashpos(0, h)
         except Exception:

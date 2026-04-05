@@ -90,6 +90,11 @@ def build_menubar(app) -> Menu:
     )
     view_menu.add_separator()
     view_menu.add_command(
+        label="Split Editor",
+        command=app.view_split_editor,
+        accelerator="Ctrl+\\",
+    )
+    view_menu.add_command(
         label="Source Control",
         command=app.view_source_control,
         accelerator="Ctrl+Shift+G",

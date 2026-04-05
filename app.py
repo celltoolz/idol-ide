@@ -157,6 +157,15 @@ class Notepad(Tk):
         self._git_tab_status: dict[str, str] = {}  # tab_id → status char
         self._git_hunks: dict[str, list] = {}  # tab_id → hunk list
 
+        # Split editor
+        self._split_active: bool = False
+        self._active_pane: str = "left"   # "left" | "right"
+        self._notebook_r: CustomNotebook | None = None
+        self._nb_frame_r = None
+        self._scroll_locked: bool = False
+        self._lock_btn = None
+        self._syncing_scroll: bool = False
+
         # Settings
         self.theme_var = StringVar(value="monokai")
         self.highlight_line_var = BooleanVar(value=True)
@@ -209,12 +218,22 @@ class Notepad(Tk):
         self._v_pane = ttk.PanedWindow(self._h_pane, orient="vertical")
         self._h_pane.add(self._v_pane, weight=1)
 
-        # Wrap notebook in a frame so the "+" button can sit as a sibling
-        # on top of the tab bar without being clipped by the notebook renderer
-        nb_frame = ttk.Frame(self._v_pane)
-        self.notebook = CustomNotebook(nb_frame, on_close=self._close_tab)
+        # Horizontal split pane — holds left notebook (always) + right notebook (when split)
+        self._split_pane = ttk.PanedWindow(self._v_pane, orient="horizontal")
+        self._v_pane.add(self._split_pane, weight=3)
+
+        # Left notebook frame (primary)
+        nb_frame = ttk.Frame(self._split_pane)
+        self._split_pane.add(nb_frame, weight=1)
+        self._nb_frame_l = nb_frame
+
+        self.notebook = CustomNotebook(
+            nb_frame, on_close=self._close_tab, on_split=self._open_in_split
+        )
+        self.notebook._split_open_ref = lambda: self._split_active
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add=True)
+        self.notebook.bind("<ButtonPress-1>", lambda _: self._set_active_pane("left"), add=True)
 
         # Inline find/replace bar (lives inside nb_frame, hidden by default)
         self._find_replace = FindReplaceBar(nb_frame)
@@ -298,8 +317,6 @@ class Notepad(Tk):
         for btn in (self._prev_btn, self._next_btn, self._plus_btn):
             btn.lift()
 
-        self._v_pane.add(nb_frame, weight=3)
-
         self._output = BottomPanel(self._v_pane, run_callback=self.run_file)
         self._v_pane.add(self._output, weight=1)
 
@@ -337,18 +354,20 @@ class Notepad(Tk):
 
     def _place_plus_btn(self) -> None:
         """Position the ‹ › + buttons directly above the vertical scrollbar."""
-        cv = self._current_codeview
-        if cv is None:
+        nb = self.notebook   # buttons always live in the left notebook frame
+        left_cv_id = nb.select() if nb.tabs() else None
+        left_cv = self._codeviews.get(left_cv_id) if left_cv_id else None
+        if left_cv is None:
             return
-        vs = cv._vs
+        vs = left_cv._vs
         vs.update_idletasks()
-        vs_x = vs.winfo_x() + cv._frame.winfo_x() + self.notebook.winfo_x()
+        vs_x = vs.winfo_x() + left_cv._frame.winfo_x() + nb.winfo_x()
         vs_w = vs.winfo_width()
-        tab_h = self.notebook.winfo_height() - cv._frame.winfo_height()
+        tab_h = nb.winfo_height() - left_cv._frame.winfo_height()
         btn_h = max(tab_h - 6, 16)
 
         # Account for minimap + border widths so buttons sit left of them
-        mm = cv._minimap
+        mm = left_cv._minimap
         mm_w = (
             (mm.winfo_width() + mm._border.winfo_width()) if mm.winfo_ismapped() else 0
         )
@@ -388,14 +407,31 @@ class Notepad(Tk):
         self.bind("<F5>", lambda _: self.run_file())
         self.bind("<Control-grave>", lambda _: self.view_new_terminal())
         self.bind("<Control-G>", lambda _: self.view_source_control())
+        self.bind("<Control-backslash>", lambda _: self.view_split_editor())
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
 
     @property
+    def _active_notebook(self) -> CustomNotebook:
+        if self._split_active and self._active_pane == "right" and self._notebook_r:
+            return self._notebook_r
+        return self.notebook
+
+    def _set_active_pane(self, pane: str) -> None:
+        if self._active_pane == pane:
+            return
+        self._active_pane = pane
+        self._on_tab_changed()
+
+    @property
     def _current_tab_id(self) -> str | None:
-        if not self.notebook.tabs():
+        nb = self._active_notebook
+        if not nb.tabs():
             return None
-        return self.notebook.select()
+        try:
+            return nb.select()
+        except Exception:
+            return None
 
     @property
     def _current_codeview(self) -> CodeView | None:
@@ -545,15 +581,22 @@ class Notepad(Tk):
                 "break",
             )[2],
         )
-        # Plain click — clear secondary cursors and dismiss completion
-        codeview.bind(
-            "<ButtonPress-1>",
-            lambda _, m=mc: (
-                self._completion.hide(),
-                m.clear() if m.active else None,
-                self._update_cursor_status() if m.active else None,
-            ),
-        )
+        # Plain click — clear secondary cursors, dismiss completion, activate pane
+        def _on_click(_, m=mc, cv=codeview):
+            self._completion.hide()
+            if m.active:
+                m.clear()
+                self._update_cursor_status()
+            # Determine which pane this codeview belongs to and activate it
+            pane = "right" if (
+                self._notebook_r and any(
+                    self._codeviews.get(tid) is cv
+                    for tid in self._notebook_r.tabs()
+                )
+            ) else "left"
+            self._set_active_pane(pane)
+
+        codeview.bind("<ButtonPress-1>", _on_click)
         # Escape — also clears secondary cursors
         codeview.bind(
             "<Escape>",
@@ -594,8 +637,15 @@ class Notepad(Tk):
                 return False  # save failed or was cancelled
         return True
 
-    def _close_tab(self, index: int) -> None:
-        tabs = self.notebook.tabs()
+    def _which_notebook(self, tab_id: str) -> CustomNotebook:
+        """Return the notebook that owns *tab_id*."""
+        if self._notebook_r and tab_id in self._notebook_r.tabs():
+            return self._notebook_r
+        return self.notebook
+
+    def _close_tab(self, index: int, notebook: CustomNotebook | None = None) -> None:
+        nb = notebook or self.notebook
+        tabs = nb.tabs()
         if index >= len(tabs):
             return
         tab_id = tabs[index]
@@ -612,8 +662,10 @@ class Notepad(Tk):
             mc.clear()
         if closed_path and closed_path.endswith(".py") and self._lsp:
             self._lsp.close_file(closed_path)
-        self.notebook.forget(index)
-        if not self.notebook.tabs():
+        nb.forget(index)
+        if nb is self._notebook_r and not nb.tabs():
+            self._close_split()
+        elif nb is self.notebook and not nb.tabs():
             self._new_tab("Untitled", "")
 
     # ── Event handlers ────────────────────────────────────────────────────────
@@ -743,7 +795,12 @@ class Notepad(Tk):
         marker = "● " if self._dirty.get(tab_id) else ""
         git_st = self._git_tab_status.get(tab_id, "")
         suffix = f" {git_st}" if git_st else ""
-        self.notebook.tab(tab_id, text=f"  {marker}{name}{suffix}  ")
+        text = f"  {marker}{name}{suffix}  "
+        nb = self._which_notebook(tab_id)
+        try:
+            nb.tab(tab_id, text=text)
+        except Exception:
+            pass
 
     def _update_title(self) -> None:
         tab_id = self._current_tab_id
@@ -1549,6 +1606,249 @@ class Notepad(Tk):
                 cv.show_minimap()
             else:
                 cv.hide_minimap()
+
+    def view_split_editor(self) -> None:
+        """Toggle the split editor."""
+        if self._split_active:
+            self._close_split()
+        else:
+            self._open_in_split(self._current_tab_id)
+
+    # ── Split editor ──────────────────────────────────────────────────────────
+
+    def _open_in_split(self, tab_id: str | None) -> None:
+        """Open the file from *tab_id* in the right split pane."""
+        if not tab_id:
+            return
+        path  = self._files.get(tab_id)
+        title = self._titles.get(tab_id, "Untitled")
+        cv    = self._codeviews.get(tab_id)
+        if cv is None:
+            return
+        content = cv.get("1.0", "end-1c")
+
+        # Build the right pane on first use
+        if not self._split_active:
+            self._build_right_pane()
+
+        # Open as a new tab in the right notebook
+        self._new_tab_in(
+            self._notebook_r,
+            title, content, filepath=path,
+        )
+        self._split_active = True
+        self._set_active_pane("right")
+        # Patch scroll callbacks on all codeviews now that split is live
+        self._patch_scroll_callbacks()
+
+    def _build_right_pane(self) -> None:
+        """Create the right notebook frame and wire it up."""
+        import tkinter as tk
+
+        self._nb_frame_r = ttk.Frame(self._split_pane)
+        self._split_pane.add(self._nb_frame_r, weight=1)
+
+        # Thin header with "SPLIT" label, lock button, and × close button
+        hdr = tk.Frame(self._nb_frame_r, bg="#2d2d30", height=24)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+
+        tk.Label(hdr, text="  SPLIT", bg="#2d2d30", fg="#858585",
+                 font=("Segoe UI", 8, "bold")).pack(side="left")
+        tk.Button(
+            hdr, text="×", bg="#2d2d30", fg="#858585",
+            activebackground="#2d2d30", activeforeground="#cccccc",
+            relief="flat", bd=0, font=("Segoe UI", 10, "bold"),
+            cursor="hand2", command=self._close_split,
+        ).pack(side="right", padx=4)
+
+        self._scroll_locked = False
+        self._lock_btn = tk.Button(
+            hdr, text="⇕", bg="#2d2d30", fg="#555555",
+            activebackground="#2d2d30", activeforeground="#cccccc",
+            relief="flat", bd=0, font=("Segoe UI", 10),
+            cursor="hand2", command=self._toggle_scroll_lock,
+        )
+        self._lock_btn.pack(side="right", padx=2)
+
+        self._notebook_r = CustomNotebook(
+            self._nb_frame_r,
+            on_close=lambda idx: self._close_tab(idx, self._notebook_r),
+        )
+        self._notebook_r.pack(fill="both", expand=True)
+        self._notebook_r.bind(
+            "<<NotebookTabChanged>>",
+            lambda _: self._on_tab_changed_r(),
+            add=True,
+        )
+        self._notebook_r.bind(
+            "<ButtonPress-1>",
+            lambda _: self._set_active_pane("right"),
+            add=True,
+        )
+
+    def _on_tab_changed_r(self) -> None:
+        """Tab changed in the right notebook — set it active and refresh outline."""
+        self._active_pane = "right"
+        self._on_tab_changed()
+
+    def _toggle_scroll_lock(self) -> None:
+        self._scroll_locked = not self._scroll_locked
+        if self._lock_btn:
+            self._lock_btn.config(
+                fg="#007acc" if self._scroll_locked else "#555555"
+            )
+        if self._scroll_locked:
+            # Snap right pane to match left pane immediately
+            left_cv = self._get_left_cv()
+            right_cv = self._get_right_cv()
+            if left_cv and right_cv:
+                right_cv.yview_moveto(left_cv.yview()[0])
+
+    def _get_left_cv(self):
+        tid = self.notebook.select() if self.notebook.tabs() else None
+        return self._codeviews.get(tid) if tid else None
+
+    def _get_right_cv(self):
+        if not self._notebook_r or not self._notebook_r.tabs():
+            return None
+        tid = self._notebook_r.select()
+        return self._codeviews.get(tid)
+
+    def _on_scroll_locked(self, source: str, *args) -> None:
+        """Called by the yscrollcommand of whichever pane scrolled."""
+        if not self._scroll_locked:
+            return
+        left_cv  = self._get_left_cv()
+        right_cv = self._get_right_cv()
+        if not left_cv or not right_cv:
+            return
+        fraction = float(args[0])
+        if source == "left":
+            right_cv.yview_moveto(fraction)
+        else:
+            left_cv.yview_moveto(fraction)
+
+    def _patch_scroll_callbacks(self) -> None:
+        """Wrap the yscrollcommand on both codeviews so scroll lock can sync them."""
+        import tkinter as tk
+        left_cv = self._get_left_cv()
+        right_cv = self._get_right_cv()
+        if not left_cv or not right_cv:
+            return
+
+        orig_left_vs = left_cv.vertical_scroll
+        orig_right_vs = right_cv.vertical_scroll
+
+        def left_scroll(first, last):
+            orig_left_vs(first, last)
+            if self._scroll_locked and not self._syncing_scroll:
+                self._syncing_scroll = True
+                try:
+                    right_cv.yview_moveto(float(first))
+                finally:
+                    self._syncing_scroll = False
+
+        def right_scroll(first, last):
+            orig_right_vs(first, last)
+            if self._scroll_locked and not self._syncing_scroll:
+                self._syncing_scroll = True
+                try:
+                    left_cv.yview_moveto(float(first))
+                finally:
+                    self._syncing_scroll = False
+
+        tk.Text.configure(left_cv, yscrollcommand=left_scroll)
+        tk.Text.configure(right_cv, yscrollcommand=right_scroll)
+
+    def _close_split(self) -> None:
+        """Close the right split pane after checking for unsaved changes."""
+        if not self._split_active or self._notebook_r is None:
+            return
+        # Check each right-pane tab for unsaved changes
+        for tab_id in list(self._notebook_r.tabs()):
+            if not self._confirm_close_tab(tab_id):
+                return  # user cancelled
+        # All confirmed — clean up
+        for tab_id in list(self._notebook_r.tabs()):
+            closed_path = self._files.pop(tab_id, None)
+            self._titles.pop(tab_id, None)
+            self._dirty.pop(tab_id, None)
+            self._indent_sizes.pop(tab_id, None)
+            self._codeviews.pop(tab_id, None)
+            self._key_handlers.pop(tab_id, None)
+            mc = self._multi_cursors.pop(tab_id, None)
+            if mc:
+                mc.clear()
+            if closed_path and closed_path.endswith(".py") and self._lsp:
+                self._lsp.close_file(closed_path)
+        self._split_pane.forget(self._nb_frame_r)
+        self._nb_frame_r.destroy()
+        self._nb_frame_r   = None
+        self._notebook_r   = None
+        self._split_active = False
+        self._set_active_pane("left")
+
+    def _new_tab_in(
+        self,
+        notebook: CustomNotebook,
+        title: str,
+        content: str,
+        filepath: str | None = None,
+    ) -> None:
+        """Like _new_tab but targets a specific notebook (used for right pane)."""
+        import pygments.lexers
+        import pygments.util
+        lexer = pygments.lexers.PythonLexer()
+        if filepath:
+            try:
+                lexer = pygments.lexers.get_lexer_for_filename(filepath)
+            except pygments.util.ClassNotFound:
+                pass
+
+        frame = ttk.Frame(notebook)
+        codeview = CodeView(
+            frame,
+            lexer=lexer,
+            color_scheme=self.theme_var.get(),
+            tab_width=4,
+            autohide_scrollbar=False,
+            default_context_menu=True,
+            undo=True,
+            maxundo=-1,
+        )
+        codeview.pack(fill="both", expand=True)
+        codeview.insert("1.0", content)
+        codeview.edit_reset()
+
+        notebook.add(frame, text=f"  {title}  ")
+        notebook.select(frame)
+
+        tab_id = notebook.select()
+        self._files[tab_id]        = filepath
+        self._titles[tab_id]       = title
+        self._dirty[tab_id]        = False
+        self._indent_sizes[tab_id] = 4
+        self._codeviews[tab_id]    = codeview
+
+        is_code = not isinstance(lexer, pygments.lexers.TextLexer)
+        handler = KeyHandler(tab_size=4, smart_pairs=is_code)
+        mc      = MultiCursor(codeview, tab_size=4)
+        self._key_handlers[tab_id]  = handler
+        self._multi_cursors[tab_id] = mc
+        self._setup_codeview(codeview, handler, mc)
+        self._sidebar.apply_theme(
+            bg=codeview.cget("bg"),
+            fg=codeview.cget("fg"),
+            select_bg=codeview.cget("selectbackground"),
+            codeview=codeview,
+        )
+        if not self.minimap_visible_var.get():
+            codeview.hide_minimap()
+
+        if isinstance(lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)):
+            if filepath and self._lsp:
+                self._lsp.open_file(filepath, content)
 
     def view_source_control(self) -> None:
         """Toggle the Source Control sidebar panel."""

@@ -14,7 +14,10 @@ class CustomNotebook(ttk.Notebook):
     __initialized = False
 
     def __init__(
-        self, *args, on_close: Optional[Callable[[int], None]] = None, **kwargs
+        self, *args,
+        on_close: Optional[Callable[[int], None]] = None,
+        on_split: Optional[Callable[[str], None]] = None,
+        **kwargs
     ):
         if not self.__class__.__initialized:
             self._initialize_style()
@@ -24,6 +27,8 @@ class CustomNotebook(ttk.Notebook):
         super().__init__(*args, **kwargs)
 
         self._on_close = on_close
+        self._on_split = on_split   # called with tab_id when drag/menu → split
+        self._split_open_ref = None  # callable → bool, set by app to check split state
         self._hovered_tab: int | None = None
 
         # Hover X — placed over whichever tab is under the cursor
@@ -43,6 +48,8 @@ class CustomNotebook(ttk.Notebook):
 
         # Right-click context menu
         self._tab_menu = Menu(self, tearoff=0)
+        self._tab_menu.add_command(label="Open in Split Editor", command=self._split_from_menu)
+        self._tab_menu.add_separator()
         self._tab_menu.add_command(label="Close",            command=self._close_from_menu)
         self._tab_menu.add_command(label="Close Others",     command=self._close_others)
         self._tab_menu.add_command(label="Close to the Left",  command=self._close_left)
@@ -54,6 +61,7 @@ class CustomNotebook(ttk.Notebook):
         # Drag state
         self._drag_index: int | None = None
         self._drag_tab_id: str | None = None
+        self._drop_overlay = None
 
         self.bind("<ButtonPress-1>",   self._on_drag_start)
         self.bind("<B1-Motion>",       self._on_drag_motion)
@@ -83,6 +91,20 @@ class CustomNotebook(ttk.Notebook):
         # Hide hover X while dragging
         self._hovered_tab = None
         self._hide_hover_btn()
+
+        # Show drop zone when cursor crosses into the right drop region.
+        # If split is already open the trigger is the right edge of this notebook;
+        # otherwise it's the midpoint (previewing where the split will appear).
+        nb_right = self.winfo_rootx() + self.winfo_width()
+        if self._on_split and self._split_open_ref and self._split_open_ref():
+            threshold = nb_right - 8   # near the right edge of the left pane
+        else:
+            threshold = self.winfo_rootx() + self.winfo_width() // 2
+        if event.x_root > threshold:
+            self._show_drop_zone()
+            return
+        self._hide_drop_zone()
+
         try:
             target = self.index(f"@{event.x},{event.y}")
         except Exception:
@@ -93,10 +115,57 @@ class CustomNotebook(ttk.Notebook):
         self.insert(target, self._drag_tab_id)
         self._drag_index = target
 
-    def _on_drag_release(self, _) -> None:
+    def _on_drag_release(self, event) -> None:
+        tab_id = self._drag_tab_id
         self._drag_index = None
         self._drag_tab_id = None
         self.configure(cursor="")
+        self._hide_drop_zone()
+        # Released past the threshold → open in split
+        if tab_id and self._on_split:
+            nb_right = self.winfo_rootx() + self.winfo_width()
+            if self._split_open_ref and self._split_open_ref():
+                threshold = nb_right - 8
+            else:
+                threshold = self.winfo_rootx() + self.winfo_width() // 2
+            if event.x_root > threshold:
+                self._on_split(tab_id)
+
+    def _show_drop_zone(self) -> None:
+        """Show a semi-transparent right-half overlay indicating the split drop target."""
+        import tkinter as tk
+        if not hasattr(self, "_drop_overlay") or self._drop_overlay is None:
+            overlay = tk.Toplevel(self)
+            overlay.overrideredirect(True)
+            overlay.attributes("-alpha", 0.25)
+            overlay.attributes("-topmost", True)
+            overlay.configure(bg="#007acc")
+            overlay.lift()
+            self._drop_overlay = overlay
+        # If split is already open, cover the existing right notebook area.
+        # Otherwise cover the right half of this notebook (preview position).
+        if self._split_open_ref and self._split_open_ref():
+            # Right pane starts just after the right edge of this notebook
+            split_pane = self.master.master if hasattr(self.master, "master") else self.master
+            px = self.winfo_rootx() + self.winfo_width()
+            py = self.winfo_rooty()
+            # Width = remaining space to the right
+            pw = max(50, split_pane.winfo_rootx() + split_pane.winfo_width() - px)
+            ph = split_pane.winfo_height()
+        else:
+            px = self.winfo_rootx() + self.winfo_width() // 2
+            py = self.winfo_rooty()
+            pw = self.winfo_width() // 2
+            ph = self.master.winfo_height()
+        self._drop_overlay.geometry(f"{pw}x{ph}+{px}+{py}")
+        self._drop_overlay.deiconify()
+
+    def _hide_drop_zone(self) -> None:
+        if hasattr(self, "_drop_overlay") and self._drop_overlay:
+            try:
+                self._drop_overlay.withdraw()
+            except Exception:
+                pass
 
     # ── Hover X logic ─────────────────────────────────────────────────────────
 
@@ -206,6 +275,12 @@ class CustomNotebook(ttk.Notebook):
         self._menu_index = index
         self.select(index)
         self._tab_menu.tk_popup(event.x_root, event.y_root)
+
+    def _split_from_menu(self) -> None:
+        if self._menu_index is not None and self._on_split:
+            tabs = self.tabs()
+            if self._menu_index < len(tabs):
+                self._on_split(tabs[self._menu_index])
 
     def _close_from_menu(self) -> None:
         if self._menu_index is not None:
