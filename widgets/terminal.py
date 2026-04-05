@@ -540,15 +540,26 @@ class TerminalPanel(ttk.Frame):
 
     def _read_loop(self) -> None:
         """Read from the PTY in a background thread and push to the queue."""
+        import sys, os
+        log_path = os.path.join(os.path.expanduser("~"), "terminal_debug.log")
+        log = open(log_path, "w", encoding="utf-8")
+        chunk_num = 0
         while self._running and self._pty and self._pty.isalive():
             try:
                 chunk = self._pty.read(4096)
                 if chunk:
+                    chunk_num += 1
+                    log.write(f"\n--- chunk {chunk_num} ({len(chunk)} chars) ---\n")
+                    log.write(repr(chunk))
+                    log.write("\n")
+                    log.flush()
                     self._queue.put(chunk)
             except EOFError:
                 break
             except Exception:
                 break
+        log.write("\n--- EOF ---\n")
+        log.close()
         self._queue.put(None)  # sentinel
 
     def _poll(self) -> None:
