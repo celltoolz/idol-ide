@@ -43,6 +43,10 @@ else:
 
 # Matches ESC [ ... sequences — params include ? for private modes like ESC[?1004h
 _ANSI_RE = re.compile(r'\x1b\[([0-9;?<=>!]*)([A-Za-z@^`])')
+# OSC sequences: ESC ] ... BEL  or  ESC ] ... ST (ESC \)
+_OSC_RE  = re.compile(r'\x1b\].*?(?:\x07|\x1b\\)', re.DOTALL)
+# Other single-char or two-char escape sequences to silently consume
+_ESC_RE  = re.compile(r'\x1b[()^_PX][^\x1b]*(?:\x1b\\|\x07)?|\x1b[A-Z\\]')
 
 # Map ANSI color index → hex (Dracula palette)
 _ANSI_COLORS = {
@@ -478,10 +482,20 @@ class TerminalPanel(ttk.Frame):
                             new_idx = "insert linestart"
                         self._text.mark_set("insert", new_idx)
 
-                    # All other sequences silently consumed
+                    # All other CSI sequences silently consumed
                     i = m.end()
                 else:
-                    i += 1
+                    # Try OSC (title, color set, etc.) — silently consume
+                    m = _OSC_RE.match(chunk, i)
+                    if m:
+                        i = m.end()
+                    else:
+                        # Try other non-CSI escape sequences — silently consume
+                        m = _ESC_RE.match(chunk, i)
+                        if m:
+                            i = m.end()
+                        else:
+                            i += 1
 
             else:
                 # Collect a run of printable characters.
