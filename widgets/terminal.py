@@ -478,12 +478,14 @@ class TerminalPanel(ttk.Frame):
                         self._text.mark_set("insert", f"{new_line}.{cur_col}")
 
                     elif letter == 'B':
-                        # Cursor Down n lines
+                        # Cursor Down n lines — insert blank lines if needed
                         n = p[0] if p else 1
                         cur = self._text.index("insert")
                         cur_line, cur_col = map(int, cur.split('.'))
                         total = int(self._text.index("end-1c").split('.')[0])
-                        new_line = min(total, cur_line + n)
+                        new_line = cur_line + n
+                        if new_line > total:
+                            self._text.insert("end", "\n" * (new_line - total))
                         self._text.mark_set("insert", f"{new_line}.{cur_col}")
 
                     elif letter == 'C':
