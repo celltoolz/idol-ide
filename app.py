@@ -160,7 +160,7 @@ class Notepad(Tk):
 
         # Split editor
         self._split_active: bool = False
-        self._active_pane: str = "left"   # "left" | "right"
+        self._active_pane: str = "left"  # "left" | "right"
         self._notebook_r: CustomNotebook | None = None
         self._nb_frame_r = None
         self._scroll_locked: bool = False
@@ -202,13 +202,13 @@ class Notepad(Tk):
             on_file_open=self._open_file,
             on_navigate=self._outline_navigate,
             sc_callbacks={
-                "stage":   self._sc_stage,
+                "stage": self._sc_stage,
                 "unstage": self._sc_unstage,
                 "discard": self._sc_discard,
-                "commit":  self._sc_commit,
-                "push":    self._sc_push,
-                "pull":    self._sc_pull,
-                "diff":    self._sc_open_diff,
+                "commit": self._sc_commit,
+                "push": self._sc_push,
+                "pull": self._sc_pull,
+                "diff": self._sc_open_diff,
             },
         )
         self._sidebar.configure(width=220)
@@ -234,7 +234,9 @@ class Notepad(Tk):
         self.notebook._split_open_ref = lambda: self._split_active
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add=True)
-        self.notebook.bind("<ButtonPress-1>", lambda _: self._set_active_pane("left"), add=True)
+        self.notebook.bind(
+            "<ButtonPress-1>", lambda _: self._set_active_pane("left"), add=True
+        )
 
         # Inline find/replace bar (lives inside nb_frame, hidden by default)
         self._find_replace = FindReplaceBar(nb_frame)
@@ -315,9 +317,6 @@ class Notepad(Tk):
             ),
         )
 
-        for btn in (self._prev_btn, self._next_btn, self._plus_btn):
-            btn.lift()
-
         self._output = BottomPanel(self._v_pane, run_callback=self.run_file)
         self._v_pane.add(self._output, weight=1)
 
@@ -355,7 +354,7 @@ class Notepad(Tk):
 
     def _place_plus_btn(self) -> None:
         """Position the ‹ › + buttons directly above the vertical scrollbar."""
-        nb = self.notebook   # buttons always live in the left notebook frame
+        nb = self.notebook  # buttons always live in the left notebook frame
         left_cv_id = nb.select() if nb.tabs() else None
         left_cv = self._codeviews.get(left_cv_id) if left_cv_id else None
         if left_cv is None:
@@ -385,8 +384,9 @@ class Notepad(Tk):
             x=right_x - vs_w, y=3, width=vs_w, height=btn_h, anchor="nw"
         )
 
-        for btn in (self._prev_btn, self._next_btn, self._plus_btn):
-            btn.lift()
+        # Keep find/replace bar above the buttons at all times
+        if self._find_replace:
+            self._find_replace.lift()
 
         # Reserve tab bar margin so tabs never slide under the buttons
         btn_area = vs_w * 3 + 6
@@ -583,6 +583,7 @@ class Notepad(Tk):
                 "break",
             )[2],
         )
+
         # Plain click — clear secondary cursors, dismiss completion, activate pane
         def _on_click(_, m=mc, cv=codeview):
             self._completion.hide()
@@ -590,12 +591,17 @@ class Notepad(Tk):
                 m.clear()
                 self._update_cursor_status()
             # Determine which pane this codeview belongs to and activate it
-            pane = "right" if (
-                self._notebook_r and any(
-                    self._codeviews.get(tid) is cv
-                    for tid in self._notebook_r.tabs()
+            pane = (
+                "right"
+                if (
+                    self._notebook_r
+                    and any(
+                        self._codeviews.get(tid) is cv
+                        for tid in self._notebook_r.tabs()
+                    )
                 )
-            ) else "left"
+                else "left"
+            )
             self._set_active_pane(pane)
 
         codeview.bind("<ButtonPress-1>", _on_click)
@@ -1025,8 +1031,10 @@ class Notepad(Tk):
 
     def _sc_discard(self, path: str) -> None:
         name = os.path.basename(path)
-        if not askyesno("Discard Changes",
-                        f"Discard all changes to '{name}'? This cannot be undone."):
+        if not askyesno(
+            "Discard Changes",
+            f"Discard all changes to '{name}'? This cannot be undone.",
+        ):
             return
         if self._git:
             self._git.discard(path, callback=self._refresh_sc_panel)
@@ -1034,40 +1042,48 @@ class Notepad(Tk):
     def _sc_commit(self, message: str) -> None:
         if not self._git:
             return
+
         def _done(output: str) -> None:
             self._output.output.write(f"[git commit]\n{output}\n", "stdout")
             self._refresh_git()
             self._refresh_sc_panel()
+
         self._git.commit(message, callback=_done)
 
     def _sc_push(self) -> None:
         if not self._git:
             return
         self._output.output.write("[git push] Running…\n", "stdout")
+
         def _done(output: str) -> None:
             self._output.output.write(f"{output}\n", "stdout")
             self._refresh_git()
+
         self._git.push(callback=_done)
 
     def _sc_pull(self) -> None:
         if not self._git:
             return
         self._output.output.write("[git pull] Running…\n", "stdout")
+
         def _done(output: str) -> None:
             self._output.output.write(f"{output}\n", "stdout")
             self._refresh_git()
             self._refresh_sc_panel()
+
         self._git.pull(callback=_done)
 
     def _sc_open_diff(self, path: str) -> None:
         """Open a read-only diff tab for *path*."""
         if not self._git:
             return
+
         def _show(diff_text: str) -> None:
             if not diff_text:
                 return
             name = f"Δ {os.path.basename(path)}"
             self._open_diff_tab(name, diff_text)
+
         self._git.get_file_diff(path, _show)
 
     def _open_diff_tab(self, title: str, diff_text: str) -> None:
@@ -1081,7 +1097,8 @@ class Notepad(Tk):
             bg="#1e1e1e",
             fg="#cccccc",
             font=self._codeviews[self._current_tab_id].cget("font")
-                 if self._current_tab_id and self._codeviews else ("Consolas", 11),
+            if self._current_tab_id and self._codeviews
+            else ("Consolas", 11),
             insertwidth=0,
             relief="flat",
             padx=8,
@@ -1089,10 +1106,10 @@ class Notepad(Tk):
             wrap="none",
             state="normal",
         )
-        txt.tag_configure("add",    foreground="#4ec994")
+        txt.tag_configure("add", foreground="#4ec994")
         txt.tag_configure("remove", foreground="#f14c4c")
-        txt.tag_configure("hunk",   foreground="#569cd6")
-        txt.tag_configure("meta",   foreground="#858585")
+        txt.tag_configure("hunk", foreground="#569cd6")
+        txt.tag_configure("meta", foreground="#858585")
 
         for line in diff_text.splitlines(keepends=True):
             if line.startswith("+++") or line.startswith("---"):
@@ -1116,11 +1133,11 @@ class Notepad(Tk):
         self.notebook.add(frame, text=f"  {title}  ")
         self.notebook.select(frame)
         tab_id = self.notebook.select()
-        self._files[tab_id]   = None
-        self._titles[tab_id]  = title
-        self._dirty[tab_id]   = False
+        self._files[tab_id] = None
+        self._titles[tab_id] = title
+        self._dirty[tab_id] = False
         self._indent_sizes[tab_id] = 4
-        self._codeviews[tab_id] = None   # not a real codeview
+        self._codeviews[tab_id] = None  # not a real codeview
 
     # ── Completion ────────────────────────────────────────────────────────────
 
@@ -1622,9 +1639,9 @@ class Notepad(Tk):
         """Open the file from *tab_id* in the right split pane."""
         if not tab_id:
             return
-        path  = self._files.get(tab_id)
+        path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
-        cv    = self._codeviews.get(tab_id)
+        cv = self._codeviews.get(tab_id)
         if cv is None:
             return
         content = cv.get("1.0", "end-1c")
@@ -1636,7 +1653,9 @@ class Notepad(Tk):
         # Open as a new tab in the right notebook
         self._new_tab_in(
             self._notebook_r,
-            title, content, filepath=path,
+            title,
+            content,
+            filepath=path,
         )
         self._split_active = True
         self._set_active_pane("right")
@@ -1655,21 +1674,40 @@ class Notepad(Tk):
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
 
-        tk.Label(hdr, text="  SPLIT", bg="#2d2d30", fg="#858585",
-                 font=("Segoe UI", 8, "bold")).pack(side="left")
+        tk.Label(
+            hdr,
+            text="  SPLIT",
+            bg="#2d2d30",
+            fg="#858585",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side="left")
         tk.Button(
-            hdr, text="×", bg="#2d2d30", fg="#858585",
-            activebackground="#2d2d30", activeforeground="#cccccc",
-            relief="flat", bd=0, font=("Segoe UI", 10, "bold"),
-            cursor="hand2", command=self._close_split,
+            hdr,
+            text="×",
+            bg="#2d2d30",
+            fg="#858585",
+            activebackground="#2d2d30",
+            activeforeground="#cccccc",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 10, "bold"),
+            cursor="hand2",
+            command=self._close_split,
         ).pack(side="right", padx=4)
 
         self._scroll_locked = False
         self._lock_btn = tk.Button(
-            hdr, text="⇕", bg="#2d2d30", fg="#555555",
-            activebackground="#2d2d30", activeforeground="#cccccc",
-            relief="flat", bd=0, font=("Segoe UI", 10),
-            cursor="hand2", command=self._toggle_scroll_lock,
+            hdr,
+            text="⇕",
+            bg="#2d2d30",
+            fg="#555555",
+            activebackground="#2d2d30",
+            activeforeground="#cccccc",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 10),
+            cursor="hand2",
+            command=self._toggle_scroll_lock,
         )
         self._lock_btn.pack(side="right", padx=2)
 
@@ -1697,9 +1735,7 @@ class Notepad(Tk):
     def _toggle_scroll_lock(self) -> None:
         self._scroll_locked = not self._scroll_locked
         if self._lock_btn:
-            self._lock_btn.config(
-                fg="#007acc" if self._scroll_locked else "#555555"
-            )
+            self._lock_btn.config(fg="#007acc" if self._scroll_locked else "#555555")
         if self._scroll_locked:
             # Snap right pane to match left pane immediately
             left_cv = self._get_left_cv()
@@ -1721,7 +1757,7 @@ class Notepad(Tk):
         """Called by the yscrollcommand of whichever pane scrolled."""
         if not self._scroll_locked:
             return
-        left_cv  = self._get_left_cv()
+        left_cv = self._get_left_cv()
         right_cv = self._get_right_cv()
         if not left_cv or not right_cv:
             return
@@ -1734,6 +1770,7 @@ class Notepad(Tk):
     def _patch_scroll_callbacks(self) -> None:
         """Wrap the yscrollcommand on both codeviews so scroll lock can sync them."""
         import tkinter as tk
+
         left_cv = self._get_left_cv()
         right_cv = self._get_right_cv()
         if not left_cv or not right_cv:
@@ -1786,8 +1823,8 @@ class Notepad(Tk):
                 self._lsp.close_file(closed_path)
         self._split_pane.forget(self._nb_frame_r)
         self._nb_frame_r.destroy()
-        self._nb_frame_r   = None
-        self._notebook_r   = None
+        self._nb_frame_r = None
+        self._notebook_r = None
         self._split_active = False
         self._set_active_pane("left")
 
@@ -1801,6 +1838,7 @@ class Notepad(Tk):
         """Like _new_tab but targets a specific notebook (used for right pane)."""
         import pygments.lexers
         import pygments.util
+
         lexer = pygments.lexers.PythonLexer()
         if filepath:
             try:
@@ -1827,16 +1865,16 @@ class Notepad(Tk):
         notebook.select(frame)
 
         tab_id = notebook.select()
-        self._files[tab_id]        = filepath
-        self._titles[tab_id]       = title
-        self._dirty[tab_id]        = False
+        self._files[tab_id] = filepath
+        self._titles[tab_id] = title
+        self._dirty[tab_id] = False
         self._indent_sizes[tab_id] = 4
-        self._codeviews[tab_id]    = codeview
+        self._codeviews[tab_id] = codeview
 
         is_code = not isinstance(lexer, pygments.lexers.TextLexer)
         handler = KeyHandler(tab_size=4, smart_pairs=is_code)
-        mc      = MultiCursor(codeview, tab_size=4)
-        self._key_handlers[tab_id]  = handler
+        mc = MultiCursor(codeview, tab_size=4)
+        self._key_handlers[tab_id] = handler
         self._multi_cursors[tab_id] = mc
         self._setup_codeview(codeview, handler, mc)
         self._sidebar.apply_theme(
@@ -1848,7 +1886,9 @@ class Notepad(Tk):
         if not self.minimap_visible_var.get():
             codeview.hide_minimap()
 
-        if isinstance(lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)):
+        if isinstance(
+            lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)
+        ):
             if filepath and self._lsp:
                 self._lsp.open_file(filepath, content)
 
@@ -1884,47 +1924,60 @@ class Notepad(Tk):
     def open_command_palette(self) -> None:
         commands = [
             # File
-            ("New File",                "Ctrl+N",          self.file_new),
-            ("Open File...",            "Ctrl+O",          self.file_open),
-            ("Save",                    "Ctrl+S",          self.file_save),
-            ("Save As...",              "Ctrl+Shift+S",    self.file_save_as),
-            ("Close Tab",               "Ctrl+W",          self.file_close),
-            ("New Workspace",           "",                self.workspace_new),
-            ("Close Workspace",         "",                self.workspace_close),
-            ("Save Workspace...",       "",                self.workspace_save),
-            ("Open Workspace...",       "",                self.workspace_open),
-            ("Exit",                    "Ctrl+Q",          self.file_exit),
+            ("New File", "Ctrl+N", self.file_new),
+            ("Open File...", "Ctrl+O", self.file_open),
+            ("Save", "Ctrl+S", self.file_save),
+            ("Save As...", "Ctrl+Shift+S", self.file_save_as),
+            ("Close Tab", "Ctrl+W", self.file_close),
+            ("New Workspace", "", self.workspace_new),
+            ("Close Workspace", "", self.workspace_close),
+            ("Save Workspace...", "", self.workspace_save),
+            ("Open Workspace...", "", self.workspace_open),
+            ("Exit", "Ctrl+Q", self.file_exit),
             # Edit
-            ("Undo",                    "Ctrl+Z",          self.edit_undo),
-            ("Redo",                    "Ctrl+Y",          self.edit_redo),
-            ("Cut",                     "Ctrl+X",          self.edit_cut),
-            ("Copy",                    "Ctrl+C",          self.edit_copy),
-            ("Paste",                   "Ctrl+V",          self.edit_paste),
-            ("Select All",              "Ctrl+A",          self.edit_select_all),
-            ("Find & Replace",          "Ctrl+F",          self.edit_find_replace),
+            ("Undo", "Ctrl+Z", self.edit_undo),
+            ("Redo", "Ctrl+Y", self.edit_redo),
+            ("Cut", "Ctrl+X", self.edit_cut),
+            ("Copy", "Ctrl+C", self.edit_copy),
+            ("Paste", "Ctrl+V", self.edit_paste),
+            ("Select All", "Ctrl+A", self.edit_select_all),
+            ("Find & Replace", "Ctrl+F", self.edit_find_replace),
             # View
-            ("Change Font...",          "Ctrl+L",          self.view_change_font),
-            ("Toggle Highlight Active Line", "",           self.view_toggle_highlight),
-            ("Active Line Color...",    "",                self.view_active_line_color),
-            ("Show/Hide Output Panel",  "",                self.view_toggle_output),
-            ("New Terminal",            "Ctrl+`",          self.view_new_terminal),
-            ("Show/Hide Minimap",       "",                self.view_toggle_minimap),
-            ("Split Editor",            "Ctrl+\\",         self.view_split_editor),
-            ("Source Control",          "Ctrl+Shift+G",    self.view_source_control),
+            ("Change Font...", "Ctrl+L", self.view_change_font),
+            ("Toggle Highlight Active Line", "", self.view_toggle_highlight),
+            ("Active Line Color...", "", self.view_active_line_color),
+            ("Show/Hide Output Panel", "", self.view_toggle_output),
+            ("New Terminal", "Ctrl+`", self.view_new_terminal),
+            ("Show/Hide Minimap", "", self.view_toggle_minimap),
+            ("Split Editor", "Ctrl+\\", self.view_split_editor),
+            ("Source Control", "Ctrl+Shift+G", self.view_source_control),
             # Themes
             *[
-                (f"Theme: {t}", "", lambda t=t: (self.theme_var.set(t), self.view_change_theme()))
-                for t in ["ayu-dark", "ayu-light", "dracula", "mariana", "material", "monokai", "rrt"]
+                (
+                    f"Theme: {t}",
+                    "",
+                    lambda t=t: (self.theme_var.set(t), self.view_change_theme()),
+                )
+                for t in [
+                    "ayu-dark",
+                    "ayu-light",
+                    "dracula",
+                    "mariana",
+                    "material",
+                    "monokai",
+                    "rrt",
+                ]
             ],
             # Run
-            ("Run File",                "F5",              self.run_file),
-            ("Stop",                    "",                self.run_stop),
-            ("Clear Output",            "",                self.run_clear),
+            ("Run File", "F5", self.run_file),
+            ("Stop", "", self.run_stop),
+            ("Clear Output", "", self.run_clear),
             # Help
-            ("About",                   "",                self.help_about),
+            ("About", "", self.help_about),
         ]
         CommandPalette(
-            self, commands,
+            self,
+            commands,
             symbol_fn=self._outline.get_symbols,
             navigate_fn=self._outline_navigate,
         )
