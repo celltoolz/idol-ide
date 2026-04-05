@@ -18,6 +18,7 @@ from widgets.sidebar import Sidebar
 from widgets.bottom_panel import BottomPanel
 from widgets.find_replace import FindReplaceBar
 from widgets.statusbar import StatusBar
+from widgets.command_palette import CommandPalette
 from editor.bracket_matcher import BracketMatcher
 from editor.key_handler import KeyHandler
 from editor.multi_cursor import MultiCursor
@@ -408,6 +409,7 @@ class Notepad(Tk):
         self.bind("<Control-grave>", lambda _: self.view_new_terminal())
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
+        self.bind("<Control-P>", lambda _: self.open_command_palette())
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
 
@@ -902,7 +904,7 @@ class Notepad(Tk):
         )
 
     def _do_hover(self, mx: int, my: int, cv: CodeView, path: str) -> None:
-        if not self._lsp:
+        if not self._lsp or not path:
             return
         idx = cv.index(f"@{mx},{my}")
         line, col = idx.split(".")
@@ -1876,6 +1878,56 @@ class Notepad(Tk):
 
     def run_clear(self) -> None:
         self._output.clear()
+
+    # ── Command palette ───────────────────────────────────────────────────────
+
+    def open_command_palette(self) -> None:
+        commands = [
+            # File
+            ("New File",                "Ctrl+N",          self.file_new),
+            ("Open File...",            "Ctrl+O",          self.file_open),
+            ("Save",                    "Ctrl+S",          self.file_save),
+            ("Save As...",              "Ctrl+Shift+S",    self.file_save_as),
+            ("Close Tab",               "Ctrl+W",          self.file_close),
+            ("New Workspace",           "",                self.workspace_new),
+            ("Close Workspace",         "",                self.workspace_close),
+            ("Save Workspace...",       "",                self.workspace_save),
+            ("Open Workspace...",       "",                self.workspace_open),
+            ("Exit",                    "Ctrl+Q",          self.file_exit),
+            # Edit
+            ("Undo",                    "Ctrl+Z",          self.edit_undo),
+            ("Redo",                    "Ctrl+Y",          self.edit_redo),
+            ("Cut",                     "Ctrl+X",          self.edit_cut),
+            ("Copy",                    "Ctrl+C",          self.edit_copy),
+            ("Paste",                   "Ctrl+V",          self.edit_paste),
+            ("Select All",              "Ctrl+A",          self.edit_select_all),
+            ("Find & Replace",          "Ctrl+F",          self.edit_find_replace),
+            # View
+            ("Change Font...",          "Ctrl+L",          self.view_change_font),
+            ("Toggle Highlight Active Line", "",           self.view_toggle_highlight),
+            ("Active Line Color...",    "",                self.view_active_line_color),
+            ("Show/Hide Output Panel",  "",                self.view_toggle_output),
+            ("New Terminal",            "Ctrl+`",          self.view_new_terminal),
+            ("Show/Hide Minimap",       "",                self.view_toggle_minimap),
+            ("Split Editor",            "Ctrl+\\",         self.view_split_editor),
+            ("Source Control",          "Ctrl+Shift+G",    self.view_source_control),
+            # Themes
+            *[
+                (f"Theme: {t}", "", lambda t=t: (self.theme_var.set(t), self.view_change_theme()))
+                for t in ["ayu-dark", "ayu-light", "dracula", "mariana", "material", "monokai", "rrt"]
+            ],
+            # Run
+            ("Run File",                "F5",              self.run_file),
+            ("Stop",                    "",                self.run_stop),
+            ("Clear Output",            "",                self.run_clear),
+            # Help
+            ("About",                   "",                self.help_about),
+        ]
+        CommandPalette(
+            self, commands,
+            symbol_fn=self._outline.get_symbols,
+            navigate_fn=self._outline_navigate,
+        )
 
     # ── Help ─────────────────────────────────────────────────────────────────
 

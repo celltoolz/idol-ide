@@ -68,12 +68,17 @@ class Minimap(tk.Frame):
         self._peer.bind("<B1-Motion>",     self._on_drag)
         self._peer.bind("<Motion>",        self._on_hover)
         self._peer.bind("<Leave>",         self._on_leave)
+        self._peer.bind("<MouseWheel>",    self._on_wheel)
+        self._peer.bind("<Button-4>",      self._on_wheel)
+        self._peer.bind("<Button-5>",      self._on_wheel)
 
         # ── Hover Preview ─────────────────────────────────────────────────────
         self._preview: tk.Toplevel | None = None
         self._preview_text: tk.Text | None = None
         self._preview_after: str | None = None
         self._last_preview_line: int = -1
+        self._last_mouse_x: int = 0
+        self._last_mouse_y_root: int = 0
 
         self._refresh_loop()
 
@@ -129,6 +134,8 @@ class Minimap(tk.Frame):
 
     def _on_hover(self, event) -> None:
         """Show a full-size code preview to the left of the scrollbar."""
+        self._last_mouse_x      = event.x
+        self._last_mouse_y_root = event.y_root
         try:
             idx    = self._peer.index(f"@{event.x},{event.y}")
             lineno = int(idx.split(".")[0])
@@ -286,6 +293,24 @@ class Minimap(tk.Frame):
             self._preview.withdraw()
 
     # ── Interaction ───────────────────────────────────────────────────────────
+
+    def _on_wheel(self, event) -> None:
+        if event.num == 4:
+            self._cv.yview_scroll(-5, "units")
+        elif event.num == 5:
+            self._cv.yview_scroll(5, "units")
+        else:
+            self._cv.yview_scroll(-5 if event.delta > 0 else 5, "units")
+        # Refresh preview to reflect the new scroll position
+        if self._preview is not None:
+            self._last_preview_line = -1  # force full rebuild
+            try:
+                idx    = self._peer.index(f"@{self._last_mouse_x},{event.y}")
+                lineno = int(idx.split(".")[0])
+                self._show_preview(lineno, self._last_mouse_y_root)
+            except Exception:
+                pass
+        return "break"
 
     def _on_press(self, event) -> None:
         self._hide_preview()

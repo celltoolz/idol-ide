@@ -188,20 +188,17 @@ class TkLineNumbers(Canvas):
                 self.create_rectangle(0, y, 3, y + h, fill=color, outline="")
 
     def _draw_fold_marker(self, x: int, y: int, size: int, is_folded: bool) -> None:
-        """Draw a circular ⊖ when expanded, ⊕ when folded."""
+        """Draw a square ⊟ when expanded, ⊞ when folded."""
         fg = self.textwidget["fg"]
         bg = self.textwidget["bg"]
-        # Use float center so arms are always perfectly symmetric
         cx = x + size / 2
         cy = y + size / 2
-        arm = size * 0.28  # reach of each bar arm from center
+        arm = size * 0.28
 
-        # Circle
-        self.create_oval(x, y, x + size, y + size, fill=bg, outline=fg, width=1)
+        # Square
+        self.create_rectangle(x, y, x + size, y + size, fill=bg, outline=fg, width=1)
 
         # Horizontal bar (always — the minus part)
-        # +1 on the end coordinate: tkinter canvas lines exclude the end pixel,
-        # so nudging by one keeps the bar visually centered in the circle.
         self.create_line(cx - arm, cy, cx + arm + 1, cy, fill=fg, width=1)
 
         # Vertical bar only when folded (turns - into +)

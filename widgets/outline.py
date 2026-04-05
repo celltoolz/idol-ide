@@ -206,6 +206,23 @@ class OutlinePanel(ttk.Frame):
                                      values=(pline,),
                                      tags=("param",))
 
+    def get_symbols(self) -> list[tuple[str, int]]:
+        """Return a flat list of (display_label, lineno) for all symbols in the tree."""
+        results = []
+        def _walk(parent):
+            for iid in self.tree.get_children(parent):
+                item = self.tree.item(iid)
+                text = item["text"].strip()
+                values = item["values"]
+                tags = item["tags"]
+                # Only include top-level items (classes, functions, vars) — skip params/attrs
+                if tags and tags[0] in ("class", "function", "method", "var"):
+                    if values:
+                        results.append((text, int(values[0])))
+                _walk(iid)
+        _walk("")
+        return results
+
     def _on_select(self, _) -> None:
         selected = self.tree.selection()
         if selected and self._on_navigate:

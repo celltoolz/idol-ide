@@ -111,6 +111,8 @@ def build_menubar(app) -> Menu:
 
     # ── Help ─────────────────────────────────────────────────────────────────
     help_menu = Menu(menubar, tearoff=0)
+    help_menu.add_command(label="Command Palette...", command=app.open_command_palette, accelerator="Ctrl+Shift+P")
+    help_menu.add_separator()
     help_menu.add_command(label="About", command=app.help_about)
     menubar.add_cascade(label="Help", menu=help_menu)
 

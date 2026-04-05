@@ -60,7 +60,9 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     # ── Layout ────────────────────────────────────────────────────────────────
     layout: dict = {}
     try:
-        layout["h_sash"] = app._h_pane.sashpos(0)
+        h = app._h_pane.sashpos(0)
+        if h > 50:  # only save valid non-collapsed positions
+            layout["h_sash"] = h
     except Exception:
         pass
     try:
