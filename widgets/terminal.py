@@ -403,27 +403,11 @@ class TerminalPanel(ttk.Frame):
             self._text.tag_configure(tag, **opts)
         self._tags.add(tag)
 
-    _dbg_render = 0
-    _dbg_log = None
-
     def _render_chunk(self, chunk: str) -> None:
         """Render PTY output with proper CR/LF/BS/ANSI handling."""
-        import os
-        if TerminalPanel._dbg_log is None:
-            TerminalPanel._dbg_log = open(
-                os.path.join(os.path.expanduser("~"), "terminal_debug.log"),
-                "w", encoding="utf-8"
-            )
-
-        TerminalPanel._dbg_render += 1
-        n = TerminalPanel._dbg_render
-        log = TerminalPanel._dbg_log
-        log.write(f"\n=== render #{n} raw input ===\n{repr(chunk)}\n")
-
         # Normalize \r\n → \n so they are treated as a single line-feed.
         # Lone \r (carriage return without LF) is handled separately below.
         chunk = chunk.replace('\r\n', '\n')
-        log.write(f"--- after \\r\\n normalize ---\n{repr(chunk)}\n")
 
         # Position write cursor at the logical end of existing content.
         self._text.mark_set("insert", "end-1c")
@@ -465,12 +449,12 @@ class TerminalPanel(ttk.Frame):
 
                     elif letter == 'K':
                         # Erase in line
-                        n = p[0] if p else 0
-                        if n == 0:
+                        amt = p[0] if p else 0
+                        if amt == 0:
                             self._text.delete("insert", "insert lineend")
-                        elif n == 1:
+                        elif amt == 1:
                             self._text.delete("insert linestart", "insert")
-                        elif n == 2:
+                        elif amt == 2:
                             self._text.delete("insert linestart", "insert lineend")
 
                     elif letter == 'G':
@@ -487,32 +471,32 @@ class TerminalPanel(ttk.Frame):
 
                     elif letter == 'A':
                         # Cursor Up n lines
-                        n = p[0] if p else 1
+                        amt = p[0] if p else 1
                         cur = self._text.index("insert")
                         cur_line, cur_col = map(int, cur.split('.'))
-                        new_line = max(1, cur_line - n)
+                        new_line = max(1, cur_line - amt)
                         self._text.mark_set("insert", f"{new_line}.{cur_col}")
 
                     elif letter == 'B':
                         # Cursor Down n lines — insert blank lines if needed
-                        n = p[0] if p else 1
+                        amt = p[0] if p else 1
                         cur = self._text.index("insert")
                         cur_line, cur_col = map(int, cur.split('.'))
                         total = int(self._text.index("end-1c").split('.')[0])
-                        new_line = cur_line + n
+                        new_line = cur_line + amt
                         if new_line > total:
                             self._text.insert("end", "\n" * (new_line - total))
                         self._text.mark_set("insert", f"{new_line}.{cur_col}")
 
                     elif letter == 'C':
                         # Cursor Forward n columns
-                        n = p[0] if p else 1
-                        self._text.mark_set("insert", f"insert+{n}c")
+                        amt = p[0] if p else 1
+                        self._text.mark_set("insert", f"insert+{amt}c")
 
                     elif letter == 'D':
                         # Cursor Back n columns (don't go past line start)
-                        n = p[0] if p else 1
-                        new_idx = f"insert-{n}c"
+                        amt = p[0] if p else 1
+                        new_idx = f"insert-{amt}c"
                         if self._text.compare(new_idx, "<", "insert linestart"):
                             new_idx = "insert linestart"
                         self._text.mark_set("insert", new_idx)
@@ -551,11 +535,6 @@ class TerminalPanel(ttk.Frame):
                 i = j
 
         self._text.see("end")
-
-        log = TerminalPanel._dbg_log
-        widget_content = self._text.get("1.0", "end")
-        log.write(f"--- widget after render #{TerminalPanel._dbg_render} ---\n{repr(widget_content)}\n")
-        log.flush()
 
     # ── PTY read loop ─────────────────────────────────────────────────────────
 
