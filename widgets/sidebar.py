@@ -266,18 +266,39 @@ class Sidebar(ttk.Frame):
             2: max(M, self._sash3_y),
         }
 
-        # Assign body heights: non-last expanded sections use desired height,
-        # the last expanded section absorbs whatever space remains.
-        body_h: dict[int, int] = {}
-        if n_exp == 0:
-            pass
-        elif n_exp == 1:
-            body_h[expanded[0]] = max(M, free_h)
+        # Option D: guarantee Explorer a minimum slice, then proportionally
+        # squish the other panels into whatever is left.
+        EXPLORER_MIN = 120  # px always reserved for explorer when expanded
+
+        explorer_expanded = 3 in expanded
+        if explorer_expanded:
+            # Space available to non-explorer panels after reserving explorer min
+            other_budget = max(0, free_h - EXPLORER_MIN)
         else:
-            used = sum(desired.get(slot, default_h) for slot in expanded[:-1])
-            for slot in expanded[:-1]:
-                body_h[slot] = desired.get(slot, default_h)
-            body_h[expanded[-1]] = max(M, free_h - used)
+            other_budget = free_h
+
+        other_expanded = [s for s in expanded if s != 3]
+
+        # Sum of what the other panels want
+        other_desired_total = sum(desired.get(s, default_h) for s in other_expanded)
+
+        body_h: dict[int, int] = {}
+
+        if other_expanded:
+            if other_desired_total <= other_budget:
+                # Everyone fits — give them what they want
+                for slot in other_expanded:
+                    body_h[slot] = desired.get(slot, default_h)
+            else:
+                # Proportionally squish non-explorer panels to fit the budget
+                for slot in other_expanded:
+                    want = desired.get(slot, default_h)
+                    ratio = want / other_desired_total if other_desired_total else 1
+                    body_h[slot] = max(M, int(other_budget * ratio))
+
+        if explorer_expanded:
+            used_by_others = sum(body_h.get(s, 0) for s in other_expanded)
+            body_h[3] = max(EXPLORER_MIN, free_h - used_by_others)
 
         # Hide everything, then re-place top-to-bottom
         for widget in (self.outline, self.references, self.source_control,

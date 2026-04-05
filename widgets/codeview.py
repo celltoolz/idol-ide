@@ -116,6 +116,7 @@ class CodeView(Text):
         super().bind(f"<{contmand}-Shift-Z>", self.redo, add=True)
         super().bind("<<ContentChanged>>", self.scroll_line_update, add=True)
         super().bind("<Button-1>", self._line_numbers.redraw, add=True)
+        super().bind("<Double-Button-1>", self._on_double_click, add=True)
 
         # _orig must be set before Minimap so the peer can use it
         self._orig = f"{self._w}_widget"
@@ -176,6 +177,26 @@ class CodeView(Text):
                 label="Select all", accelerator=f"{mod}+A", command=self._select_all
             )
         return context_menu
+
+    def _on_double_click(self, event) -> str:
+        """Select the word under the cursor, stopping at punctuation and whitespace."""
+        idx = self.index(f"@{event.x},{event.y}")
+        line, col = map(int, idx.split("."))
+        line_text = self.get(f"{line}.0", f"{line}.end")
+        if col >= len(line_text):
+            return "break"
+        # Expand left while char is a word character
+        start = col
+        while start > 0 and (line_text[start - 1].isalnum() or line_text[start - 1] == "_"):
+            start -= 1
+        # Expand right while char is a word character
+        end = col
+        while end < len(line_text) and (line_text[end].isalnum() or line_text[end] == "_"):
+            end += 1
+        self.tag_remove("sel", "1.0", "end")
+        self.tag_add("sel", f"{line}.{start}", f"{line}.{end}")
+        self.mark_set("insert", f"{line}.{end}")
+        return "break"
 
     def _select_all(self, *_) -> str:
         self.tag_add("sel", "1.0", "end")
