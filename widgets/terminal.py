@@ -553,14 +553,26 @@ class TerminalPanel(ttk.Frame):
 
     def _poll(self) -> None:
         """Drain the queue every 30 ms on the main thread."""
+        chunks = []
+        sentinel = False
         try:
             while True:
                 item = self._queue.get_nowait()
                 if item is None:
-                    self._running = False
-                    self._write("\n[Process exited]\n", "plain")
+                    sentinel = True
                     break
-                self._render_chunk(item)
+                chunks.append(item)
         except queue.Empty:
             pass
+
+        # Combine all chunks into one string before rendering so that
+        # \r\n normalization and cursor tracking work correctly across
+        # chunk boundaries (e.g. prompt split as "...\r" + "\n└─$ ").
+        if chunks:
+            self._render_chunk("".join(chunks))
+
+        if sentinel:
+            self._running = False
+            self._write("\n[Process exited]\n", "plain")
+
         self.after(30, self._poll)
