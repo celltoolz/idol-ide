@@ -403,11 +403,27 @@ class TerminalPanel(ttk.Frame):
             self._text.tag_configure(tag, **opts)
         self._tags.add(tag)
 
+    _dbg_render = 0
+    _dbg_log = None
+
     def _render_chunk(self, chunk: str) -> None:
         """Render PTY output with proper CR/LF/BS/ANSI handling."""
+        import os
+        if TerminalPanel._dbg_log is None:
+            TerminalPanel._dbg_log = open(
+                os.path.join(os.path.expanduser("~"), "terminal_debug.log"),
+                "w", encoding="utf-8"
+            )
+
+        TerminalPanel._dbg_render += 1
+        n = TerminalPanel._dbg_render
+        log = TerminalPanel._dbg_log
+        log.write(f"\n=== render #{n} raw input ===\n{repr(chunk)}\n")
+
         # Normalize \r\n → \n so they are treated as a single line-feed.
         # Lone \r (carriage return without LF) is handled separately below.
         chunk = chunk.replace('\r\n', '\n')
+        log.write(f"--- after \\r\\n normalize ---\n{repr(chunk)}\n")
 
         # Position write cursor at the logical end of existing content.
         self._text.mark_set("insert", "end-1c")
@@ -536,30 +552,24 @@ class TerminalPanel(ttk.Frame):
 
         self._text.see("end")
 
+        log = TerminalPanel._dbg_log
+        widget_content = self._text.get("1.0", "end")
+        log.write(f"--- widget after render #{TerminalPanel._dbg_render} ---\n{repr(widget_content)}\n")
+        log.flush()
+
     # ── PTY read loop ─────────────────────────────────────────────────────────
 
     def _read_loop(self) -> None:
         """Read from the PTY in a background thread and push to the queue."""
-        import sys, os
-        log_path = os.path.join(os.path.expanduser("~"), "terminal_debug.log")
-        log = open(log_path, "w", encoding="utf-8")
-        chunk_num = 0
         while self._running and self._pty and self._pty.isalive():
             try:
                 chunk = self._pty.read(4096)
                 if chunk:
-                    chunk_num += 1
-                    log.write(f"\n--- chunk {chunk_num} ({len(chunk)} chars) ---\n")
-                    log.write(repr(chunk))
-                    log.write("\n")
-                    log.flush()
                     self._queue.put(chunk)
             except EOFError:
                 break
             except Exception:
                 break
-        log.write("\n--- EOF ---\n")
-        log.close()
         self._queue.put(None)  # sentinel
 
     def _poll(self) -> None:
