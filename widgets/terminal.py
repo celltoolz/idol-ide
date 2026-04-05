@@ -469,6 +469,23 @@ class TerminalPanel(ttk.Frame):
                         line = int(self._text.index("insert").split('.')[0])
                         self._text.mark_set("insert", f"{line}.{max(0, col)}")
 
+                    elif letter == 'A':
+                        # Cursor Up n lines
+                        n = p[0] if p else 1
+                        cur = self._text.index("insert")
+                        cur_line, cur_col = map(int, cur.split('.'))
+                        new_line = max(1, cur_line - n)
+                        self._text.mark_set("insert", f"{new_line}.{cur_col}")
+
+                    elif letter == 'B':
+                        # Cursor Down n lines
+                        n = p[0] if p else 1
+                        cur = self._text.index("insert")
+                        cur_line, cur_col = map(int, cur.split('.'))
+                        total = int(self._text.index("end-1c").split('.')[0])
+                        new_line = min(total, cur_line + n)
+                        self._text.mark_set("insert", f"{new_line}.{cur_col}")
+
                     elif letter == 'C':
                         # Cursor Forward n columns
                         n = p[0] if p else 1
