@@ -183,8 +183,13 @@ class CustomNotebook(ttk.Notebook):
             self._show_hover_btn(idx, event.x, event.y)
 
     def _on_notebook_leave(self, event) -> None:
-        # Use winfo_containing to detect if cursor moved onto the hover button
-        widget_under = self.winfo_containing(event.x_root, event.y_root)
+        # Use winfo_containing to detect if cursor moved onto the hover button.
+        # On Linux this can raise KeyError when the cursor moves over a transient
+        # widget (e.g. a popup menu) that tkinter can't resolve — safe to ignore.
+        try:
+            widget_under = self.winfo_containing(event.x_root, event.y_root)
+        except KeyError:
+            widget_under = None
         if widget_under is self._hover_btn:
             return
         self._hovered_tab = None
@@ -195,7 +200,10 @@ class CustomNotebook(ttk.Notebook):
 
     def _on_hover_btn_leave(self, event) -> None:
         self._hover_btn.config(fg="#888888")
-        widget_under = self.winfo_containing(event.x_root, event.y_root)
+        try:
+            widget_under = self.winfo_containing(event.x_root, event.y_root)
+        except KeyError:
+            widget_under = None
         if widget_under is not self._hover_btn and widget_under is not self:
             self._hovered_tab = None
             self._hide_hover_btn()
