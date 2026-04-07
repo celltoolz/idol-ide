@@ -403,16 +403,15 @@ class FileExplorer(ttk.Frame):
             return
 
         tgt_tags   = self._tree.item(target_item, "tags")
+        # ".." is a navigation shortcut, not a valid drop target
+        if "parent_dir" in tgt_tags:
+            return
         tgt_values = self._tree.item(target_item, "values")
         if not tgt_values or tgt_values[0] == self._LOADING:
             return
         tgt_path = Path(tgt_values[0])
 
-        # ".." entry: its value IS the destination directory — never call .parent on it
-        if "parent_dir" in tgt_tags:
-            dest_dir = tgt_path
-        else:
-            dest_dir = tgt_path if tgt_path.is_dir() else tgt_path.parent
+        dest_dir = tgt_path if tgt_path.is_dir() else tgt_path.parent
         dest_path = dest_dir / src_path.name
 
         if dest_path == src_path or dest_dir == src_path.parent:
