@@ -66,13 +66,14 @@ class Sidebar(ttk.Frame):
         sc_cb = sc_callbacks or {}
         self.source_control = SourceControlPanel(
             self,
-            on_stage=sc_cb.get("stage",   lambda p: None),
-            on_unstage=sc_cb.get("unstage", lambda p: None),
-            on_discard=sc_cb.get("discard", lambda p: None),
-            on_commit=sc_cb.get("commit",  lambda m: None),
-            on_push=sc_cb.get("push",    lambda: None),
-            on_pull=sc_cb.get("pull",    lambda: None),
-            on_diff=sc_cb.get("diff",    lambda p: None),
+            on_stage=sc_cb.get("stage",              lambda p: None),
+            on_unstage=sc_cb.get("unstage",          lambda p: None),
+            on_discard=sc_cb.get("discard",          lambda p: None),
+            on_commit=sc_cb.get("commit",            lambda m: None),
+            on_push=sc_cb.get("push",                lambda: None),
+            on_pull=sc_cb.get("pull",                lambda: None),
+            on_diff=sc_cb.get("diff",                lambda p: None),
+            on_create_gitignore=sc_cb.get("create_gitignore", None),
         )
 
         self._sash3 = self._make_sash(3)
@@ -232,27 +233,28 @@ class Sidebar(ttk.Frame):
         H = _HEADER_H
         S = _SASH_H
         M = _MIN_BODY
+        EXPLORER_MIN = 120
 
-        # Build list of visible sections: (header, body, collapsed, slot_index)
-        # slot_index: 0=outline, 1=refs, 2=sc, 3=explorer
-        sections = [(self._outline_hdr, self.outline, self._outline_collapsed, 0)]
+        # Non-explorer sections (placed top-to-bottom)
+        ne_sections = [(self._outline_hdr, self.outline, self._outline_collapsed, 0)]
         if self._refs_visible:
-            sections.append((self._refs_hdr, self.references, self._refs_collapsed, 1))
+            ne_sections.append((self._refs_hdr, self.references, self._refs_collapsed, 1))
         if self._sc_visible:
-            sections.append((self._sc_hdr, self.source_control, self._sc_collapsed, 2))
-        sections.append((self._explorer_hdr, self.explorer, self._explorer_collapsed, 3))
+            ne_sections.append((self._sc_hdr, self.source_control, self._sc_collapsed, 2))
+        ne = len(ne_sections)
 
-        n = len(sections)
-        n_sashes = n - 1
-        free_h = max(0, h - H * n - S * n_sashes)
+        # Fixed space: all ne headers + explorer header + one sash after each ne section
+        # (the last sash separates the final ne section from the explorer body)
+        fixed = H * (ne + 1) + S * ne
+        free = max(0, h - fixed)
 
-        # Expanded section slot indices
-        expanded = [slot for _, _, c, slot in sections if not c]
-        n_exp = len(expanded)
+        # Budget for non-explorer bodies; explorer gets what's left (min EXPLORER_MIN)
+        exp_expanded = not self._explorer_collapsed
+        ne_budget = max(0, free - EXPLORER_MIN) if exp_expanded else free
 
-        # Desired body heights per slot (slots 0-2 use sash positions;
-        # slot 3 / explorer always gets whatever remains).
-        default_h = max(M, free_h // max(n_exp, 1))
+        # Default / initialize sash positions
+        ne_expanded_slots = [slot for _, _, c, slot in ne_sections if not c]
+        default_h = max(M, ne_budget // max(len(ne_expanded_slots), 1))
         if self._sash1_y == 0:
             self._sash1_y = default_h
         if self._sash2_y == 0:
@@ -265,42 +267,24 @@ class Sidebar(ttk.Frame):
             1: max(M, self._sash2_y),
             2: max(M, self._sash3_y),
         }
-
-        # Option D: guarantee Explorer a minimum slice, then proportionally
-        # squish the other panels into whatever is left.
-        EXPLORER_MIN = 120  # px always reserved for explorer when expanded
-
-        explorer_expanded = 3 in expanded
-        if explorer_expanded:
-            # Space available to non-explorer panels after reserving explorer min
-            other_budget = max(0, free_h - EXPLORER_MIN)
-        else:
-            other_budget = free_h
-
-        other_expanded = [s for s in expanded if s != 3]
-
-        # Sum of what the other panels want
-        other_desired_total = sum(desired.get(s, default_h) for s in other_expanded)
+        desired_total = sum(desired.get(s, default_h) for s in ne_expanded_slots)
 
         body_h: dict[int, int] = {}
-
-        if other_expanded:
-            if other_desired_total <= other_budget:
-                # Everyone fits — give them what they want
-                for slot in other_expanded:
+        if ne_expanded_slots:
+            if desired_total <= ne_budget:
+                for slot in ne_expanded_slots:
                     body_h[slot] = desired.get(slot, default_h)
             else:
-                # Proportionally squish non-explorer panels to fit the budget
-                for slot in other_expanded:
+                for slot in ne_expanded_slots:
                     want = desired.get(slot, default_h)
-                    ratio = want / other_desired_total if other_desired_total else 1
-                    body_h[slot] = max(M, int(other_budget * ratio))
+                    ratio = want / desired_total if desired_total else 1
+                    body_h[slot] = max(M, int(ne_budget * ratio))
 
-        if explorer_expanded:
-            used_by_others = sum(body_h.get(s, 0) for s in other_expanded)
-            body_h[3] = max(EXPLORER_MIN, free_h - used_by_others)
+        # Explorer body fills remaining space
+        used_by_ne = sum(body_h.get(s, 0) for s in ne_expanded_slots)
+        exp_body_h = max(EXPLORER_MIN, free - used_by_ne) if exp_expanded else 0
 
-        # Hide everything, then re-place top-to-bottom
+        # Hide everything
         for widget in (self.outline, self.references, self.source_control,
                        self.explorer, self._sash1, self._sash2, self._sash3):
             widget.place_forget()
@@ -308,15 +292,22 @@ class Sidebar(ttk.Frame):
                     self._explorer_hdr):
             hdr.place_forget()
 
+        # Place non-explorer sections top-to-bottom; sash after every ne section
         sash_widgets = [self._sash1, self._sash2, self._sash3]
         y = 0
-        for i, (hdr, body, collapsed, slot) in enumerate(sections):
+        for i, (hdr, body, collapsed, slot) in enumerate(ne_sections):
             hdr.place(x=0, y=y, width=w, height=H)
             y += H
             if not collapsed:
                 bh = body_h.get(slot, M)
                 body.place(x=0, y=y, width=w, height=bh)
                 y += bh
-            if i < n - 1:
-                sash_widgets[i].place(x=0, y=y, width=w, height=S)
-                y += S
+            sash_widgets[i].place(x=0, y=y, width=w, height=S)
+            y += S
+
+        # Explorer body fills from y to just above the pinned header
+        if exp_expanded:
+            self.explorer.place(x=0, y=y, width=w, height=exp_body_h)
+
+        # Explorer header always pinned to the very bottom
+        self._explorer_hdr.place(x=0, y=h - H, width=w, height=H)

@@ -202,13 +202,14 @@ class Notepad(Tk):
             on_file_open=self._open_file,
             on_navigate=self._outline_navigate,
             sc_callbacks={
-                "stage": self._sc_stage,
-                "unstage": self._sc_unstage,
-                "discard": self._sc_discard,
-                "commit": self._sc_commit,
-                "push": self._sc_push,
-                "pull": self._sc_pull,
-                "diff": self._sc_open_diff,
+                "stage":             self._sc_stage,
+                "unstage":           self._sc_unstage,
+                "discard":           self._sc_discard,
+                "commit":            self._sc_commit,
+                "push":              self._sc_push,
+                "pull":              self._sc_pull,
+                "diff":              self._sc_open_diff,
+                "create_gitignore":  self._sc_create_gitignore,
             },
         )
         self._sidebar.configure(width=220)
@@ -1085,6 +1086,46 @@ class Notepad(Tk):
             self._open_diff_tab(name, diff_text)
 
         self._git.get_file_diff(path, _show)
+
+    def _sc_create_gitignore(self) -> None:
+        """Create a standard Python .gitignore in the repo root if absent."""
+        if not self._git:
+            return
+        dest = os.path.join(self._git._root, ".gitignore")
+        if os.path.exists(dest):
+            self._output.output.write("[.gitignore] File already exists.\n", "stderr")
+            return
+        template = (
+            "# Byte-compiled / optimized / DLL files\n"
+            "__pycache__/\n"
+            "*.py[cod]\n"
+            "*$py.class\n\n"
+            "# Distribution / packaging\n"
+            "dist/\n"
+            "build/\n"
+            "*.egg-info/\n"
+            ".eggs/\n\n"
+            "# Virtual environments\n"
+            ".venv/\n"
+            "venv/\n"
+            "env/\n\n"
+            "# Unit test / coverage\n"
+            ".pytest_cache/\n"
+            ".coverage\n"
+            "htmlcov/\n\n"
+            "# IDEs / editors\n"
+            ".vscode/\n"
+            ".idea/\n"
+            "*.swp\n\n"
+            "# OS\n"
+            ".DS_Store\n"
+            "Thumbs.db\n"
+        )
+        with open(dest, "w", encoding="utf-8") as f:
+            f.write(template)
+        self._output.output.write("[.gitignore] Created.\n", "stdout")
+        self._refresh_git()
+        self._refresh_sc_panel()
 
     def _open_diff_tab(self, title: str, diff_text: str) -> None:
         """Create a read-only syntax-colored tab showing a unified diff."""

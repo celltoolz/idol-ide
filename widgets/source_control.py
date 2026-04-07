@@ -122,24 +122,26 @@ class SourceControlPanel(ttk.Frame):
     def __init__(
         self,
         parent,
-        on_stage:   Callable[[str], None],
-        on_unstage: Callable[[str], None],
-        on_discard: Callable[[str], None],
-        on_commit:  Callable[[str], None],
-        on_push:    Callable[[], None],
-        on_pull:    Callable[[], None],
-        on_diff:    Callable[[str], None],
+        on_stage:             Callable[[str], None],
+        on_unstage:           Callable[[str], None],
+        on_discard:           Callable[[str], None],
+        on_commit:            Callable[[str], None],
+        on_push:              Callable[[], None],
+        on_pull:              Callable[[], None],
+        on_diff:              Callable[[str], None],
+        on_create_gitignore:  Callable[[], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
-        self._on_stage   = on_stage
-        self._on_unstage = on_unstage
-        self._on_discard = on_discard
-        self._on_commit  = on_commit
-        self._on_push    = on_push
-        self._on_pull    = on_pull
-        self._on_diff    = on_diff
-        self._ctx_path   = ""
+        self._on_stage            = on_stage
+        self._on_unstage          = on_unstage
+        self._on_discard          = on_discard
+        self._on_commit           = on_commit
+        self._on_push             = on_push
+        self._on_pull             = on_pull
+        self._on_diff             = on_diff
+        self._on_create_gitignore = on_create_gitignore
+        self._ctx_path            = ""
 
         ttk.Style().configure("SC.TFrame", background=_BG)
         self.configure(style="SC.TFrame")
@@ -166,6 +168,12 @@ class SourceControlPanel(ttk.Frame):
                                        command=self._ctx_do_discard)
         self._changes_menu.add_command(label="Open Diff",
                                        command=self._ctx_do_diff)
+
+        # Panel-level right-click menu (empty area)
+        self._panel_menu = Menu(self, tearoff=0)
+        self._panel_menu.add_command(label="Create .gitignore",
+                                     command=self._ctx_create_gitignore)
+        self.bind("<Button-3>", self._on_panel_right_click)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -264,3 +272,10 @@ class SourceControlPanel(ttk.Frame):
     def _ctx_do_unstage(self) -> None: self._on_unstage(self._ctx_path)
     def _ctx_do_discard(self) -> None: self._on_discard(self._ctx_path)
     def _ctx_do_diff(self)    -> None: self._on_diff(self._ctx_path)
+
+    def _on_panel_right_click(self, event) -> None:
+        self._panel_menu.tk_popup(event.x_root, event.y_root)
+
+    def _ctx_create_gitignore(self) -> None:
+        if self._on_create_gitignore:
+            self._on_create_gitignore()
