@@ -441,7 +441,11 @@ class FileExplorer(ttk.Frame):
         dst_parent_item = self._find_item(str(dest_dir))
 
         def _is_parent_dir(item: str) -> bool:
-            return bool(item and "parent_dir" in self._tree.item(item, "tags"))
+            if not item:
+                return False
+            if not (item == "" or self._tree.exists(item)):
+                return False
+            return "parent_dir" in self._tree.item(item, "tags")
 
         if src_parent_item is not None and not _is_parent_dir(src_parent_item):
             if src_parent_item == "" or self._tree.exists(src_parent_item):
