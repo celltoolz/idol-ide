@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import Frame, Label, Button, Menu, ttk
+from tkinter import Frame, Label, Menu, ttk
 from typing import Callable
 
 from utils.git_diagnostics import (
@@ -84,11 +84,9 @@ class _FileRow(Frame):
             w.bind("<Double-Button-1>", lambda _, p=path: on_click(p))
             w.bind("<Button-3>",        lambda e, p=path: on_right_click(e, p))
 
-        # Hover tooltip: file classification + explanation
+        # Hover tooltip: file classification + explanation (on row only)
         info = classify_file(path)
-        tip_text = f"{info.label}\n{info.explanation}"
-        _Tooltip(self, tip_text)
-        _Tooltip(lbl, tip_text)
+        _Tooltip(self, f"{info.label}\n{info.explanation}")
 
     def _hover(self, on: bool) -> None:
         c = _HOV_BG if on else self._bg
@@ -460,22 +458,22 @@ class SourceControlPanel(ttk.Frame):
         self._msg.bind("<FocusOut>", self._msg_focus_out)
         self._placeholder_active = True
 
-        # Buttons row
+        # Buttons row — Labels used instead of Buttons for consistent cross-platform styling
         btn_row = Frame(outer, bg=_BG)
         btn_row.pack(fill="x", pady=(5, 0))
 
-        _kw = dict(
-            bg=_BTN_BG, fg="white",
-            activebackground=_BTN_ACT, activeforeground="white",
-            relief="flat", font=("Segoe UI", 8, "bold"),
-            cursor="hand2", padx=8, pady=3, bd=0,
-        )
-        Button(btn_row, text="✓ Commit",
-               command=self._do_commit, **_kw).pack(side="left")
-        Button(btn_row, text="↑ Push",
-               command=self._on_push,  **_kw).pack(side="left", padx=(4, 0))
-        Button(btn_row, text="↓ Pull",
-               command=self._on_pull,  **_kw).pack(side="left", padx=(4, 0))
+        def _btn(parent, text, command):
+            lbl = Label(parent, text=text, bg=_BTN_BG, fg="white",
+                        font=("Segoe UI", 8, "bold"), cursor="hand2",
+                        padx=8, pady=3)
+            lbl.bind("<Button-1>", lambda _: command())
+            lbl.bind("<Enter>", lambda _: lbl.config(bg=_BTN_ACT))
+            lbl.bind("<Leave>", lambda _: lbl.config(bg=_BTN_BG))
+            return lbl
+
+        _btn(btn_row, "✓ Commit", self._do_commit).pack(side="left")
+        _btn(btn_row, "↑ Push",   self._on_push).pack(side="left", padx=(4, 0))
+        _btn(btn_row, "↓ Pull",   self._on_pull).pack(side="left", padx=(4, 0))
 
     def _msg_focus_in(self, _) -> None:
         if self._placeholder_active:
