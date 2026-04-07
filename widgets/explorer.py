@@ -200,19 +200,19 @@ class FileExplorer(ttk.Frame):
 
     def _on_right_click(self, event) -> None:
         item = self._tree.identify_row(event.y)
-        if not item:
-            return
-        self._tree.selection_set(item)
+        # Allow right-click on blank space (e.g. empty directory)
+        if item:
+            self._tree.selection_set(item)
         self._menu_item = item
-        values = self._tree.item(item, "values")
-        is_parent = "parent_dir" in self._tree.item(item, "tags")
-        is_file   = (values and values[0] != self._LOADING
-                     and Path(values[0]).is_file())
-        is_item   = values and values[0] != self._LOADING and not is_parent
+        values    = self._tree.item(item, "values") if item else []
+        is_parent = bool(item and "parent_dir" in self._tree.item(item, "tags"))
+        is_file   = bool(values and values[0] != self._LOADING
+                         and Path(values[0]).is_file())
+        is_item   = bool(values and values[0] != self._LOADING and not is_parent)
         self._menu.entryconfigure("Open File",
                                   state="normal" if is_file else "disabled")
         self._menu.entryconfigure("Set as Root Directory",
-                                  state="normal" if not is_file and not is_parent else "disabled")
+                                  state="normal" if not is_file and not is_parent and item else "disabled")
         self._menu.entryconfigure("Rename",
                                   state="normal" if is_item else "disabled")
         self._menu.entryconfigure("Delete",
