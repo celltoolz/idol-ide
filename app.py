@@ -210,6 +210,7 @@ class Notepad(Tk):
                 "pull":              self._sc_pull,
                 "diff":              self._sc_open_diff,
                 "create_gitignore":  self._sc_create_gitignore,
+                "gitignore_check":   self._sc_gitignore_exists,
             },
         )
         self._sidebar.configure(width=220)
@@ -1086,6 +1087,11 @@ class Notepad(Tk):
             self._open_diff_tab(name, diff_text)
 
         self._git.get_file_diff(path, _show)
+
+    def _sc_gitignore_exists(self) -> bool:
+        if not self._git:
+            return False
+        return os.path.exists(os.path.join(self._git._root, ".gitignore"))
 
     def _sc_create_gitignore(self) -> None:
         """Create a standard Python .gitignore in the repo root if absent."""

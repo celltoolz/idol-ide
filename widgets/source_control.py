@@ -57,17 +57,34 @@ class _FileRow(Frame):
 
 
 class _Section(Frame):
-    """Collapsible section header + scrollable file list."""
+    """Collapsible section header + virtually-rendered scrollable file list.
 
-    _MAX_VISIBLE = 6   # rows shown before scrolling kicks in
-    _ROW_H       = 22  # approximate px per row
+    Only the rows visible in the canvas viewport (plus a small buffer) are
+    created as widgets. Rows outside the viewport are destroyed. This keeps
+    memory and render time constant regardless of list size.
+    """
 
-    def __init__(self, parent, title: str, bg: str = _BG) -> None:
+    _ROW_H  = 22   # fixed px height per row
+    _BUFFER = 4    # extra rows to keep alive above/below the visible area
+
+    def __init__(self, parent, title: str, bg: str = _BG,
+                 on_toggle: Callable | None = None) -> None:
         super().__init__(parent, bg=bg)
-        self._collapsed = False
-        self._bg = bg
+        self._collapsed    = False
+        self._bg           = bg
+        self._on_toggle    = on_toggle
+        self._panel_menu_cb = None   # set by bind_panel_menu
 
-        # Header
+        # Data store
+        self._items: list[tuple[str, str]] = []
+        self._on_click      = None
+        self._on_right_click_file = None
+
+        # Currently rendered rows: index → (canvas_window_id, _FileRow widget)
+        self._rendered: dict[int, tuple[int, Frame]] = {}
+        self._canvas_w: int = 1
+
+        # ── Header ───────────────────────────────────────────────────────────
         hdr = Frame(self, bg=_HDR_BG, height=24)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
@@ -88,87 +105,155 @@ class _Section(Frame):
             w.bind("<Button-1>", lambda _: self._toggle())
         hdr.bind("<Button-1>", lambda _: self._toggle())
 
-        # Scrollable body
+        # ── Scrollable canvas ─────────────────────────────────────────────────
         self._scroll_frame = Frame(self, bg=_ITEM_BG)
 
         self._canvas = tk.Canvas(self._scroll_frame, bg=_ITEM_BG,
-                                 highlightthickness=0, bd=0)
+                                 highlightthickness=0, bd=0, height=1)
         self._vs = ttk.Scrollbar(self._scroll_frame, orient="vertical",
-                                 command=self._canvas.yview)
+                                 command=self._scroll_to)
         self._canvas.configure(yscrollcommand=self._vs.set)
-
-        self._body = Frame(self._canvas, bg=_ITEM_BG)
-        self._body_id = self._canvas.create_window((0, 0), window=self._body,
-                                                    anchor="nw")
-
         self._canvas.pack(side="left", fill="both", expand=True)
 
-        self._body.bind("<Configure>", self._on_body_configure)
         self._canvas.bind("<Configure>", self._on_canvas_configure)
-        for widget in (self._canvas, self._body):
-            widget.bind("<MouseWheel>", self._on_wheel)
-            widget.bind("<Button-4>",   self._on_wheel)
-            widget.bind("<Button-5>",   self._on_wheel)
+        for w in (self._canvas, self._scroll_frame):
+            w.bind("<MouseWheel>", self._on_wheel)
+            w.bind("<Button-4>",   self._on_wheel)
+            w.bind("<Button-5>",   self._on_wheel)
 
-    def _on_body_configure(self, _=None) -> None:
-        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        n_rows = len(self._body.winfo_children())
-        visible = min(n_rows, self._MAX_VISIBLE)
-        h = max(1, visible * self._ROW_H)
-        self._canvas.configure(height=h)
-        # Show scrollbar only when content overflows
-        if n_rows > self._MAX_VISIBLE:
-            self._vs.pack(side="right", fill="y")
-        else:
-            self._vs.pack_forget()
+    # ── Scroll plumbing ───────────────────────────────────────────────────────
 
-    def _on_canvas_configure(self, event) -> None:
-        self._canvas.itemconfigure(self._body_id, width=event.width)
+    def _scroll_to(self, *args) -> None:
+        self._canvas.yview(*args)
+        self._render_visible()
 
     def _on_wheel(self, event) -> None:
         if event.num == 4 or event.delta > 0:
             self._canvas.yview_scroll(-1, "units")
         else:
             self._canvas.yview_scroll(1, "units")
+        self._render_visible()
 
-    def _toggle(self) -> None:
-        self._collapsed = not self._collapsed
-        self._arrow.config(text="▸" if self._collapsed else "▾")
-        if self._collapsed:
-            self._scroll_frame.pack_forget()
+    def _on_canvas_configure(self, event) -> None:
+        self._canvas_w = event.width
+        # Update width of every already-rendered window
+        for wid, _ in self._rendered.values():
+            self._canvas.itemconfigure(wid, width=self._canvas_w)
+        self._update_scrollbar()
+        self._render_visible()
+
+    def _update_scrollbar(self) -> None:
+        total_h  = len(self._items) * self._ROW_H
+        canvas_h = self._canvas.winfo_height()
+        if total_h > canvas_h:
+            self._vs.pack(side="right", fill="y")
         else:
-            self._scroll_frame.pack(fill="x")
+            self._vs.pack_forget()
+
+    # ── Virtual render ────────────────────────────────────────────────────────
+
+    def _render_visible(self) -> None:
+        if not self._items:
+            return
+        canvas_h = self._canvas.winfo_height()
+        if canvas_h <= 1:
+            return
+
+        top = self._canvas.canvasy(0)
+        bot = self._canvas.canvasy(canvas_h)
+
+        first = max(0, int(top // self._ROW_H) - self._BUFFER)
+        last  = min(len(self._items) - 1,
+                    int(bot // self._ROW_H) + self._BUFFER)
+
+        # Destroy rows that have scrolled out of range
+        stale = [i for i in self._rendered if i < first or i > last]
+        for i in stale:
+            wid, widget = self._rendered.pop(i)
+            self._canvas.delete(wid)
+            widget.destroy()
+
+        # Create rows that are now in range
+        for i in range(first, last + 1):
+            if i in self._rendered:
+                continue
+            path, status = self._items[i]
+            row = _FileRow(self._canvas, path, status,
+                           self._on_click, self._on_right_click_file,
+                           bg=_ITEM_BG)
+            wid = self._canvas.create_window(
+                0, i * self._ROW_H,
+                window=row, anchor="nw", width=self._canvas_w,
+            )
+            self._rendered[i] = (wid, row)
+            # Forward wheel and panel menu to new rows
+            for w in (row,) + tuple(row.winfo_children()):
+                w.bind("<MouseWheel>", self._on_wheel)
+                w.bind("<Button-4>",   self._on_wheel)
+                w.bind("<Button-5>",   self._on_wheel)
+                if self._panel_menu_cb:
+                    w.bind("<Button-3>", self._panel_menu_cb)
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def populate(self, items: dict[str, str],
+                 on_click: Callable, on_right_click: Callable) -> None:
+        # Clear existing rendered rows
+        for wid, widget in self._rendered.values():
+            self._canvas.delete(wid)
+            widget.destroy()
+        self._rendered.clear()
+
+        self._items               = list(items.items())
+        self._on_click            = on_click
+        self._on_right_click_file = on_right_click
+
+        total_h = len(self._items) * self._ROW_H
+        self._canvas.configure(scrollregion=(0, 0, self._canvas_w, total_h))
+        self._canvas.yview_moveto(0)
+
+        self.set_count(len(self._items))
+        self._update_scrollbar()
+        self._render_visible()
+        if not self._collapsed:
+            self._repack()
 
     def set_count(self, n: int) -> None:
         self._count_lbl.config(text=f"({n})" if n else "")
 
-    def populate(self, items: dict[str, str],
-                 on_click: Callable, on_right_click: Callable) -> None:
-        for w in self._body.winfo_children():
-            w.destroy()
-        for path, status in items.items():
-            row = _FileRow(self._body, path, status, on_click, on_right_click,
-                           bg=_ITEM_BG)
-            row.pack(fill="x")
-            for widget in (row,) + tuple(row.winfo_children()):
-                widget.bind("<MouseWheel>", self._on_wheel)
-                widget.bind("<Button-4>",   self._on_wheel)
-                widget.bind("<Button-5>",   self._on_wheel)
-        self.set_count(len(items))
-        self._on_body_configure()
+    def bind_panel_menu(self, callback) -> None:
+        self._panel_menu_cb = callback
+        for w in (self, self._scroll_frame, self._canvas):
+            w.bind("<Button-3>", callback)
+        # Apply to already-rendered rows
+        for _, widget in self._rendered.values():
+            for w in (widget,) + tuple(widget.winfo_children()):
+                w.bind("<Button-3>", callback)
+
+    def _toggle(self) -> None:
+        self._collapsed = not self._collapsed
+        self._arrow.config(text="▸" if self._collapsed else "▾")
+        self._repack()
+        if self._on_toggle:
+            self._on_toggle()
+
+    def _repack(self) -> None:
+        self._scroll_frame.pack_forget()
         if not self._collapsed:
-            self._scroll_frame.pack(fill="x")
+            self._scroll_frame.pack(fill="both", expand=True)
+            self.after(10, self._render_visible)
 
     def apply_theme(self, bg: str, fg: str) -> None:
         self._bg = bg
         self.config(bg=bg)
-        self._body.config(bg=bg)
         self._scroll_frame.config(bg=bg)
         self._canvas.config(bg=bg)
 
 
 class SourceControlPanel(ttk.Frame):
     """Git source control panel: staged / unstaged file lists + commit UI."""
+
+    _GITIGNORE_WARN_THRESHOLD = 50
 
     def __init__(
         self,
@@ -181,6 +266,7 @@ class SourceControlPanel(ttk.Frame):
         on_pull:              Callable[[], None],
         on_diff:              Callable[[str], None],
         on_create_gitignore:  Callable[[], None] | None = None,
+        gitignore_check_fn:   Callable[[], bool] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
@@ -192,18 +278,33 @@ class SourceControlPanel(ttk.Frame):
         self._on_pull             = on_pull
         self._on_diff             = on_diff
         self._on_create_gitignore = on_create_gitignore
+        self._gitignore_check_fn  = gitignore_check_fn
         self._ctx_path            = ""
+        self._warn_visible        = False
 
         ttk.Style().configure("SC.TFrame", background=_BG)
         self.configure(style="SC.TFrame")
 
         self._build_commit_area()
         ttk.Separator(self, orient="horizontal").pack(fill="x")
-        self._staged_sec   = _Section(self, "STAGED CHANGES")
-        self._staged_sec.pack(fill="x")
-        ttk.Separator(self, orient="horizontal").pack(fill="x")
-        self._unstaged_sec = _Section(self, "CHANGES")
-        self._unstaged_sec.pack(fill="x")
+
+        # Warning banner — shown when many untracked files + no .gitignore
+        self._warn_frame = Frame(self, bg="#3c2a00", cursor="hand2")
+        warn_lbl = Label(self._warn_frame,
+                         text="⚠ Large number of untracked files. Click to create a .gitignore.",
+                         bg="#3c2a00", fg="#e2c08d",
+                         font=("Segoe UI", 8), justify="left",
+                         padx=8, pady=6, cursor="hand2", wraplength=180)
+        warn_lbl.pack(fill="x", expand=True)
+        for w in (self._warn_frame, warn_lbl):
+            w.bind("<Button-1>", lambda _: self._ctx_create_gitignore())
+
+        self._staged_sec   = _Section(self, "STAGED CHANGES",
+                                      on_toggle=self._repack_sections)
+        self._sep = ttk.Separator(self, orient="horizontal")
+        self._unstaged_sec = _Section(self, "CHANGES",
+                                      on_toggle=self._repack_sections)
+        self._repack_sections()
 
         # Context menus
         self._staged_menu = Menu(self, tearoff=0)
@@ -224,12 +325,46 @@ class SourceControlPanel(ttk.Frame):
         self._panel_menu = Menu(self, tearoff=0)
         self._panel_menu.add_command(label="Create .gitignore",
                                      command=self._ctx_create_gitignore)
+        self._panel_menu.add_separator()
+        self._panel_menu.add_command(label="[Test] Populate 15 entries",
+                                     command=self._test_populate)
         self.bind("<Button-3>", self._on_panel_right_click)
+        self._staged_sec.bind_panel_menu(self._on_panel_right_click)
+        self._unstaged_sec.bind_panel_menu(self._on_panel_right_click)
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+
+    def _repack_sections(self) -> None:
+        """Re-pack both sections so only expanded ones get expand=True."""
+        self._warn_frame.pack_forget()
+        self._staged_sec.pack_forget()
+        self._sep.pack_forget()
+        self._unstaged_sec.pack_forget()
+
+        staged_exp   = not self._staged_sec._collapsed
+        unstaged_exp = not self._unstaged_sec._collapsed
+
+        if self._warn_visible:
+            self._warn_frame.pack(fill="x")
+        self._staged_sec.pack(fill="both", expand=staged_exp)
+        self._sep.pack(fill="x")
+        self._unstaged_sec.pack(fill="both", expand=unstaged_exp)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def refresh(self, staged: dict[str, str], unstaged: dict[str, str]) -> None:
         """Re-populate both file lists."""
+        # Show warning if many untracked files and no .gitignore present
+        many = len(unstaged) >= self._GITIGNORE_WARN_THRESHOLD
+        no_gitignore = True
+        if self._gitignore_check_fn:
+            no_gitignore = not self._gitignore_check_fn()
+        self._warn_visible = many and no_gitignore
+        if self._warn_visible:
+            self._warn_frame.pack(fill="x", before=self._staged_sec)
+        else:
+            self._warn_frame.pack_forget()
+
         self._staged_sec.populate(
             staged,
             on_click=self._on_diff,
@@ -330,3 +465,12 @@ class SourceControlPanel(ttk.Frame):
     def _ctx_create_gitignore(self) -> None:
         if self._on_create_gitignore:
             self._on_create_gitignore()
+
+    def _test_populate(self) -> None:
+        statuses = ["M", "A", "U", "D"]
+        fake = {f"src/module_{i:04d}.py": statuses[i % 4] for i in range(1, 501)}
+        # Temporarily override check so warning always shows in test
+        _orig = self._gitignore_check_fn
+        self._gitignore_check_fn = lambda: False
+        self.refresh(staged=fake, unstaged=fake)
+        self._gitignore_check_fn = _orig

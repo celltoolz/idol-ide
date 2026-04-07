@@ -66,14 +66,15 @@ class Sidebar(ttk.Frame):
         sc_cb = sc_callbacks or {}
         self.source_control = SourceControlPanel(
             self,
-            on_stage=sc_cb.get("stage",              lambda p: None),
-            on_unstage=sc_cb.get("unstage",          lambda p: None),
-            on_discard=sc_cb.get("discard",          lambda p: None),
-            on_commit=sc_cb.get("commit",            lambda m: None),
-            on_push=sc_cb.get("push",                lambda: None),
-            on_pull=sc_cb.get("pull",                lambda: None),
-            on_diff=sc_cb.get("diff",                lambda p: None),
+            on_stage=sc_cb.get("stage",                  lambda p: None),
+            on_unstage=sc_cb.get("unstage",              lambda p: None),
+            on_discard=sc_cb.get("discard",              lambda p: None),
+            on_commit=sc_cb.get("commit",                lambda m: None),
+            on_push=sc_cb.get("push",                    lambda: None),
+            on_pull=sc_cb.get("pull",                    lambda: None),
+            on_diff=sc_cb.get("diff",                    lambda p: None),
             on_create_gitignore=sc_cb.get("create_gitignore", None),
+            gitignore_check_fn=sc_cb.get("gitignore_check",  None),
         )
 
         self._sash3 = self._make_sash()
