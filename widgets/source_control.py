@@ -6,6 +6,10 @@ import tkinter as tk
 from tkinter import Frame, Label, Button, Menu, ttk
 from typing import Callable
 
+from utils.git_diagnostics import (
+    classify_file, analyze_files, health_checks, FileInfo, Issue, HealthCheck
+)
+
 
 _BG       = "#252526"
 _ITEM_BG  = "#1e1e1e"
@@ -23,6 +27,37 @@ STATUS_COLORS = {
     "D": "#f14c4c",
 }
 STATUS_LABELS = {"M": "M", "A": "A", "U": "U", "D": "D"}
+
+
+class _Tooltip:
+    """Simple hover tooltip."""
+    def __init__(self, widget, text: str) -> None:
+        self._tip = None
+        widget.bind("<Enter>", lambda e: self._show(e, text))
+        widget.bind("<Leave>", lambda _: self._hide())
+
+    def _show(self, event, text: str) -> None:
+        self._hide()
+        x = event.widget.winfo_rootx() + event.widget.winfo_width() + 4
+        y = event.widget.winfo_rooty()
+        self._tip = tk.Toplevel()
+        self._tip.overrideredirect(True)
+        self._tip.attributes("-topmost", True)
+        bg = "#1e1e1e"
+        frame = Frame(self._tip, bg="#555555", padx=1, pady=1)
+        frame.pack()
+        Label(frame, text=text, bg=bg, fg="#cccccc",
+              font=("Segoe UI", 8), justify="left",
+              wraplength=220, padx=8, pady=5).pack()
+        self._tip.geometry(f"+{x}+{y}")
+
+    def _hide(self) -> None:
+        if self._tip:
+            try:
+                self._tip.destroy()
+            except Exception:
+                pass
+            self._tip = None
 
 
 class _FileRow(Frame):
@@ -44,10 +79,16 @@ class _FileRow(Frame):
               font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 4))
 
         for w in (self, lbl):
-            w.bind("<Enter>",          lambda _: self._hover(True))
-            w.bind("<Leave>",          lambda _: self._hover(False))
-            w.bind("<Double-Button-1>",lambda _, p=path: on_click(p))
-            w.bind("<Button-3>",       lambda e, p=path: on_right_click(e, p))
+            w.bind("<Enter>",           lambda _: self._hover(True))
+            w.bind("<Leave>",           lambda _: self._hover(False))
+            w.bind("<Double-Button-1>", lambda _, p=path: on_click(p))
+            w.bind("<Button-3>",        lambda e, p=path: on_right_click(e, p))
+
+        # Hover tooltip: file classification + explanation
+        info = classify_file(path)
+        tip_text = f"{info.label}\n{info.explanation}"
+        _Tooltip(self, tip_text)
+        _Tooltip(lbl, tip_text)
 
     def _hover(self, on: bool) -> None:
         c = _HOV_BG if on else self._bg
@@ -268,6 +309,7 @@ class SourceControlPanel(ttk.Frame):
         on_diff:              Callable[[str], None],
         on_create_gitignore:  Callable[[], None] | None = None,
         gitignore_check_fn:   Callable[[], bool] | None = None,
+        repo_root_fn:         Callable[[], str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
@@ -280,25 +322,34 @@ class SourceControlPanel(ttk.Frame):
         self._on_diff             = on_diff
         self._on_create_gitignore = on_create_gitignore
         self._gitignore_check_fn  = gitignore_check_fn
+        self._repo_root_fn        = repo_root_fn
         self._ctx_path            = ""
         self._warn_visible        = False
+        self._last_staged:  dict[str, str] = {}
+        self._last_unstaged: dict[str, str] = {}
 
         ttk.Style().configure("SC.TFrame", background=_BG)
         self.configure(style="SC.TFrame")
 
         self._build_commit_area()
         ttk.Separator(self, orient="horizontal").pack(fill="x")
+        self._build_health_panel()
 
-        # Warning banner — shown when many untracked files + no .gitignore
+        # Smart warning banner — shown when issues detected
         self._warn_frame = Frame(self, bg="#3c2a00", cursor="hand2")
-        warn_lbl = Label(self._warn_frame,
-                         text="⚠ Large number of untracked files. Click to create a .gitignore.",
-                         bg="#3c2a00", fg="#e2c08d",
+        self._warn_lbl = Label(self._warn_frame,
+                         text="", bg="#3c2a00", fg="#e2c08d",
                          font=("Segoe UI", 8), justify="left",
-                         padx=8, pady=6, cursor="hand2", wraplength=180)
-        warn_lbl.pack(fill="x", expand=True)
-        for w in (self._warn_frame, warn_lbl):
-            w.bind("<Button-1>", lambda _: self._ctx_create_gitignore())
+                         padx=8, pady=4, cursor="hand2", wraplength=180)
+        self._warn_lbl.pack(side="left", fill="x", expand=True)
+        self._warn_details_btn = Label(self._warn_frame, text="Details →",
+                                       bg="#3c2a00", fg="#e2c08d",
+                                       font=("Segoe UI", 8, "bold"),
+                                       padx=6, pady=4, cursor="hand2")
+        self._warn_details_btn.pack(side="right")
+        for w in (self._warn_frame, self._warn_lbl, self._warn_details_btn):
+            w.bind("<Button-1>", lambda _: self._open_wizard())
+        self._current_issues: list[Issue] = []
 
         self._staged_sec   = _Section(self, "STAGED CHANGES",
                                       on_toggle=self._repack_sections)
@@ -342,17 +393,29 @@ class SourceControlPanel(ttk.Frame):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def refresh(self, staged: dict[str, str], unstaged: dict[str, str]) -> None:
-        """Re-populate both file lists."""
-        # Show warning if many untracked files and no .gitignore present
-        many = len(unstaged) >= self._GITIGNORE_WARN_THRESHOLD
-        no_gitignore = True
-        if self._gitignore_check_fn:
-            no_gitignore = not self._gitignore_check_fn()
-        self._warn_visible = many and no_gitignore
+        """Re-populate both file lists and update diagnostics."""
+        self._last_staged   = staged
+        self._last_unstaged = unstaged
+
+        # Smart issue detection
+        fix_fns = {"create_gitignore": self._ctx_create_gitignore}
+        self._current_issues = analyze_files(unstaged, fix_fns=fix_fns)
+
+        # Update warning banner with specific message
+        high_issues = [i for i in self._current_issues if i.severity == "high"]
+        self._warn_visible = bool(high_issues)
         if self._warn_visible:
+            if len(high_issues) == 1:
+                msg = f"⚠ {high_issues[0].title}"
+            else:
+                msg = f"⚠ {len(high_issues)} issues detected"
+            self._warn_lbl.config(text=msg)
             self._warn_frame.pack(fill="x", before=self._staged_sec)
         else:
             self._warn_frame.pack_forget()
+
+        # Update health panel
+        self._refresh_health(staged, unstaged)
 
         self._staged_sec.populate(
             staged,
@@ -437,6 +500,184 @@ class SourceControlPanel(ttk.Frame):
         self._msg.insert("1.0", "Commit message…")
         self._msg.config(fg=_DIM)
         self._placeholder_active = True
+
+    # ── Git Health panel ──────────────────────────────────────────────────────
+
+    def _build_health_panel(self) -> None:
+        """Build the collapsible Git Health checklist panel."""
+        self._health_collapsed = True
+        self._health_frame = Frame(self, bg=_BG)
+
+        hdr = Frame(self._health_frame, bg=_HDR_BG, height=24, cursor="hand2")
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+
+        self._health_arrow = Label(hdr, text="▸", bg=_HDR_BG, fg=_FG,
+                                   font=("Segoe UI", 8))
+        self._health_arrow.pack(side="left", padx=(4, 0))
+        Label(hdr, text="GIT HEALTH", bg=_HDR_BG, fg=_FG,
+              font=("Segoe UI", 8, "bold"), anchor="w").pack(
+                  side="left", fill="x", expand=True)
+        self._health_status_lbl = Label(hdr, text="", bg=_HDR_BG,
+                                        font=("Segoe UI", 8), padx=6)
+        self._health_status_lbl.pack(side="right")
+
+        for w in hdr.winfo_children():
+            w.bind("<Button-1>", lambda _: self._toggle_health())
+        hdr.bind("<Button-1>", lambda _: self._toggle_health())
+
+        self._health_body = Frame(self._health_frame, bg=_BG)
+        self._health_rows: list[Frame] = []
+
+        self._health_frame.pack(fill="x")
+
+    def _toggle_health(self) -> None:
+        self._health_collapsed = not self._health_collapsed
+        self._health_arrow.config(text="▸" if self._health_collapsed else "▾")
+        if self._health_collapsed:
+            self._health_body.pack_forget()
+        else:
+            self._health_body.pack(fill="x")
+
+    def _refresh_health(self, staged: dict[str, str], unstaged: dict[str, str]) -> None:
+        """Rebuild the health checklist rows."""
+        for w in self._health_body.winfo_children():
+            w.destroy()
+
+        fix_fns = {"create_gitignore": self._ctx_create_gitignore}
+        # Pass repo root via gitignore_check_fn closure if available
+        checks = self._get_health_checks(staged, unstaged, fix_fns)
+
+        passed = sum(1 for c in checks if c.passed)
+        total  = len(checks)
+        all_ok = passed == total
+        self._health_status_lbl.config(
+            text=f"{passed}/{total}" ,
+            fg="#73c991" if all_ok else "#e2c08d",
+            bg=_HDR_BG,
+        )
+
+        for check in checks:
+            row = Frame(self._health_body, bg=_BG)
+            row.pack(fill="x", padx=6, pady=1)
+
+            icon = "✓" if check.passed else "✗"
+            color = "#73c991" if check.passed else "#f14c4c"
+            Label(row, text=icon, bg=_BG, fg=color,
+                  font=("Segoe UI", 9, "bold"), width=2).pack(side="left")
+            Label(row, text=check.label, bg=_BG, fg=_FG,
+                  font=("Segoe UI", 8), anchor="w").pack(side="left", fill="x", expand=True)
+
+            if check.fix_fn:
+                btn = Label(row, text=check.fix_label, bg=_BTN_BG, fg="white",
+                            font=("Segoe UI", 7, "bold"), padx=4, pady=1,
+                            cursor="hand2")
+                btn.pack(side="right", padx=(0, 2))
+                btn.bind("<Button-1>", lambda _, fn=check.fix_fn: fn())
+
+            _Tooltip(row, check.detail)
+
+    def _get_health_checks(self, staged, unstaged, fix_fns) -> list[HealthCheck]:
+        """Get health checks using repo root from app."""
+        repo_root = self._repo_root_fn() if self._repo_root_fn else ""
+        return health_checks(repo_root, staged, unstaged, fix_fns=fix_fns)
+
+    # ── Guided fix wizard ─────────────────────────────────────────────────────
+
+    def _open_wizard(self) -> None:
+        """Open the step-by-step guided fix wizard."""
+        if not self._current_issues:
+            return
+        issues = self._current_issues
+
+        win = tk.Toplevel(self)
+        win.title("Git Fix Guide")
+        win.configure(bg=_BG)
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+
+        # Center over parent
+        self.update_idletasks()
+        px = self.winfo_rootx() + self.winfo_width() + 10
+        py = self.winfo_rooty()
+        win.geometry(f"380x420+{px}+{py}")
+
+        state = {"idx": 0}
+
+        # ── Header ────────────────────────────────────────────────────────────
+        hdr = Frame(win, bg=_HDR_BG, pady=8)
+        hdr.pack(fill="x")
+        self._wiz_title = Label(hdr, text="", bg=_HDR_BG, fg=_FG,
+                                font=("Segoe UI", 10, "bold"), padx=12)
+        self._wiz_title.pack(anchor="w")
+        self._wiz_counter = Label(hdr, text="", bg=_HDR_BG, fg=_DIM,
+                                  font=("Segoe UI", 8), padx=12)
+        self._wiz_counter.pack(anchor="w")
+
+        # ── Content ───────────────────────────────────────────────────────────
+        content = Frame(win, bg=_BG, padx=12, pady=8)
+        content.pack(fill="both", expand=True)
+
+        def section(label: str, text: str, label_color: str) -> None:
+            Label(content, text=label, bg=_BG, fg=label_color,
+                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", pady=(6, 0))
+            Label(content, text=text, bg=_BG, fg=_FG,
+                  font=("Segoe UI", 9), anchor="w", justify="left",
+                  wraplength=340).pack(fill="x")
+
+        def load_issue(idx: int) -> None:
+            for w in content.winfo_children():
+                w.destroy()
+            issue = issues[idx]
+            self._wiz_title.config(text=issue.title)
+            self._wiz_counter.config(text=f"Issue {idx + 1} of {len(issues)}")
+            section("WHAT HAPPENED", issue.what, "#e2c08d")
+            section("WHY IT MATTERS", issue.why, "#f14c4c")
+            section("HOW TO FIX IT", issue.how, "#73c991")
+
+            if issue.fix_fn:
+                def do_fix(fn=issue.fix_fn):
+                    fn()
+                    win.destroy()
+                btn = Button(content, text=issue.fix_label, command=do_fix,
+                             bg=_BTN_BG, fg="white", relief="flat",
+                             font=("Segoe UI", 9, "bold"),
+                             activebackground=_BTN_ACT, activeforeground="white",
+                             cursor="hand2", padx=10, pady=4)
+                btn.pack(anchor="w", pady=(12, 0))
+
+        load_issue(0)
+
+        # ── Navigation ────────────────────────────────────────────────────────
+        nav = Frame(win, bg=_HDR_BG, pady=6)
+        nav.pack(fill="x", side="bottom")
+
+        _nkw = dict(bg=_HDR_BG, fg=_FG, activebackground=_BG,
+                    activeforeground=_FG, relief="flat",
+                    font=("Segoe UI", 9), cursor="hand2", padx=10, pady=2)
+
+        prev_btn = Button(nav, text="← Previous", **_nkw,
+                          command=lambda: go(-1))
+        prev_btn.pack(side="left", padx=6)
+
+        next_btn = Button(nav, text="Next →", **_nkw,
+                          command=lambda: go(1))
+        next_btn.pack(side="left")
+
+        Button(nav, text="Close", **_nkw,
+               command=win.destroy).pack(side="right", padx=6)
+
+        def go(delta: int) -> None:
+            new = state["idx"] + delta
+            if 0 <= new < len(issues):
+                state["idx"] = new
+                load_issue(new)
+                prev_btn.config(state="normal" if new > 0 else "disabled")
+                next_btn.config(state="normal" if new < len(issues) - 1 else "disabled")
+
+        prev_btn.config(state="disabled")
+        if len(issues) <= 1:
+            next_btn.config(state="disabled")
 
     # ── Context menu helpers ──────────────────────────────────────────────────
 

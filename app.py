@@ -211,6 +211,7 @@ class Notepad(Tk):
                 "diff":              self._sc_open_diff,
                 "create_gitignore":  self._sc_create_gitignore,
                 "gitignore_check":   self._sc_gitignore_exists,
+                "repo_root":         lambda: self._git._root if self._git else "",
             },
         )
         self._sidebar.configure(width=220)
