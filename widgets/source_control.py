@@ -637,45 +637,51 @@ class SourceControlPanel(ttk.Frame):
                 def do_fix(fn=issue.fix_fn):
                     fn()
                     win.destroy()
-                btn = Button(content, text=issue.fix_label, command=do_fix,
-                             bg=_BTN_BG, fg="white", relief="flat",
-                             font=("Segoe UI", 9, "bold"),
-                             activebackground=_BTN_ACT, activeforeground="white",
-                             cursor="hand2", padx=10, pady=4)
+                btn = Label(content, text=issue.fix_label,
+                            bg=_BTN_BG, fg="white",
+                            font=("Segoe UI", 9, "bold"),
+                            cursor="hand2", padx=10, pady=4)
+                btn.bind("<Button-1>", lambda _, f=do_fix: f())
+                btn.bind("<Enter>", lambda _, b=btn: b.config(bg=_BTN_ACT))
+                btn.bind("<Leave>", lambda _, b=btn: b.config(bg=_BTN_BG))
                 btn.pack(anchor="w", pady=(12, 0))
 
         load_issue(0)
 
-        # ── Navigation ────────────────────────────────────────────────────────
+        # ── Navigation — Labels used for consistent cross-platform rendering ────
         nav = Frame(win, bg=_HDR_BG, pady=6)
         nav.pack(fill="x", side="bottom")
 
-        _nkw = dict(bg=_HDR_BG, fg=_FG, activebackground=_BG,
-                    activeforeground=_FG, relief="flat",
-                    font=("Segoe UI", 9), cursor="hand2", padx=10, pady=2)
+        def _nav_btn(parent, text, command):
+            lbl = Label(parent, text=text, bg=_HDR_BG, fg=_FG,
+                        font=("Segoe UI", 9), cursor="hand2", padx=10, pady=2)
+            lbl.bind("<Button-1>", lambda _: command())
+            lbl.bind("<Enter>", lambda _: lbl.config(fg="#ffffff"))
+            lbl.bind("<Leave>", lambda _: lbl.config(fg=_FG))
+            return lbl
 
-        prev_btn = Button(nav, text="← Previous", **_nkw,
-                          command=lambda: go(-1))
+        prev_btn = _nav_btn(nav, "← Previous", lambda: go(-1))
         prev_btn.pack(side="left", padx=6)
 
-        next_btn = Button(nav, text="Next →", **_nkw,
-                          command=lambda: go(1))
+        next_btn = _nav_btn(nav, "Next →", lambda: go(1))
         next_btn.pack(side="left")
 
-        Button(nav, text="Close", **_nkw,
-               command=win.destroy).pack(side="right", padx=6)
+        _nav_btn(nav, "Close", win.destroy).pack(side="right", padx=6)
+
+        def _set_enabled(lbl, enabled: bool) -> None:
+            lbl.config(fg=_FG if enabled else _DIM,
+                       cursor="hand2" if enabled else "")
 
         def go(delta: int) -> None:
             new = state["idx"] + delta
             if 0 <= new < len(issues):
                 state["idx"] = new
                 load_issue(new)
-                prev_btn.config(state="normal" if new > 0 else "disabled")
-                next_btn.config(state="normal" if new < len(issues) - 1 else "disabled")
+                _set_enabled(prev_btn, new > 0)
+                _set_enabled(next_btn, new < len(issues) - 1)
 
-        prev_btn.config(state="disabled")
-        if len(issues) <= 1:
-            next_btn.config(state="disabled")
+        _set_enabled(prev_btn, False)
+        _set_enabled(next_btn, len(issues) > 1)
 
     # ── Context menu helpers ──────────────────────────────────────────────────
 
