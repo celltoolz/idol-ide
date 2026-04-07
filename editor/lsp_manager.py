@@ -25,9 +25,12 @@ def path_to_uri(path: str) -> str:
 
 def uri_to_path(uri: str) -> str:
     path = uri.removeprefix("file:///").removeprefix("file://")
-    # On Windows the URI looks like file:///C:/... → C:/...
+    # On Windows the URI looks like file:///C:/... → C:/...  (drive letter stays)
+    # On macOS/Linux file:///Users/... → Users/... so restore the leading slash
     if len(path) > 1 and path[1] == ":":
-        pass  # already looks like C:/...
+        pass  # Windows drive letter — already correct
+    elif not path.startswith("/"):
+        path = "/" + path
     return path
 
 
