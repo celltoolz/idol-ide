@@ -1,6 +1,8 @@
 # Notepad IDE
 
-A lightweight Python IDE built with tkinter.
+A full-featured Python IDE built with tkinter, designed to be what IDLE could have been — a powerful development environment with a built-in learning platform.
+
+The goal is to make Python development and education feel native: real editor features (LSP, git, terminal, split view) alongside guided learning tools (project wizards, interactive guides, and eventually an AI-powered learning mode). Built for beginners who want to grow and developers who want a distraction-free environment — all in pure Python.
 
 ![Editor Screenshot](screenshots/editor.png)
 
