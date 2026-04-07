@@ -26,6 +26,8 @@ A lightweight Python IDE built with tkinter.
 - Command palette — Ctrl+Shift+P; fuzzy search all commands, type @ to search symbols by name
 - AST-based Outline panel (classes, functions, parameters, attributes, variables)
 - File Explorer with lazy loading, directory navigation, and drag-to-resize sash
+  - Right-click menu: New File, New Folder, Rename, Delete, Set as Root Directory
+  - Drag and drop files between folders with unsaved-changes prompt
 - Find References panel — right-click any symbol to see all occurrences
 - VS Code-style inline Find & Replace bar (case, whole word, and regex toggles)
 
@@ -40,6 +42,10 @@ A lightweight Python IDE built with tkinter.
 - Gutter diff strips showing added/modified/deleted lines
 - Source Control panel — staged/unstaged file lists, stage/unstage/discard, commit, push/pull
 - Diff view with color-coded +/- lines
+- Smart warning detection — automatically identifies venv files, secrets, build artifacts, and OS metadata in untracked files
+- Git Health panel — scannable checklist (`.gitignore` exists, no venv tracked, no secrets staged) with one-click fixes
+- Inline file explanations — hover any file in the Source Control list for a tooltip explaining what it is and why git cares
+- Guided Fix Wizard — step-by-step: what happened → why it matters → how to fix it, with an action button
 
 ### Terminal & Output
 - Integrated terminal — full PTY shell (PowerShell/bash) with ANSI color support, direct keyboard input
