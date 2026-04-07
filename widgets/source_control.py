@@ -57,7 +57,10 @@ class _FileRow(Frame):
 
 
 class _Section(Frame):
-    """Collapsible section header + file list."""
+    """Collapsible section header + scrollable file list."""
+
+    _MAX_VISIBLE = 6   # rows shown before scrolling kicks in
+    _ROW_H       = 22  # approximate px per row
 
     def __init__(self, parent, title: str, bg: str = _BG) -> None:
         super().__init__(parent, bg=bg)
@@ -85,17 +88,56 @@ class _Section(Frame):
             w.bind("<Button-1>", lambda _: self._toggle())
         hdr.bind("<Button-1>", lambda _: self._toggle())
 
-        # Body
-        self._body = Frame(self, bg=_ITEM_BG)
-        self._body.pack(fill="x")
+        # Scrollable body
+        self._scroll_frame = Frame(self, bg=_ITEM_BG)
+
+        self._canvas = tk.Canvas(self._scroll_frame, bg=_ITEM_BG,
+                                 highlightthickness=0, bd=0)
+        self._vs = ttk.Scrollbar(self._scroll_frame, orient="vertical",
+                                 command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._vs.set)
+
+        self._body = Frame(self._canvas, bg=_ITEM_BG)
+        self._body_id = self._canvas.create_window((0, 0), window=self._body,
+                                                    anchor="nw")
+
+        self._canvas.pack(side="left", fill="both", expand=True)
+
+        self._body.bind("<Configure>", self._on_body_configure)
+        self._canvas.bind("<Configure>", self._on_canvas_configure)
+        for widget in (self._canvas, self._body):
+            widget.bind("<MouseWheel>", self._on_wheel)
+            widget.bind("<Button-4>",   self._on_wheel)
+            widget.bind("<Button-5>",   self._on_wheel)
+
+    def _on_body_configure(self, _=None) -> None:
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        n_rows = len(self._body.winfo_children())
+        visible = min(n_rows, self._MAX_VISIBLE)
+        h = max(1, visible * self._ROW_H)
+        self._canvas.configure(height=h)
+        # Show scrollbar only when content overflows
+        if n_rows > self._MAX_VISIBLE:
+            self._vs.pack(side="right", fill="y")
+        else:
+            self._vs.pack_forget()
+
+    def _on_canvas_configure(self, event) -> None:
+        self._canvas.itemconfigure(self._body_id, width=event.width)
+
+    def _on_wheel(self, event) -> None:
+        if event.num == 4 or event.delta > 0:
+            self._canvas.yview_scroll(-1, "units")
+        else:
+            self._canvas.yview_scroll(1, "units")
 
     def _toggle(self) -> None:
         self._collapsed = not self._collapsed
         self._arrow.config(text="▸" if self._collapsed else "▾")
         if self._collapsed:
-            self._body.pack_forget()
+            self._scroll_frame.pack_forget()
         else:
-            self._body.pack(fill="x")
+            self._scroll_frame.pack(fill="x")
 
     def set_count(self, n: int) -> None:
         self._count_lbl.config(text=f"({n})" if n else "")
@@ -108,12 +150,21 @@ class _Section(Frame):
             row = _FileRow(self._body, path, status, on_click, on_right_click,
                            bg=_ITEM_BG)
             row.pack(fill="x")
+            for widget in (row,) + tuple(row.winfo_children()):
+                widget.bind("<MouseWheel>", self._on_wheel)
+                widget.bind("<Button-4>",   self._on_wheel)
+                widget.bind("<Button-5>",   self._on_wheel)
         self.set_count(len(items))
+        self._on_body_configure()
+        if not self._collapsed:
+            self._scroll_frame.pack(fill="x")
 
     def apply_theme(self, bg: str, fg: str) -> None:
         self._bg = bg
         self.config(bg=bg)
         self._body.config(bg=bg)
+        self._scroll_frame.config(bg=bg)
+        self._canvas.config(bg=bg)
 
 
 class SourceControlPanel(ttk.Frame):
