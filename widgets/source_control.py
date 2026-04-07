@@ -186,18 +186,17 @@ class _Section(Frame):
                 window=row, anchor="nw", width=self._canvas_w,
             )
             self._rendered[i] = (wid, row)
-            # Forward wheel and panel menu to new rows
+            # File rows get their own right-click; wheel forwarded to canvas
             for w in (row,) + tuple(row.winfo_children()):
                 w.bind("<MouseWheel>", self._on_wheel)
                 w.bind("<Button-4>",   self._on_wheel)
                 w.bind("<Button-5>",   self._on_wheel)
-                if self._panel_menu_cb:
-                    w.bind("<Button-3>", self._panel_menu_cb)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def populate(self, items: dict[str, str],
-                 on_click: Callable, on_right_click: Callable) -> None:
+                 on_click: Callable, on_right_click: Callable,
+                 panel_menu_cb: Callable | None = None) -> None:
         # Clear existing rendered rows
         for wid, widget in self._rendered.values():
             self._canvas.delete(wid)
@@ -207,6 +206,8 @@ class _Section(Frame):
         self._items               = list(items.items())
         self._on_click            = on_click
         self._on_right_click_file = on_right_click
+        if panel_menu_cb:
+            self._panel_menu_cb = panel_menu_cb
 
         total_h = len(self._items) * self._ROW_H
         self._canvas.configure(scrollregion=(0, 0, self._canvas_w, total_h))
@@ -306,31 +307,19 @@ class SourceControlPanel(ttk.Frame):
                                       on_toggle=self._repack_sections)
         self._repack_sections()
 
-        # Context menus
-        self._staged_menu = Menu(self, tearoff=0)
-        self._staged_menu.add_command(label="Unstage Changes",
-                                      command=self._ctx_do_unstage)
-        self._staged_menu.add_command(label="Open Diff",
-                                      command=self._ctx_do_diff)
+        # Single unified context menu — items shown/hidden based on context
+        self._ctx_menu = Menu(self, tearoff=0)
+        self._ctx_menu.add_command(label="Stage Changes",    command=self._ctx_do_stage)
+        self._ctx_menu.add_command(label="Unstage Changes",  command=self._ctx_do_unstage)
+        self._ctx_menu.add_command(label="Discard Changes",  command=self._ctx_do_discard)
+        self._ctx_menu.add_command(label="Open Diff",        command=self._ctx_do_diff)
+        self._ctx_menu.add_separator()
+        self._ctx_menu.add_command(label="Create .gitignore", command=self._ctx_create_gitignore)
 
-        self._changes_menu = Menu(self, tearoff=0)
-        self._changes_menu.add_command(label="Stage Changes",
-                                       command=self._ctx_do_stage)
-        self._changes_menu.add_command(label="Discard Changes",
-                                       command=self._ctx_do_discard)
-        self._changes_menu.add_command(label="Open Diff",
-                                       command=self._ctx_do_diff)
-
-        # Panel-level right-click menu (empty area)
-        self._panel_menu = Menu(self, tearoff=0)
-        self._panel_menu.add_command(label="Create .gitignore",
-                                     command=self._ctx_create_gitignore)
-        self._panel_menu.add_separator()
-        self._panel_menu.add_command(label="[Test] Populate 15 entries",
-                                     command=self._test_populate)
-        self.bind("<Button-3>", self._on_panel_right_click)
-        self._staged_sec.bind_panel_menu(self._on_panel_right_click)
-        self._unstaged_sec.bind_panel_menu(self._on_panel_right_click)
+        self._ctx_section = None  # "staged" | "changes" | None
+        self.bind("<Button-3>", lambda e: self._show_ctx(e, "", None))
+        self._staged_sec.bind_panel_menu(lambda e: self._show_ctx(e, "", None))
+        self._unstaged_sec.bind_panel_menu(lambda e: self._show_ctx(e, "", None))
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
@@ -369,11 +358,13 @@ class SourceControlPanel(ttk.Frame):
             staged,
             on_click=self._on_diff,
             on_right_click=lambda e, p: self._show_ctx(e, p, "staged"),
+            panel_menu_cb=lambda e: self._show_ctx(e, "", None),
         )
         self._unstaged_sec.populate(
             unstaged,
             on_click=self._on_diff,
             on_right_click=lambda e, p: self._show_ctx(e, p, "changes"),
+            panel_menu_cb=lambda e: self._show_ctx(e, "", None),
         )
 
     def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
@@ -449,28 +440,25 @@ class SourceControlPanel(ttk.Frame):
 
     # ── Context menu helpers ──────────────────────────────────────────────────
 
-    def _show_ctx(self, event, path: str, section: str) -> None:
-        self._ctx_path = path
-        menu = self._staged_menu if section == "staged" else self._changes_menu
-        menu.tk_popup(event.x_root, event.y_root)
+    def _show_ctx(self, event, path: str, section: str | None) -> None:
+        self._ctx_path    = path
+        self._ctx_section = section
+
+        # Show/hide items based on context
+        has_file = bool(path)
+        self._ctx_menu.entryconfigure("Stage Changes",    state="normal" if has_file and section == "changes" else "disabled")
+        self._ctx_menu.entryconfigure("Unstage Changes",  state="normal" if has_file and section == "staged"  else "disabled")
+        self._ctx_menu.entryconfigure("Discard Changes",  state="normal" if has_file and section == "changes" else "disabled")
+        self._ctx_menu.entryconfigure("Open Diff",        state="normal" if has_file else "disabled")
+
+        self._ctx_menu.tk_popup(event.x_root, event.y_root)
 
     def _ctx_do_stage(self)   -> None: self._on_stage(self._ctx_path)
     def _ctx_do_unstage(self) -> None: self._on_unstage(self._ctx_path)
     def _ctx_do_discard(self) -> None: self._on_discard(self._ctx_path)
     def _ctx_do_diff(self)    -> None: self._on_diff(self._ctx_path)
 
-    def _on_panel_right_click(self, event) -> None:
-        self._panel_menu.tk_popup(event.x_root, event.y_root)
-
     def _ctx_create_gitignore(self) -> None:
         if self._on_create_gitignore:
             self._on_create_gitignore()
 
-    def _test_populate(self) -> None:
-        statuses = ["M", "A", "U", "D"]
-        fake = {f"src/module_{i:04d}.py": statuses[i % 4] for i in range(1, 501)}
-        # Temporarily override check so warning always shows in test
-        _orig = self._gitignore_check_fn
-        self._gitignore_check_fn = lambda: False
-        self.refresh(staged=fake, unstaged=fake)
-        self._gitignore_check_fn = _orig
