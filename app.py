@@ -1427,6 +1427,7 @@ class Notepad(Tk):
                 open_tab_id = tab_id
                 break
 
+        saved = False
         if open_tab_id and self._dirty.get(open_tab_id):
             from tkinter.messagebox import askyesnocancel
             answer = askyesnocancel(
@@ -1438,13 +1439,15 @@ class Notepad(Tk):
                 return False
             if answer:           # Yes — save first
                 self._write_file(open_tab_id, old_path)
+                saved = True
 
         # After the physical move succeeds (caller does shutil.move), update the tab
         if open_tab_id:
             new_title = os.path.basename(new_path)
             self._files[open_tab_id]  = new_path
             self._titles[open_tab_id] = new_title
-            self._dirty[open_tab_id]  = False
+            if saved:
+                self._dirty[open_tab_id] = False
             self._refresh_tab_title(open_tab_id)
             self._update_title()
 
