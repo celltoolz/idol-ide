@@ -11,7 +11,7 @@ import pygments.lexers
 import pygments.util
 from tkfontchooser import askfont
 from tkcolorpicker import askcolor
-
+ 
 from widgets.codeview import CodeView
 from widgets.notebook import CustomNotebook
 from widgets.sidebar import Sidebar
@@ -1112,10 +1112,17 @@ class Notepad(Tk):
             "build/\n"
             "*.egg-info/\n"
             ".eggs/\n\n"
-            "# Virtual environments\n"
+            "# Virtual environments (named folders)\n"
             ".venv/\n"
             "venv/\n"
-            "env/\n\n"
+            "env/\n"
+            "# Virtual environment files at repo root (macOS/Linux venv created in-place)\n"
+            "bin/\n"
+            "include/\n"
+            "lib/\n"
+            "lib64\n"
+            "pyvenv.cfg\n"
+            "share/\n\n"
             "# Unit test / coverage\n"
             ".pytest_cache/\n"
             ".coverage\n"

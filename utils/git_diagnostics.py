@@ -178,8 +178,10 @@ def analyze_files(unstaged: dict[str, str],
             what=f"{counts['venv']} virtual environment files are untracked.",
             why="Virtual environments can contain hundreds of files and are specific to your machine. "
                 "Committing them bloats the repo and causes conflicts for other contributors.",
-            how="Add your venv folder to .gitignore (e.g. venv/, .venv/, bin/, lib/). "
-                "If already committed, run: git rm -r --cached <venv-folder>",
+            how="Add your venv folder to .gitignore (e.g. venv/, .venv/). "
+                "If the venv was created at the repo root (common on macOS), also add: "
+                "bin/, lib/, include/, pyvenv.cfg. "
+                "If already committed, run: git rm -r --cached <folder>",
             severity="high",
             fix_label="Create .gitignore",
             fix_fn=fix_fns.get("create_gitignore"),
