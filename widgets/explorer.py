@@ -14,9 +14,11 @@ class FileExplorer(ttk.Frame):
 
     _LOADING = "__loading__"
 
-    def __init__(self, parent, on_open_file: Callable[[str], None]) -> None:
+    def __init__(self, parent, on_open_file: Callable[[str], None],
+                 on_file_move: Callable[[str, str], bool] | None = None) -> None:
         super().__init__(parent, style="Explorer.TFrame")
         self._on_open = on_open_file
+        self._on_file_move = on_file_move  # (old_path, new_path) -> bool (False = cancel)
         self._root: Path | None = None
 
         self._tree = ttk.Treeview(
@@ -424,6 +426,10 @@ class FileExplorer(ttk.Frame):
                 parent=self._tree,
             ):
                 return
+
+        # Let the app check for unsaved changes and update open tabs
+        if self._on_file_move and not self._on_file_move(str(src_path), str(dest_path)):
+            return
 
         try:
             shutil.move(str(src_path), str(dest_path))

@@ -213,6 +213,7 @@ class Notepad(Tk):
                 "gitignore_check":   self._sc_gitignore_exists,
                 "repo_root":         lambda: self._git._root if self._git else "",
             },
+            on_file_move=self._on_explorer_file_move,
         )
         self._sidebar.configure(width=220)
         self._h_pane.add(self._sidebar, weight=0)
@@ -1411,6 +1412,43 @@ class Notepad(Tk):
         if replace:
             old_index = self.notebook.tabs().index(old_tab_id)
             self._close_tab(old_index)
+
+    def _on_explorer_file_move(self, old_path: str, new_path: str) -> bool:
+        """Called by the explorer before a drag/drop move.
+
+        Checks whether the file is open and has unsaved changes; prompts the
+        user if so.  Updates the open tab's path after a successful move.
+        Returns True to proceed, False to cancel.
+        """
+        norm_old = os.path.normcase(old_path)
+        open_tab_id: str | None = None
+        for tab_id, path in self._files.items():
+            if path and os.path.normcase(path) == norm_old:
+                open_tab_id = tab_id
+                break
+
+        if open_tab_id and self._dirty.get(open_tab_id):
+            from tkinter.messagebox import askyesnocancel
+            answer = askyesnocancel(
+                "Unsaved Changes",
+                f'"{self._titles.get(open_tab_id, "Untitled")}" has unsaved changes.\n\n'
+                "Save before moving?",
+            )
+            if answer is None:   # Cancel
+                return False
+            if answer:           # Yes — save first
+                self._write_file(open_tab_id, old_path)
+
+        # After the physical move succeeds (caller does shutil.move), update the tab
+        if open_tab_id:
+            new_title = os.path.basename(new_path)
+            self._files[open_tab_id]  = new_path
+            self._titles[open_tab_id] = new_title
+            self._dirty[open_tab_id]  = False
+            self._refresh_tab_title(open_tab_id)
+            self._update_title()
+
+        return True
 
     def file_save(self, *_) -> bool:
         tab_id = self._current_tab_id
