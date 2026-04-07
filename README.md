@@ -52,6 +52,15 @@ A lightweight Python IDE built with tkinter.
 - Run / Output panel with stdout/stderr coloring
 - OUTPUT and TERMINAL tabs share the bottom panel
 
+### Project Wizard
+- **File → New Project…** launches a guided 4-step project setup wizard
+  - Step 1: Project name and location (with live path preview)
+  - Step 2: Python interpreter selection (auto-detects all installed versions) + virtual environment creation
+  - Step 3: Optional git init and starter files (main.py, requirements.txt, .gitignore)
+  - Step 4: Summary — review settings before creating
+- Animated progress bar during venv creation so the UI stays responsive
+- Integrated learning guide — "? Learn about virtual environments" opens a 5-page interactive guide covering: what a venv is, why to use one, choosing an interpreter, creating and activating, and best practices
+
 ### Workspace
 - Session persistence — restores open tabs, layout, and explorer root on relaunch
 - Save / Open Workspace for named sessions

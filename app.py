@@ -1373,6 +1373,21 @@ class Notepad(Tk):
     def file_new(self) -> None:
         self._new_tab("Untitled", "")
 
+    def file_new_project(self) -> None:
+        from widgets.project_wizard import ProjectWizard
+        ProjectWizard(self, on_complete=self._on_project_created)
+
+    def _on_project_created(self, project_path: str) -> None:
+        """Called when the project wizard finishes — open the new project."""
+        self._sidebar.explorer.set_root(project_path)
+        if self._git:
+            self._git.stop()
+        self._start_git()
+        # Open main.py if it was created
+        main_py = os.path.join(project_path, "main.py")
+        if os.path.isfile(main_py):
+            self._open_file(main_py, update_explorer=False)
+
     def file_open(self, *_) -> None:
         path = askopenfilename(
             filetypes=[

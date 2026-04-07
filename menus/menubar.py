@@ -22,8 +22,9 @@ def build_menubar(app) -> Menu:
 
     # ── File ─────────────────────────────────────────────────────────────────
     file_menu = Menu(menubar, tearoff=0)
-    file_menu.add_command(label="New",               command=app.file_new,       accelerator="Ctrl+N")
-    file_menu.add_command(label="Open...",           command=app.file_open,      accelerator="Ctrl+O")
+    file_menu.add_command(label="New",               command=app.file_new,          accelerator="Ctrl+N")
+    file_menu.add_command(label="New Project...",    command=app.file_new_project)
+    file_menu.add_command(label="Open...",           command=app.file_open,         accelerator="Ctrl+O")
     file_menu.add_separator()
     file_menu.add_command(label="Save",              command=app.file_save,      accelerator="Ctrl+S")
     file_menu.add_command(label="Save As...",        command=app.file_save_as,   accelerator="Ctrl+Shift+S")

@@ -9,6 +9,7 @@ from typing import Callable
 from utils.git_diagnostics import (
     classify_file, analyze_files, health_checks, FileInfo, Issue, HealthCheck
 )
+from widgets.guide_window import GuideWindow, GuidePage
 
 
 _BG       = "#252526"
@@ -583,105 +584,24 @@ class SourceControlPanel(ttk.Frame):
     # ── Guided fix wizard ─────────────────────────────────────────────────────
 
     def _open_wizard(self) -> None:
-        """Open the step-by-step guided fix wizard."""
+        """Open the step-by-step guided fix wizard using GuideWindow."""
         if not self._current_issues:
             return
-        issues = self._current_issues
-
-        win = tk.Toplevel(self)
-        win.title("Git Fix Guide")
-        win.configure(bg=_BG)
-        win.resizable(False, False)
-        win.attributes("-topmost", True)
-
-        # Center over parent
-        self.update_idletasks()
-        px = self.winfo_rootx() + self.winfo_width() + 10
-        py = self.winfo_rooty()
-        win.geometry(f"380x420+{px}+{py}")
-
-        state = {"idx": 0}
-
-        # ── Header ────────────────────────────────────────────────────────────
-        hdr = Frame(win, bg=_HDR_BG, pady=8)
-        hdr.pack(fill="x")
-        self._wiz_title = Label(hdr, text="", bg=_HDR_BG, fg=_FG,
-                                font=("Segoe UI", 10, "bold"), padx=12)
-        self._wiz_title.pack(anchor="w")
-        self._wiz_counter = Label(hdr, text="", bg=_HDR_BG, fg=_DIM,
-                                  font=("Segoe UI", 8), padx=12)
-        self._wiz_counter.pack(anchor="w")
-
-        # ── Content ───────────────────────────────────────────────────────────
-        content = Frame(win, bg=_BG, padx=12, pady=8)
-        content.pack(fill="both", expand=True)
-
-        def section(label: str, text: str, label_color: str) -> None:
-            Label(content, text=label, bg=_BG, fg=label_color,
-                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", pady=(6, 0))
-            Label(content, text=text, bg=_BG, fg=_FG,
-                  font=("Segoe UI", 9), anchor="w", justify="left",
-                  wraplength=340).pack(fill="x")
-
-        def load_issue(idx: int) -> None:
-            for w in content.winfo_children():
-                w.destroy()
-            issue = issues[idx]
-            self._wiz_title.config(text=issue.title)
-            self._wiz_counter.config(text=f"Issue {idx + 1} of {len(issues)}")
-            section("WHAT HAPPENED", issue.what, "#e2c08d")
-            section("WHY IT MATTERS", issue.why, "#f14c4c")
-            section("HOW TO FIX IT", issue.how, "#73c991")
-
-            if issue.fix_fn:
-                def do_fix(fn=issue.fix_fn):
-                    fn()
-                    win.destroy()
-                btn = Label(content, text=issue.fix_label,
-                            bg=_BTN_BG, fg="white",
-                            font=("Segoe UI", 9, "bold"),
-                            cursor="hand2", padx=10, pady=4)
-                btn.bind("<Button-1>", lambda _, f=do_fix: f())
-                btn.bind("<Enter>", lambda _, b=btn: b.config(bg=_BTN_ACT))
-                btn.bind("<Leave>", lambda _, b=btn: b.config(bg=_BTN_BG))
-                btn.pack(anchor="w", pady=(12, 0))
-
-        load_issue(0)
-
-        # ── Navigation — Labels used for consistent cross-platform rendering ────
-        nav = Frame(win, bg=_HDR_BG, pady=6)
-        nav.pack(fill="x", side="bottom")
-
-        def _nav_btn(parent, text, command):
-            lbl = Label(parent, text=text, bg=_HDR_BG, fg=_FG,
-                        font=("Segoe UI", 9), cursor="hand2", padx=10, pady=2)
-            lbl.bind("<Button-1>", lambda _: command())
-            lbl.bind("<Enter>", lambda _: lbl.config(fg="#ffffff"))
-            lbl.bind("<Leave>", lambda _: lbl.config(fg=_FG))
-            return lbl
-
-        prev_btn = _nav_btn(nav, "← Previous", lambda: go(-1))
-        prev_btn.pack(side="left", padx=6)
-
-        next_btn = _nav_btn(nav, "Next →", lambda: go(1))
-        next_btn.pack(side="left")
-
-        _nav_btn(nav, "Close", win.destroy).pack(side="right", padx=6)
-
-        def _set_enabled(lbl, enabled: bool) -> None:
-            lbl.config(fg=_FG if enabled else _DIM,
-                       cursor="hand2" if enabled else "")
-
-        def go(delta: int) -> None:
-            new = state["idx"] + delta
-            if 0 <= new < len(issues):
-                state["idx"] = new
-                load_issue(new)
-                _set_enabled(prev_btn, new > 0)
-                _set_enabled(next_btn, new < len(issues) - 1)
-
-        _set_enabled(prev_btn, False)
-        _set_enabled(next_btn, len(issues) > 1)
+        pages = [
+            GuidePage(
+                title=issue.title,
+                subtitle=f"Issue {i + 1} of {len(self._current_issues)}",
+                sections=[
+                    ("WHAT HAPPENED",  issue.what, "#e2c08d"),
+                    ("WHY IT MATTERS", issue.why,  "#f14c4c"),
+                    ("HOW TO FIX IT",  issue.how,  "#73c991"),
+                ],
+                action_label=issue.fix_label if issue.fix_fn else "",
+                action_fn=issue.fix_fn,
+            )
+            for i, issue in enumerate(self._current_issues)
+        ]
+        GuideWindow(self, "Git Fix Guide", pages)
 
     # ── Context menu helpers ──────────────────────────────────────────────────
 
