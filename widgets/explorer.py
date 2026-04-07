@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tkinter as tk
 from pathlib import Path
-from tkinter import Menu, ttk
+from tkinter import Menu, simpledialog, messagebox, ttk
 from typing import Callable
 
 
@@ -45,9 +47,25 @@ class FileExplorer(ttk.Frame):
         self._tree.bind("<Return>",            self._on_enter)
         self._tree.bind("<Button-3>",          self._on_right_click)
 
+        # Drag/drop state
+        self._drag_item:    str  = ""
+        self._drag_start_y: int  = 0
+        self._drag_active:  bool = False
+        # Indicator line — child of self (Frame), placed over the treeview
+        self._drag_line = tk.Frame(self, height=2, bg="#569cd6")
+        self._tree.bind("<ButtonPress-1>",   self._on_drag_start)
+        self._tree.bind("<B1-Motion>",       self._on_drag_motion)
+        self._tree.bind("<ButtonRelease-1>", self._on_drag_release)
+
         self._menu = Menu(self._tree, tearoff=0)
-        self._menu.add_command(label="Set as Root Directory", command=self._set_selected_as_root)
         self._menu.add_command(label="Open File",             command=self._open_selected)
+        self._menu.add_command(label="Set as Root Directory", command=self._set_selected_as_root)
+        self._menu.add_separator()
+        self._menu.add_command(label="New File",              command=self._new_file)
+        self._menu.add_command(label="New Folder",            command=self._new_folder)
+        self._menu.add_separator()
+        self._menu.add_command(label="Rename",                command=self._rename_selected)
+        self._menu.add_command(label="Delete",                command=self._delete_selected)
         self._menu_item: str = ""
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -186,14 +204,19 @@ class FileExplorer(ttk.Frame):
             return
         self._tree.selection_set(item)
         self._menu_item = item
-        tags = self._tree.item(item, "tags")
         values = self._tree.item(item, "values")
-        is_file = values and values[0] != self._LOADING and Path(values[0]).is_file()
-        # Show/hide entries based on what was right-clicked
-        self._menu.entryconfigure("Set as Root Directory",
-                                  state="normal" if not is_file else "disabled")
+        is_parent = "parent_dir" in self._tree.item(item, "tags")
+        is_file   = (values and values[0] != self._LOADING
+                     and Path(values[0]).is_file())
+        is_item   = values and values[0] != self._LOADING and not is_parent
         self._menu.entryconfigure("Open File",
                                   state="normal" if is_file else "disabled")
+        self._menu.entryconfigure("Set as Root Directory",
+                                  state="normal" if not is_file and not is_parent else "disabled")
+        self._menu.entryconfigure("Rename",
+                                  state="normal" if is_item else "disabled")
+        self._menu.entryconfigure("Delete",
+                                  state="normal" if is_item else "disabled")
         self._menu.tk_popup(event.x_root, event.y_root)
 
     def _set_selected_as_root(self) -> None:
@@ -210,6 +233,225 @@ class FileExplorer(ttk.Frame):
         if self._menu_item:
             self._activate(self._menu_item)
 
+    def _rename_selected(self) -> None:
+        if not self._menu_item:
+            return
+        values = self._tree.item(self._menu_item, "values")
+        if not values or values[0] == self._LOADING:
+            return
+        old_path = Path(values[0])
+        new_name = simpledialog.askstring(
+            "Rename", f"Rename '{old_path.name}' to:",
+            initialvalue=old_path.name,
+            parent=self._tree,
+        )
+        if not new_name or new_name == old_path.name:
+            return
+        new_path = old_path.parent / new_name
+        try:
+            old_path.rename(new_path)
+        except Exception as e:
+            messagebox.showerror("Rename failed", str(e), parent=self._tree)
+            return
+        # Refresh the parent folder in the tree
+        parent_item = self._tree.parent(self._menu_item)
+        self._refresh_node(parent_item, old_path.parent)
+
+    def _delete_selected(self) -> None:
+        if not self._menu_item:
+            return
+        values = self._tree.item(self._menu_item, "values")
+        if not values or values[0] == self._LOADING:
+            return
+        path = Path(values[0])
+        kind = "folder" if path.is_dir() else "file"
+        if not messagebox.askyesno(
+            "Delete", f"Delete {kind} '{path.name}'? This cannot be undone.",
+            parent=self._tree,
+        ):
+            return
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        except Exception as e:
+            messagebox.showerror("Delete failed", str(e), parent=self._tree)
+            return
+        self._tree.delete(self._menu_item)
+        self._menu_item = ""
+
+    def _new_file(self) -> None:
+        parent_item, parent_dir = self._new_item_context()
+        if parent_dir is None:
+            return
+        name = simpledialog.askstring("New File", "File name:", parent=self._tree)
+        if not name:
+            return
+        new_path = parent_dir / name
+        try:
+            new_path.touch()
+        except Exception as e:
+            messagebox.showerror("New File failed", str(e), parent=self._tree)
+            return
+        self._refresh_node(parent_item, parent_dir)
+        self._on_open(str(new_path))
+
+    def _new_folder(self) -> None:
+        parent_item, parent_dir = self._new_item_context()
+        if parent_dir is None:
+            return
+        name = simpledialog.askstring("New Folder", "Folder name:", parent=self._tree)
+        if not name:
+            return
+        new_path = parent_dir / name
+        try:
+            new_path.mkdir(parents=False, exist_ok=False)
+        except Exception as e:
+            messagebox.showerror("New Folder failed", str(e), parent=self._tree)
+            return
+        self._refresh_node(parent_item, parent_dir)
+
+    def _new_item_context(self) -> tuple[str, Path | None]:
+        """Return (parent_tree_item, parent_dir) for a new file/folder action."""
+        if not self._menu_item:
+            # Nothing selected — create in root
+            return ("", self._root)
+        values = self._tree.item(self._menu_item, "values")
+        tags   = self._tree.item(self._menu_item, "tags")
+        if not values or values[0] == self._LOADING or "parent_dir" in tags:
+            return ("", self._root)
+        path = Path(values[0])
+        if path.is_dir():
+            return (self._menu_item, path)
+        # File selected — create alongside it
+        return (self._tree.parent(self._menu_item), path.parent)
+
+    def _refresh_node(self, parent_item: str, directory: Path) -> None:
+        """Remove and re-populate a node's children."""
+        for child in self._tree.get_children(parent_item):
+            self._tree.delete(child)
+        if parent_item == "":
+            # Root level — re-add the .. entry if needed
+            if self._root and self._root.parent != self._root:
+                self._tree.insert(
+                    "", 0, text="  ..",
+                    values=[str(self._root.parent)],
+                    tags=("parent_dir",),
+                )
+            self._populate("", directory)
+        else:
+            self._populate(parent_item, directory)
+
+    # ── Drag / drop ───────────────────────────────────────────────────────────
+
+    _DRAG_THRESHOLD = 6  # pixels before drag activates
+
+    def _on_drag_start(self, event) -> None:
+        item = self._tree.identify_row(event.y)
+        if not item:
+            self._drag_item = ""
+            return
+        tags   = self._tree.item(item, "tags")
+        values = self._tree.item(item, "values")
+        if "parent_dir" in tags or not values or values[0] == self._LOADING:
+            self._drag_item = ""
+            return
+        self._drag_item    = item
+        self._drag_start_y = event.y
+        self._drag_active  = False
+
+    def _on_drag_motion(self, event) -> None:
+        if not self._drag_item:
+            return
+        # Only activate drag after threshold to avoid false triggers on clicks
+        if not self._drag_active:
+            if abs(event.y - self._drag_start_y) < self._DRAG_THRESHOLD:
+                return
+            self._drag_active = True
+
+        target = self._tree.identify_row(event.y)
+        if target and target != self._drag_item:
+            bbox = self._tree.bbox(target)
+            if bbox:
+                # bbox is relative to treeview; offset by treeview position in self
+                tree_y = self._tree.winfo_y()
+                y = tree_y + bbox[1] + bbox[3]
+                self._drag_line.place(x=0, y=y, width=self.winfo_width(), height=2)
+                self._drag_line.lift()
+                return
+        self._drag_line.place_forget()
+
+    def _on_drag_release(self, event) -> None:
+        self._drag_line.place_forget()
+        if not self._drag_item or not self._drag_active:
+            self._drag_item   = ""
+            self._drag_active = False
+            return
+
+        src_values = self._tree.item(self._drag_item, "values")
+        src_item   = self._drag_item
+        self._drag_item   = ""
+        self._drag_active = False
+
+        if not src_values or src_values[0] == self._LOADING:
+            return
+        src_path = Path(src_values[0])
+
+        target_item = self._tree.identify_row(event.y)
+        if not target_item or target_item == src_item:
+            return
+
+        tgt_values = self._tree.item(target_item, "values")
+        if not tgt_values or tgt_values[0] == self._LOADING:
+            return
+        tgt_path = Path(tgt_values[0])
+
+        dest_dir  = tgt_path if tgt_path.is_dir() else tgt_path.parent
+        dest_path = dest_dir / src_path.name
+
+        if dest_path == src_path or dest_dir == src_path.parent:
+            return
+
+        if dest_path.exists():
+            if not messagebox.askyesno(
+                "Overwrite?",
+                f"'{dest_path.name}' already exists in '{dest_dir.name}'. Overwrite?",
+                parent=self._tree,
+            ):
+                return
+
+        try:
+            shutil.move(str(src_path), str(dest_path))
+        except Exception as e:
+            messagebox.showerror("Move failed", str(e), parent=self._tree)
+            return
+
+        src_parent_item = self._find_item(str(src_path.parent))
+        dst_parent_item = self._find_item(str(dest_dir))
+
+        if src_parent_item is not None and self._tree.exists(src_parent_item or "x"):
+            self._refresh_node(src_parent_item, src_path.parent)
+        if dst_parent_item is not None and dst_parent_item != src_parent_item:
+            if dst_parent_item == "" or self._tree.exists(dst_parent_item):
+                self._refresh_node(dst_parent_item, dest_dir)
+
+    def _find_item(self, path_str: str) -> str | None:
+        """Find the tree item whose value matches path_str."""
+        def _search(parent: str) -> str | None:
+            for item in self._tree.get_children(parent):
+                values = self._tree.item(item, "values")
+                if values and values[0] == path_str:
+                    return item
+                found = _search(item)
+                if found:
+                    return found
+            return None
+        # Check root level first (including "" parent)
+        if self._root and str(self._root) == path_str:
+            return ""
+        return _search("")
+
     def _activate(self, item: str) -> None:
         values = self._tree.item(item, "values")
         if not values or values[0] == self._LOADING:
@@ -218,8 +460,6 @@ class FileExplorer(ttk.Frame):
         if path.is_file():
             self._on_open(str(path))
         elif "parent_dir" in self._tree.item(item, "tags"):
-            # ".." — navigate up to the parent directory
             self.set_root(str(path))
         else:
-            # Any other folder — expand/collapse in place
             self._tree.item(item, open=not self._tree.item(item, "open"))
