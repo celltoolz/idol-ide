@@ -430,7 +430,7 @@ class FileExplorer(ttk.Frame):
         src_parent_item = self._find_item(str(src_path.parent))
         dst_parent_item = self._find_item(str(dest_dir))
 
-        if src_parent_item is not None and self._tree.exists(src_parent_item or "x"):
+        if src_parent_item is not None and (src_parent_item == "" or self._tree.exists(src_parent_item)):
             self._refresh_node(src_parent_item, src_path.parent)
         if dst_parent_item is not None and dst_parent_item != src_parent_item:
             if dst_parent_item == "" or self._tree.exists(dst_parent_item):
