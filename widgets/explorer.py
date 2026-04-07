@@ -430,11 +430,16 @@ class FileExplorer(ttk.Frame):
         src_parent_item = self._find_item(str(src_path.parent))
         dst_parent_item = self._find_item(str(dest_dir))
 
-        if src_parent_item is not None and (src_parent_item == "" or self._tree.exists(src_parent_item)):
-            self._refresh_node(src_parent_item, src_path.parent)
+        def _is_parent_dir(item: str) -> bool:
+            return bool(item and "parent_dir" in self._tree.item(item, "tags"))
+
+        if src_parent_item is not None and not _is_parent_dir(src_parent_item):
+            if src_parent_item == "" or self._tree.exists(src_parent_item):
+                self._refresh_node(src_parent_item, src_path.parent)
         if dst_parent_item is not None and dst_parent_item != src_parent_item:
-            if dst_parent_item == "" or self._tree.exists(dst_parent_item):
-                self._refresh_node(dst_parent_item, dest_dir)
+            if not _is_parent_dir(dst_parent_item):
+                if dst_parent_item == "" or self._tree.exists(dst_parent_item):
+                    self._refresh_node(dst_parent_item, dest_dir)
 
     def _find_item(self, path_str: str) -> str | None:
         """Find the tree item whose value matches path_str."""
