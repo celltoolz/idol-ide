@@ -44,7 +44,7 @@ class Sidebar(ttk.Frame):
         self._sash2_y: int = 0   # refs body height
         self._sash3_y: int = 0   # source control body height
 
-        self._drag_sash: int = 0
+        self._drag_slot: int = 0
         self._drag_start_y: int = 0
         self._drag_start_sash: int = 0
 
@@ -52,13 +52,13 @@ class Sidebar(ttk.Frame):
         self._outline_hdr = self._make_header("OUTLINE",    self._toggle_outline)
         self.outline      = OutlinePanel(self, on_navigate=on_navigate)
 
-        self._sash1 = self._make_sash(1)
+        self._sash1 = self._make_sash()
 
         self._refs_hdr = self._make_header("REFERENCES", self._toggle_refs,
                                            closeable=True)
         self.references = ReferencesPanel(self, on_navigate=on_navigate)
 
-        self._sash2 = self._make_sash(2)
+        self._sash2 = self._make_sash()
 
         self._sc_hdr = self._make_header("SOURCE CONTROL", self._toggle_sc,
                                          closeable=True,
@@ -76,7 +76,7 @@ class Sidebar(ttk.Frame):
             on_create_gitignore=sc_cb.get("create_gitignore", None),
         )
 
-        self._sash3 = self._make_sash(3)
+        self._sash3 = self._make_sash()
 
         self._explorer_hdr = self._make_header("EXPLORER",  self._toggle_explorer)
         # Wrap callback so clicks from the tree don't reset the explorer root
@@ -89,23 +89,46 @@ class Sidebar(ttk.Frame):
     def show_references(self, word: str, codeview) -> None:
         """Show and populate the references panel."""
         self.references.show(word, codeview)
+        if not self._refs_visible:
+            # Give refs half of outline's current height so space is shared evenly
+            half = max(_MIN_BODY, self._sash1_y // 2)
+            self._sash1_y = half
+            self._sash2_y = half
         self._refs_visible   = True
         self._refs_collapsed = False
         self._refs_hdr._arrow.config(text="▾")
         self._relayout()
 
     def hide_references(self) -> None:
+        if self._refs_visible:
+            # Return refs' space back to outline
+            self._sash1_y = max(_MIN_BODY, self._sash1_y + self._sash2_y)
+            self._sash2_y = 0
         self._refs_visible = False
         self._relayout()
 
     def show_source_control(self) -> None:
         """Make the Source Control panel visible and expanded."""
+        if not self._sc_visible:
+            # Take half from whichever expanded panel is above sc (refs or outline)
+            donor = 1 if self._refs_visible and not self._refs_collapsed else 0
+            attr  = "_sash2_y" if donor == 1 else "_sash1_y"
+            cur   = getattr(self, attr)
+            half  = max(_MIN_BODY, cur // 2)
+            setattr(self, attr, half)
+            self._sash3_y = half
         self._sc_visible   = True
         self._sc_collapsed = False
         self._sc_hdr._arrow.config(text="▾")
         self._relayout()
 
     def hide_source_control(self) -> None:
+        if self._sc_visible:
+            # Return sc's space to its donor
+            donor = 1 if self._refs_visible and not self._refs_collapsed else 0
+            attr  = "_sash2_y" if donor == 1 else "_sash1_y"
+            setattr(self, attr, max(_MIN_BODY, getattr(self, attr) + self._sash3_y))
+            self._sash3_y = 0
         self._sc_visible = False
         self._relayout()
 
@@ -163,10 +186,9 @@ class Sidebar(ttk.Frame):
 
         return hdr
 
-    def _make_sash(self, which: int) -> Frame:
+    def _make_sash(self) -> Frame:
         sash = Frame(self, bg="#3c3c3c", cursor="sb_v_double_arrow",
                      height=_SASH_H)
-        sash.bind("<Button-1>",  lambda e, w=which: self._sash_press(e, w))
         sash.bind("<B1-Motion>", self._sash_drag)
         return sash
 
@@ -197,29 +219,25 @@ class Sidebar(ttk.Frame):
         self._relayout()
 
     # ── Sash drag ─────────────────────────────────────────────────────────────
-    # _sash1_y / _sash2_y store the *desired body height* of section 0 (outline)
-    # and section 1 (refs) respectively — NOT absolute y positions.
-    # This means collapsing any section automatically gives its space to neighbors.
+    # _sash1_y / _sash2_y / _sash3_y store the *desired body height* of slots
+    # 0 (outline), 1 (refs), 2 (sc) — NOT absolute y positions.
+    # Sashes are re-bound in _relayout with the correct slot each time sections
+    # change, so dragging always affects the right panel regardless of visibility.
 
-    def _sash_press(self, event, which: int) -> None:
-        self._drag_sash    = which
+    _SLOT_SASH = {0: "_sash1_y", 1: "_sash2_y", 2: "_sash3_y"}
+
+    def _sash_press(self, event, slot: int) -> None:
+        self._drag_slot    = slot
         self._drag_start_y = event.y_root
-        if which == 1:
-            self._drag_start_sash = self._sash1_y
-        elif which == 2:
-            self._drag_start_sash = self._sash2_y
-        else:
-            self._drag_start_sash = self._sash3_y
+        attr = self._SLOT_SASH.get(slot)
+        self._drag_start_sash = getattr(self, attr) if attr else 0
 
     def _sash_drag(self, event) -> None:
         delta = event.y_root - self._drag_start_y
         new_h = max(_MIN_BODY, self._drag_start_sash + delta)
-        if self._drag_sash == 1:
-            self._sash1_y = new_h
-        elif self._drag_sash == 2:
-            self._sash2_y = new_h
-        else:
-            self._sash3_y = new_h
+        attr = self._SLOT_SASH.get(self._drag_slot)
+        if attr:
+            setattr(self, attr, new_h)
         self._relayout()
 
     # ── Layout engine ─────────────────────────────────────────────────────────
@@ -251,15 +269,11 @@ class Sidebar(ttk.Frame):
         expanded = [slot for _, _, c, slot in sections if not c]
         n_exp = len(expanded)
 
-        # Desired body heights per slot (slots 0-2 use sash positions;
-        # slot 3 / explorer always gets whatever remains).
+        # Initialize outline height on first layout only.
+        # Refs and SC heights are set when those panels are shown/hidden.
         default_h = max(M, free_h // max(n_exp, 1))
         if self._sash1_y == 0:
             self._sash1_y = default_h
-        if self._sash2_y == 0:
-            self._sash2_y = default_h
-        if self._sash3_y == 0:
-            self._sash3_y = default_h
 
         desired = {
             0: max(M, self._sash1_y),
@@ -314,6 +328,7 @@ class Sidebar(ttk.Frame):
 
         sash_widgets = [self._sash1, self._sash2, self._sash3]
         y = 0
+        sash_idx = 0
         for i, (hdr, body, collapsed, slot) in enumerate(sections):
             hdr.place(x=0, y=y, width=w, height=H)
             y += H
@@ -322,5 +337,10 @@ class Sidebar(ttk.Frame):
                 body.place(x=0, y=y, width=w, height=bh)
                 y += bh
             if i < n - 1:
-                sash_widgets[i].place(x=0, y=y, width=w, height=S)
+                sw = sash_widgets[sash_idx]
+                # Re-bind with the slot of the section above this sash so
+                # dragging always adjusts the correct panel's height.
+                sw.bind("<Button-1>", lambda e, s=slot: self._sash_press(e, s))
+                sw.place(x=0, y=y, width=w, height=S)
                 y += S
+                sash_idx += 1
