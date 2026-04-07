@@ -283,14 +283,22 @@ class Sidebar(ttk.Frame):
         body_h: dict[int, int] = {}
 
         if other_expanded:
-            if other_desired_total <= other_budget:
-                for slot in other_expanded:
-                    body_h[slot] = desired.get(slot, default_h)
-            else:
+            if other_desired_total > other_budget:
+                # Panels overflow — proportionally squish to fit budget
                 for slot in other_expanded:
                     want = desired.get(slot, default_h)
-                    ratio = want / other_desired_total if other_desired_total else 1
+                    ratio = want / other_desired_total
                     body_h[slot] = max(M, int(other_budget * ratio))
+            elif not explorer_expanded:
+                # Explorer is collapsed — scale panels up to fill all free space
+                scale = other_budget / other_desired_total if other_desired_total else 1
+                for slot in other_expanded:
+                    want = desired.get(slot, default_h)
+                    body_h[slot] = max(M, int(want * scale))
+            else:
+                # Explorer is expanded — panels get desired height; explorer gets the rest
+                for slot in other_expanded:
+                    body_h[slot] = desired.get(slot, default_h)
 
         if explorer_expanded:
             used_by_others = sum(body_h.get(s, 0) for s in other_expanded)
