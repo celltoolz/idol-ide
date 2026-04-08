@@ -48,12 +48,10 @@ def _detect_pythons() -> list[tuple[str, str]]:
             return
         results.append((f"Python {version}  ({resolved})", resolved))
 
-    # Current interpreter first
-    _add(sys.executable)
-
-    # Common names on PATH
-    for name in ("python3", "python", "python3.13", "python3.12", "python3.11",
-                 "python3.10", "python3.9"):
+    # Well-known install locations first so they win the realpath deduplication
+    # race over venv symlinks (venvs link back to the installed binary).
+    for name in ("python3", "python", "python3.14", "python3.13", "python3.12",
+                 "python3.11", "python3.10", "python3.9"):
         _add(name)
 
     # macOS / Homebrew / pyenv locations
@@ -61,6 +59,10 @@ def _detect_pythons() -> list[tuple[str, str]]:
                    os.path.expanduser("~/.pyenv/shims")):
         for name in ("python3", "python"):
             _add(os.path.join(prefix, name))
+
+    # Current interpreter last — deduped away if it's a venv pointing at an
+    # already-found install; still added if it's a unique standalone interpreter.
+    _add(sys.executable)
 
     # Windows py launcher
     py = shutil.which("py")
