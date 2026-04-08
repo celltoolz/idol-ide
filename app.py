@@ -969,6 +969,9 @@ class Notepad(Tk):
         self._git = GitManager(root, after_fn=self.after)
         if not self._git.is_repo():
             self._git = None
+            self._on_git_branch("")
+            if self._sidebar._sc_visible:
+                self._sidebar.source_control.refresh({}, {})
             return
         self._refresh_git()
 
