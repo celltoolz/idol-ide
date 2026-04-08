@@ -147,21 +147,39 @@ class BreadcrumbBar(tk.Frame):
             _sep(self._inner)
             for i, (tag, name, start) in enumerate(scope):
                 fg = _TAG_FG.get(tag, _FG_FILE)
+                is_last = i == len(scope) - 1
+
+                # Crumb label — clicking shows siblings
+                sibs, locs = _get_picker_data(tag, name, start, scope, outline)
                 lbl = tk.Label(
                     self._inner, text=name, bg=_BG, fg=fg,
                     font=("Segoe UI", 9), padx=2, pady=0,
                     cursor="hand2",
                 )
                 lbl.pack(side="left")
-                sibs, locs = _get_picker_data(tag, name, start, scope, outline)
                 lbl.bind(
                     "<Button-1>",
-                    lambda _, w=lbl, s=sibs, lo=locs, n=name: self._show_picker(s, lo, n, w),
+                    lambda _, w=lbl, s=sibs: self._show_siblings(s, w),
                 )
                 lbl.bind("<Enter>", lambda _, l=lbl: l.config(bg=_BG_HOVER))
                 lbl.bind("<Leave>", lambda _, l=lbl: l.config(bg=_BG))
-                if i < len(scope) - 1:
+
+                if not is_last:
                     _sep(self._inner)
+                elif locs:
+                    # Drill-down › after the innermost crumb — clicking shows locals
+                    drill = tk.Label(
+                        self._inner, text="›", bg=_BG, fg=_FG_DIM,
+                        font=("Segoe UI", 9), padx=3, pady=0,
+                        cursor="hand2",
+                    )
+                    drill.pack(side="left")
+                    drill.bind(
+                        "<Button-1>",
+                        lambda _, w=drill, lo=locs, n=name: self._show_locals(lo, n, w),
+                    )
+                    drill.bind("<Enter>", lambda _, d=drill: d.config(fg=_FG_FILE))
+                    drill.bind("<Leave>", lambda _, d=drill: d.config(fg=_FG_DIM))
 
     # ── Picker ──────────────────────────────────────────────────────────────────
 
@@ -170,32 +188,19 @@ class BreadcrumbBar(tk.Frame):
             self._picker.destroy()
         self._picker = None
 
-    def _show_picker(
-        self,
-        symbols: list[tuple[str, str, int]],
-        locals_: list[tuple[str, str, int]],
-        scope_name: str,
-        anchor: tk.Label,
-    ) -> None:
-        # Toggle off if already open
-        if self._picker and self._picker.winfo_exists():
-            self._close_picker()
-            return
-        if not symbols and not locals_:
-            return
+    # ── Shared popup infrastructure ───────────────────────────────────────────
+
+    def _make_popup(self, anchor: tk.Label, popup_w: int = 280) \
+            -> "tuple[tk.Toplevel, tk.Frame, tk.Canvas, any, list, list[int]]":
+        """Create the Toplevel + scrollable canvas. Returns
+        (popup, inner, canvas, vsb, rows, selected_idx)."""
+        from tkinter import ttk
 
         popup = tk.Toplevel(self)
         popup.overrideredirect(True)
         popup.configure(bg=_PICK_BDR)
         popup.attributes("-topmost", True)
         self._picker = popup
-
-        from tkinter import ttk
-
-        MAX_VISIBLE = 14
-        ROW_H       = 26
-        HDR_H       = 20
-        popup_w     = 300
 
         border = tk.Frame(popup, bg=_PICK_BDR)
         border.pack(fill="both", expand=True, padx=1, pady=1)
@@ -209,25 +214,21 @@ class BreadcrumbBar(tk.Frame):
 
         inner = tk.Frame(canvas, bg=_PICK_BG)
         win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-
         inner.bind("<Configure>", lambda _: (
             canvas.configure(scrollregion=canvas.bbox("all")),
             canvas.itemconfigure(win_id, width=canvas.winfo_width()),
         ))
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win_id, width=e.width))
 
-        # rows that are selectable (skip section headers)
-        rows: list[tuple[tk.Frame, tk.Label, tk.Label, int]] = []  # (frame, name_lbl, line_lbl, lineno)
+        rows: list = []
         selected_idx = [0]
+        return popup, inner, canvas, vsb, rows, selected_idx
 
-        _LOCAL_FG = "#abb2bf"
-        _LOCAL_ICONS = {"nested_fn": "◈", "nested_class": "◉", "local": "◦"}
-        _LOCAL_FG_MAP = {"nested_fn": _TAG_FG.get("method", _FG_FILE),
-                         "nested_class": _TAG_FG.get("class", _FG_FILE),
-                         "local": _LOCAL_FG}
-
-        def _wheel(e):
-            canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
+    def _finalise_popup(self, popup, canvas, vsb, rows, selected_idx,
+                        anchor: tk.Label, popup_w: int,
+                        content_h: int, max_h: int) -> None:
+        """Size, position, bind focus-loss and keyboard nav, then show."""
+        ROW_H = 26
 
         def _highlight(idx: int) -> None:
             for i, (r, nl, ll, _) in enumerate(rows):
@@ -238,91 +239,24 @@ class BreadcrumbBar(tk.Frame):
             self._close_picker()
             self._on_navigate(ln)
 
-        def _add_section_header(text: str) -> None:
-            hdr = tk.Frame(inner, bg=_PICK_BG, height=HDR_H)
-            hdr.pack(fill="x")
-            hdr.pack_propagate(False)
-            tk.Label(hdr, text=text, bg=_PICK_BG, fg=_FG_DIM,
-                     font=("Segoe UI", 7, "bold"), anchor="w", padx=10).pack(
-                         side="left", fill="y")
+        popup_h = min(content_h, max_h) + 2
+        if content_h <= max_h:
+            vsb.pack_forget()
 
-        def _add_divider() -> None:
-            tk.Frame(inner, bg="#3c3c3c", height=1).pack(fill="x", padx=6, pady=2)
+        x = anchor.winfo_rootx()
+        y = anchor.winfo_rooty() + anchor.winfo_height() + 2
+        if y + popup_h > popup.winfo_screenheight() - 20:
+            y = anchor.winfo_rooty() - popup_h - 2
+        popup.geometry(f"{popup_w}x{popup_h}+{x}+{y}")
 
-        def _add_row(tag: str, name: str, lineno: int, indent: int = 0) -> None:
-            fg = _TAG_FG.get(tag, _FG_FILE)
-            row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
-            row.pack(fill="x")
-            row.pack_propagate(False)
-            pad = 10 + indent * 16
-            name_lbl = tk.Label(row, text=name, bg=_PICK_BG, fg=fg,
-                                 font=("Segoe UI", 9), anchor="w", padx=pad, pady=0)
-            name_lbl.pack(side="left", fill="y")
-            line_lbl = tk.Label(row, text=f":{lineno}", bg=_PICK_BG, fg=_FG_DIM,
-                                 font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
-            line_lbl.pack(side="right", fill="y")
+        if rows:
+            _highlight(0)
 
-            idx = len(rows)
-            rows.append((row, name_lbl, line_lbl, lineno))
-
-            def _enter(_): selected_idx[0] = idx; _highlight(idx)
-            def _leave(_): _highlight(selected_idx[0])
-            def _click(_): _navigate(lineno)
-
-            for w in (row, name_lbl, line_lbl):
-                w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
-                w.bind("<Button-1>", _click)
-                w.bind("<MouseWheel>", _wheel)
-                w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
-
-        def _add_local_row(ltag: str, lname: str, lline: int) -> None:
-            fg = _LOCAL_FG_MAP.get(ltag, _LOCAL_FG)
-            icon = _LOCAL_ICONS.get(ltag, "◦")
-            row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
-            row.pack(fill="x")
-            row.pack_propagate(False)
-            # Tree line prefix + indent
-            tree_lbl = tk.Label(row, text="  ├─", bg=_PICK_BG, fg="#4a4a4a",
-                                 font=("Consolas", 8), padx=4, pady=0)
-            tree_lbl.pack(side="left", fill="y")
-            name_lbl = tk.Label(row, text=f"{icon}  {lname}", bg=_PICK_BG, fg=fg,
-                                 font=("Segoe UI", 9), anchor="w", padx=2, pady=0)
-            name_lbl.pack(side="left", fill="y")
-            line_lbl = tk.Label(row, text=f":{lline}", bg=_PICK_BG, fg=_FG_DIM,
-                                 font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
-            line_lbl.pack(side="right", fill="y")
-
-            idx = len(rows)
-            rows.append((row, name_lbl, line_lbl, lline))
-
-            def _enter(_): selected_idx[0] = idx; _highlight(idx)
-            def _leave(_): _highlight(selected_idx[0])
-            def _click(_): _navigate(lline)
-
-            for w in (row, name_lbl, line_lbl, tree_lbl):
-                w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
-                w.bind("<Button-1>", _click)
-                w.bind("<MouseWheel>", _wheel)
-                w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
-
-        # ── Section 1: siblings ──────────────────────────────────────────────
-        if symbols:
-            _add_section_header("SYMBOLS")
-            for tag, name, lineno in symbols:
-                _add_row(tag, name, lineno)
-
-        # ── Section 2: locals inside current scope ───────────────────────────
-        if locals_:
-            if symbols:
-                _add_divider()
-            _add_section_header(f"IN  {scope_name.upper()}")
-            for ltag, lname, lline in locals_:
-                _add_local_row(ltag, lname, lline)
-
+        def _wheel(e):
+            canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
         canvas.bind("<MouseWheel>", _wheel)
         canvas.bind("<Button-4>", _wheel); canvas.bind("<Button-5>", _wheel)
 
-        # Keyboard nav (only over selectable rows)
         navigable = [r[3] for r in rows]
 
         def _key(event):
@@ -341,26 +275,6 @@ class BreadcrumbBar(tk.Frame):
 
         popup.bind("<KeyPress>", _key)
 
-        # Size popup
-        total_rows = len(rows)
-        n_headers = (1 if symbols else 0) + (1 if locals_ else 0)
-        n_dividers = 1 if (symbols and locals_) else 0
-        content_h = total_rows * ROW_H + n_headers * HDR_H + n_dividers * 5
-        popup_h = min(content_h, MAX_VISIBLE * ROW_H) + 2
-        needs_scroll = content_h > popup_h
-        if not needs_scroll:
-            vsb.pack_forget()
-
-        x = anchor.winfo_rootx()
-        y = anchor.winfo_rooty() + anchor.winfo_height() + 2
-        screen_h = popup.winfo_screenheight()
-        if y + popup_h > screen_h - 20:
-            y = anchor.winfo_rooty() - popup_h - 2
-
-        popup.geometry(f"{popup_w}x{popup_h}+{x}+{y}")
-        if rows:
-            _highlight(0)
-
         def _check_focus():
             if not popup.winfo_exists():
                 return
@@ -374,6 +288,119 @@ class BreadcrumbBar(tk.Frame):
 
         popup.bind("<FocusOut>", lambda _: popup.after(100, _check_focus))
         popup.focus_set()
+
+    # ── Sibling picker (crumb click) ──────────────────────────────────────────
+
+    def _show_siblings(self, symbols: list[tuple[str, str, int]], anchor: tk.Label) -> None:
+        """Show peer symbols at this scope level."""
+        if self._picker and self._picker.winfo_exists():
+            self._close_picker()
+            return
+        if not symbols:
+            return
+
+        ROW_H, MAX_H, popup_w = 26, 14 * 26, 280
+        popup, inner, canvas, vsb, rows, sel = self._make_popup(anchor, popup_w)
+
+        def _wheel(e):
+            canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
+
+        def _highlight(idx):
+            for i, (r, nl, ll, _) in enumerate(rows):
+                bg = _PICK_SEL if i == idx else _PICK_BG
+                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+
+        for tag, name, lineno in symbols:
+            fg = _TAG_FG.get(tag, _FG_FILE)
+            row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
+            row.pack(fill="x"); row.pack_propagate(False)
+            nl = tk.Label(row, text=name, bg=_PICK_BG, fg=fg,
+                          font=("Segoe UI", 9), anchor="w", padx=12, pady=0)
+            nl.pack(side="left", fill="y")
+            ll = tk.Label(row, text=f":{lineno}", bg=_PICK_BG, fg=_FG_DIM,
+                          font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
+            ll.pack(side="right", fill="y")
+
+            idx = len(rows); rows.append((row, nl, ll, lineno))
+
+            def _enter(_, i=idx): sel[0] = i; _highlight(i)
+            def _leave(_): _highlight(sel[0])
+            def _click(_, ln=lineno): self._close_picker(); self._on_navigate(ln)
+
+            for w in (row, nl, ll):
+                w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
+                w.bind("<Button-1>", _click)
+                w.bind("<MouseWheel>", _wheel)
+                w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
+
+        self._finalise_popup(popup, canvas, vsb, rows, sel, anchor, popup_w,
+                             len(symbols) * ROW_H, MAX_H)
+
+    # ── Locals picker (drill-down › click) ────────────────────────────────────
+
+    def _show_locals(self, locals_: list[tuple[str, str, int]],
+                     scope_name: str, anchor: tk.Label) -> None:
+        """Show variables/nested defs inside the current function/method."""
+        if self._picker and self._picker.winfo_exists():
+            self._close_picker()
+            return
+        if not locals_:
+            return
+
+        ROW_H, HDR_H, MAX_H, popup_w = 26, 20, 14 * 26, 280
+
+        _LOCAL_FG = "#abb2bf"
+        _ICONS    = {"nested_fn": "◈", "nested_class": "◉", "local": "◦"}
+        _FG_MAP   = {"nested_fn":    _TAG_FG.get("method",   _FG_FILE),
+                     "nested_class": _TAG_FG.get("class",    _FG_FILE),
+                     "local":        _LOCAL_FG}
+
+        popup, inner, canvas, vsb, rows, sel = self._make_popup(anchor, popup_w)
+
+        def _wheel(e):
+            canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
+
+        def _highlight(idx):
+            for i, (r, nl, ll, _) in enumerate(rows):
+                bg = _PICK_SEL if i == idx else _PICK_BG
+                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+
+        # Section header
+        hdr = tk.Frame(inner, bg=_PICK_BG, height=HDR_H)
+        hdr.pack(fill="x"); hdr.pack_propagate(False)
+        tk.Label(hdr, text=f"IN  {scope_name.upper()}", bg=_PICK_BG, fg=_FG_DIM,
+                 font=("Segoe UI", 7, "bold"), anchor="w", padx=10).pack(side="left", fill="y")
+
+        for ltag, lname, lline in locals_:
+            fg   = _FG_MAP.get(ltag, _LOCAL_FG)
+            icon = _ICONS.get(ltag, "◦")
+            row  = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
+            row.pack(fill="x"); row.pack_propagate(False)
+            tl = tk.Label(row, text="  ├─", bg=_PICK_BG, fg="#4a4a4a",
+                          font=("Consolas", 8), padx=4, pady=0)
+            tl.pack(side="left", fill="y")
+            nl = tk.Label(row, text=f"{icon}  {lname}", bg=_PICK_BG, fg=fg,
+                          font=("Segoe UI", 9), anchor="w", padx=2, pady=0)
+            nl.pack(side="left", fill="y")
+            ll = tk.Label(row, text=f":{lline}", bg=_PICK_BG, fg=_FG_DIM,
+                          font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
+            ll.pack(side="right", fill="y")
+
+            idx = len(rows); rows.append((row, nl, ll, lline))
+
+            def _enter(_, i=idx): sel[0] = i; _highlight(i)
+            def _leave(_): _highlight(sel[0])
+            def _click(_, ln=lline): self._close_picker(); self._on_navigate(ln)
+
+            for w in (row, nl, ll, tl):
+                w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
+                w.bind("<Button-1>", _click)
+                w.bind("<MouseWheel>", _wheel)
+                w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
+
+        content_h = HDR_H + len(locals_) * ROW_H
+        self._finalise_popup(popup, canvas, vsb, rows, sel, anchor, popup_w,
+                             content_h, MAX_H)
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
@@ -437,22 +464,17 @@ def _get_picker_data(
     scope: list[tuple[str, str, int]],
     outline,
 ) -> tuple[list[tuple[str, str, int]], list[tuple[str, str, int]]]:
-    """Return (siblings, locals) for the picker.
+    """Return (siblings, locals).
 
-    siblings — peer symbols at the same nesting level (used to jump around).
-    locals   — symbols defined inside this function/method (shown below a divider).
+    siblings — peer symbols at the same nesting level (crumb click).
+    locals   — symbols defined inside this function/method (drill-down › click).
     """
     if tag == "class":
-        siblings = outline.get_module_symbols()
-        locals_: list[tuple[str, str, int]] = []
-    elif tag == "function":
-        siblings = outline.get_module_symbols()
-        locals_ = outline.get_local_symbols(start)
-    elif tag == "method":
+        return outline.get_module_symbols(), []
+    if tag == "function":
+        return outline.get_module_symbols(), outline.get_local_symbols(start)
+    if tag == "method":
         class_entry = next((s for s in scope if s[0] == "class"), None)
-        siblings = outline.get_class_methods(class_entry[2]) if class_entry else []
-        locals_ = outline.get_local_symbols(start)
-    else:
-        siblings = []
-        locals_ = []
-    return siblings, locals_
+        sibs = outline.get_class_methods(class_entry[2]) if class_entry else []
+        return sibs, outline.get_local_symbols(start)
+    return [], []
