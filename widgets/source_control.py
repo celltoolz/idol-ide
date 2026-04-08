@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import Frame, Label, Menu, ttk
 from typing import Callable
 
+from utils import bind_right_click
 from utils.git_diagnostics import (
     classify_file, analyze_files, health_checks, FileInfo, Issue, HealthCheck
 )
@@ -37,7 +38,7 @@ class _Tooltip:
         widget.bind("<Enter>",    lambda e: self._show(e, text))
         widget.bind("<Leave>",    lambda _: self._hide())
         widget.bind("<Button-1>", lambda _: self._hide())
-        widget.bind("<Button-3>", lambda _: self._hide())
+        bind_right_click(widget, lambda _: self._hide())
         widget.bind("<Destroy>",  lambda _: self._hide())
 
     def _show(self, event, text: str) -> None:
@@ -86,7 +87,7 @@ class _FileRow(Frame):
             w.bind("<Enter>",           lambda _: self._hover(True))
             w.bind("<Leave>",           lambda _: self._hover(False))
             w.bind("<Double-Button-1>", lambda _, p=path: on_click(p))
-            w.bind("<Button-3>",        lambda e, p=path: on_right_click(e, p))
+            bind_right_click(w, lambda e, p=path: on_right_click(e, p))
 
         # Hover tooltip: file classification + explanation (on row only)
         info = classify_file(path)
@@ -268,11 +269,11 @@ class _Section(Frame):
     def bind_panel_menu(self, callback) -> None:
         self._panel_menu_cb = callback
         for w in (self, self._scroll_frame, self._canvas):
-            w.bind("<Button-3>", callback)
+            bind_right_click(w, callback)
         # Apply to already-rendered rows
         for _, widget in self._rendered.values():
             for w in (widget,) + tuple(widget.winfo_children()):
-                w.bind("<Button-3>", callback)
+                bind_right_click(w, callback)
 
     def _toggle(self) -> None:
         self._collapsed = not self._collapsed
@@ -370,7 +371,7 @@ class SourceControlPanel(ttk.Frame):
         self._ctx_menu.add_command(label="Create .gitignore", command=self._ctx_create_gitignore)
 
         self._ctx_section = None  # "staged" | "changes" | None
-        self.bind("<Button-3>", lambda e: self._show_ctx(e, "", None))
+        bind_right_click(self, lambda e: self._show_ctx(e, "", None))
         self._staged_sec.bind_panel_menu(lambda e: self._show_ctx(e, "", None))
         self._unstaged_sec.bind_panel_menu(lambda e: self._show_ctx(e, "", None))
 

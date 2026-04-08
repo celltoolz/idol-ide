@@ -3,6 +3,8 @@ from __future__ import annotations
 from tkinter import Label, Menu, PhotoImage, ttk
 from typing import Callable, Optional
 
+from utils import bind_right_click
+
 
 class CustomNotebook(ttk.Notebook):
     """A ttk Notebook with a hover-only close button on each tab.
@@ -68,7 +70,7 @@ class CustomNotebook(ttk.Notebook):
         self.bind("<ButtonRelease-1>", self._on_drag_release)
         self.bind("<Motion>",          self._on_tab_motion)
         self.bind("<Leave>",           self._on_notebook_leave)
-        self.bind("<Button-3>",        self._on_right_click)
+        bind_right_click(self, self._on_right_click)
         self.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         self.bind("<MouseWheel>",      self._on_scroll)
         self.bind("<Button-4>",        self._on_scroll)

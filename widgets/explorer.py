@@ -8,6 +8,8 @@ from pathlib import Path
 from tkinter import Menu, simpledialog, messagebox, ttk
 from typing import Callable
 
+from utils import bind_right_click
+
 
 class FileExplorer(ttk.Frame):
     """Lazy-loading file system tree. Double-click or Enter opens a file."""
@@ -49,7 +51,7 @@ class FileExplorer(ttk.Frame):
         self._tree.bind("<<TreeviewOpen>>",    self._on_node_expand)
         self._tree.bind("<Double-Button-1>",   self._on_double_click)
         self._tree.bind("<Return>",            self._on_enter)
-        self._tree.bind("<Button-3>",          self._on_right_click)
+        bind_right_click(self._tree, self._on_right_click)
 
         # Drag/drop state
         self._drag_item:    str  = ""
