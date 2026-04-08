@@ -10,12 +10,13 @@ from dataclasses import dataclass, field
 from tkinter import Frame, Label, ttk
 from typing import Callable
 
-_BG      = "#252526"
-_HDR_BG  = "#2d2d30"
-_FG      = "#cccccc"
-_DIM     = "#858585"
-_BTN_BG  = "#0e639c"
-_BTN_ACT = "#1177bb"
+_BG       = "#252526"
+_HDR_BG   = "#2d2d30"
+_FG       = "#cccccc"
+_DIM      = "#858585"
+_BTN_BG   = "#0e639c"
+_BTN_ACT  = "#1177bb"
+_PLAIN_BG = "#1e1e1e"   # inset box background for plain-english sections
 
 
 @dataclass
@@ -27,11 +28,12 @@ class GuidePage:
     action_label / action_fn: optional button shown at the bottom of the page;
     clicking it runs action_fn then closes the window.
     """
-    title:        str
-    subtitle:     str = ""
-    sections:     list[tuple[str, str, str]] = field(default_factory=list)
-    action_label: str = ""
-    action_fn:    Callable | None = field(default=None, repr=False)
+    title:         str
+    subtitle:      str = ""
+    sections:      list[tuple[str, str, str]] = field(default_factory=list)
+    plain_english: str = ""   # optional plain-language summary shown in an inset box
+    action_label:  str = ""
+    action_fn:     Callable | None = field(default=None, repr=False)
 
 
 class GuideWindow(tk.Toplevel):
@@ -162,6 +164,15 @@ class GuideWindow(tk.Toplevel):
             Label(self._content, text=body, bg=_BG, fg=_FG,
                   font=("Segoe UI", 9), anchor="w", justify="left",
                   wraplength=340).pack(fill="x")
+
+        if page.plain_english:
+            box = Frame(self._content, bg=_PLAIN_BG, padx=10, pady=8)
+            box.pack(fill="x", pady=(12, 2))
+            Label(box, text="IN PLAIN ENGLISH", bg=_PLAIN_BG, fg="#569cd6",
+                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x")
+            Label(box, text=page.plain_english, bg=_PLAIN_BG, fg=_FG,
+                  font=("Segoe UI", 9), anchor="w", justify="left",
+                  wraplength=320).pack(fill="x", pady=(4, 0))
 
         if page.action_fn and page.action_label:
             def _do(fn=page.action_fn):

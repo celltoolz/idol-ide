@@ -1,4 +1,5 @@
 """Git remote/push learning guide pages for use with GuideWindow."""
+
 from __future__ import annotations
 
 from widgets.guide_window import GuidePage
@@ -40,6 +41,12 @@ def get_pages() -> list[GuidePage]:
                     "#e2c08d",
                 ),
             ],
+            plain_english=(
+                "Think of a repository like a project folder that secretly keeps a "
+                "photograph of itself every time you say 'save a checkpoint'. "
+                "You can always go back to any photograph, even if you've changed "
+                "everything since. It's like an infinite undo button for your entire project."
+            ),
         ),
         GuidePage(
             title="What is a Git Remote?",
@@ -66,6 +73,13 @@ def get_pages() -> list[GuidePage]:
                     "#e2c08d",
                 ),
             ],
+            plain_english=(
+                "Imagine your project folder is a notebook. A remote is like making "
+                "a photocopy and storing it in a safe at the bank. Your original is "
+                "still at home (local), but if your house burns down — or you just "
+                "want to work from a different computer — the safe copy is there. "
+                "Push = putting a new copy in the safe. Pull = grabbing the latest copy."
+            ),
         ),
         GuidePage(
             title="Creating a Repository on GitHub",
@@ -139,12 +153,20 @@ def get_pages() -> list[GuidePage]:
                 ),
                 (
                     "SSH KEY (recommended for regular use)",
-                    "Generate a key:  ssh-keygen -t ed25519 -C \"you@email.com\"\n"
+                    'Generate a key:  ssh-keygen -t ed25519 -C "you@email.com"\n'
                     "Add to GitHub:   Settings → SSH and GPG Keys → New SSH Key\n"
                     "Use SSH URL:     git remote add origin git@github.com:user/repo.git\n\n"
                     "SSH never asks for a password once set up.",
                     "#73c991",
                 ),
             ],
+            plain_english=(
+                "GitHub used to let you log in with your password. They stopped that "
+                "because passwords aren't safe enough for automated tools. Now you "
+                "generate a special code (a token) that works like a temporary "
+                "password just for git — you can revoke it any time without changing "
+                "your actual account password. SSH keys work the same way but are "
+                "even more secure and never ask you to type anything."
+            ),
         ),
     ]
