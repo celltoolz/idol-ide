@@ -19,6 +19,7 @@ from widgets.bottom_panel import BottomPanel
 from widgets.find_replace import FindReplaceBar
 from widgets.statusbar import StatusBar
 from widgets.command_palette import CommandPalette
+from widgets.breadcrumb_bar import BreadcrumbBar
 from editor.bracket_matcher import BracketMatcher
 from editor.key_handler import KeyHandler
 from editor.multi_cursor import MultiCursor
@@ -134,6 +135,7 @@ class Notepad(Tk):
         self._codeviews: dict[str, CodeView] = {}
         self._key_handlers: dict[str, KeyHandler] = {}
         self._multi_cursors: dict[str, MultiCursor] = {}
+        self._breadcrumbs: dict[str, BreadcrumbBar] = {}
 
         self._bracket_matcher = BracketMatcher()
         self._find_replace: FindReplaceBar | None = None
@@ -306,10 +308,11 @@ class Notepad(Tk):
         if left_cv is None:
             return
         vs = left_cv._vs
-        vs.update_idletasks()
         vs_x = vs.winfo_x() + left_cv._frame.winfo_x() + nb.winfo_x()
         vs_w = vs.winfo_width()
-        tab_h = nb.winfo_height() - left_cv._frame.winfo_height()
+        crumb = self._breadcrumbs.get(left_cv_id)
+        crumb_h = crumb.winfo_height() if crumb and crumb.winfo_ismapped() else 0
+        tab_h = nb.winfo_height() - left_cv._frame.winfo_height() - crumb_h
         btn_h = max(tab_h - 6, 16)
 
         # Account for minimap + border widths so buttons sit left of them
@@ -398,6 +401,12 @@ class Notepad(Tk):
                 pass
 
         frame = ttk.Frame(self.notebook)
+        crumb = BreadcrumbBar(
+            frame,
+            on_navigate=self._outline_navigate,
+            on_set_root=self._set_explorer_root,
+        )
+        crumb.pack(side="top", fill="x")
         codeview = CodeView(
             frame,
             lexer=lexer,
@@ -421,6 +430,7 @@ class Notepad(Tk):
         self._dirty[tab_id] = False
         self._indent_sizes[tab_id] = 4
         self._codeviews[tab_id] = codeview
+        self._breadcrumbs[tab_id] = crumb
 
         is_code = not isinstance(lexer, (pygments.lexers.TextLexer,))
         handler = KeyHandler(tab_size=4, smart_pairs=is_code)
@@ -614,6 +624,7 @@ class Notepad(Tk):
         self._indent_sizes.pop(tab_id, None)
         self._codeviews.pop(tab_id, None)
         self._key_handlers.pop(tab_id, None)
+        self._breadcrumbs.pop(tab_id, None)
         mc = self._multi_cursors.pop(tab_id, None)
         if mc:
             mc.clear()
@@ -646,6 +657,10 @@ class Notepad(Tk):
                 self._outline.schedule_refresh(cv.get("1.0", "end-1c"))
             else:
                 self._outline.clear()
+            # Invalidate breadcrumb so it re-renders for the new tab immediately
+            crumb = self._breadcrumbs.get(tab_id)
+            if crumb:
+                crumb.invalidate()
             self.after(50, self._place_plus_btn)
             # Apply cached git hunks for this tab; fetch fresh ones
             cv._line_numbers.set_git_hunks(self._git_hunks.get(tab_id, []))
@@ -1349,6 +1364,22 @@ class Notepad(Tk):
             mc = self._multi_cursors.get(self._current_tab_id)
             cursors = mc.count() if mc and mc.active else 1
             self._statusbar.set_position(int(line), int(col), cursors)
+            # Update breadcrumb (re-renders only when line changes)
+            tab_id = self._current_tab_id
+            crumb = self._breadcrumbs.get(tab_id)
+            if crumb:
+                is_python = isinstance(
+                    cv._lexer,
+                    (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer),
+                )
+                crumb.update_crumbs(
+                    filepath=self._files.get(tab_id),
+                    explorer_root=str(self._sidebar.explorer._root)
+                    if self._sidebar.explorer._root else None,
+                    cursor_line=int(line),
+                    outline=self._outline,
+                    is_python=is_python,
+                )
         self.after(25, self._highlight_active_line)
 
     # ── File operations ───────────────────────────────────────────────────────
@@ -2035,6 +2066,12 @@ class Notepad(Tk):
                 pass
 
         frame = ttk.Frame(notebook)
+        crumb = BreadcrumbBar(
+            frame,
+            on_navigate=self._outline_navigate,
+            on_set_root=self._set_explorer_root,
+        )
+        crumb.pack(side="top", fill="x")
         codeview = CodeView(
             frame,
             lexer=lexer,
@@ -2058,6 +2095,7 @@ class Notepad(Tk):
         self._dirty[tab_id] = False
         self._indent_sizes[tab_id] = 4
         self._codeviews[tab_id] = codeview
+        self._breadcrumbs[tab_id] = crumb
 
         is_code = not isinstance(lexer, pygments.lexers.TextLexer)
         handler = KeyHandler(tab_size=4, smart_pairs=is_code)

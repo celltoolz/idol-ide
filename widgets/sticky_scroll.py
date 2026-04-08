@@ -31,6 +31,7 @@ class StickyScroll(Frame):
         self._gutter.pack(side="left", fill="y")
         self._gutter.pack_propagate(False)  # hold the set width
 
+        # pady=0 so each line is exactly font-height pixels, matching Labels below.
         self._display = Text(
             self._row,
             state="disabled",
@@ -40,7 +41,7 @@ class StickyScroll(Frame):
             bd=0,
             highlightthickness=0,
             padx=4,
-            pady=1,
+            pady=0,
             height=1,
         )
         self._display.pack(side="left", fill="x", expand=True)
@@ -83,7 +84,8 @@ class StickyScroll(Frame):
         self._gutter.config(width=gutter_w)
 
         for i, (lineno, line_text) in enumerate(scope_lines):
-            # Line number in the gutter — match canvas: left-anchored, leading space
+            # pady=0 makes each Label exactly font-height pixels, matching the
+            # Text widget's line height (which also uses pady=0).
             Label(
                 self._gutter,
                 text=f" {lineno} ",
@@ -92,7 +94,7 @@ class StickyScroll(Frame):
                 font=self._font,
                 anchor="w",
                 padx=0,
-                pady=1,
+                pady=0,
             ).pack(fill="x")
 
             # Syntax-highlighted code in the text area

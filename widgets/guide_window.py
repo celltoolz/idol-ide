@@ -3,6 +3,7 @@
 Content is provided as a list of GuidePage dataclasses. The window is
 completely content-agnostic; callers own the page data.
 """
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -10,13 +11,13 @@ from dataclasses import dataclass, field
 from tkinter import Frame, Label, ttk
 from typing import Callable
 
-_BG       = "#252526"
-_HDR_BG   = "#2d2d30"
-_FG       = "#cccccc"
-_DIM      = "#858585"
-_BTN_BG   = "#0e639c"
-_BTN_ACT  = "#1177bb"
-_PLAIN_BG = "#1e1e1e"   # inset box background for plain-english sections
+_BG = "#252526"
+_HDR_BG = "#2d2d30"
+_FG = "#cccccc"
+_DIM = "#919191"
+_BTN_BG = "#0e639c"
+_BTN_ACT = "#1177bb"
+_PLAIN_BG = "#1e1e1e"  # inset box background for plain-english sections
 
 
 @dataclass
@@ -28,12 +29,13 @@ class GuidePage:
     action_label / action_fn: optional button shown at the bottom of the page;
     clicking it runs action_fn then closes the window.
     """
-    title:         str
-    subtitle:      str = ""
-    sections:      list[tuple[str, str, str]] = field(default_factory=list)
-    plain_english: str = ""   # optional plain-language summary shown in an inset box
-    action_label:  str = ""
-    action_fn:     Callable | None = field(default=None, repr=False)
+
+    title: str
+    subtitle: str = ""
+    sections: list[tuple[str, str, str]] = field(default_factory=list)
+    plain_english: str = ""  # optional plain-language summary shown in an inset box
+    action_label: str = ""
+    action_fn: Callable | None = field(default=None, repr=False)
 
 
 class GuideWindow(tk.Toplevel):
@@ -43,8 +45,14 @@ class GuideWindow(tk.Toplevel):
     Works on Windows, Linux, and macOS (uses Labels instead of Buttons).
     """
 
-    def __init__(self, parent, title: str, pages: list[GuidePage],
-                 width: int = 380, height: int = 420) -> None:
+    def __init__(
+        self,
+        parent,
+        title: str,
+        pages: list[GuidePage],
+        width: int = 380,
+        height: int = 420,
+    ) -> None:
         super().__init__(parent)
         self.title(title)
         self.configure(bg=_BG)
@@ -58,16 +66,18 @@ class GuideWindow(tk.Toplevel):
         self.geometry(f"{width}x{height}+{px}+{py}")
 
         self._pages = pages
-        self._idx   = 0
+        self._idx = 0
 
         # ── Header ────────────────────────────────────────────────────────────
         hdr = Frame(self, bg=_HDR_BG, pady=8)
         hdr.pack(fill="x")
-        self._title_lbl = Label(hdr, text="", bg=_HDR_BG, fg=_FG,
-                                font=("Segoe UI", 10, "bold"), padx=12)
+        self._title_lbl = Label(
+            hdr, text="", bg=_HDR_BG, fg=_FG, font=("Segoe UI", 10, "bold"), padx=12
+        )
         self._title_lbl.pack(anchor="w")
-        self._sub_lbl = Label(hdr, text="", bg=_HDR_BG, fg=_DIM,
-                              font=("Segoe UI", 8), padx=12)
+        self._sub_lbl = Label(
+            hdr, text="", bg=_HDR_BG, fg=_DIM, font=("Segoe UI", 8), padx=12
+        )
         self._sub_lbl.pack(anchor="w")
 
         # ── Navigation bar — packed before content so it's always visible ─────
@@ -88,8 +98,13 @@ class GuideWindow(tk.Toplevel):
         self._vs = ttk.Scrollbar(scroll_outer, orient="vertical")
         self._vs.pack(side="right", fill="y")
 
-        self._canvas = tk.Canvas(scroll_outer, bg=_BG, highlightthickness=0, bd=0,
-                                 yscrollcommand=self._vs.set)
+        self._canvas = tk.Canvas(
+            scroll_outer,
+            bg=_BG,
+            highlightthickness=0,
+            bd=0,
+            yscrollcommand=self._vs.set,
+        )
         self._canvas.pack(side="left", fill="both", expand=True)
         self._vs.config(command=self._canvas.yview)
 
@@ -99,7 +114,7 @@ class GuideWindow(tk.Toplevel):
         )
 
         self._content.bind("<Configure>", self._on_content_configure)
-        self._canvas.bind("<Configure>",  self._on_canvas_configure)
+        self._canvas.bind("<Configure>", self._on_canvas_configure)
 
         # Wheel on every widget inside this window only
         self._wheel_binds: list[str] = []
@@ -113,11 +128,25 @@ class GuideWindow(tk.Toplevel):
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _make_nav_btn(self, parent, text: str, command: Callable) -> Label:
-        lbl = Label(parent, text=text, bg=_HDR_BG, fg=_FG,
-                    font=("Segoe UI", 9), cursor="hand2", padx=10, pady=2)
+        lbl = Label(
+            parent,
+            text=text,
+            bg=_HDR_BG,
+            fg=_FG,
+            font=("Segoe UI", 9),
+            cursor="hand2",
+            padx=10,
+            pady=2,
+        )
         lbl.bind("<Button-1>", lambda _: command())
-        lbl.bind("<Enter>", lambda _: lbl.config(fg="#ffffff") if lbl["cursor"] == "hand2" else None)
-        lbl.bind("<Leave>", lambda _: lbl.config(fg=_FG) if lbl["cursor"] == "hand2" else None)
+        lbl.bind(
+            "<Enter>",
+            lambda _: lbl.config(fg="#ffffff") if lbl["cursor"] == "hand2" else None,
+        )
+        lbl.bind(
+            "<Leave>",
+            lambda _: lbl.config(fg=_FG) if lbl["cursor"] == "hand2" else None,
+        )
         return lbl
 
     def _on_close(self) -> None:
@@ -136,8 +165,7 @@ class GuideWindow(tk.Toplevel):
             self._canvas.yview_scroll(1, "units")
 
     def _set_nav_enabled(self, lbl: Label, enabled: bool) -> None:
-        lbl.config(fg=_FG if enabled else _DIM,
-                   cursor="hand2" if enabled else "")
+        lbl.config(fg=_FG if enabled else _DIM, cursor="hand2" if enabled else "")
 
     def _go(self, delta: int) -> None:
         new = self._idx + delta
@@ -146,12 +174,16 @@ class GuideWindow(tk.Toplevel):
 
     def _load(self, idx: int) -> None:
         self._idx = idx
-        page      = self._pages[idx]
-        n         = len(self._pages)
+        page = self._pages[idx]
+        n = len(self._pages)
 
         self._title_lbl.config(text=page.title)
         step = f"Step {idx + 1} of {n}" if n > 1 else ""
-        sub  = f"{page.subtitle}  ·  {step}" if page.subtitle and step else (page.subtitle or step)
+        sub = (
+            f"{page.subtitle}  ·  {step}"
+            if page.subtitle and step
+            else (page.subtitle or step)
+        )
         self._sub_lbl.config(text=sub)
 
         for w in self._content.winfo_children():
@@ -159,29 +191,63 @@ class GuideWindow(tk.Toplevel):
         self._canvas.yview_moveto(0)
 
         for label, body, color in page.sections:
-            Label(self._content, text=label, bg=_BG, fg=color,
-                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", pady=(6, 0))
-            Label(self._content, text=body, bg=_BG, fg=_FG,
-                  font=("Segoe UI", 9), anchor="w", justify="left",
-                  wraplength=340).pack(fill="x")
+            Label(
+                self._content,
+                text=label,
+                bg=_BG,
+                fg=color,
+                font=("Segoe UI", 8, "bold"),
+                anchor="w",
+            ).pack(fill="x", pady=(6, 0))
+            Label(
+                self._content,
+                text=body,
+                bg=_BG,
+                fg=_DIM,
+                font=("Segoe UI", 9),
+                anchor="w",
+                justify="left",
+                wraplength=340,
+            ).pack(fill="x")
 
         if page.plain_english:
             box = Frame(self._content, bg=_PLAIN_BG, padx=10, pady=8)
             box.pack(fill="x", pady=(12, 2))
-            Label(box, text="IN PLAIN ENGLISH", bg=_PLAIN_BG, fg="#569cd6",
-                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x")
-            Label(box, text=page.plain_english, bg=_PLAIN_BG, fg=_FG,
-                  font=("Segoe UI", 9), anchor="w", justify="left",
-                  wraplength=320).pack(fill="x", pady=(4, 0))
+            Label(
+                box,
+                text="IN PLAIN ENGLISH",
+                bg=_PLAIN_BG,
+                fg="#569cd6",
+                font=("Segoe UI", 8, "bold"),
+                anchor="w",
+            ).pack(fill="x")
+            Label(
+                box,
+                text=page.plain_english,
+                bg=_PLAIN_BG,
+                fg=_FG,
+                font=("Segoe UI", 9),
+                anchor="w",
+                justify="left",
+                wraplength=320,
+            ).pack(fill="x", pady=(4, 0))
 
         if page.action_fn and page.action_label:
+
             def _do(fn=page.action_fn):
                 fn()
                 self._on_close()
-            btn = Label(self._content, text=page.action_label,
-                        bg=_BTN_BG, fg="white",
-                        font=("Segoe UI", 9, "bold"),
-                        cursor="hand2", padx=10, pady=4)
+
+            btn = Label(
+                self._content,
+                text=page.action_label,
+                bg=_BTN_BG,
+                fg="white",
+                font=("Segoe UI", 9, "bold"),
+                cursor="hand2",
+                padx=10,
+                pady=4,
+            )
             btn.bind("<Button-1>", lambda _, f=_do: f())
             btn.bind("<Enter>", lambda _, b=btn: b.config(bg=_BTN_ACT))
             btn.bind("<Leave>", lambda _, b=btn: b.config(bg=_BTN_BG))
@@ -193,5 +259,5 @@ class GuideWindow(tk.Toplevel):
         # Bind wheel to all current children so it works over labels too
         for w in self._content.winfo_children():
             w.bind("<MouseWheel>", self._on_wheel)
-            w.bind("<Button-4>",   self._on_wheel)
-            w.bind("<Button-5>",   self._on_wheel)
+            w.bind("<Button-4>", self._on_wheel)
+            w.bind("<Button-5>", self._on_wheel)

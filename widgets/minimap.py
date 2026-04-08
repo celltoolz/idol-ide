@@ -257,9 +257,11 @@ class Minimap(tk.Frame):
         pt.configure(state="disabled", height=PREVIEW_LINES)
 
         # ── Position the preview ──────────────────────────────────────────────
-        self._preview.update_idletasks()
+        # Avoid update_idletasks() — it can cascade geometry events into a loop.
+        # After the first show winfo_reqheight() returns a valid cached value;
+        # on the very first call fall back to a reasonable line-height estimate.
         pw = max(PREVIEW_W, int(cv.winfo_width() * 0.75))
-        ph = self._preview.winfo_reqheight()
+        ph = self._preview.winfo_reqheight() or PREVIEW_LINES * 16
 
         # X: just to the left of the minimap (which is right of the scrollbar)
         mm_x = self._peer.winfo_rootx()

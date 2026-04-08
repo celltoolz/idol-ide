@@ -21,6 +21,7 @@ class OutlinePanel(ttk.Frame):
         super().__init__(master, **kwargs)
         self._on_navigate = on_navigate
         self._after_id: Optional[str] = None
+        self._symbol_ranges: list[tuple[str, str, int, int]] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -94,6 +95,7 @@ class OutlinePanel(ttk.Frame):
 
     def clear(self) -> None:
         self.tree.delete(*self.tree.get_children())
+        self._symbol_ranges = []
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
@@ -143,6 +145,7 @@ class OutlinePanel(ttk.Frame):
             return  # Keep existing content until the code is valid again
 
         self.clear()
+        ranges: list[tuple[str, str, int, int]] = []
 
         for node in ast.iter_child_nodes(tree):
 
@@ -162,6 +165,8 @@ class OutlinePanel(ttk.Frame):
 
             # ── Class ─────────────────────────────────────────────────────────
             elif isinstance(node, ast.ClassDef):
+                c_end = getattr(node, "end_lineno", node.lineno + 500)
+                ranges.append(("class", node.name, node.lineno, c_end))
                 class_node = self.tree.insert(
                     "", "end",
                     text=f"◉  {node.name}",
@@ -173,6 +178,8 @@ class OutlinePanel(ttk.Frame):
                 for child in ast.iter_child_nodes(node):
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         prefix = "async " if isinstance(child, ast.AsyncFunctionDef) else ""
+                        m_end = getattr(child, "end_lineno", child.lineno + 100)
+                        ranges.append(("method", prefix + child.name, child.lineno, m_end))
                         method_node = self.tree.insert(
                             class_node, "end",
                             text=f"◈  {prefix}{child.name}",
@@ -193,6 +200,8 @@ class OutlinePanel(ttk.Frame):
             # ── Top-level function ────────────────────────────────────────────
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 prefix = "async " if isinstance(node, ast.AsyncFunctionDef) else ""
+                f_end = getattr(node, "end_lineno", node.lineno + 100)
+                ranges.append(("function", prefix + node.name, node.lineno, f_end))
                 func_node = self.tree.insert(
                     "", "end",
                     text=f"◈  {prefix}{node.name}",
@@ -205,6 +214,8 @@ class OutlinePanel(ttk.Frame):
                                      text=f"◦  {pname}",
                                      values=(pline,),
                                      tags=("param",))
+
+        self._symbol_ranges = ranges
 
     def get_symbols(self) -> list[tuple[str, int]]:
         """Return a flat list of (display_label, lineno) for all symbols in the tree."""
@@ -222,6 +233,43 @@ class OutlinePanel(ttk.Frame):
                 _walk(iid)
         _walk("")
         return results
+
+    def get_scope_at(self, lineno: int) -> list[tuple[str, str, int]]:
+        """Return the enclosing scope chain (outermost→innermost) for *lineno*.
+
+        Each entry is (tag, name, start_line).  Only classes, methods and
+        functions are included; variables are not scopes.
+        """
+        chain = [
+            (tag, name, start)
+            for tag, name, start, end in self._symbol_ranges
+            if start <= lineno <= end
+        ]
+        chain.sort(key=lambda x: x[2])
+        return chain
+
+    def get_module_symbols(self) -> list[tuple[str, str, int]]:
+        """Return all module-level classes and functions as (tag, name, lineno)."""
+        return [
+            (tag, name, start)
+            for tag, name, start, _end in self._symbol_ranges
+            if tag in ("class", "function")
+        ]
+
+    def get_class_methods(self, class_start: int) -> list[tuple[str, str, int]]:
+        """Return methods of the class whose start line is *class_start*."""
+        entry = next(
+            (r for r in self._symbol_ranges if r[0] == "class" and r[2] == class_start),
+            None,
+        )
+        if entry is None:
+            return []
+        _, _, c_start, c_end = entry
+        return [
+            (tag, name, start)
+            for tag, name, start, _end in self._symbol_ranges
+            if tag == "method" and c_start <= start <= c_end
+        ]
 
     def _on_select(self, _) -> None:
         selected = self.tree.selection()
