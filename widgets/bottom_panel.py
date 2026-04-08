@@ -108,7 +108,7 @@ class BottomPanel(ttk.Frame):
     def _apply_cwd(self) -> None:
         self._cwd_after_id = None
         if self._active == "terminal" and self.terminal._running and self._cwd:
-            self.terminal.send_text(f'cd "{self._cwd}"\n')
+            self.terminal.send_text(f'cd "{self._cwd}"\r')
 
     def _set_active(self, key: str) -> None:
         # Update tab styling

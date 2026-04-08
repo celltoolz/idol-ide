@@ -1402,7 +1402,7 @@ class Notepad(Tk):
         print(f"[DEBUG]   terminal._running={term._running!r}")
         print(f"[DEBUG]   bottom _active={self._output._active!r}")
         if cwd and term._running:
-            term.send_text(f'cd "{cwd}"\n')
+            term.send_text(f'cd "{cwd}"\r')
             print("[DEBUG]   → sent cd command")
         elif not term._running:
             print("[DEBUG]   → terminal not running, starting with cwd")

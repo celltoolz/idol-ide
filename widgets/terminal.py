@@ -228,7 +228,7 @@ class TerminalPanel(ttk.Frame):
             self._text.focus_set()
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd):
-                self.after(300, lambda c=_cwd: self.send_text(f'cd "{c}"\n'))
+                self.after(300, lambda c=_cwd: self.send_text(f'cd "{c}"\r'))
         except Exception as e:
             self._write(f"\n  Failed to start shell: {e}\n", "error")
 
