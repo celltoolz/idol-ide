@@ -33,6 +33,12 @@ def get_pages() -> list[GuidePage]:
                     "#e2c08d",
                 ),
             ],
+            plain_english=(
+                "Imagine every project gets its own toolbox. Whatever tools (packages) "
+                "you put in that toolbox stay there and don't mix with anyone else's. "
+                "If you break something in the toolbox, you just throw it away and "
+                "make a new one — your other projects are completely untouched."
+            ),
         ),
         GuidePage(
             title="Why Use a Virtual Environment?",
@@ -59,6 +65,12 @@ def get_pages() -> list[GuidePage]:
                     "#cccccc",
                 ),
             ],
+            plain_english=(
+                "Without venvs, installing a package for one project is like putting "
+                "a tool on your kitchen counter — eventually there's no space and "
+                "things start getting in each other's way. A venv gives each project "
+                "its own drawer. Need to start fresh? Just empty the drawer."
+            ),
         ),
         GuidePage(
             title="Choosing a Python Interpreter",
@@ -95,6 +107,13 @@ def get_pages() -> list[GuidePage]:
                     "#cccccc",
                 ),
             ],
+            plain_english=(
+                "Think of Python versions like different models of a car. You might "
+                "have a 2019 and a 2023 sitting in your garage. When you start a "
+                "project, you pick which one to drive — and that project always uses "
+                "that car, even if you buy a newer model later. The system Python "
+                "is like a car the house came with: it's there, but it's not really yours to modify."
+            ),
         ),
         GuidePage(
             title="Creating a Virtual Environment",
@@ -146,5 +165,11 @@ def get_pages() -> list[GuidePage]:
                     "#cccccc",
                 ),
             ],
+            plain_english=(
+                "The venv folder can have thousands of files but requirements.txt is "
+                "just a shopping list. Don't commit the whole supermarket — just the "
+                "list. Anyone who needs to restock can read the list and buy exactly "
+                "what's needed. It also means your git history stays fast and clean."
+            ),
         ),
     ]
