@@ -174,6 +174,10 @@ class Notepad(Tk):
         self.minimap_visible_var = BooleanVar(value=True)
         self._active_line_color: str | None = None
 
+        # Zen mode
+        self._zen_mode: bool = False
+        self._zen_pill: object = None   # floating toast Toplevel
+
         self._build_layout()
         build_menubar(self)
         self._bind_shortcuts()
@@ -352,6 +356,8 @@ class Notepad(Tk):
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
+        self.bind("<F11>", lambda _: self.view_zen_mode())
+        self.bind("<Escape>", self._on_escape)
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
 
@@ -1732,6 +1738,88 @@ class Notepad(Tk):
             self._close_split()
         else:
             self._open_in_split(self._current_tab_id)
+
+    # ── Zen mode ──────────────────────────────────────────────────────────────
+
+    def view_zen_mode(self) -> None:
+        """Toggle Zen mode — full-screen editor, no distractions."""
+        if self._zen_mode:
+            self._exit_zen()
+        else:
+            self._enter_zen()
+
+    def _enter_zen(self) -> None:
+        self._zen_mode = True
+        self._h_pane.forget(self._sidebar)
+        if self.output_visible_var.get():
+            self._v_pane.forget(self._output)
+        self._statusbar.pack_forget()
+        self.title("Notepad  [Zen]")
+        self._show_zen_pill()
+
+    def _exit_zen(self) -> None:
+        self._zen_mode = False
+        # Restore in reverse pack order: statusbar first (side=bottom),
+        # then sidebar back into h_pane at position 0, then output into v_pane.
+        self._statusbar.pack(side="bottom", fill="x")
+        self._h_pane.insert(0, self._sidebar, weight=0)
+        if self.output_visible_var.get():
+            self._v_pane.add(self._output, weight=1)
+        self.title("Notepad")
+        self._dismiss_zen_pill()
+
+    def _on_escape(self, _=None) -> None:
+        if self._zen_mode:
+            self._exit_zen()
+
+    def _show_zen_pill(self) -> None:
+        """Show a floating 'Esc — Exit Zen' pill that fades away after 2s."""
+        import tkinter as tk
+        self._dismiss_zen_pill()
+        pill = tk.Toplevel(self)
+        pill.overrideredirect(True)
+        pill.attributes("-topmost", True)
+        pill.configure(bg="#3c3c3c")
+
+        lbl = tk.Label(
+            pill, text="  Esc — Exit Zen  ",
+            bg="#3c3c3c", fg="#cccccc",
+            font=("Segoe UI", 9), pady=6, padx=4,
+        )
+        lbl.pack()
+
+        # Centre the pill at the bottom of the editor area
+        self.update_idletasks()
+        w = lbl.winfo_reqwidth() + 8
+        h = lbl.winfo_reqheight() + 4
+        sx = self.winfo_rootx() + (self.winfo_width() - w) // 2
+        sy = self.winfo_rooty() + self.winfo_height() - h - 48
+        pill.geometry(f"{w}x{h}+{sx}+{sy}")
+        self._zen_pill = pill
+
+        # Fade out over ~1s starting after 2s
+        self.after(2000, lambda: self._fade_pill(pill, 1.0))
+
+    def _fade_pill(self, pill, alpha: float) -> None:
+        if pill is None or not self._zen_pill:
+            return
+        try:
+            if alpha <= 0.0:
+                pill.destroy()
+                self._zen_pill = None
+                return
+            pill.attributes("-alpha", alpha)
+            self.after(40, lambda: self._fade_pill(pill, round(alpha - 0.05, 2)))
+        except Exception:
+            self._zen_pill = None
+
+    def _dismiss_zen_pill(self) -> None:
+        if self._zen_pill:
+            try:
+                self._zen_pill.destroy()
+            except Exception:
+                pass
+            self._zen_pill = None
 
     # ── Split editor ──────────────────────────────────────────────────────────
 
