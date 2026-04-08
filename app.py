@@ -183,7 +183,7 @@ class Notepad(Tk):
             self._open_file(initial_file)
         elif not session_utils.restore(self):
             self._new_tab("Untitled", "")
-            self._sidebar.explorer.set_root(os.getcwd())
+            self._set_explorer_root(os.getcwd())
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
@@ -1390,7 +1390,25 @@ class Notepad(Tk):
         self._sidebar.explorer.set_root(path)
         # Resolve to directory — set_root does the same internally
         cwd = path if os.path.isdir(path) else os.path.dirname(path)
+        print(f"[DEBUG] _set_explorer_root: path={path!r} → cwd={cwd!r}")
         self._output.set_cwd(cwd)
+
+    def debug_test_terminal_cwd(self) -> None:
+        """Help menu: manually force terminal cd to the current explorer root."""
+        cwd = self._output._cwd
+        term = self._output.terminal
+        print(f"[DEBUG] debug_test_terminal_cwd: _output._cwd={cwd!r}")
+        print(f"[DEBUG]   terminal._cwd={term._cwd!r}")
+        print(f"[DEBUG]   terminal._running={term._running!r}")
+        print(f"[DEBUG]   bottom _active={self._output._active!r}")
+        if cwd and term._running:
+            term.send_text(f'cd "{cwd}"\n')
+            print("[DEBUG]   → sent cd command")
+        elif not term._running:
+            print("[DEBUG]   → terminal not running, starting with cwd")
+            self._output.terminal.start(cwd=cwd)
+        else:
+            print("[DEBUG]   → no cwd set")
 
     def _on_project_created(self, project_path: str) -> None:
         """Called when the project wizard finishes — open the new project."""

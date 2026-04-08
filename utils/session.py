@@ -140,7 +140,7 @@ def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
     # ── Explorer root ─────────────────────────────────────────────────────────
     root = data.get("explorer_root")
     if root and os.path.isdir(root):
-        app._sidebar.explorer.set_root(root)
+        app._set_explorer_root(root)
 
     # ── Appearance ────────────────────────────────────────────────────────────
     appearance = data.get("appearance", {})
