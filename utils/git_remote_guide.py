@@ -8,6 +8,40 @@ def get_pages() -> list[GuidePage]:
     """Return the git remote setup guide as a list of GuidePage objects."""
     return [
         GuidePage(
+            title="What is a Repository?",
+            subtitle="The foundation of version control",
+            sections=[
+                (
+                    "A PLACE FOR YOUR PROJECT",
+                    "A repository (repo) is a folder that git has been asked to track. "
+                    "It stores every version of every file you've ever saved — not just "
+                    "the current state, but the entire history of how your project evolved.",
+                    "#569cd6",
+                ),
+                (
+                    "MORE THAN JUST FILES",
+                    "Inside every repo is a hidden .git folder. That's where git stores "
+                    "your commit history, branches, author information, and configuration. "
+                    "You never need to touch it directly — git manages it for you.",
+                    "#cccccc",
+                ),
+                (
+                    "COMMITS ARE SNAPSHOTS",
+                    "Each time you commit, git takes a snapshot of your project at that "
+                    "moment. You can revisit any snapshot, compare changes between them, "
+                    "or undo mistakes — even weeks or months later.",
+                    "#73c991",
+                ),
+                (
+                    "LOCAL ONLY — FOR NOW",
+                    "A fresh repository lives entirely on your machine. Only you can see it. "
+                    "To share your work or back it up online, you need a remote — "
+                    "which is exactly what the next page covers.",
+                    "#e2c08d",
+                ),
+            ],
+        ),
+        GuidePage(
             title="What is a Git Remote?",
             sections=[
                 (
