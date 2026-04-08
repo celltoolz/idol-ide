@@ -29,17 +29,38 @@ _ERR     = "#f14c4c"
 
 def _detect_pythons() -> list[tuple[str, str]]:
     """Return a list of (label, executable_path) for available Python interpreters."""
-    seen:    set[str]              = set()
-    results: list[tuple[str, str]] = []
+    seen_real: set[str] = set()   # realpath dedup for non-venv entries
+    seen_path: set[str] = set()   # path dedup for venv entries
+    results:   list[tuple[str, str]] = []
 
     def _add(path: str) -> None:
+        """Add a non-venv interpreter, deduped by realpath."""
         resolved = shutil.which(path) or (path if os.path.isfile(path) else None)
         if not resolved:
             return
         norm = os.path.normcase(os.path.realpath(resolved))
-        if norm in seen:
+        if norm in seen_real:
             return
-        seen.add(norm)
+        seen_real.add(norm)
+        seen_path.add(os.path.normcase(resolved))
+        try:
+            out = subprocess.check_output(
+                [resolved, "--version"], stderr=subprocess.STDOUT, timeout=3
+            ).decode().strip()
+            version = out.split()[-1]
+        except Exception:
+            return
+        results.append((f"Python {version}  ({resolved})", resolved))
+
+    def _add_venv(path: str) -> None:
+        """Add a venv interpreter, deduped by path only (not realpath)."""
+        resolved = path if os.path.isfile(path) else None
+        if not resolved:
+            return
+        norm = os.path.normcase(resolved)
+        if norm in seen_path:
+            return
+        seen_path.add(norm)
         try:
             out = subprocess.check_output(
                 [resolved, "--version"], stderr=subprocess.STDOUT, timeout=3
@@ -76,14 +97,24 @@ def _detect_pythons() -> list[tuple[str, str]]:
         except Exception:
             pass
 
-    # 2. Name-based PATH lookups — catch anything not in the known prefixes
-    #    (e.g. pyenv, conda, custom installs). Venv entries will be deduped away.
+    # 2. Name-based PATH lookups — catch conda, custom installs, etc.
     for name in ("python3", "python", "python3.14", "python3.13", "python3.12",
                  "python3.11", "python3.10", "python3.9"):
         _add(name)
 
-    # 3. sys.executable last — deduped if it's a venv pointing at a known install.
-    _add(sys.executable)
+    # 3. Venv entries — use path-based dedup so they coexist with the system
+    #    Python they symlink to. sys.executable first (the IDE's own venv),
+    #    then any venv/bin/python found in home directory subdirectories.
+    exe = sys.executable
+    if any(v in exe.replace("\\", "/") for v in ("/venv/", "/.venv/")):
+        _add_venv(exe)
+    for pattern in (
+        os.path.expanduser("~/*/venv/bin/python3"),
+        os.path.expanduser("~/*/.venv/bin/python3"),
+        os.path.expanduser("~/venv/*/bin/python3"),
+    ):
+        for p in sorted(glob.glob(pattern)):
+            _add_venv(p)
 
     return results if results else [("Python (system default)", sys.executable)]
 
