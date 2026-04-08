@@ -1104,7 +1104,7 @@ class Notepad(Tk):
     def _show_remote_guide(self) -> None:
         from widgets.guide_window import GuideWindow
         import utils.git_remote_guide as git_remote_guide
-        GuideWindow(self, "Setting Up a Git Remote", git_remote_guide.get_pages())
+        GuideWindow(self._sidebar, "Setting Up a Git Remote", git_remote_guide.get_pages())
 
     def _sc_pull(self) -> None:
         if not self._git:
