@@ -1396,23 +1396,6 @@ class Notepad(Tk):
         """Called whenever the explorer navigates to a new root directory."""
         self._output.set_cwd(root)
 
-    def debug_test_terminal_cwd(self) -> None:
-        """Help menu: manually force terminal cd to the current explorer root."""
-        cwd = self._output._cwd
-        term = self._output.terminal
-        print(f"[DEBUG] debug_test_terminal_cwd: _output._cwd={cwd!r}")
-        print(f"[DEBUG]   terminal._cwd={term._cwd!r}")
-        print(f"[DEBUG]   terminal._running={term._running!r}")
-        print(f"[DEBUG]   bottom _active={self._output._active!r}")
-        if cwd and term._running:
-            term.send_text(f'cd "{cwd}"\r')
-            print("[DEBUG]   → sent cd command")
-        elif not term._running:
-            print("[DEBUG]   → terminal not running, starting with cwd")
-            self._output.terminal.start(cwd=cwd)
-        else:
-            print("[DEBUG]   → no cwd set")
-
     def _on_project_created(self, project_path: str) -> None:
         """Called when the project wizard finishes — open the new project."""
         self._set_explorer_root(project_path)
