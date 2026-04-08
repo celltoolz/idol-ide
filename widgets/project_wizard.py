@@ -381,21 +381,25 @@ class ProjectWizard(tk.Toplevel):
                 if cat == "venv"   and not show_venv:   continue
                 if cat == "system" and not show_system: continue
                 out.append((label, exe))
-            return out or self._pythons  # never leave list empty
+            return out
 
         def _refresh_combo(*_) -> None:
             if not combo.winfo_exists():
                 return
             visible = _filtered()
+            if not visible:
+                combo["values"] = ["(no interpreters match filters)"]
+                combo.current(0)
+                self._python_var.set("")
+                return
             combo["values"] = [label for label, _ in visible]
             cur = self._python_var.get()
             try:
                 idx = next(i for i, (_, exe) in enumerate(visible) if exe == cur)
             except StopIteration:
                 idx = 0
-            if visible:
-                combo.current(idx)
-                self._python_var.set(visible[idx][1])
+            combo.current(idx)
+            self._python_var.set(visible[idx][1])
 
         def _on_select(_=None) -> None:
             visible = _filtered()
