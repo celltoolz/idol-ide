@@ -376,11 +376,8 @@ class BreadcrumbBar(tk.Frame):
             icon = _ICONS.get(ltag, "◦")
             row  = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
             row.pack(fill="x"); row.pack_propagate(False)
-            tl = tk.Label(row, text="  ├─", bg=_PICK_BG, fg="#4a4a4a",
-                          font=("Consolas", 8), padx=4, pady=0)
-            tl.pack(side="left", fill="y")
             nl = tk.Label(row, text=f"{icon}  {lname}", bg=_PICK_BG, fg=fg,
-                          font=("Segoe UI", 9), anchor="w", padx=2, pady=0)
+                          font=("Segoe UI", 9), anchor="w", padx=12, pady=0)
             nl.pack(side="left", fill="y")
             ll = tk.Label(row, text=f":{lline}", bg=_PICK_BG, fg=_FG_DIM,
                           font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
@@ -392,7 +389,7 @@ class BreadcrumbBar(tk.Frame):
             def _leave(_): _highlight(sel[0])
             def _click(_, ln=lline): self._close_picker(); self._on_navigate(ln)
 
-            for w in (row, nl, ll, tl):
+            for w in (row, nl, ll):
                 w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
                 w.bind("<Button-1>", _click)
                 w.bind("<MouseWheel>", _wheel)
