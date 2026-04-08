@@ -462,7 +462,7 @@ class Notepad(Tk):
             color_scheme=self.theme_var.get(),
             tab_width=4,
             autohide_scrollbar=False,
-            default_context_menu=True,
+            default_context_menu=False,
             undo=True,
             maxundo=-1,
         )
@@ -576,7 +576,8 @@ class Notepad(Tk):
         codeview.bind("<Key>", _on_key)
         codeview.bind("<KeyRelease>", self._bracket_matcher.match)
         codeview.bind("<ButtonRelease-1>", self._on_click_release)
-        codeview.bind("<ButtonPress-3>", self._on_editor_right_click)
+        from utils import bind_right_click as _brc
+        _brc(codeview, self._on_editor_right_click)
         codeview.bind("<<ContentChanged>>", lambda _: self._on_content_changed())
 
         # Alt+Click — add a secondary cursor; returns "break" so plain-click
@@ -763,8 +764,36 @@ class Notepad(Tk):
 
         if not hasattr(self, "_editor_menu"):
             from tkinter import Menu
+            import platform as _platform
+            mod = "⌘" if _platform.system() == "Darwin" else "Ctrl"
 
             self._editor_menu = Menu(self, tearoff=0)
+            self._editor_menu.add_command(
+                label="Undo", accelerator=f"{mod}+Z",
+                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Undo>>"),
+            )
+            self._editor_menu.add_command(
+                label="Redo", accelerator=f"{mod}+Y",
+                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Redo>>"),
+            )
+            self._editor_menu.add_separator()
+            self._editor_menu.add_command(
+                label="Cut", accelerator=f"{mod}+X",
+                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Cut>>"),
+            )
+            self._editor_menu.add_command(
+                label="Copy", accelerator=f"{mod}+C",
+                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Copy>>"),
+            )
+            self._editor_menu.add_command(
+                label="Paste", accelerator=f"{mod}+V",
+                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Paste>>"),
+            )
+            self._editor_menu.add_command(
+                label="Select All", accelerator=f"{mod}+A",
+                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<SelectAll>>"),
+            )
+            self._editor_menu.add_separator()
             self._editor_menu.add_command(
                 label="Go to Definition",
                 command=self._goto_definition,
@@ -1988,7 +2017,7 @@ class Notepad(Tk):
             color_scheme=self.theme_var.get(),
             tab_width=4,
             autohide_scrollbar=False,
-            default_context_menu=True,
+            default_context_menu=False,
             undo=True,
             maxundo=-1,
         )
