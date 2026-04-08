@@ -48,21 +48,14 @@ def _detect_pythons() -> list[tuple[str, str]]:
             return
         results.append((f"Python {version}  ({resolved})", resolved))
 
-    # Well-known install locations first so they win the realpath deduplication
-    # race over venv symlinks (venvs link back to the installed binary).
-    for name in ("python3", "python", "python3.14", "python3.13", "python3.12",
-                 "python3.11", "python3.10", "python3.9"):
-        _add(name)
-
-    # macOS / Homebrew / pyenv locations
+    # 1. Explicit absolute paths first — these win the realpath dedup race.
+    #    Venv symlinks resolve to the same realpath as the real install, so
+    #    whichever is added first gets the label. We want the real install path.
     for prefix in ("/usr/bin", "/usr/local/bin", "/opt/homebrew/bin",
                    os.path.expanduser("~/.pyenv/shims")):
-        for name in ("python3", "python"):
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11",
+                     "python3.10", "python3.9", "python3", "python"):
             _add(os.path.join(prefix, name))
-
-    # Current interpreter last — deduped away if it's a venv pointing at an
-    # already-found install; still added if it's a unique standalone interpreter.
-    _add(sys.executable)
 
     # Windows py launcher
     py = shutil.which("py")
@@ -76,6 +69,15 @@ def _detect_pythons() -> list[tuple[str, str]]:
                     _add(m.group(2))
         except Exception:
             pass
+
+    # 2. Name-based PATH lookups — catch anything not in the known prefixes
+    #    (e.g. pyenv, conda, custom installs). Venv entries will be deduped away.
+    for name in ("python3", "python", "python3.14", "python3.13", "python3.12",
+                 "python3.11", "python3.10", "python3.9"):
+        _add(name)
+
+    # 3. sys.executable last — deduped if it's a venv pointing at a known install.
+    _add(sys.executable)
 
     return results if results else [("Python (system default)", sys.executable)]
 
