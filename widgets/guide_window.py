@@ -148,7 +148,8 @@ class GuideWindow(tk.Toplevel):
         n         = len(self._pages)
 
         self._title_lbl.config(text=page.title)
-        sub = page.subtitle or (f"Step {idx + 1} of {n}" if n > 1 else "")
+        step = f"Step {idx + 1} of {n}" if n > 1 else ""
+        sub  = f"{page.subtitle}  ·  {step}" if page.subtitle and step else (page.subtitle or step)
         self._sub_lbl.config(text=sub)
 
         for w in self._content.winfo_children():
