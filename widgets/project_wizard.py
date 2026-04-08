@@ -78,6 +78,17 @@ def _detect_pythons() -> list[tuple[str, str]]:
     return results if results else [("Python (system default)", sys.executable)]
 
 
+def _categorize(exe: str) -> str:
+    """Return 'venv', 'system', or 'user' for a given interpreter path."""
+    norm = exe.replace("\\", "/").lower()
+    if "/venv/" in norm or "/.venv/" in norm or norm.endswith("/venv") or norm.endswith("/.venv"):
+        return "venv"
+    system_prefixes = ("/usr/bin/", "/usr/local/bin/", "c:/windows/")
+    if any(norm.startswith(p) for p in system_prefixes):
+        return "system"
+    return "user"
+
+
 class ProjectWizard(tk.Toplevel):
     """Step-through wizard for creating a new Python project.
 
@@ -118,7 +129,9 @@ class ProjectWizard(tk.Toplevel):
         self._git_var     = tk.BooleanVar(value=True)
         self._files_var   = tk.BooleanVar(value=True)
 
-        self._pythons: list[tuple[str, str]] = []   # populated lazily
+        self._pythons: list[tuple[str, str]] = []   # all detected, populated lazily
+        self._show_venv_var   = tk.BooleanVar(value=False)  # hide venv by default
+        self._show_system_var = tk.BooleanVar(value=True)
 
         # ── Header ────────────────────────────────────────────────────────────
         self._hdr_frame = Frame(self, bg=_HDR_BG, pady=10)
@@ -244,6 +257,26 @@ class ProjectWizard(tk.Toplevel):
             Label(row, text=f"  {detail}", bg=_BG, fg=_DIM,
                   font=("Segoe UI", 8)).pack(side="left")
 
+    def _mini_check(self, parent: Frame, label: str, var: tk.BooleanVar) -> None:
+        """Compact inline checkbox for filter rows."""
+        f = Frame(parent, bg=_BG, cursor="hand2")
+        f.pack(side="left", padx=(0, 10))
+        box = Label(f, bg=_BG, font=("Segoe UI", 9), cursor="hand2")
+        box.pack(side="left", padx=(0, 2))
+        lbl = Label(f, text=label, bg=_BG, fg=_FG, font=("Segoe UI", 8), cursor="hand2")
+        lbl.pack(side="left")
+
+        def _refresh(*_):
+            box.config(text="☑" if var.get() else "☐",
+                       fg="#569cd6" if var.get() else _DIM)
+        def _toggle(_=None):
+            var.set(not var.get())
+            _refresh()
+
+        _refresh()
+        for w in (f, box, lbl):
+            w.bind("<Button-1>", _toggle)
+
     # ── Step 0: Project details ───────────────────────────────────────────────
 
     def _render_step_0(self) -> None:
@@ -295,24 +328,50 @@ class ProjectWizard(tk.Toplevel):
             if self._pythons:
                 self._python_var.set(self._pythons[0][1])
 
-        labels = [label for label, _ in self._pythons]
-        combo = ttk.Combobox(self._content, values=labels, state="readonly",
-                             font=("Segoe UI", 9))
+        combo = ttk.Combobox(self._content, state="readonly", font=("Segoe UI", 9))
         combo.pack(fill="x", ipady=3)
-        # Sync combobox selection → python_var (executable path)
-        def _on_select(event):
-            idx = combo.current()
-            if 0 <= idx < len(self._pythons):
-                self._python_var.set(self._pythons[idx][1])
-        combo.bind("<<ComboboxSelected>>", _on_select)
-        # Set initial display
-        if self._pythons:
+
+        def _filtered() -> list[tuple[str, str]]:
+            show_venv   = self._show_venv_var.get()
+            show_system = self._show_system_var.get()
+            out = []
+            for label, exe in self._pythons:
+                cat = _categorize(exe)
+                if cat == "venv"   and not show_venv:   continue
+                if cat == "system" and not show_system: continue
+                out.append((label, exe))
+            return out or self._pythons  # never leave list empty
+
+        def _refresh_combo(*_) -> None:
+            visible = _filtered()
+            combo["values"] = [label for label, _ in visible]
+            cur = self._python_var.get()
             try:
-                cur_exe = self._python_var.get()
-                idx = next(i for i, (_, exe) in enumerate(self._pythons) if exe == cur_exe)
-                combo.current(idx)
+                idx = next(i for i, (_, exe) in enumerate(visible) if exe == cur)
             except StopIteration:
-                combo.current(0)
+                idx = 0
+            if visible:
+                combo.current(idx)
+                self._python_var.set(visible[idx][1])
+
+        def _on_select(_=None) -> None:
+            visible = _filtered()
+            idx = combo.current()
+            if 0 <= idx < len(visible):
+                self._python_var.set(visible[idx][1])
+
+        combo.bind("<<ComboboxSelected>>", _on_select)
+        self._show_venv_var.trace_add("write",   lambda *_: _refresh_combo())
+        self._show_system_var.trace_add("write",  lambda *_: _refresh_combo())
+        _refresh_combo()
+
+        # Filter toggles
+        filter_row = Frame(self._content, bg=_BG)
+        filter_row.pack(fill="x", pady=(4, 0))
+        Label(filter_row, text="Show:", bg=_BG, fg=_DIM,
+              font=("Segoe UI", 8)).pack(side="left", padx=(0, 6))
+        self._mini_check(filter_row, "venv",   self._show_venv_var)
+        self._mini_check(filter_row, "system", self._show_system_var)
 
         Label(self._content, text="", bg=_BG).pack()  # spacer
         self._check("Create virtual environment (recommended)", self._venv_var,
