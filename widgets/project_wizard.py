@@ -1,6 +1,7 @@
 """ProjectWizard — multi-step new project setup wizard."""
 from __future__ import annotations
 
+import glob
 import os
 import re
 import shutil
@@ -48,14 +49,19 @@ def _detect_pythons() -> list[tuple[str, str]]:
             return
         results.append((f"Python {version}  ({resolved})", resolved))
 
-    # 1. Explicit absolute paths first — these win the realpath dedup race.
-    #    Venv symlinks resolve to the same realpath as the real install, so
-    #    whichever is added first gets the label. We want the real install path.
+    # 1. Explicit absolute paths — generic names first so python3 wins the
+    #    realpath dedup over python3.14 (both symlink to the same binary).
     for prefix in ("/usr/bin", "/usr/local/bin", "/opt/homebrew/bin",
                    os.path.expanduser("~/.pyenv/shims")):
-        for name in ("python3.14", "python3.13", "python3.12", "python3.11",
-                     "python3.10", "python3.9", "python3", "python"):
+        for name in ("python3", "python", "python3.14", "python3.13",
+                     "python3.12", "python3.11", "python3.10", "python3.9"):
             _add(os.path.join(prefix, name))
+
+    # Homebrew cellar — catches installs not yet symlinked into /usr/local/bin
+    for pattern in ("/usr/local/Cellar/python*/*/bin/python3",
+                    "/opt/homebrew/Cellar/python*/*/bin/python3"):
+        for p in sorted(glob.glob(pattern), reverse=True):
+            _add(p)
 
     # Windows py launcher
     py = shutil.which("py")
@@ -347,6 +353,8 @@ class ProjectWizard(tk.Toplevel):
             return out or self._pythons  # never leave list empty
 
         def _refresh_combo(*_) -> None:
+            if not combo.winfo_exists():
+                return
             visible = _filtered()
             combo["values"] = [label for label, _ in visible]
             cur = self._python_var.get()
