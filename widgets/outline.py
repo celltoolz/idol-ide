@@ -22,6 +22,7 @@ class OutlinePanel(ttk.Frame):
         self._on_navigate = on_navigate
         self._after_id: Optional[str] = None
         self._symbol_ranges: list[tuple[str, str, int, int]] = []
+        self._locals: dict[int, list[tuple[str, str, int]]] = {}  # start_line → [(tag, name, lineno)]
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -64,6 +65,7 @@ class OutlinePanel(ttk.Frame):
         self.tree.tag_configure("param",    foreground="#bd93f9")  # purple
         self.tree.tag_configure("attr",     foreground="#ff79c6")  # pink
         self.tree.tag_configure("var",      foreground="#f1fa8c")  # yellow
+        self.tree.tag_configure("local",    foreground="#abb2bf")  # soft grey
 
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
@@ -96,6 +98,7 @@ class OutlinePanel(ttk.Frame):
     def clear(self) -> None:
         self.tree.delete(*self.tree.get_children())
         self._symbol_ranges = []
+        self._locals = {}
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
@@ -134,6 +137,67 @@ class OutlinePanel(ttk.Frame):
                     ):
                         seen[t.attr] = node.lineno
         return list(seen.items())
+
+    @staticmethod
+    def _local_vars(func_node) -> list[tuple[str, str, int]]:
+        """Return (tag, name, lineno) for symbols in the immediate body of *func_node*.
+
+        Covers: local assignments, annotated assignments, for-loop targets,
+        with-statement targets, and nested function/class definitions.
+        Only the direct body is scanned — nested function bodies are skipped.
+        """
+        # Collect param names so we don't re-list them as locals
+        param_names: set[str] = set()
+        for arg in (
+            func_node.args.posonlyargs
+            + func_node.args.args
+            + func_node.args.kwonlyargs
+        ):
+            param_names.add(arg.arg)
+        if func_node.args.vararg:
+            param_names.add(func_node.args.vararg.arg)
+        if func_node.args.kwarg:
+            param_names.add(func_node.args.kwarg.arg)
+
+        seen: set[str] = set()
+        results: list[tuple[str, str, int]] = []
+
+        def _add(name: str, lineno: int, tag: str = "local") -> None:
+            if name not in seen and name not in param_names and not name.startswith("_"):
+                seen.add(name)
+                results.append((tag, name, lineno))
+
+        for stmt in func_node.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                prefix = "async " if isinstance(stmt, ast.AsyncFunctionDef) else ""
+                seen.add(stmt.name)
+                results.append(("nested_fn", prefix + stmt.name, stmt.lineno))
+            elif isinstance(stmt, ast.ClassDef):
+                seen.add(stmt.name)
+                results.append(("nested_class", stmt.name, stmt.lineno))
+            elif isinstance(stmt, ast.Assign):
+                for t in stmt.targets:
+                    if isinstance(t, ast.Name):
+                        _add(t.id, stmt.lineno)
+                    elif isinstance(t, ast.Tuple):
+                        for elt in t.elts:
+                            if isinstance(elt, ast.Name):
+                                _add(elt.id, stmt.lineno)
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                _add(stmt.target.id, stmt.lineno)
+            elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+                if isinstance(stmt.target, ast.Name):
+                    _add(stmt.target.id, stmt.lineno)
+                elif isinstance(stmt.target, ast.Tuple):
+                    for elt in stmt.target.elts:
+                        if isinstance(elt, ast.Name):
+                            _add(elt.id, stmt.lineno)
+            elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+                for item in stmt.items:
+                    if item.optional_vars and isinstance(item.optional_vars, ast.Name):
+                        _add(item.optional_vars.id, stmt.lineno)
+
+        return results
 
     # ── Refresh ───────────────────────────────────────────────────────────────
 
@@ -196,6 +260,17 @@ class OutlinePanel(ttk.Frame):
                                              text=f"◦  {aname}",
                                              values=(aline,),
                                              tags=("attr",))
+                        locals_ = self._local_vars(child)
+                        self._locals[child.lineno] = locals_
+                        for ltag, lname, lline in locals_:
+                            icon = "◈" if ltag in ("nested_fn", "nested_class") else "◦"
+                            tv_tag = "method" if ltag == "nested_fn" else (
+                                "class" if ltag == "nested_class" else "local"
+                            )
+                            self.tree.insert(method_node, "end",
+                                             text=f"{icon}  {lname}",
+                                             values=(lline,),
+                                             tags=(tv_tag,))
 
             # ── Top-level function ────────────────────────────────────────────
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -214,6 +289,17 @@ class OutlinePanel(ttk.Frame):
                                      text=f"◦  {pname}",
                                      values=(pline,),
                                      tags=("param",))
+                locals_ = self._local_vars(node)
+                self._locals[node.lineno] = locals_
+                for ltag, lname, lline in locals_:
+                    icon = "◈" if ltag in ("nested_fn", "nested_class") else "◦"
+                    tv_tag = "function" if ltag == "nested_fn" else (
+                        "class" if ltag == "nested_class" else "local"
+                    )
+                    self.tree.insert(func_node, "end",
+                                     text=f"{icon}  {lname}",
+                                     values=(lline,),
+                                     tags=(tv_tag,))
 
         self._symbol_ranges = ranges
 
@@ -270,6 +356,10 @@ class OutlinePanel(ttk.Frame):
             for tag, name, start, _end in self._symbol_ranges
             if tag == "method" and c_start <= start <= c_end
         ]
+
+    def get_local_symbols(self, func_start: int) -> list[tuple[str, str, int]]:
+        """Return local symbols inside the function/method that starts at *func_start*."""
+        return self._locals.get(func_start, [])
 
     def _on_select(self, _) -> None:
         selected = self.tree.selection()
