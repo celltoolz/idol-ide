@@ -425,7 +425,7 @@ class ProjectWizard(tk.Toplevel):
                     detail="venv/")
 
         # Learn more link
-        learn = Label(self._content, text="? Learn about virtual environments",
+        learn = Label(self._content, text="? Learn about virtual environments & choosing a Python interpreter",
                       bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
         learn.pack(anchor="w", pady=(10, 0))
         learn.bind("<Button-1>", lambda _: GuideWindow(
