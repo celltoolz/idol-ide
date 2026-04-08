@@ -31,6 +31,7 @@ class BottomPanel(ttk.Frame):
         super().__init__(master, **kwargs)
         self._active: str = "output"
         self._cwd = cwd
+        self._cwd_after_id: Optional[str] = None
 
         self._build_tab_bar()
 
@@ -96,10 +97,18 @@ class BottomPanel(ttk.Frame):
         return {"container": container, "label": lbl, "indicator": indicator}
 
     def set_cwd(self, cwd: str) -> None:
-        """Update the working directory; sends cd to a running terminal."""
+        """Update the working directory; debounced cd to a running terminal."""
         self._cwd = cwd
-        if self._active == "terminal":
-            self.terminal.send_text(f'cd "{cwd}"\n')
+        self.terminal._cwd = cwd  # keep terminal in sync for restarts
+        # Debounce: cancel any pending cd and schedule a new one
+        if self._cwd_after_id is not None:
+            self.after_cancel(self._cwd_after_id)
+        self._cwd_after_id = self.after(250, self._apply_cwd)
+
+    def _apply_cwd(self) -> None:
+        self._cwd_after_id = None
+        if self._active == "terminal" and self.terminal._running and self._cwd:
+            self.terminal.send_text(f'cd "{self._cwd}"\n')
 
     def _set_active(self, key: str) -> None:
         # Update tab styling
@@ -118,7 +127,7 @@ class BottomPanel(ttk.Frame):
         else:
             self.output.pack_forget()
             self.terminal.pack(fill="both", expand=True)
-            if not self.terminal._running and self._cwd:
+            if not self.terminal._running:
                 self.terminal.start(cwd=self._cwd)
 
         self._active = key

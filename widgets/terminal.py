@@ -197,18 +197,18 @@ class TerminalPanel(ttk.Frame):
         self._tags:   set[str] = set()
         self._shell_var = StringVar(value="Auto")
         self._running = False
+        self._cwd: Optional[str] = None
 
         self._build_ui()
         self._poll()
-
-        if PTY_AVAILABLE:
-            self.after(100, self.start)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def start(self, shell: list[str] | None = None,
               cwd: str | None = None) -> None:
         """Spawn a new shell session, killing any existing one first."""
+        if cwd is not None:
+            self._cwd = cwd
         self.stop()
         if not PTY_AVAILABLE:
             self._write("\n  PTY library not found.\n", "error")
@@ -226,8 +226,9 @@ class TerminalPanel(ttk.Frame):
             self._running = True
             threading.Thread(target=self._read_loop, daemon=True).start()
             self._text.focus_set()
-            if cwd and os.path.isdir(cwd):
-                self.after(300, lambda: self.send_text(f'cd "{cwd}"\n'))
+            _cwd = self._cwd
+            if _cwd and os.path.isdir(_cwd):
+                self.after(300, lambda c=_cwd: self.send_text(f'cd "{c}"\n'))
         except Exception as e:
             self._write(f"\n  Failed to start shell: {e}\n", "error")
 
@@ -367,11 +368,11 @@ class TerminalPanel(ttk.Frame):
 
     def _on_restart(self) -> None:
         cmd = self.SHELLS.get(self._shell_var.get())
-        self.start(cmd)
+        self.start(cmd, cwd=self._cwd)
 
     def _on_shell_change(self, _=None) -> None:
         cmd = self.SHELLS.get(self._shell_var.get())
-        self.start(cmd)
+        self.start(cmd, cwd=self._cwd)
 
     def _on_resize(self, _=None) -> None:
         """Update PTY dimensions when the widget resizes."""
