@@ -321,7 +321,8 @@ class Notepad(Tk):
             ),
         )
 
-        self._output = BottomPanel(self._v_pane, run_callback=self.run_file)
+        self._output = BottomPanel(self._v_pane, run_callback=self.run_file,
+                                   cwd=os.getcwd())
         self._v_pane.add(self._output, weight=1)
 
         # Snap the sash once the window is actually visible on screen
@@ -986,10 +987,10 @@ class Notepad(Tk):
         # Update file explorer colours
         self._sidebar.explorer.apply_git_status(status_map)
         # Update tab titles
+        norm_status = {os.path.normcase(k): v for k, v in status_map.items()}
         for tab_id, path in self._files.items():
             if path:
-                norm = os.path.normcase(path)
-                status = status_map.get(norm, "")
+                status = norm_status.get(os.path.normcase(path), "")
                 self._git_tab_status[tab_id] = status
                 self._refresh_tab_title(tab_id)
         # Fetch fresh diff hunks for whichever tab is active
@@ -1061,9 +1062,16 @@ class Notepad(Tk):
 
         def _done(output: str) -> None:
             self._output.output.write(f"{output}\n", "stdout")
+            if "no configured push destination" in output or "fatal" in output.lower() and "remote" in output.lower():
+                self._show_remote_guide()
             self._refresh_git()
 
         self._git.push(callback=_done)
+
+    def _show_remote_guide(self) -> None:
+        from widgets.guide_window import GuideWindow
+        import utils.git_remote_guide as git_remote_guide
+        GuideWindow(self, "Setting Up a Git Remote", git_remote_guide.get_pages())
 
     def _sc_pull(self) -> None:
         if not self._git:
@@ -1377,11 +1385,17 @@ class Notepad(Tk):
         from widgets.project_wizard import ProjectWizard
         ProjectWizard(self, on_complete=self._on_project_created)
 
+    def _set_explorer_root(self, path: str) -> None:
+        """Set explorer root and sync terminal cwd."""
+        self._sidebar.explorer.set_root(path)
+        # Resolve to directory — set_root does the same internally
+        cwd = path if os.path.isdir(path) else os.path.dirname(path)
+        self._output.set_cwd(cwd)
+
     def _on_project_created(self, project_path: str) -> None:
         """Called when the project wizard finishes — open the new project."""
-        self._sidebar.explorer.set_root(project_path)
-        if self._git:
-            self._git.stop()
+        self._set_explorer_root(project_path)
+        self._git = None
         self._start_git()
         # Open main.py if it was created
         main_py = os.path.join(project_path, "main.py")
@@ -1422,7 +1436,7 @@ class Notepad(Tk):
         # Only update the explorer root when opening externally (File > Open),
         # not when clicking a file inside the tree (would reset root unexpectedly)
         if update_explorer:
-            self._sidebar.explorer.set_root(path)
+            self._set_explorer_root(path)
 
         if replace:
             old_index = self.notebook.tabs().index(old_tab_id)
@@ -1579,7 +1593,8 @@ class Notepad(Tk):
             mc.clear()
             self.notebook.forget(tab_id)
         self._new_tab("Untitled", "")
-        self._sidebar.explorer.set_root(os.getcwd())
+        root = str(self._sidebar.explorer._root or os.getcwd())
+        self._set_explorer_root(root)
 
     def workspace_close(self, *_) -> None:
         """Close the current workspace (with save prompt) leaving a blank state."""

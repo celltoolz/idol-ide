@@ -78,7 +78,9 @@ def _parse_staged_unstaged(output: str, root: str) -> tuple[dict[str, str], dict
         path = line[3:].strip()
         if " -> " in path:
             path = path.split(" -> ")[1]
-        abs_path = os.path.normcase(os.path.join(root, path.replace("/", os.sep)))
+        # Keep real path as key so it can be passed directly to git commands.
+        # Callers that need case-insensitive comparison should use os.path.normcase().
+        abs_path = os.path.join(root, path.replace("/", os.sep))
         # Index (staged)
         if x not in (" ", "?"):
             staged[abs_path] = "D" if x == "D" else ("A" if x in ("A", "C") else "M")
@@ -108,9 +110,7 @@ def _parse_status(output: str, root: str) -> dict[str, str]:
             status = "A"
         else:
             status = "M"
-        abs_path = os.path.normcase(
-            os.path.join(root, path.replace("/", os.sep))
-        )
+        abs_path = os.path.join(root, path.replace("/", os.sep))
         result[abs_path] = status
     return result
 
@@ -201,7 +201,12 @@ class GitManager:
 
     def unstage(self, path: str, callback: Callable[[], None] | None = None) -> None:
         def _run() -> None:
-            _run_git(["restore", "--staged", "--", path], self._root)
+            # If HEAD doesn't exist (no commits yet), use rm --cached instead
+            has_head = _run_git(["rev-parse", "--verify", "HEAD"], self._root) != ""
+            if has_head:
+                out = _run_git_output(["restore", "--staged", "--", path], self._root)
+            else:
+                out = _run_git_output(["rm", "--cached", "--", path], self._root)
             if callback:
                 self._after(0, callback)
         threading.Thread(target=_run, daemon=True).start()

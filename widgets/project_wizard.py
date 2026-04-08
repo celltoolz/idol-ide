@@ -14,6 +14,7 @@ from typing import Callable
 
 from widgets.guide_window import GuideWindow
 import utils.venv_guide as venv_guide
+import utils.git_remote_guide as git_remote_guide
 
 _BG      = "#252526"
 _HDR_BG  = "#2d2d30"
@@ -333,6 +334,13 @@ class ProjectWizard(tk.Toplevel):
         Label(self._content, text="", bg=_BG).pack()  # spacer
 
         self._check("Initialize git repository", self._git_var)
+        learn_git = Label(self._content, text="? Learn about git repositories",
+                          bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
+        learn_git.pack(anchor="w", pady=(4, 8))
+        learn_git.bind("<Button-1>", lambda _: GuideWindow(
+            self, "Setting Up a Git Remote", git_remote_guide.get_pages()
+        ))
+
         self._check("Create starter files", self._files_var,
                     detail="main.py, requirements.txt, .gitignore")
 

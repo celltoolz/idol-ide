@@ -92,10 +92,12 @@ class FileExplorer(ttk.Frame):
     def apply_git_status(self, status_map: dict[str, str]) -> None:
         """Recolour and badge visible tree items to reflect git status.
 
-        *status_map* maps normcase absolute path → 'M' | 'A' | 'U' | 'D'.
+        *status_map* maps absolute path → 'M' | 'A' | 'U' | 'D'.
         Uses both tag colours (where the theme supports it) and a text suffix
         so the status is always visible regardless of platform/theme.
         """
+        norm_map = {os.path.normcase(k): v for k, v in status_map.items()}
+
         def _update(item: str) -> None:
             item_tags = self._tree.item(item, "tags")
             if "parent_dir" in item_tags:
@@ -105,7 +107,7 @@ class FileExplorer(ttk.Frame):
             values = self._tree.item(item, "values")
             if values and values[0] != self._LOADING:
                 norm   = os.path.normcase(str(values[0]))
-                status = status_map.get(norm)
+                status = norm_map.get(norm)
                 # Tag colours (put git tag first for priority)
                 base_tags = [t for t in item_tags if not t.startswith("git_")]
                 new_tags  = ([f"git_{status}"] + base_tags) if status else base_tags

@@ -25,10 +25,12 @@ class BottomPanel(ttk.Frame):
         self,
         master,
         run_callback: Optional[Callable[[], None]] = None,
+        cwd: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
         self._active: str = "output"
+        self._cwd = cwd
 
         self._build_tab_bar()
 
@@ -93,6 +95,12 @@ class BottomPanel(ttk.Frame):
 
         return {"container": container, "label": lbl, "indicator": indicator}
 
+    def set_cwd(self, cwd: str) -> None:
+        """Update the working directory; sends cd to a running terminal."""
+        self._cwd = cwd
+        if self._active == "terminal":
+            self.terminal.send_text(f'cd "{cwd}"\n')
+
     def _set_active(self, key: str) -> None:
         # Update tab styling
         for k, tab in self._tabs.items():
@@ -103,12 +111,14 @@ class BottomPanel(ttk.Frame):
             else:
                 tab["indicator"].pack_forget()
 
-        # Swap visible panel
+        # Swap visible panel — start terminal with cwd on first show
         if key == "output":
             self.terminal.pack_forget()
             self.output.pack(fill="both", expand=True)
         else:
             self.output.pack_forget()
             self.terminal.pack(fill="both", expand=True)
+            if not self.terminal._running and self._cwd:
+                self.terminal.start(cwd=self._cwd)
 
         self._active = key

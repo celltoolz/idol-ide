@@ -34,8 +34,11 @@ class _Tooltip:
     """Simple hover tooltip."""
     def __init__(self, widget, text: str) -> None:
         self._tip = None
-        widget.bind("<Enter>", lambda e: self._show(e, text))
-        widget.bind("<Leave>", lambda _: self._hide())
+        widget.bind("<Enter>",    lambda e: self._show(e, text))
+        widget.bind("<Leave>",    lambda _: self._hide())
+        widget.bind("<Button-1>", lambda _: self._hide())
+        widget.bind("<Button-3>", lambda _: self._hide())
+        widget.bind("<Destroy>",  lambda _: self._hide())
 
     def _show(self, event, text: str) -> None:
         self._hide()

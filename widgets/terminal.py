@@ -206,7 +206,8 @@ class TerminalPanel(ttk.Frame):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def start(self, shell: list[str] | None = None) -> None:
+    def start(self, shell: list[str] | None = None,
+              cwd: str | None = None) -> None:
         """Spawn a new shell session, killing any existing one first."""
         self.stop()
         if not PTY_AVAILABLE:
@@ -225,8 +226,18 @@ class TerminalPanel(ttk.Frame):
             self._running = True
             threading.Thread(target=self._read_loop, daemon=True).start()
             self._text.focus_set()
+            if cwd and os.path.isdir(cwd):
+                self.after(300, lambda: self.send_text(f'cd "{cwd}"\n'))
         except Exception as e:
             self._write(f"\n  Failed to start shell: {e}\n", "error")
+
+    def send_text(self, text: str) -> None:
+        """Send raw text to the PTY (e.g. a shell command)."""
+        if self._pty and self._running:
+            try:
+                self._pty.write(text)
+            except Exception:
+                pass
 
     def stop(self) -> None:
         """Terminate the current PTY process."""
