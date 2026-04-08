@@ -1395,6 +1395,8 @@ class Notepad(Tk):
     def _on_explorer_root_change(self, root: str) -> None:
         """Called whenever the explorer navigates to a new root directory."""
         self._output.set_cwd(root)
+        self._git = None
+        self._start_git()
 
     def _on_project_created(self, project_path: str) -> None:
         """Called when the project wizard finishes — open the new project."""
