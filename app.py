@@ -3,7 +3,7 @@ from __future__ import annotations
 import builtins
 import os
 import re
-from tkinter import BooleanVar, Button, StringVar, Tk, ttk
+from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showinfo, showerror, askyesnocancel, askyesno
 
@@ -246,81 +246,17 @@ class Notepad(Tk):
         # Inline find/replace bar (lives inside nb_frame, hidden by default)
         self._find_replace = FindReplaceBar(nb_frame)
 
-        _btn_kw = dict(
-            font=("Segoe UI", 11, "bold"),
-            bg="#2d2d30",
-            activebackground="#2d2d30",
-            cursor="hand2",
-            padx=4,
-            pady=0,
-            relief="flat",
-            bd=0,
-            highlightthickness=1,
-            highlightbackground="#454545",
-        )
+        def _make_tab_btn(text: str, command, fg_hover: str = "#cccccc") -> Label:
+            lbl = Label(nb_frame, text=text, bg="#2d2d30", fg="#858585",
+                        font=("Segoe UI", 11, "bold"), cursor="hand2", padx=6, pady=0)
+            lbl.bind("<Button-1>", lambda _: command())
+            lbl.bind("<Enter>",   lambda _: lbl.config(fg=fg_hover))
+            lbl.bind("<Leave>",   lambda _: lbl.config(fg="#858585"))
+            return lbl
 
-        self._prev_btn = Button(
-            nb_frame,
-            text=" ‹ ",
-            fg="#858585",
-            activeforeground="#cccccc",
-            command=self.notebook.select_prev,
-            **_btn_kw,
-        )
-        self._prev_btn.bind(
-            "<Enter>",
-            lambda _: self._prev_btn.config(
-                fg="#cccccc", highlightbackground="#666666"
-            ),
-        )
-        self._prev_btn.bind(
-            "<Leave>",
-            lambda _: self._prev_btn.config(
-                fg="#858585", highlightbackground="#454545"
-            ),
-        )
-
-        self._next_btn = Button(
-            nb_frame,
-            text=" › ",
-            fg="#858585",
-            activeforeground="#cccccc",
-            command=self.notebook.select_next,
-            **_btn_kw,
-        )
-        self._next_btn.bind(
-            "<Enter>",
-            lambda _: self._next_btn.config(
-                fg="#cccccc", highlightbackground="#666666"
-            ),
-        )
-        self._next_btn.bind(
-            "<Leave>",
-            lambda _: self._next_btn.config(
-                fg="#858585", highlightbackground="#454545"
-            ),
-        )
-
-        self._plus_btn = Button(
-            nb_frame,
-            text=" + ",
-            fg="#858585",
-            activeforeground="#2ea043",
-            command=self.file_new,
-            **_btn_kw,
-        )
-        self._plus_btn.bind(
-            "<Enter>",
-            lambda _: self._plus_btn.config(
-                fg="#2ea043", highlightbackground="#2ea043"
-            ),
-        )
-        self._plus_btn.bind(
-            "<Leave>",
-            lambda _: self._plus_btn.config(
-                fg="#858585", highlightbackground="#454545"
-            ),
-        )
+        self._prev_btn = _make_tab_btn(" ‹ ", self.notebook.select_prev)
+        self._next_btn = _make_tab_btn(" › ", self.notebook.select_next)
+        self._plus_btn = _make_tab_btn(" + ", self.file_new, fg_hover="#2ea043")
 
         self._output = BottomPanel(self._v_pane, run_callback=self.run_file,
                                    cwd=os.getcwd())
