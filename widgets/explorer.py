@@ -15,10 +15,12 @@ class FileExplorer(ttk.Frame):
     _LOADING = "__loading__"
 
     def __init__(self, parent, on_open_file: Callable[[str], None],
-                 on_file_move: Callable[[str, str], bool] | None = None) -> None:
+                 on_file_move: Callable[[str, str], bool] | None = None,
+                 on_root_change: Callable[[str], None] | None = None) -> None:
         super().__init__(parent, style="Explorer.TFrame")
         self._on_open = on_open_file
         self._on_file_move = on_file_move  # (old_path, new_path) -> bool (False = cancel)
+        self._on_root_change = on_root_change
         self._root: Path | None = None
 
         self._tree = ttk.Treeview(
@@ -88,6 +90,8 @@ class FileExplorer(ttk.Frame):
                 tags=("parent_dir",),
             )
         self._populate("", root)
+        if self._on_root_change:
+            self._on_root_change(str(root))
 
     def apply_git_status(self, status_map: dict[str, str]) -> None:
         """Recolour and badge visible tree items to reflect git status.

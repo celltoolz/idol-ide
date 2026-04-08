@@ -214,6 +214,7 @@ class Notepad(Tk):
                 "repo_root":         lambda: self._git._root if self._git else "",
             },
             on_file_move=self._on_explorer_file_move,
+            on_root_change=self._on_explorer_root_change,
         )
         self._sidebar.configure(width=220)
         self._h_pane.add(self._sidebar, weight=0)
@@ -1388,10 +1389,12 @@ class Notepad(Tk):
     def _set_explorer_root(self, path: str) -> None:
         """Set explorer root and sync terminal cwd."""
         self._sidebar.explorer.set_root(path)
-        # Resolve to directory — set_root does the same internally
-        cwd = path if os.path.isdir(path) else os.path.dirname(path)
-        print(f"[DEBUG] _set_explorer_root: path={path!r} → cwd={cwd!r}")
-        self._output.set_cwd(cwd)
+        # set_root fires on_root_change which calls _on_explorer_root_change,
+        # so set_cwd is already handled there — nothing else needed here.
+
+    def _on_explorer_root_change(self, root: str) -> None:
+        """Called whenever the explorer navigates to a new root directory."""
+        self._output.set_cwd(root)
 
     def debug_test_terminal_cwd(self) -> None:
         """Help menu: manually force terminal cd to the current explorer root."""
