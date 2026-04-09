@@ -163,7 +163,7 @@ class OutlinePanel(ttk.Frame):
         results: list[tuple[str, str, int]] = []
 
         def _add(name: str, lineno: int, tag: str = "local") -> None:
-            if name not in seen and name not in param_names and not name.startswith("_"):
+            if name not in seen and name not in param_names:
                 seen.add(name)
                 results.append((tag, name, lineno))
 
