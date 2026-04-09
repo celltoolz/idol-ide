@@ -95,6 +95,8 @@ class StickyScroll(Frame):
                 anchor="w",
                 padx=0,
                 pady=0,
+                bd=0,
+                relief="flat",
             ).pack(fill="x")
 
             # Syntax-highlighted code in the text area
