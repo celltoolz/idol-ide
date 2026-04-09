@@ -324,21 +324,23 @@ class SourceControlPanel(ttk.Frame):
         on_pull:              Callable[[], None],
         on_diff:              Callable[[str], None],
         on_create_gitignore:  Callable[[], None] | None = None,
+        on_add_to_gitignore:  Callable[[str], None] | None = None,
         gitignore_check_fn:   Callable[[], bool] | None = None,
         repo_root_fn:         Callable[[], str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
-        self._on_stage            = on_stage
-        self._on_unstage          = on_unstage
-        self._on_discard          = on_discard
-        self._on_commit           = on_commit
-        self._on_push             = on_push
-        self._on_pull             = on_pull
-        self._on_diff             = on_diff
-        self._on_create_gitignore = on_create_gitignore
-        self._gitignore_check_fn  = gitignore_check_fn
-        self._repo_root_fn        = repo_root_fn
+        self._on_stage              = on_stage
+        self._on_unstage            = on_unstage
+        self._on_discard            = on_discard
+        self._on_commit             = on_commit
+        self._on_push               = on_push
+        self._on_pull               = on_pull
+        self._on_diff               = on_diff
+        self._on_create_gitignore   = on_create_gitignore
+        self._on_add_to_gitignore   = on_add_to_gitignore
+        self._gitignore_check_fn    = gitignore_check_fn
+        self._repo_root_fn          = repo_root_fn
         self._ctx_path            = ""
         self._warn_visible        = False
         self._last_staged:  dict[str, str] = {}
@@ -376,11 +378,13 @@ class SourceControlPanel(ttk.Frame):
 
         # Single unified context menu — items shown/hidden based on context
         self._ctx_menu = Menu(self, tearoff=0)
+        self._ctx_menu.add_command(label="Open Changes",     command=self._ctx_do_diff)
+        self._ctx_menu.add_separator()
         self._ctx_menu.add_command(label="Stage Changes",    command=self._ctx_do_stage)
         self._ctx_menu.add_command(label="Unstage Changes",  command=self._ctx_do_unstage)
         self._ctx_menu.add_command(label="Discard Changes",  command=self._ctx_do_discard)
-        self._ctx_menu.add_command(label="Open Diff",        command=self._ctx_do_diff)
         self._ctx_menu.add_separator()
+        self._ctx_menu.add_command(label="Add to .gitignore", command=self._ctx_add_to_gitignore)
         self._ctx_menu.add_command(label="Create .gitignore", command=self._ctx_create_gitignore)
 
         self._ctx_section = None  # "staged" | "changes" | None
@@ -628,10 +632,11 @@ class SourceControlPanel(ttk.Frame):
 
         # Show/hide items based on context
         has_file = bool(path)
-        self._ctx_menu.entryconfigure("Stage Changes",    state="normal" if has_file and section == "changes" else "disabled")
-        self._ctx_menu.entryconfigure("Unstage Changes",  state="normal" if has_file and section == "staged"  else "disabled")
-        self._ctx_menu.entryconfigure("Discard Changes",  state="normal" if has_file and section == "changes" else "disabled")
-        self._ctx_menu.entryconfigure("Open Diff",        state="normal" if has_file else "disabled")
+        self._ctx_menu.entryconfigure("Open Changes",      state="normal" if has_file else "disabled")
+        self._ctx_menu.entryconfigure("Stage Changes",     state="normal" if has_file and section == "changes" else "disabled")
+        self._ctx_menu.entryconfigure("Unstage Changes",   state="normal" if has_file and section == "staged"  else "disabled")
+        self._ctx_menu.entryconfigure("Discard Changes",   state="normal" if has_file and section == "changes" else "disabled")
+        self._ctx_menu.entryconfigure("Add to .gitignore", state="normal" if has_file else "disabled")
 
         self._ctx_menu.tk_popup(event.x_root, event.y_root)
 
@@ -639,6 +644,10 @@ class SourceControlPanel(ttk.Frame):
     def _ctx_do_unstage(self) -> None: self._on_unstage(self._ctx_path)
     def _ctx_do_discard(self) -> None: self._on_discard(self._ctx_path)
     def _ctx_do_diff(self)    -> None: self._on_diff(self._ctx_path)
+
+    def _ctx_add_to_gitignore(self) -> None:
+        if self._on_add_to_gitignore and self._ctx_path:
+            self._on_add_to_gitignore(self._ctx_path)
 
     def _ctx_create_gitignore(self) -> None:
         if self._on_create_gitignore:

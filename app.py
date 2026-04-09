@@ -216,6 +216,7 @@ class Notepad(Tk):
                 "pull":              self._sc_pull,
                 "diff":              self._sc_open_diff,
                 "create_gitignore":  self._sc_create_gitignore,
+                "add_to_gitignore":  self._sc_add_to_gitignore,
                 "gitignore_check":   self._sc_gitignore_exists,
                 "repo_root":         lambda: self._git._root if self._git else "",
             },
@@ -1106,6 +1107,34 @@ class Notepad(Tk):
         if not self._git:
             return False
         return os.path.exists(os.path.join(self._git._root, ".gitignore"))
+
+    def _sc_add_to_gitignore(self, path: str) -> None:
+        """Append *path* (relative to repo root) to .gitignore, creating it if needed."""
+        if not self._git:
+            return
+        root = self._git._root
+        gitignore_path = os.path.join(root, ".gitignore")
+        try:
+            rel = os.path.relpath(path, root).replace("\\", "/")
+        except ValueError:
+            rel = os.path.basename(path)
+        # Don't add a duplicate entry
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+            if rel in existing.splitlines():
+                self._output.output.write(f"[.gitignore] {rel} is already listed.\n", "stdout")
+                return
+            with open(gitignore_path, "a", encoding="utf-8") as f:
+                if not existing.endswith("\n"):
+                    f.write("\n")
+                f.write(f"{rel}\n")
+        else:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
+                f.write(f"{rel}\n")
+        self._output.output.write(f"[.gitignore] Added: {rel}\n", "stdout")
+        self._refresh_git()
+        self._refresh_sc_panel()
 
     def _sc_create_gitignore(self) -> None:
         """Create a standard Python .gitignore in the repo root if absent."""

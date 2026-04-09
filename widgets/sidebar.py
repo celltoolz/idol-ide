@@ -75,9 +75,10 @@ class Sidebar(ttk.Frame):
             on_push=sc_cb.get("push",                    lambda: None),
             on_pull=sc_cb.get("pull",                    lambda: None),
             on_diff=sc_cb.get("diff",                    lambda p: None),
-            on_create_gitignore=sc_cb.get("create_gitignore", None),
-            gitignore_check_fn=sc_cb.get("gitignore_check",  None),
-            repo_root_fn=sc_cb.get("repo_root",          None),
+            on_create_gitignore=sc_cb.get("create_gitignore",    None),
+            on_add_to_gitignore=sc_cb.get("add_to_gitignore",    None),
+            gitignore_check_fn=sc_cb.get("gitignore_check",      None),
+            repo_root_fn=sc_cb.get("repo_root",                  None),
         )
 
         self._sash3 = self._make_sash()
