@@ -286,7 +286,18 @@ class Notepad(Tk):
         self._place_plus_btn()
 
     def _on_window_configure(self, _=None) -> None:
-        self.after(10, self._place_plus_btn)
+        # Fire only once per batch of Configure events — self.bind("<Configure>")
+        # on the root Tk window fires for EVERY child widget's geometry change
+        # (not just the main window resize) via tkinter's bindtag propagation.
+        # Without debouncing, opening the SC panel generates hundreds of events
+        # and queues hundreds of _place_plus_btn callbacks, causing apparent freezes.
+        if getattr(self, "_place_btn_pending", False):
+            return
+        self._place_btn_pending = True
+        def _deferred():
+            self._place_btn_pending = False
+            self._place_plus_btn()
+        self.after(10, _deferred)
         if self._completion.visible:
             cv = self._current_codeview
             if cv is None:
@@ -401,10 +412,12 @@ class Notepad(Tk):
                 pass
 
         frame = ttk.Frame(self.notebook)
+        cv_ref: list = [None]
         crumb = BreadcrumbBar(
             frame,
             on_navigate=self._outline_navigate,
             on_set_root=self._set_explorer_root,
+            get_line=lambda ln: cv_ref[0].get(f"{ln}.0", f"{ln}.end") if cv_ref[0] else "",
         )
         crumb.pack(side="top", fill="x")
         codeview = CodeView(
@@ -417,6 +430,7 @@ class Notepad(Tk):
             undo=True,
             maxundo=-1,
         )
+        cv_ref[0] = codeview
         codeview.pack(fill="both", expand=True)
         codeview.insert("1.0", content)
         codeview.edit_reset()  # clear undo history after initial load
@@ -2066,10 +2080,12 @@ class Notepad(Tk):
                 pass
 
         frame = ttk.Frame(notebook)
+        cv_ref_s: list = [None]
         crumb = BreadcrumbBar(
             frame,
             on_navigate=self._outline_navigate,
             on_set_root=self._set_explorer_root,
+            get_line=lambda ln: cv_ref_s[0].get(f"{ln}.0", f"{ln}.end") if cv_ref_s[0] else "",
         )
         crumb.pack(side="top", fill="x")
         codeview = CodeView(
@@ -2082,6 +2098,7 @@ class Notepad(Tk):
             undo=True,
             maxundo=-1,
         )
+        cv_ref_s[0] = codeview
         codeview.pack(fill="both", expand=True)
         codeview.insert("1.0", content)
         codeview.edit_reset()

@@ -90,8 +90,10 @@ class _FileRow(Frame):
             bind_right_click(w, lambda e, p=path: on_right_click(e, p))
 
         # Hover tooltip: file classification + explanation (on row only)
+        _STATUS_WORDS = {"M": "Modified", "A": "Added", "U": "Untracked", "D": "Deleted"}
+        status_word = _STATUS_WORDS.get(status, status)
         info = classify_file(path)
-        _Tooltip(self, f"{info.label}\n{info.explanation}")
+        _Tooltip(self, f"{info.label} — {status_word}\n{info.explanation}")
 
     def _hover(self, on: bool) -> None:
         c = _HOV_BG if on else self._bg
@@ -118,6 +120,8 @@ class _Section(Frame):
         self._bg           = bg
         self._on_toggle    = on_toggle
         self._panel_menu_cb = None   # set by bind_panel_menu
+        self._vs_visible   = False   # tracks scrollbar state to avoid redundant pack/forget
+        self._configuring  = False   # re-entrancy guard for _on_canvas_configure
 
         # Data store
         self._items: list[tuple[str, str]] = []
@@ -179,19 +183,28 @@ class _Section(Frame):
         self._render_visible()
 
     def _on_canvas_configure(self, event) -> None:
-        self._canvas_w = event.width
-        # Update width of every already-rendered window
-        for wid, _ in self._rendered.values():
-            self._canvas.itemconfigure(wid, width=self._canvas_w)
-        self._update_scrollbar()
-        self._render_visible()
+        if self._configuring:
+            return
+        self._configuring = True
+        try:
+            self._canvas_w = event.width
+            # Update width of every already-rendered window
+            for wid, _ in self._rendered.values():
+                self._canvas.itemconfigure(wid, width=self._canvas_w)
+            self._update_scrollbar()
+            self._render_visible()
+        finally:
+            self._configuring = False
 
     def _update_scrollbar(self) -> None:
         total_h  = len(self._items) * self._ROW_H
         canvas_h = self._canvas.winfo_height()
-        if total_h > canvas_h:
+        needs = total_h > canvas_h
+        if needs and not self._vs_visible:
+            self._vs_visible = True
             self._vs.pack(side="right", fill="y")
-        else:
+        elif not needs and self._vs_visible:
+            self._vs_visible = False
             self._vs.pack_forget()
 
     # ── Virtual render ────────────────────────────────────────────────────────

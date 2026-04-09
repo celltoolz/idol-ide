@@ -38,11 +38,13 @@ class BreadcrumbBar(tk.Frame):
         parent,
         on_navigate: Callable[[int], None],
         on_set_root: Callable[[str], None] | None = None,
+        get_line: Callable[[int], str] | None = None,
     ) -> None:
         super().__init__(parent, bg=_BG, height=self.HEIGHT)
         self.pack_propagate(False)
         self._on_navigate = on_navigate
         self._on_set_root = on_set_root
+        self._get_line = get_line
         self._last_line: int = -1
         self._last_path: str | None = ""
         self._last_key: tuple = ()   # cache key = (filepath, scope_tuple, path_parts_tuple)
@@ -176,7 +178,8 @@ class BreadcrumbBar(tk.Frame):
                     drill.pack(side="left")
                     drill.bind(
                         "<Button-1>",
-                        lambda _, w=drill, lo=locs, n=name: self._show_locals(lo, n, w),
+                        lambda _, w=drill, lo=locs, n=name, sc=list(scope), fp=filepath:
+                            self._show_locals(lo, n, w, sc, fp),
                     )
                     drill.bind("<Enter>", lambda _, d=drill: d.config(fg=_FG_FILE))
                     drill.bind("<Leave>", lambda _, d=drill: d.config(fg=_FG_DIM))
@@ -190,10 +193,10 @@ class BreadcrumbBar(tk.Frame):
 
     # ── Shared popup infrastructure ───────────────────────────────────────────
 
-    def _make_popup(self, anchor: tk.Label, popup_w: int = 280) \
-            -> "tuple[tk.Toplevel, tk.Frame, tk.Canvas, any, list, list[int]]":
+    def _make_popup(self, anchor: tk.Label, popup_w: int = 280,
+                    with_footer: bool = False):
         """Create the Toplevel + scrollable canvas. Returns
-        (popup, inner, canvas, vsb, rows, selected_idx)."""
+        (popup, inner, canvas, vsb, rows, selected_idx, footer_or_None)."""
         from tkinter import ttk
 
         popup = tk.Toplevel(self)
@@ -204,6 +207,14 @@ class BreadcrumbBar(tk.Frame):
 
         border = tk.Frame(popup, bg=_PICK_BDR)
         border.pack(fill="both", expand=True, padx=1, pady=1)
+
+        # Footer is packed FIRST (side="bottom") so it reserves space before
+        # the scrollable area expands to fill the rest.
+        footer: tk.Frame | None = None
+        if with_footer:
+            tk.Frame(border, bg=_PICK_BDR, height=1).pack(side="bottom", fill="x")
+            footer = tk.Frame(border, bg="#1a1a1d")
+            footer.pack(side="bottom", fill="x")
 
         canvas = tk.Canvas(border, bg=_PICK_BG, highlightthickness=0, bd=0,
                            width=popup_w - 2)
@@ -222,11 +233,11 @@ class BreadcrumbBar(tk.Frame):
 
         rows: list = []
         selected_idx = [0]
-        return popup, inner, canvas, vsb, rows, selected_idx
+        return popup, inner, canvas, vsb, rows, selected_idx, footer
 
     def _finalise_popup(self, popup, canvas, vsb, rows, selected_idx,
                         anchor: tk.Label, popup_w: int,
-                        content_h: int, max_h: int) -> None:
+                        content_h: int, max_h: int, footer_h: int = 0) -> None:
         """Size, position, bind focus-loss and keyboard nav, then show."""
         ROW_H = 26
 
@@ -239,7 +250,7 @@ class BreadcrumbBar(tk.Frame):
             self._close_picker()
             self._on_navigate(ln)
 
-        popup_h = min(content_h, max_h) + 2
+        popup_h = min(content_h, max_h) + 2 + footer_h
         if content_h <= max_h:
             vsb.pack_forget()
 
@@ -300,7 +311,7 @@ class BreadcrumbBar(tk.Frame):
             return
 
         ROW_H, MAX_H, popup_w = 26, 14 * 26, 280
-        popup, inner, canvas, vsb, rows, sel = self._make_popup(anchor, popup_w)
+        popup, inner, canvas, vsb, rows, sel, _ = self._make_popup(anchor, popup_w)
 
         def _wheel(e):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
@@ -339,7 +350,9 @@ class BreadcrumbBar(tk.Frame):
     # ── Locals picker (drill-down › click) ────────────────────────────────────
 
     def _show_locals(self, locals_: list[tuple[str, str, int]],
-                     scope_name: str, anchor: tk.Label) -> None:
+                     scope_name: str, anchor: tk.Label,
+                     scope: list | None = None,
+                     filepath: str | None = None) -> None:
         """Show variables/nested defs inside the current function/method."""
         if self._picker and self._picker.winfo_exists():
             self._close_picker()
@@ -347,16 +360,78 @@ class BreadcrumbBar(tk.Frame):
         if not locals_:
             return
 
-        ROW_H, HDR_H, MAX_H, popup_w = 26, 20, 14 * 26, 280
+        ROW_H, HDR_H, SEC_H, MAX_H, FOOTER_H, popup_w = 26, 20, 18, 14 * 26, 32, 320
 
         _LOCAL_FG = "#abb2bf"
-        _ICONS    = {"nested_fn": "◈", "nested_class": "◉", "local": "◦"}
-        _FG_MAP   = {"nested_fn":    _TAG_FG.get("method",   _FG_FILE),
-                     "nested_class": _TAG_FG.get("class",    _FG_FILE),
-                     "local":        _LOCAL_FG}
+        _ICONS: dict[str, str] = {
+            "nested_fn":    "◈",
+            "nested_class": "◉",
+            "local":        "◦",
+            "attr":         "◦",
+            "param":        "◦",
+        }
+        _FG_MAP: dict[str, str] = {
+            "nested_fn":    _TAG_FG.get("method",   _FG_FILE),   # green
+            "nested_class": _TAG_FG.get("class",    _FG_FILE),   # cyan
+            "local":        _LOCAL_FG,                            # soft grey
+            "attr":         "#ff79c6",                            # pink
+            "param":        "#bd93f9",                            # purple
+        }
+        _SEC_LABELS: dict[str, str] = {
+            "nested_fn":    "NESTED",
+            "nested_class": "NESTED",
+            "local":        "LOCALS",
+            "attr":         "ATTRIBUTES",
+            "param":        "PARAMETERS",
+        }
+        _GROUP_ORDER = ["param", "attr", "local", "nested_fn", "nested_class"]
 
-        popup, inner, canvas, vsb, rows, sel = self._make_popup(anchor, popup_w)
+        popup, inner, canvas, vsb, rows, sel, footer = self._make_popup(
+            anchor, popup_w, with_footer=True
+        )
 
+        # ── Footer preview strip ──────────────────────────────────────────────
+        preview_text = tk.Text(
+            footer,
+            height=1, state="disabled", wrap="none",
+            bd=0, highlightthickness=0,
+            bg="#1a1a1d", fg=_FG_DIM,
+            font=("Segoe UI", 8),
+            padx=8, pady=6,
+            cursor="arrow", takefocus=False,
+        )
+        preview_text.pack(fill="x", expand=True)
+        # Colour tags for each segment type
+        preview_text.tag_configure("dim",          foreground=_FG_DIM)
+        preview_text.tag_configure("sep",          foreground=_FG_SEP)
+        preview_text.tag_configure("class",        foreground=_TAG_FG.get("class",    _FG_FILE))
+        preview_text.tag_configure("method",       foreground=_TAG_FG.get("method",   _FG_FILE))
+        preview_text.tag_configure("function",     foreground=_TAG_FG.get("function", _FG_FILE))
+        preview_text.tag_configure("attr",         foreground="#ff79c6")
+        preview_text.tag_configure("local",        foreground=_LOCAL_FG)
+        preview_text.tag_configure("param",        foreground="#bd93f9")
+        preview_text.tag_configure("nested_fn",    foreground=_TAG_FG.get("method",   _FG_FILE))
+        preview_text.tag_configure("nested_class", foreground=_TAG_FG.get("class",    _FG_FILE))
+        preview_text.tag_configure("src",          foreground="#cccccc")
+
+        def _update_preview(ltag: str, lname: str, lline: int) -> None:
+            preview_text.configure(state="normal")
+            preview_text.delete("1.0", "end")
+            base = os.path.basename(filepath) if filepath else "Untitled"
+            preview_text.insert("end", base, "dim")
+            for stag, sname, _ in (scope or []):
+                preview_text.insert("end", "  ›  ", "sep")
+                preview_text.insert("end", sname, stag)
+            preview_text.insert("end", "  ›  ", "sep")
+            preview_text.insert("end", lname, ltag)
+            if self._get_line:
+                src = self._get_line(lline).strip()
+                if src:
+                    preview_text.insert("end", "  :  ", "sep")
+                    preview_text.insert("end", src, "src")
+            preview_text.configure(state="disabled")
+
+        # ── Scrollable content ────────────────────────────────────────────────
         def _wheel(e):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
 
@@ -365,39 +440,63 @@ class BreadcrumbBar(tk.Frame):
                 bg = _PICK_SEL if i == idx else _PICK_BG
                 r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
 
-        # Section header
+        # Top "IN <SCOPE>" header
         hdr = tk.Frame(inner, bg=_PICK_BG, height=HDR_H)
         hdr.pack(fill="x"); hdr.pack_propagate(False)
         tk.Label(hdr, text=f"IN  {scope_name.upper()}", bg=_PICK_BG, fg=_FG_DIM,
                  font=("Segoe UI", 7, "bold"), anchor="w", padx=10).pack(side="left", fill="y")
 
+        from collections import defaultdict
+        groups: dict[str, list] = defaultdict(list)
         for ltag, lname, lline in locals_:
-            fg   = _FG_MAP.get(ltag, _LOCAL_FG)
-            icon = _ICONS.get(ltag, "◦")
-            row  = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
-            row.pack(fill="x"); row.pack_propagate(False)
-            nl = tk.Label(row, text=f"{icon}  {lname}", bg=_PICK_BG, fg=fg,
-                          font=("Segoe UI", 9), anchor="w", padx=12, pady=0)
-            nl.pack(side="left", fill="y")
-            ll = tk.Label(row, text=f":{lline}", bg=_PICK_BG, fg=_FG_DIM,
-                          font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
-            ll.pack(side="right", fill="y")
+            groups[ltag].append((lname, lline))
 
-            idx = len(rows); rows.append((row, nl, ll, lline))
+        content_h = HDR_H
+        seen_sections: set[str] = set()
 
-            def _enter(_, i=idx): sel[0] = i; _highlight(i)
-            def _leave(_): _highlight(sel[0])
-            def _click(_, ln=lline): self._close_picker(); self._on_navigate(ln)
+        for gkey in _GROUP_ORDER:
+            if gkey not in groups:
+                continue
+            sec_label = _SEC_LABELS.get(gkey, gkey.upper())
+            if sec_label not in seen_sections:
+                seen_sections.add(sec_label)
+                if content_h > HDR_H:
+                    tk.Frame(inner, bg=_PICK_BDR, height=1).pack(fill="x")
+                    content_h += 1
+                sec = tk.Frame(inner, bg=_PICK_BG, height=SEC_H)
+                sec.pack(fill="x"); sec.pack_propagate(False)
+                tk.Label(sec, text=sec_label, bg=_PICK_BG, fg=_FG_DIM,
+                         font=("Segoe UI", 7), anchor="w", padx=10).pack(side="left", fill="y")
+                content_h += SEC_H
 
-            for w in (row, nl, ll):
-                w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
-                w.bind("<Button-1>", _click)
-                w.bind("<MouseWheel>", _wheel)
-                w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
+            fg   = _FG_MAP.get(gkey, _LOCAL_FG)
+            icon = _ICONS.get(gkey, "◦")
+            for lname, lline in groups[gkey]:
+                row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
+                row.pack(fill="x"); row.pack_propagate(False)
+                nl = tk.Label(row, text=f"{icon}  {lname}", bg=_PICK_BG, fg=fg,
+                              font=("Segoe UI", 9), anchor="w", padx=12, pady=0)
+                nl.pack(side="left", fill="y")
+                ll = tk.Label(row, text=f":{lline}", bg=_PICK_BG, fg=_FG_DIM,
+                              font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
+                ll.pack(side="right", fill="y")
 
-        content_h = HDR_H + len(locals_) * ROW_H
+                idx = len(rows); rows.append((row, nl, ll, lline))
+                content_h += ROW_H
+
+                def _enter(_, i=idx, t=gkey, n=lname, ln=lline):
+                    sel[0] = i; _highlight(i); _update_preview(t, n, ln)
+                def _leave(_): _highlight(sel[0])
+                def _click(_, ln=lline): self._close_picker(); self._on_navigate(ln)
+
+                for w in (row, nl, ll):
+                    w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
+                    w.bind("<Button-1>", _click)
+                    w.bind("<MouseWheel>", _wheel)
+                    w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
+
         self._finalise_popup(popup, canvas, vsb, rows, sel, anchor, popup_w,
-                             content_h, MAX_H)
+                             content_h, MAX_H, footer_h=FOOTER_H)
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
