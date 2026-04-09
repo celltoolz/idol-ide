@@ -73,6 +73,7 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     layout["sidebar_sash1"]       = sb._sash1_y
     layout["sidebar_sash2"]       = sb._sash2_y
     layout["sidebar_sash3"]       = sb._sash3_y
+    layout["sidebar_sash4"]       = sb._sash4_y
     layout["outline_collapsed"]   = sb._outline_collapsed
     layout["refs_collapsed"]      = sb._refs_collapsed
     layout["refs_visible"]        = sb._refs_visible
@@ -170,25 +171,31 @@ def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
     return True
 
 
+_MIN_SASH = 40   # px — below this a saved sash value is considered corrupt
+
+
 def _apply_layout(app: "Notepad", layout: dict) -> None:
     """Apply saved sash positions after the window is fully rendered."""
-    app.update_idletasks()
+    # Do NOT call update_idletasks() here — it processes pending geometry events
+    # which can trigger _relayout() re-entrancy and cascade configure loops.
 
     h = layout.get("h_sash")
-    if h:  # skip if 0 or missing — sidebar keeps its default width
+    if h and h > 50:  # skip if 0, missing, or suspiciously small
         try:
             app._h_pane.sashpos(0, h)
         except Exception:
             pass
 
     v = layout.get("v_sash")
-    if v is not None:
+    if v is not None and v > 0:
         try:
             app._v_pane.sashpos(0, v)
         except Exception:
             pass
 
     sb = app._sidebar
+
+    # Restore collapse states before sash heights so _relayout sees them
     if layout.get("outline_collapsed") and not sb._outline_collapsed:
         sb._toggle_outline()
     if layout.get("explorer_collapsed") and not sb._explorer_collapsed:
@@ -202,10 +209,19 @@ def _apply_layout(app: "Notepad", layout: dict) -> None:
     if layout.get("sc_collapsed") and not sb._sc_collapsed:
         sb._toggle_sc()
 
-    if layout.get("sidebar_sash1"):
-        sb._sash1_y = layout["sidebar_sash1"]
-    if layout.get("sidebar_sash2"):
-        sb._sash2_y = layout["sidebar_sash2"]
-    if layout.get("sidebar_sash3"):
-        sb._sash3_y = layout["sidebar_sash3"]
+    # Validate sash heights before applying — corrupt/cross-platform values
+    # (e.g. saved when sidebar was squished to near-zero) must be discarded.
+    s1 = layout.get("sidebar_sash1", 0)
+    s2 = layout.get("sidebar_sash2", 0)
+    s3 = layout.get("sidebar_sash3", 0)
+    s4 = layout.get("sidebar_sash4", 0)
+    if s1 >= _MIN_SASH:
+        sb._sash1_y = s1
+    if s2 >= _MIN_SASH:
+        sb._sash2_y = s2
+    if s3 >= _MIN_SASH:
+        sb._sash3_y = s3
+    if s4 >= _MIN_SASH:
+        sb._sash4_y = s4
+
     sb._relayout()

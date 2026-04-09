@@ -286,19 +286,18 @@ class Notepad(Tk):
             self._v_pane.sashpos(0, total - 160)
         self._place_plus_btn()
 
-    def _on_window_configure(self, _=None) -> None:
-        # Fire only once per batch of Configure events — self.bind("<Configure>")
-        # on the root Tk window fires for EVERY child widget's geometry change
-        # (not just the main window resize) via tkinter's bindtag propagation.
-        # Without debouncing, opening the SC panel generates hundreds of events
-        # and queues hundreds of _place_plus_btn callbacks, causing apparent freezes.
-        if getattr(self, "_place_btn_pending", False):
+    def _on_window_configure(self, event=None) -> None:
+        # root.bind("<Configure>") fires for EVERY widget's geometry change in
+        # the process, not just actual window resizes.  Filter to only the root
+        # window itself; child-widget events (buttons, labels, canvas items…)
+        # must be ignored or place() calls inside _place_plus_btn generate new
+        # Configure events that re-trigger this handler in a tight 10 ms loop,
+        # causing the whole-window flicker visible in the SC panel.
+        if event is not None and event.widget is not self:
             return
-        self._place_btn_pending = True
-        def _deferred():
-            self._place_btn_pending = False
-            self._place_plus_btn()
-        self.after(10, _deferred)
+        if hasattr(self, "_place_btn_id"):
+            self.after_cancel(self._place_btn_id)
+        self._place_btn_id = self.after(10, self._place_plus_btn)
         if self._completion.visible:
             cv = self._current_codeview
             if cv is None:
