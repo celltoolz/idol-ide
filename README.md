@@ -12,11 +12,19 @@ The goal is to make Python development and education feel native: real editor fe
 - Multi-tab editor with drag reorder, hover close button, and right-click tab menu
 - Syntax highlighting via [Pygments](https://pygments.org/) with multiple color schemes (Dracula, Monokai, Ayu, Material, and more)
 - Line numbers with code folding (click ⊟/⊞ markers to collapse/expand blocks)
-- Sticky scroll — enclosing scope pins to the top while you scroll, fully syntax highlighted
+- Sticky scroll — enclosing scope pins to the top while you scroll, fully syntax highlighted with correct line numbers
 - Minimap — live scaled-down view with hover zoom preview and mouse wheel scrolling
 - Multi-cursor editing — Alt+Click to place additional cursors; all cursors edit in sync
 - Insert key mode — toggles overwrite mode with block cursor and OVR status bar indicator
 - Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes
+
+### Breadcrumb Bar
+- Thin bar between the tab row and editor showing the full file path and current symbol scope
+- Path crumbs — each folder segment is clickable to set it as the explorer root
+- Symbol crumbs — updates live as the cursor moves; shows class › method hierarchy in the active file's color scheme
+- **Sibling picker** — click any symbol crumb to see all peer symbols at that scope level and jump to one
+- **Locals drill-down** — a `›` appears after the innermost crumb when locals exist; clicking it opens a picker showing all local variables, loop targets, and nested definitions inside that function
+- Keyboard navigation (↑↓ Enter Escape) in both pickers; scrollable for large symbol lists
 
 ### Intelligence (LSP)
 - Diagnostics — error and warning squiggles powered by [pylsp](https://github.com/python-lsp/python-lsp-server)
@@ -26,7 +34,7 @@ The goal is to make Python development and education feel native: real editor fe
 
 ### Navigation & Search
 - Command palette — Ctrl+Shift+P; fuzzy search all commands, type @ to search symbols by name
-- AST-based Outline panel (classes, functions, parameters, attributes, variables)
+- AST-based Outline panel — classes, functions, methods, parameters, instance attributes, local variables, and nested definitions; all shown in a collapsible tree
 - File Explorer with lazy loading, directory navigation, and drag-to-resize sash
   - Right-click menu: New File, New Folder, Rename, Delete, Set as Root Directory
   - Drag and drop files between folders with unsaved-changes prompt
@@ -57,16 +65,19 @@ The goal is to make Python development and education feel native: real editor fe
 ### Project Wizard
 - **File → New Project…** launches a guided 4-step project setup wizard
   - Step 1: Project name and location (with live path preview)
-  - Step 2: Python interpreter selection (auto-detects all installed versions) + virtual environment creation
+  - Step 2: Python interpreter selection (auto-detects all installed versions, with venv/system filters) + virtual environment creation
   - Step 3: Optional git init and starter files (main.py, requirements.txt, .gitignore)
   - Step 4: Summary — review settings before creating
 - Animated progress bar during venv creation so the UI stays responsive
-- Integrated learning guide — "? Learn about virtual environments" opens a 5-page interactive guide covering: what a venv is, why to use one, choosing an interpreter, creating and activating, and best practices
+- Integrated learning guides — paginated, scrollable guides with plain-English analogies covering:
+  - Virtual environments: what they are, why to use them, choosing an interpreter, creating/activating, best practices
+  - Git remotes: repositories, remotes, creating a repo on GitHub, connecting and pushing, authentication
 
 ### Workspace
 - Session persistence — restores open tabs, layout, and explorer root on relaunch
 - Save / Open Workspace for named sessions
 - Status bar: line/column, cursor count, lexer name, indent cycle (spaces ↔ tabs)
+- Zen mode — F11 hides the sidebar, output panel, and status bar for distraction-free editing; toast notification on entry
 
 ## Requirements
 
@@ -101,6 +112,7 @@ python main.py
 | Split editor | Ctrl+\\ |
 | Source control | Ctrl+Shift+G |
 | New terminal | Ctrl+` |
+| Zen mode | F11 |
 | Change font | Ctrl+L |
 | Add cursor | Alt+Click |
 | Clear cursors | Escape / Click |
