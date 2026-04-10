@@ -85,6 +85,7 @@ class Sidebar(ttk.Frame):
             on_diff=sc_cb.get("diff",                    lambda p: None),
             on_create_gitignore=sc_cb.get("create_gitignore",    None),
             on_add_to_gitignore=sc_cb.get("add_to_gitignore",    None),
+            on_untrack_venv=sc_cb.get("untrack_venv",            None),
             gitignore_check_fn=sc_cb.get("gitignore_check",      None),
             repo_root_fn=sc_cb.get("repo_root",                  None),
             on_history_diff=sc_cb.get("history_diff",            None),

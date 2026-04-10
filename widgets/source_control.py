@@ -737,6 +737,7 @@ class SourceControlPanel(ttk.Frame):
         on_diff:              Callable[[str], None],
         on_create_gitignore:  Callable[[], None] | None = None,
         on_add_to_gitignore:  Callable[[str], None] | None = None,
+        on_untrack_venv:      Callable[[], None] | None = None,
         gitignore_check_fn:   Callable[[], bool] | None = None,
         repo_root_fn:         Callable[[], str] | None = None,
         on_history_diff:      Callable[[str, str], None] | None = None,
@@ -753,6 +754,7 @@ class SourceControlPanel(ttk.Frame):
         self._on_diff               = on_diff
         self._on_create_gitignore   = on_create_gitignore
         self._on_add_to_gitignore   = on_add_to_gitignore
+        self._on_untrack_venv       = on_untrack_venv
         self._gitignore_check_fn    = gitignore_check_fn
         self._repo_root_fn          = repo_root_fn
         self._on_history_diff       = on_history_diff
@@ -853,8 +855,12 @@ class SourceControlPanel(ttk.Frame):
         self._last_unstaged = unstaged
 
         # Smart issue detection
-        fix_fns = {"create_gitignore": self._ctx_create_gitignore}
-        self._current_issues = analyze_files(unstaged, fix_fns=fix_fns)
+        repo_root = self._repo_root_fn() if self._repo_root_fn else ""
+        fix_fns = {
+            "create_gitignore": self._ctx_create_gitignore,
+            "untrack_venv":     self._ctx_untrack_venv,
+        }
+        self._current_issues = analyze_files(unstaged, fix_fns=fix_fns, repo_root=repo_root)
 
         # Update warning banner with specific message
         high_issues = [i for i in self._current_issues if i.severity == "high"]
@@ -1223,4 +1229,8 @@ class SourceControlPanel(ttk.Frame):
     def _ctx_create_gitignore(self) -> None:
         if self._on_create_gitignore:
             self._on_create_gitignore()
+
+    def _ctx_untrack_venv(self) -> None:
+        if self._on_untrack_venv:
+            self._on_untrack_venv()
 

@@ -245,6 +245,7 @@ class Notepad(Tk):
                 "diff": self._sc_open_diff,
                 "create_gitignore": self._sc_create_gitignore,
                 "add_to_gitignore": self._sc_add_to_gitignore,
+                "untrack_venv":     self._sc_untrack_venv,
                 "gitignore_check": self._sc_gitignore_exists,
                 "repo_root": lambda: self._git._root if self._git else "",
                 "history_diff": self._sc_history_diff,
@@ -1311,6 +1312,46 @@ class Notepad(Tk):
                 ),
             )
 
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _sc_untrack_venv(self) -> None:
+        """Run git rm -r --cached on all detected venv folders in the repo."""
+        if not self._git:
+            return
+        root = self._git._root
+        # Common venv folder names to untrack
+        venv_candidates = [".venv", "venv", "env", ".env",
+                           "bin", "lib", "lib64", "include", "share"]
+        import subprocess
+
+        def _run() -> None:
+            removed_any = False
+            for name in venv_candidates:
+                folder = os.path.join(root, name)
+                if os.path.exists(folder):
+                    result = subprocess.run(
+                        ["git", "rm", "-r", "--cached", "--ignore-unmatch", name],
+                        cwd=root, capture_output=True, text=True
+                    )
+                    if result.stdout.strip():
+                        removed_any = True
+                        self.after(0, lambda o=result.stdout.strip():
+                            self._output.output.write(f"{o}\n", "info"))
+            if removed_any:
+                self.after(0, lambda: (
+                    self._output.output.write(
+                        "\n[git] Venv files removed from tracking. "
+                        "Commit these changes to complete the cleanup.\n", "success"),
+                    self._refresh_git(),
+                    self._refresh_sc_panel(),
+                ))
+            else:
+                self.after(0, lambda: self._output.output.write(
+                    "[git] No tracked venv folders found to remove.\n", "warning"))
+
+        if not self.output_visible_var.get():
+            self.output_visible_var.set(True)
+            self.view_toggle_output()
         threading.Thread(target=_run, daemon=True).start()
 
     def _open_diff_tab(self, title: str, diff_text: str) -> None:

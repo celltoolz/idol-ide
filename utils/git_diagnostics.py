@@ -161,7 +161,8 @@ class Issue:
 
 
 def analyze_files(unstaged: dict[str, str],
-                  fix_fns: dict[str, Callable] | None = None) -> list[Issue]:
+                  fix_fns: dict[str, Callable] | None = None,
+                  repo_root: str = "") -> list[Issue]:
     """Analyze unstaged files and return a list of detected Issues."""
     fix_fns = fix_fns or {}
     counts: dict[str, int] = {}
@@ -172,19 +173,30 @@ def analyze_files(unstaged: dict[str, str],
     issues: list[Issue] = []
 
     if counts.get("venv", 0) > 0:
+        has_gitignore = bool(repo_root and os.path.exists(os.path.join(repo_root, ".gitignore")))
+        if has_gitignore:
+            fix_label = "Remove from git tracking"
+            fix_fn    = fix_fns.get("untrack_venv")
+            how = ("Your .gitignore already exists — add .venv/ and venv/ to it if they're missing. "
+                   "Then click 'Remove from git tracking' to run: git rm -r --cached <venv folder>. "
+                   "After that, git will stop tracking those files.")
+        else:
+            fix_label = "Create .gitignore"
+            fix_fn    = fix_fns.get("create_gitignore")
+            how = ("Add your venv folder to .gitignore (e.g. venv/, .venv/). "
+                   "If the venv was created at the repo root (common on macOS), also add: "
+                   "bin/, lib/, include/, pyvenv.cfg. "
+                   "If already committed, run: git rm -r --cached <folder>")
         issues.append(Issue(
             key="venv",
             title="Virtual Environment Detected",
             what=f"{counts['venv']} virtual environment files are untracked.",
             why="Virtual environments can contain hundreds of files and are specific to your machine. "
                 "Committing them bloats the repo and causes conflicts for other contributors.",
-            how="Add your venv folder to .gitignore (e.g. venv/, .venv/). "
-                "If the venv was created at the repo root (common on macOS), also add: "
-                "bin/, lib/, include/, pyvenv.cfg. "
-                "If already committed, run: git rm -r --cached <folder>",
+            how=how,
             severity="high",
-            fix_label="Create .gitignore",
-            fix_fn=fix_fns.get("create_gitignore"),
+            fix_label=fix_label,
+            fix_fn=fix_fn,
             count=counts["venv"],
         ))
 
