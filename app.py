@@ -190,7 +190,7 @@ class Notepad(Tk):
         self._active_pane: str = "left"  # "left" | "right"
         self._notebook_r: CustomNotebook | None = None
         self._nb_frame_r = None
-        self._scroll_locked: bool = self._get_system_scroll_lock()
+        self._scroll_locked: bool = False
         self._lock_btn = None
         self._syncing_scroll: bool = False
 
@@ -2092,12 +2092,12 @@ class Notepad(Tk):
         close_lbl.bind("<Leave>",    lambda _: close_lbl.config(fg="#858585"))
         close_lbl.bind("<Button-1>", lambda _: self._close_split())
 
-        self._scroll_locked = False
+        self._scroll_locked = self._get_system_scroll_lock()
         self._lock_btn = tk.Label(
             hdr,
             text="⇕",
             bg="#2d2d30",
-            fg="#555555",
+            fg="#007acc" if self._scroll_locked else "#555555",
             font=("Segoe UI", 10),
             cursor="hand2",
             padx=4,
