@@ -2069,9 +2069,11 @@ class Notepad(Tk):
         # Explicitly set sash to midpoint after geometry settles.
         # ttk.PanedWindow on Windows doesn't honour equal weights until
         # the widget has been laid out, so we nudge it after 50ms.
+        # Use the left notebook's width (same reference as the drag overlay)
+        # so the sash lands exactly where the blue preview indicated.
         def _set_split_mid():
             try:
-                w = self._split_pane.winfo_width()
+                w = self.notebook.winfo_width()
                 if w > 10:
                     self._split_pane.sashpos(0, w // 2)
             except Exception:
