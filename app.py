@@ -1876,10 +1876,10 @@ class Notepad(Tk):
                 cv.show_minimap()
             else:
                 cv.hide_minimap()
-        # Shift btn_frame left of minimap when visible (minimap=90px + 1px border)
-        mm_offset = 91 if show else 0
-        self._btn_frame.place(relx=1.0, rely=0.0, anchor="ne", y=2, x=-mm_offset)
-        ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, 62 + mm_offset, 0])
+        # Buttons always sit flush-right in the tab bar row, directly above the
+        # minimap when visible — minimap lives in the editor content area below.
+        self._btn_frame.place(relx=1.0, rely=0.0, anchor="ne", y=2)
+        ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, 62, 0])
 
     def view_split_editor(self) -> None:
         """Toggle the split editor."""
