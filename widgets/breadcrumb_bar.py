@@ -464,7 +464,6 @@ class BreadcrumbBar(tk.Frame):
             preview_text.xview_moveto(0.0)
 
         def _update_preview(ltag: str, lname: str, lline: int) -> None:
-            print(f"[mq-dbg] _update_preview called: {lname!r}")
             _stop_marquee()
             preview_text.configure(state="normal")
             preview_text.delete("1.0", "end")
@@ -489,11 +488,7 @@ class BreadcrumbBar(tk.Frame):
             # insert even when there is real overflow.
             def _maybe_start_marquee() -> None:
                 _mq["check"] = None
-                xv = preview_text.xview() if preview_text.winfo_exists() else ("gone",)
-                w  = preview_text.winfo_width() if preview_text.winfo_exists() else -1
-                print(f"[mq-dbg] _maybe_start_marquee: xview={xv}  width={w}px")
                 if preview_text.winfo_exists() and preview_text.xview()[1] < 1.0:
-                    print("[mq-dbg] → starting marquee")
                     _start_marquee()
             _mq["check"] = preview_text.after(50, _maybe_start_marquee)
 
@@ -552,11 +547,19 @@ class BreadcrumbBar(tk.Frame):
 
                 def _enter(_, i=idx, t=gkey, n=lname, ln=lline):
                     sel[0] = i; _highlight(i); _update_preview(t, n, ln)
+                def _motion(_, i=idx, t=gkey, n=lname, ln=lline):
+                    # macOS: <Enter> unreliable on overrideredirect windows before
+                    # first click; <Motion> fires regardless of activation state.
+                    if sel[0] == i:
+                        return
+                    sel[0] = i; _highlight(i); _update_preview(t, n, ln)
                 def _leave(_): _highlight(sel[0])
                 def _click(_, ln=lline): self._close_picker(); self._on_navigate(ln)
 
                 for w in (row, nl, ll):
-                    w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
+                    w.bind("<Enter>",  _enter)
+                    w.bind("<Motion>", _motion)
+                    w.bind("<Leave>",  _leave)
                     w.bind("<Button-1>", _click)
                     w.bind("<MouseWheel>", _wheel)
                     w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
