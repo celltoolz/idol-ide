@@ -478,10 +478,15 @@ class BreadcrumbBar(tk.Frame):
                     else:
                         preview_text.insert("end", src, "src")
             preview_text.configure(state="disabled")
-            # Start marquee if content overflows the footer width
-            preview_text.update_idletasks()
-            if preview_text.xview()[1] < 1.0:
-                _start_marquee()
+            # Start marquee if content overflows the footer width.
+            # Defer the xview check by one frame — on macOS Aqua Tk,
+            # update_idletasks() alone is not enough to flush the text
+            # layout, so xview() returns (0.0, 1.0) immediately after
+            # insert even when there is real overflow.
+            def _maybe_start_marquee() -> None:
+                if preview_text.winfo_exists() and preview_text.xview()[1] < 1.0:
+                    _start_marquee()
+            preview_text.after(50, _maybe_start_marquee)
 
         # ── Scrollable content ────────────────────────────────────────────────
         def _wheel(e):
