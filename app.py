@@ -2063,26 +2063,22 @@ class Notepad(Tk):
         """Create the right notebook frame and wire it up."""
         import tkinter as tk
 
-        # Capture full width BEFORE adding the right pane — after add()
-        # the left notebook has already shrunk so winfo_width() is stale.
         _full_w = self._split_pane.winfo_width()
-        print(f"[split-dbg] split_pane w={_full_w}  notebook w={self.notebook.winfo_width()}")
 
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
 
-        # Set sash to midpoint after geometry settles.
+        # Set sash to midpoint. Run at 50ms and again at 200ms in case a
+        # subsequent layout pass (minimap, tab render) overrides the first set.
         def _set_split_mid():
             try:
                 w = _full_w if _full_w > 10 else self._split_pane.winfo_width()
-                sash = w // 2
-                print(f"[split-dbg] after 50ms: split_pane w={self._split_pane.winfo_width()}  setting sash to {sash}")
                 if w > 10:
-                    self._split_pane.sashpos(0, sash)
-                    print(f"[split-dbg] sashpos after set: {self._split_pane.sashpos(0)}")
-            except Exception as e:
-                print(f"[split-dbg] error: {e}")
-        self.after(50, _set_split_mid)
+                    self._split_pane.sashpos(0, w // 2)
+            except Exception:
+                pass
+        self.after(50,  _set_split_mid)
+        self.after(200, _set_split_mid)
 
         # Thin header with "SPLIT" label, lock button, and × close button
         hdr = tk.Frame(self._nb_frame_r, bg="#2d2d30", height=24)
