@@ -464,6 +464,7 @@ class BreadcrumbBar(tk.Frame):
             preview_text.xview_moveto(0.0)
 
         def _update_preview(ltag: str, lname: str, lline: int) -> None:
+            print(f"[mq-dbg] _update_preview called: {lname!r}")
             _stop_marquee()
             preview_text.configure(state="normal")
             preview_text.delete("1.0", "end")
@@ -488,7 +489,11 @@ class BreadcrumbBar(tk.Frame):
             # insert even when there is real overflow.
             def _maybe_start_marquee() -> None:
                 _mq["check"] = None
+                xv = preview_text.xview() if preview_text.winfo_exists() else ("gone",)
+                w  = preview_text.winfo_width() if preview_text.winfo_exists() else -1
+                print(f"[mq-dbg] _maybe_start_marquee: xview={xv}  width={w}px")
                 if preview_text.winfo_exists() and preview_text.xview()[1] < 1.0:
+                    print("[mq-dbg] → starting marquee")
                     _start_marquee()
             _mq["check"] = preview_text.after(50, _maybe_start_marquee)
 
