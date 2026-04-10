@@ -190,7 +190,7 @@ class Notepad(Tk):
         self._active_pane: str = "left"  # "left" | "right"
         self._notebook_r: CustomNotebook | None = None
         self._nb_frame_r = None
-        self._scroll_locked: bool = False
+        self._scroll_locked: bool = self._get_system_scroll_lock()
         self._lock_btn = None
         self._syncing_scroll: bool = False
 
@@ -2125,6 +2125,25 @@ class Notepad(Tk):
         """Tab changed in the right notebook — set it active and refresh outline."""
         self._active_pane = "right"
         self._on_tab_changed()
+
+    @staticmethod
+    def _get_system_scroll_lock() -> bool:
+        """Return the current hardware Scroll Lock key state."""
+        import platform
+        try:
+            if platform.system() == "Windows":
+                import ctypes
+                return bool(ctypes.windll.user32.GetKeyState(0x91) & 1)
+            elif platform.system() == "Linux":
+                import subprocess
+                out = subprocess.check_output(["xset", "q"], stderr=subprocess.DEVNULL, text=True)
+                for line in out.splitlines():
+                    if "Scroll Lock" in line:
+                        return "on" in line.lower().split("Scroll Lock")[1][:10]
+            # macOS has no accessible Scroll Lock state — default to off
+        except Exception:
+            pass
+        return False
 
     def _toggle_scroll_lock(self) -> None:
         self._scroll_locked = not self._scroll_locked
