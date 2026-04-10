@@ -244,7 +244,13 @@ class GitManager:
 
     def discard(self, path: str, callback: Callable[[], None] | None = None) -> None:
         def _run() -> None:
-            _run_git(["restore", "--", path], self._root)
+            # Use a relative path — git restore can silently fail with absolute
+            # paths on some platforms (macOS in particular).
+            try:
+                rel = os.path.relpath(path, self._root)
+            except ValueError:
+                rel = path
+            _run_git(["restore", "--", rel], self._root)
             if callback:
                 self._after(0, callback)
         threading.Thread(target=_run, daemon=True).start()
