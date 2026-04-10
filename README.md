@@ -4,6 +4,8 @@ A full-featured Python IDE built with tkinter, designed to be what IDLE could ha
 
 The goal is to make Python development and education feel native: real editor features (LSP, git, terminal, split view) alongside guided learning tools (project wizards, interactive guides, and eventually an AI-powered learning mode). Built for beginners who want to grow and developers who want a distraction-free environment — all in pure Python.
 
+Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
+
 ![Editor Screenshot](screenshots/editor.png)
 ![Editor Screenshot](screenshots/editor-osx.png)
 
@@ -39,7 +41,7 @@ The goal is to make Python development and education feel native: real editor fe
 - Command palette — Ctrl+Shift+P; fuzzy search all commands, type @ to search symbols by name
 - AST-based Outline panel — classes, functions, methods, parameters, instance attributes, local variables, and nested definitions; all shown in a collapsible tree
 - File Explorer with lazy loading, directory navigation, and drag-to-resize sash
-  - Right-click menu: New File, New Folder, Rename, Delete, Set as Root Directory
+  - Right-click menu: New File, New Folder, Rename, Delete, Set as Root Directory, Add to .gitignore
   - Drag and drop files between folders with unsaved-changes prompt
 - Find References panel — right-click any symbol to see all occurrences
 - VS Code-style inline Find & Replace bar (case, whole word, and regex toggles)
