@@ -1820,6 +1820,9 @@ class Notepad(Tk):
             mc.clear()
             self.notebook.forget(tab_id)
         self._new_tab("Untitled", "")
+        # Clear source control panel — no workspace, no git context
+        self._sidebar.source_control.refresh({}, {})
+        self._sidebar.source_control.refresh_history([])
 
     def workspace_save(self, *_) -> None:
         path = asksaveasfilename(
