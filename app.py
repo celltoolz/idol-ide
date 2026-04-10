@@ -9,6 +9,7 @@ from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showinfo, showerror, askyesnocancel, askyesno
 
+import pygments
 import pygments.lexers
 import pygments.util
 from tkfontchooser import askfont
@@ -121,6 +122,28 @@ class _HoverPopup:
             self._win.destroy()
         except Exception:
             pass
+
+
+def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
+    """Tokenize *text* with the codeview's active lexer and return (token_text, color) pairs."""
+    cv = cv_ref[0]
+    if not cv:
+        return [(text, "#cccccc")]
+    _FALLBACK = "#cccccc"
+    # Build color map only from tags that are actually configured — never call
+    # tag_cget on an undefined tag as that raises through the codeview's _cmd_proxy.
+    token_colors: dict[str, str] = {}
+    for tag in cv.tag_names():
+        if tag.startswith("Token."):
+            fg = cv.tag_cget(tag, "foreground")
+            if fg:
+                token_colors[tag] = fg
+    result = []
+    for token_type, token_text in pygments.lex(text, cv._lexer):
+        if not token_text:
+            continue
+        result.append((token_text, token_colors.get(str(token_type), _FALLBACK)))
+    return result
 
 
 class Notepad(Tk):
@@ -389,6 +412,7 @@ class Notepad(Tk):
             get_line=lambda ln: (
                 cv_ref[0].get(f"{ln}.0", f"{ln}.end") if cv_ref[0] else ""
             ),
+            highlight_fn=lambda t, r=cv_ref: _breadcrumb_highlight(r, t),
         )
         crumb.pack(side="top", fill="x")
         codeview = CodeView(
@@ -2173,6 +2197,7 @@ class Notepad(Tk):
             get_line=lambda ln: (
                 cv_ref_s[0].get(f"{ln}.0", f"{ln}.end") if cv_ref_s[0] else ""
             ),
+            highlight_fn=lambda t, r=cv_ref_s: _breadcrumb_highlight(r, t),
         )
         crumb.pack(side="top", fill="x")
         codeview = CodeView(

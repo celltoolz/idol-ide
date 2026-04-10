@@ -39,12 +39,14 @@ class BreadcrumbBar(tk.Frame):
         on_navigate: Callable[[int], None],
         on_set_root: Callable[[str], None] | None = None,
         get_line: Callable[[int], str] | None = None,
+        highlight_fn: Callable[[str], list[tuple[str, str]]] | None = None,
     ) -> None:
         super().__init__(parent, bg=_BG, height=self.HEIGHT)
         self.pack_propagate(False)
         self._on_navigate = on_navigate
         self._on_set_root = on_set_root
         self._get_line = get_line
+        self._highlight_fn = highlight_fn
         self._last_line: int = -1
         self._last_path: str | None = ""
         self._last_key: tuple = ()   # cache key = (filepath, scope_tuple, path_parts_tuple)
@@ -414,22 +416,72 @@ class BreadcrumbBar(tk.Frame):
         preview_text.tag_configure("nested_class", foreground=_TAG_FG.get("class",    _FG_FILE))
         preview_text.tag_configure("src",          foreground="#cccccc")
 
+        # ── Footer marquee animation ──────────────────────────────────────────
+        _mq: dict = {"job": None, "pos": 0.0, "dir": 1, "pause": 0}
+
+        def _marquee_step() -> None:
+            if not preview_text.winfo_exists():
+                return
+            if _mq["pause"] > 0:
+                _mq["pause"] -= 1
+                _mq["job"] = preview_text.after(30, _marquee_step)
+                return
+            start, end = preview_text.xview()
+            visible = end - start
+            max_pos = 1.0 - visible
+            if max_pos <= 0.001:
+                return
+            w = preview_text.winfo_width()
+            step = (visible / w * 2.0) if w > 0 else 0.01
+            _mq["pos"] += _mq["dir"] * step
+            if _mq["pos"] >= max_pos:
+                _mq["pos"] = max_pos
+                _mq["dir"] = -1
+                _mq["pause"] = 15   # ~450 ms pause at right end
+            elif _mq["pos"] <= 0.0:
+                _mq["pos"] = 0.0
+                _mq["dir"] = 1
+                _mq["pause"] = 15   # ~450 ms pause at left end
+            preview_text.xview_moveto(_mq["pos"])
+            _mq["job"] = preview_text.after(30, _marquee_step)
+
+        def _start_marquee() -> None:
+            if _mq["job"]:
+                preview_text.after_cancel(_mq["job"])
+            _mq["pos"]   = 0.0
+            _mq["dir"]   = 1
+            _mq["pause"] = 0
+            _mq["job"]   = preview_text.after(600, _marquee_step)  # initial delay
+
+        def _stop_marquee() -> None:
+            if _mq["job"]:
+                preview_text.after_cancel(_mq["job"])
+                _mq["job"] = None
+            _mq["pos"] = 0.0
+            preview_text.xview_moveto(0.0)
+
         def _update_preview(ltag: str, lname: str, lline: int) -> None:
+            _stop_marquee()
             preview_text.configure(state="normal")
             preview_text.delete("1.0", "end")
-            base = os.path.basename(filepath) if filepath else "Untitled"
-            preview_text.insert("end", base, "dim")
-            for stag, sname, _ in (scope or []):
-                preview_text.insert("end", "  ›  ", "sep")
-                preview_text.insert("end", sname, stag)
-            preview_text.insert("end", "  ›  ", "sep")
             preview_text.insert("end", lname, ltag)
             if self._get_line:
                 src = self._get_line(lline).strip()
                 if src:
                     preview_text.insert("end", "  :  ", "sep")
-                    preview_text.insert("end", src, "src")
+                    if self._highlight_fn:
+                        for tok_text, color in self._highlight_fn(src):
+                            if tok_text:
+                                tag = f"hl_{color.lstrip('#')}"
+                                preview_text.tag_configure(tag, foreground=color)
+                                preview_text.insert("end", tok_text, tag)
+                    else:
+                        preview_text.insert("end", src, "src")
             preview_text.configure(state="disabled")
+            # Start marquee if content overflows the footer width
+            preview_text.update_idletasks()
+            if preview_text.xview()[1] < 1.0:
+                _start_marquee()
 
         # ── Scrollable content ────────────────────────────────────────────────
         def _wheel(e):
