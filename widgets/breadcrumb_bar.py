@@ -300,7 +300,7 @@ class BreadcrumbBar(tk.Frame):
                 self._picker = None
 
         popup.bind("<FocusOut>", lambda _: popup.after(100, _check_focus))
-        popup.focus_set()
+        popup.focus_force()
 
     # ── Sibling picker (crumb click) ──────────────────────────────────────────
 
@@ -391,6 +391,7 @@ class BreadcrumbBar(tk.Frame):
         popup, inner, canvas, vsb, rows, sel, footer = self._make_popup(
             anchor, popup_w, with_footer=True
         )
+        _row_meta: list[tuple[str, str]] = []   # (tag, name) parallel to rows
 
         # ── Footer preview strip ──────────────────────────────────────────────
         preview_text = tk.Text(
@@ -542,27 +543,50 @@ class BreadcrumbBar(tk.Frame):
                               font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
                 ll.pack(side="right", fill="y")
 
-                idx = len(rows); rows.append((row, nl, ll, lline))
+                idx = len(rows)
+                rows.append((row, nl, ll, lline))
+                _row_meta.append((gkey, lname))   # tag + name for hit-testing
                 content_h += ROW_H
 
                 def _enter(_, i=idx, t=gkey, n=lname, ln=lline):
-                    sel[0] = i; _highlight(i); _update_preview(t, n, ln)
-                def _motion(_, i=idx, t=gkey, n=lname, ln=lline):
-                    # macOS: <Enter> unreliable on overrideredirect windows before
-                    # first click; <Motion> fires regardless of activation state.
-                    if sel[0] == i:
-                        return
                     sel[0] = i; _highlight(i); _update_preview(t, n, ln)
                 def _leave(_): _highlight(sel[0])
                 def _click(_, ln=lline): self._close_picker(); self._on_navigate(ln)
 
                 for w in (row, nl, ll):
-                    w.bind("<Enter>",  _enter)
-                    w.bind("<Motion>", _motion)
-                    w.bind("<Leave>",  _leave)
+                    w.bind("<Enter>",    _enter)
+                    w.bind("<Leave>",    _leave)
                     w.bind("<Button-1>", _click)
                     w.bind("<MouseWheel>", _wheel)
                     w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
+
+        # ── Popup-level Motion binding (macOS fallback) ───────────────────────
+        # On macOS overrideredirect windows, <Enter>/<Motion> on child widgets
+        # don't fire until the window is first clicked.  Binding <Motion> on
+        # the Toplevel itself does fire, so we hit-test with winfo_containing.
+        _row_widgets: dict[int, int] = {}
+        for i, (rw, nw, lw, _) in enumerate(rows):
+            for w in (rw, nw, lw):
+                _row_widgets[id(w)] = i
+
+        def _popup_motion(event) -> None:
+            w = popup.winfo_containing(event.x_root, event.y_root)
+            if w is None:
+                return
+            i = _row_widgets.get(id(w))
+            if i is None or sel[0] == i:
+                return
+            t, n = _row_meta[i]
+            sel[0] = i; _highlight(i); _update_preview(t, n, rows[i][3])
+
+        popup.bind("<Motion>", _popup_motion)
+
+        # Keyboard nav also updates the preview footer
+        def _key_preview(event) -> None:
+            if event.keysym in ("Up", "Down") and 0 <= sel[0] < len(rows):
+                t, n = _row_meta[sel[0]]
+                _update_preview(t, n, rows[sel[0]][3])
+        popup.bind("<KeyPress>", _key_preview, add="+")
 
         self._finalise_popup(popup, canvas, vsb, rows, sel, anchor, popup_w,
                              content_h, MAX_H, footer_h=FOOTER_H)
