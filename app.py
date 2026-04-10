@@ -13,7 +13,7 @@ import pygments.lexers
 import pygments.util
 from tkfontchooser import askfont
 from tkcolorpicker import askcolor
- 
+
 from widgets.codeview import CodeView
 from widgets.notebook import CustomNotebook
 from widgets.sidebar import Sidebar
@@ -180,7 +180,7 @@ class Notepad(Tk):
 
         # Zen mode
         self._zen_mode: bool = False
-        self._zen_pill: object = None   # floating toast Toplevel
+        self._zen_pill: object = None  # floating toast Toplevel
 
         self._build_layout()
         build_menubar(self)
@@ -210,17 +210,17 @@ class Notepad(Tk):
             on_file_open=self._open_file,
             on_navigate=self._outline_navigate,
             sc_callbacks={
-                "stage":             self._sc_stage,
-                "unstage":           self._sc_unstage,
-                "discard":           self._sc_discard,
-                "commit":            self._sc_commit,
-                "push":              self._sc_push,
-                "pull":              self._sc_pull,
-                "diff":              self._sc_open_diff,
-                "create_gitignore":  self._sc_create_gitignore,
-                "add_to_gitignore":  self._sc_add_to_gitignore,
-                "gitignore_check":   self._sc_gitignore_exists,
-                "repo_root":         lambda: self._git._root if self._git else "",
+                "stage": self._sc_stage,
+                "unstage": self._sc_unstage,
+                "discard": self._sc_discard,
+                "commit": self._sc_commit,
+                "push": self._sc_push,
+                "pull": self._sc_pull,
+                "diff": self._sc_open_diff,
+                "create_gitignore": self._sc_create_gitignore,
+                "add_to_gitignore": self._sc_add_to_gitignore,
+                "gitignore_check": self._sc_gitignore_exists,
+                "repo_root": lambda: self._git._root if self._git else "",
             },
             on_file_move=self._on_explorer_file_move,
             on_root_change=self._on_explorer_root_change,
@@ -261,11 +261,19 @@ class Notepad(Tk):
         self._btn_frame = tk.Frame(nb_frame, bg="#2d2d30")
 
         def _make_tab_btn(text: str, command, fg_hover: str = "#cccccc") -> Label:
-            lbl = Label(self._btn_frame, text=text, bg="#2d2d30", fg="#858585",
-                        font=("Segoe UI", 11, "bold"), cursor="hand2", padx=6, pady=0)
+            lbl = Label(
+                self._btn_frame,
+                text=text,
+                bg="#2d2d30",
+                fg="#858585",
+                font=("Segoe UI", 11, "bold"),
+                cursor="hand2",
+                padx=6,
+                pady=0,
+            )
             lbl.bind("<Button-1>", lambda _: command())
-            lbl.bind("<Enter>",   lambda _: lbl.config(fg=fg_hover))
-            lbl.bind("<Leave>",   lambda _: lbl.config(fg="#858585"))
+            lbl.bind("<Enter>", lambda _: lbl.config(fg=fg_hover))
+            lbl.bind("<Leave>", lambda _: lbl.config(fg="#858585"))
             lbl.pack(side="left")
             return lbl
 
@@ -280,8 +288,9 @@ class Notepad(Tk):
         # Reserve tab bar right margin so tabs never slide under the buttons
         ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, 62, 0])
 
-        self._output = BottomPanel(self._v_pane, run_callback=self.run_file,
-                                   cwd=os.getcwd())
+        self._output = BottomPanel(
+            self._v_pane, run_callback=self.run_file, cwd=os.getcwd()
+        )
         self._v_pane.add(self._output, weight=1)
 
         # Snap the sash once the window is actually visible on screen
@@ -315,7 +324,6 @@ class Notepad(Tk):
                 cv.winfo_rootx() + bx,
                 cv.winfo_rooty() + by + bh + 2,
             )
-
 
     def _bind_shortcuts(self) -> None:
         self.bind("<Control-n>", lambda _: self.file_new())
@@ -378,7 +386,9 @@ class Notepad(Tk):
             frame,
             on_navigate=self._outline_navigate,
             on_set_root=self._set_explorer_root,
-            get_line=lambda ln: cv_ref[0].get(f"{ln}.0", f"{ln}.end") if cv_ref[0] else "",
+            get_line=lambda ln: (
+                cv_ref[0].get(f"{ln}.0", f"{ln}.end") if cv_ref[0] else ""
+            ),
         )
         crumb.pack(side="top", fill="x")
         codeview = CodeView(
@@ -504,6 +514,7 @@ class Notepad(Tk):
         codeview.bind("<KeyRelease>", self._bracket_matcher.match)
         codeview.bind("<ButtonRelease-1>", self._on_click_release)
         from utils import bind_right_click as _brc
+
         _brc(codeview, self._on_editor_right_click)
         codeview.bind("<<ContentChanged>>", lambda _: self._on_content_changed())
 
@@ -696,33 +707,58 @@ class Notepad(Tk):
         if not hasattr(self, "_editor_menu"):
             from tkinter import Menu
             import platform as _platform
+
             mod = "⌘" if _platform.system() == "Darwin" else "Ctrl"
 
             self._editor_menu = Menu(self, tearoff=0)
             self._editor_menu.add_command(
-                label="Undo", accelerator=f"{mod}+Z",
-                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Undo>>"),
+                label="Undo",
+                accelerator=f"{mod}+Z",
+                command=lambda: (
+                    self._current_codeview
+                    and self._current_codeview.event_generate("<<Undo>>")
+                ),
             )
             self._editor_menu.add_command(
-                label="Redo", accelerator=f"{mod}+Y",
-                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Redo>>"),
+                label="Redo",
+                accelerator=f"{mod}+Y",
+                command=lambda: (
+                    self._current_codeview
+                    and self._current_codeview.event_generate("<<Redo>>")
+                ),
             )
             self._editor_menu.add_separator()
             self._editor_menu.add_command(
-                label="Cut", accelerator=f"{mod}+X",
-                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Cut>>"),
+                label="Cut",
+                accelerator=f"{mod}+X",
+                command=lambda: (
+                    self._current_codeview
+                    and self._current_codeview.event_generate("<<Cut>>")
+                ),
             )
             self._editor_menu.add_command(
-                label="Copy", accelerator=f"{mod}+C",
-                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Copy>>"),
+                label="Copy",
+                accelerator=f"{mod}+C",
+                command=lambda: (
+                    self._current_codeview
+                    and self._current_codeview.event_generate("<<Copy>>")
+                ),
             )
             self._editor_menu.add_command(
-                label="Paste", accelerator=f"{mod}+V",
-                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<Paste>>"),
+                label="Paste",
+                accelerator=f"{mod}+V",
+                command=lambda: (
+                    self._current_codeview
+                    and self._current_codeview.event_generate("<<Paste>>")
+                ),
             )
             self._editor_menu.add_command(
-                label="Select All", accelerator=f"{mod}+A",
-                command=lambda: self._current_codeview and self._current_codeview.event_generate("<<SelectAll>>"),
+                label="Select All",
+                accelerator=f"{mod}+A",
+                command=lambda: (
+                    self._current_codeview
+                    and self._current_codeview.event_generate("<<SelectAll>>")
+                ),
             )
             self._editor_menu.add_separator()
             self._editor_menu.add_command(
@@ -993,6 +1029,13 @@ class Notepad(Tk):
     def _on_sc_status(self, staged: dict, unstaged: dict) -> None:
         self._sidebar.source_control.refresh(staged, unstaged)
 
+    def _debug_populate_sc(self) -> None:
+        """DEBUG: populate SC panel with 20 fake staged and 20 fake changed files."""
+        statuses = ["M", "A", "U", "D"]
+        staged   = {f"src/staged/fake_file_{i:02d}.py":  statuses[i % 4] for i in range(20)}
+        unstaged = {f"src/changed/fake_file_{i:02d}.py": statuses[i % 4] for i in range(20)}
+        self._sidebar.source_control.refresh(staged, unstaged)
+
     # ── Source Control actions ─────────────────────────────────────────────────
 
     def _sc_stage(self, path: str) -> None:
@@ -1031,7 +1074,9 @@ class Notepad(Tk):
 
         def _done(output: str) -> None:
             self._output.output.write(f"{output}\n", "info")
-            if "no configured push destination" in output or ("fatal" in output.lower() and "remote" in output.lower()):
+            if "no configured push destination" in output or (
+                "fatal" in output.lower() and "remote" in output.lower()
+            ):
                 self._show_remote_guide()
             self._refresh_git()
 
@@ -1040,7 +1085,10 @@ class Notepad(Tk):
     def _show_remote_guide(self) -> None:
         from widgets.guide_window import GuideWindow
         import utils.git_remote_guide as git_remote_guide
-        GuideWindow(self._sidebar, "Setting Up a Git Remote", git_remote_guide.get_pages())
+
+        GuideWindow(
+            self._sidebar, "Setting Up a Git Remote", git_remote_guide.get_pages()
+        )
 
     def _sc_pull(self) -> None:
         if not self._git:
@@ -1089,8 +1137,12 @@ class Notepad(Tk):
                 with open(gitignore_path, "r", encoding="utf-8") as f:
                     existing = f.read()
                 if rel in existing.splitlines():
-                    self.after(0, lambda: self._output.output.write(
-                        f"[.gitignore] {rel} is already listed.\n", "info"))
+                    self.after(
+                        0,
+                        lambda: self._output.output.write(
+                            f"[.gitignore] {rel} is already listed.\n", "info"
+                        ),
+                    )
                     return
                 with open(gitignore_path, "a", encoding="utf-8") as f:
                     if not existing.endswith("\n"):
@@ -1099,11 +1151,14 @@ class Notepad(Tk):
             else:
                 with open(gitignore_path, "w", encoding="utf-8") as f:
                     f.write(f"{rel}\n")
-            self.after(0, lambda: (
-                self._output.output.write(f"[.gitignore] Added: {rel}\n", "info"),
-                self._refresh_git(),
-                self._refresh_sc_panel(),
-            ))
+            self.after(
+                0,
+                lambda: (
+                    self._output.output.write(f"[.gitignore] Added: {rel}\n", "info"),
+                    self._refresh_git(),
+                    self._refresh_sc_panel(),
+                ),
+            )
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -1115,8 +1170,12 @@ class Notepad(Tk):
 
         def _run() -> None:
             if os.path.exists(dest):
-                self.after(0, lambda: self._output.output.write(
-                    "[.gitignore] File already exists.\n", "stderr"))
+                self.after(
+                    0,
+                    lambda: self._output.output.write(
+                        "[.gitignore] File already exists.\n", "stderr"
+                    ),
+                )
                 return
             template = (
                 "# Byte-compiled / optimized / DLL files\n"
@@ -1153,11 +1212,14 @@ class Notepad(Tk):
             )
             with open(dest, "w", encoding="utf-8") as f:
                 f.write(template)
-            self.after(0, lambda: (
-                self._output.output.write("[.gitignore] Created.\n", "info"),
-                self._refresh_git(),
-                self._refresh_sc_panel(),
-            ))
+            self.after(
+                0,
+                lambda: (
+                    self._output.output.write("[.gitignore] Created.\n", "info"),
+                    self._refresh_git(),
+                    self._refresh_sc_panel(),
+                ),
+            )
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -1396,7 +1458,8 @@ class Notepad(Tk):
                 crumb.update_crumbs(
                     filepath=self._files.get(tab_id),
                     explorer_root=str(self._sidebar.explorer._root)
-                    if self._sidebar.explorer._root else None,
+                    if self._sidebar.explorer._root
+                    else None,
                     cursor_line=int(line),
                     outline=self._outline,
                     is_python=is_python,
@@ -1410,6 +1473,7 @@ class Notepad(Tk):
 
     def file_new_project(self) -> None:
         from widgets.project_wizard import ProjectWizard
+
         ProjectWizard(self, on_complete=self._on_project_created)
 
     def _set_explorer_root(self, path: str) -> None:
@@ -1492,21 +1556,22 @@ class Notepad(Tk):
         saved = False
         if open_tab_id and self._dirty.get(open_tab_id):
             from tkinter.messagebox import askyesnocancel
+
             answer = askyesnocancel(
                 "Unsaved Changes",
                 f'"{self._titles.get(open_tab_id, "Untitled")}" has unsaved changes.\n\n'
                 "Save before moving?",
             )
-            if answer is None:   # Cancel
+            if answer is None:  # Cancel
                 return False
-            if answer:           # Yes — save first
+            if answer:  # Yes — save first
                 self._write_file(open_tab_id, old_path)
                 saved = True
 
         # After the physical move succeeds (caller does shutil.move), update the tab
         if open_tab_id:
             new_title = os.path.basename(new_path)
-            self._files[open_tab_id]  = new_path
+            self._files[open_tab_id] = new_path
             self._titles[open_tab_id] = new_title
             if saved:
                 self._dirty[open_tab_id] = False
@@ -1842,6 +1907,7 @@ class Notepad(Tk):
     def _show_zen_pill(self) -> None:
         """Show a floating 'Esc — Exit Zen' pill that fades away after 2s."""
         import tkinter as tk
+
         self._dismiss_zen_pill()
         pill = tk.Toplevel(self)
         pill.overrideredirect(True)
@@ -1849,9 +1915,13 @@ class Notepad(Tk):
         pill.configure(bg="#3c3c3c")
 
         lbl = tk.Label(
-            pill, text="  Esc — Exit Zen  ",
-            bg="#3c3c3c", fg="#cccccc",
-            font=("Segoe UI", 9), pady=6, padx=4,
+            pill,
+            text="  Esc — Exit Zen  ",
+            bg="#3c3c3c",
+            fg="#cccccc",
+            font=("Segoe UI", 9),
+            pady=6,
+            padx=4,
         )
         lbl.pack()
 
@@ -2107,7 +2177,9 @@ class Notepad(Tk):
             frame,
             on_navigate=self._outline_navigate,
             on_set_root=self._set_explorer_root,
-            get_line=lambda ln: cv_ref_s[0].get(f"{ln}.0", f"{ln}.end") if cv_ref_s[0] else "",
+            get_line=lambda ln: (
+                cv_ref_s[0].get(f"{ln}.0", f"{ln}.end") if cv_ref_s[0] else ""
+            ),
         )
         crumb.pack(side="top", fill="x")
         codeview = CodeView(
@@ -2252,5 +2324,5 @@ class Notepad(Tk):
     def help_about(self) -> None:
         showinfo(
             "Notepad",
-            "A Python code editor built with tkinter.\n\nCreated/Authored By:\nAlex Fero & Claude",
+            "A Python code editor built with tkinter.\n\nCreated/Authored By:\nAlex Fero & Claude Sonnet",
         )

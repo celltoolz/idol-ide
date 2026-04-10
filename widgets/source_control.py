@@ -116,6 +116,7 @@ class _Section(Frame):
     def __init__(self, parent, title: str, bg: str = _BG,
                  on_toggle: Callable | None = None) -> None:
         super().__init__(parent, bg=bg)
+        self.pack_propagate(False)
         self._collapsed    = False
         self._bg           = bg
         self._on_toggle    = on_toggle
@@ -155,6 +156,7 @@ class _Section(Frame):
 
         # ── Scrollable canvas ─────────────────────────────────────────────────
         self._scroll_frame = Frame(self, bg=_ITEM_BG)
+        self._scroll_frame.pack_propagate(False)
 
         self._canvas = tk.Canvas(self._scroll_frame, bg=_ITEM_BG,
                                  highlightthickness=0, bd=0, height=1)
@@ -277,7 +279,7 @@ class _Section(Frame):
             self._repack()
 
     def set_count(self, n: int) -> None:
-        self._count_lbl.config(text=f"({n})" if n else "")
+        self._count_lbl.config(text=f"({n})")
 
     def bind_panel_menu(self, callback) -> None:
         self._panel_menu_cb = callback
@@ -351,10 +353,11 @@ class SourceControlPanel(ttk.Frame):
 
         self._build_commit_area()
         ttk.Separator(self, orient="horizontal").pack(fill="x")
+        self._build_body_canvas()
         self._build_health_panel()
 
         # Smart warning banner — shown when issues detected
-        self._warn_frame = Frame(self, bg="#3c2a00", cursor="hand2")
+        self._warn_frame = Frame(self._body_frame, bg="#3c2a00", cursor="hand2")
         self._warn_lbl = Label(self._warn_frame,
                          text="", bg="#3c2a00", fg="#e2c08d",
                          font=("Segoe UI", 8), justify="left",
@@ -367,12 +370,16 @@ class SourceControlPanel(ttk.Frame):
         self._warn_details_btn.pack(side="right")
         for w in (self._warn_frame, self._warn_lbl, self._warn_details_btn):
             w.bind("<Button-1>", lambda _: self._open_wizard())
+        for w in (self._warn_frame, self._warn_lbl, self._warn_details_btn):
+            w.bind("<MouseWheel>", self._on_body_wheel)
+            w.bind("<Button-4>",   self._on_body_wheel)
+            w.bind("<Button-5>",   self._on_body_wheel)
         self._current_issues: list[Issue] = []
 
-        self._staged_sec   = _Section(self, "STAGED CHANGES",
+        self._staged_sec   = _Section(self._body_frame, "STAGED CHANGES",
                                       on_toggle=self._repack_sections)
-        self._sep = ttk.Separator(self, orient="horizontal")
-        self._unstaged_sec = _Section(self, "CHANGES",
+        self._sep = ttk.Separator(self._body_frame, orient="horizontal")
+        self._unstaged_sec = _Section(self._body_frame, "CHANGES",
                                       on_toggle=self._repack_sections)
         self._repack_sections()
 
@@ -395,20 +402,21 @@ class SourceControlPanel(ttk.Frame):
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def _repack_sections(self) -> None:
-        """Re-pack both sections so only expanded ones get expand=True."""
+        """Re-pack both sections so layout reflects current state."""
         self._warn_frame.pack_forget()
         self._staged_sec.pack_forget()
         self._sep.pack_forget()
         self._unstaged_sec.pack_forget()
 
-        staged_exp   = not self._staged_sec._collapsed
-        unstaged_exp = not self._unstaged_sec._collapsed
+        staged_has_items = bool(self._staged_sec._items)
 
         if self._warn_visible:
             self._warn_frame.pack(fill="x")
-        self._staged_sec.pack(fill="both", expand=staged_exp)
-        self._sep.pack(fill="x")
-        self._unstaged_sec.pack(fill="both", expand=unstaged_exp)
+        self._staged_sec.pack(fill="x")
+        if staged_has_items:
+            self._sep.pack(fill="x")
+        self._unstaged_sec.pack(fill="x")
+        self._update_body_layout()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -449,6 +457,7 @@ class SourceControlPanel(ttk.Frame):
             on_right_click=lambda e, p: self._show_ctx(e, p, "changes"),
             panel_menu_cb=lambda e: self._show_ctx(e, "", None),
         )
+        self._repack_sections()
 
     def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
         ttk.Style().configure("SC.TFrame", background=bg)
@@ -521,12 +530,113 @@ class SourceControlPanel(ttk.Frame):
         self._msg.config(fg=_DIM)
         self._placeholder_active = True
 
+    # ── Scrollable body ───────────────────────────────────────────────────────
+
+    def _build_body_canvas(self) -> None:
+        """Create the scrollable canvas that holds health + file sections."""
+        self._body_updating = False
+        self._body_vs_visible = True
+        body_outer = Frame(self, bg=_BG)
+        body_outer.pack(fill="both", expand=True)
+        self._body_vsb = ttk.Scrollbar(body_outer, orient="vertical")
+        self._body_vsb.pack(side="right", fill="y")
+        self._body_canvas = tk.Canvas(body_outer, bg=_BG, highlightthickness=0, bd=0,
+                                      yscrollcommand=self._body_vsb.set)
+        self._body_canvas.pack(side="left", fill="both", expand=True)
+        self._body_vsb.configure(command=self._body_canvas.yview)
+        self._body_frame = Frame(self._body_canvas, bg=_BG)
+        self._body_win = self._body_canvas.create_window(
+            0, 0, window=self._body_frame, anchor="nw"
+        )
+        self._body_frame.bind("<Configure>", lambda _e: self._update_body_layout())
+        self._body_canvas.bind("<Configure>", lambda _e: self._update_body_layout())
+        for w in (self._body_canvas, self._body_frame):
+            w.bind("<MouseWheel>", self._on_body_wheel)
+            w.bind("<Button-4>",   self._on_body_wheel)
+            w.bind("<Button-5>",   self._on_body_wheel)
+        bind_right_click(self._body_canvas, lambda e: self._show_ctx(e, "", None))
+        bind_right_click(self._body_frame,  lambda e: self._show_ctx(e, "", None))
+
+    def _on_body_wheel(self, event) -> None:
+        if event.num == 4 or event.delta > 0:
+            self._body_canvas.yview_scroll(-1, "units")
+        else:
+            self._body_canvas.yview_scroll(1, "units")
+
+    def _update_body_layout(self) -> None:
+        """Compute section heights and update canvas scrollregion."""
+        if self._body_updating:
+            return
+        self._body_updating = True
+        try:
+            self.update_idletasks()   # flush pending geometry before measuring
+            canvas_h = self._body_canvas.winfo_height()
+            canvas_w = self._body_canvas.winfo_width()
+            if canvas_h <= 1 or canvas_w <= 1:
+                return
+
+            _HDR = 24
+            _ROW = _Section._ROW_H
+            _MAX_SEC = 250
+            _MIN_CONTENT = 60
+
+            # Fixed content heights
+            if self._health_collapsed:
+                health_h = _HDR
+            else:
+                health_h = max(_HDR, self._health_frame.winfo_reqheight())
+            warn_h = self._warn_frame.winfo_reqheight() if self._warn_visible else 0
+
+            # Section natural heights
+            staged_has   = bool(self._staged_sec._items)
+            n_staged     = len(self._staged_sec._items)
+            n_unstaged   = len(self._unstaged_sec._items)
+            sep_h        = 2 if staged_has else 0
+
+            if self._staged_sec._collapsed or not staged_has:
+                staged_natural = _HDR
+            else:
+                staged_natural = _HDR + max(_MIN_CONTENT, min(n_staged * _ROW, _MAX_SEC))
+
+            if self._unstaged_sec._collapsed:
+                unstaged_natural = _HDR
+            else:
+                unstaged_natural = _HDR + max(_MIN_CONTENT if n_unstaged > 0 else 0,
+                                              min(n_unstaged * _ROW, _MAX_SEC))
+
+            fixed_h      = health_h + warn_h + sep_h
+            total_natural = fixed_h + staged_natural + unstaged_natural
+            extra        = max(0, canvas_h - total_natural)
+
+            staged_growable   = staged_has and not self._staged_sec._collapsed
+            unstaged_growable = not self._unstaged_sec._collapsed
+            n_growable        = sum([staged_growable, unstaged_growable])
+            extra_per         = extra // n_growable if n_growable > 0 else 0
+
+            staged_h   = staged_natural   + (extra_per if staged_growable   else 0)
+            unstaged_h = unstaged_natural + (extra_per if unstaged_growable else 0)
+
+            # Give leftover pixel(s) to unstaged
+            used = fixed_h + staged_h + unstaged_h
+            leftover = canvas_h - used
+            if leftover > 0 and unstaged_growable:
+                unstaged_h += leftover
+
+            self._staged_sec.config(height=staged_h)
+            self._unstaged_sec.config(height=unstaged_h)
+
+            frame_h = max(fixed_h + staged_h + unstaged_h, canvas_h)
+            self._body_canvas.itemconfigure(self._body_win, width=canvas_w, height=frame_h)
+            self._body_canvas.configure(scrollregion=(0, 0, 0, frame_h))
+        finally:
+            self._body_updating = False
+
     # ── Git Health panel ──────────────────────────────────────────────────────
 
     def _build_health_panel(self) -> None:
         """Build the collapsible Git Health checklist panel."""
         self._health_collapsed = True
-        self._health_frame = Frame(self, bg=_BG)
+        self._health_frame = Frame(self._body_frame, bg=_BG)
 
         hdr = Frame(self._health_frame, bg=_HDR_BG, height=24, cursor="hand2")
         hdr.pack(fill="x")
@@ -558,6 +668,7 @@ class SourceControlPanel(ttk.Frame):
             self._health_body.pack_forget()
         else:
             self._health_body.pack(fill="x")
+        self._update_body_layout()
 
     def _refresh_health(self, staged: dict[str, str], unstaged: dict[str, str]) -> None:
         """Rebuild the health checklist rows."""
@@ -596,6 +707,10 @@ class SourceControlPanel(ttk.Frame):
                 btn.bind("<Button-1>", lambda _, fn=check.fix_fn: fn())
 
             _Tooltip(row, check.detail)
+            for w in (row,) + tuple(row.winfo_children()):
+                w.bind("<MouseWheel>", self._on_body_wheel)
+                w.bind("<Button-4>",   self._on_body_wheel)
+                w.bind("<Button-5>",   self._on_body_wheel)
 
     def _get_health_checks(self, staged, unstaged, fix_fns) -> list[HealthCheck]:
         """Get health checks using repo root from app."""
