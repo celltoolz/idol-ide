@@ -815,6 +815,15 @@ class Notepad(Tk):
                 label="Find & Replace",
                 command=self.edit_find_replace,
             )
+            self._editor_menu.add_separator()
+            self._editor_menu.add_command(
+                label="Run Line",
+                command=self._run_current_line,
+            )
+            self._editor_menu.add_command(
+                label="Run Selection",
+                command=self._run_selection,
+            )
 
         # Enable/disable word-sensitive items based on whether there's a word
         has_word = bool(word and word not in _SKIP_HIGHLIGHT and not word[0].isdigit())
@@ -823,6 +832,15 @@ class Notepad(Tk):
         )
         self._editor_menu.entryconfigure(
             "Find References", state="normal" if has_word else "disabled"
+        )
+        # Enable Run Selection only when there's an actual selection
+        has_sel = False
+        try:
+            has_sel = bool(cv.tag_ranges("sel"))
+        except Exception:
+            pass
+        self._editor_menu.entryconfigure(
+            "Run Selection", state="normal" if has_sel else "disabled"
         )
         self._editor_menu.tk_popup(event.x_root, event.y_root)
 
@@ -2354,6 +2372,33 @@ class Notepad(Tk):
                 self.output_visible_var.set(True)
                 self.view_toggle_output()
             self._output.run(filepath)
+
+    def _run_snippet(self, code: str, label: str) -> None:
+        """Send *code* to the output panel for execution."""
+        if not code.strip():
+            return
+        if not self.output_visible_var.get():
+            self.output_visible_var.set(True)
+            self.view_toggle_output()
+        self._output.run_code(code, label)
+
+    def _run_current_line(self) -> None:
+        cv = self._current_codeview
+        if cv is None:
+            return
+        line = cv.get("insert linestart", "insert lineend")
+        self._run_snippet(line, "line")
+
+    def _run_selection(self) -> None:
+        cv = self._current_codeview
+        if cv is None:
+            return
+        try:
+            code = cv.get("sel.first", "sel.last")
+        except Exception:
+            return
+        import textwrap
+        self._run_snippet(textwrap.dedent(code), "selection")
 
     def run_stop(self) -> None:
         self._output.terminate()

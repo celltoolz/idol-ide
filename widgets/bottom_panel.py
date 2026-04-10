@@ -50,6 +50,10 @@ class BottomPanel(ttk.Frame):
         self._set_active("output")
         self.output.run(filepath)
 
+    def run_code(self, code: str, label: str = "selection") -> None:
+        self._set_active("output")
+        self.output.run_code(code, label)
+
     def terminate(self) -> None:
         self.output.terminate()
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import subprocess
+import tempfile
 import threading
 from tkinter import Text, ttk
 from typing import Callable, Optional
@@ -107,6 +108,24 @@ class OutputPanel(ttk.Frame):
         self._run_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
         threading.Thread(target=self._run_process, args=(filepath,), daemon=True).start()
+
+    def run_code(self, code: str, label: str = "selection") -> None:
+        """Write *code* to a temp file and run it, showing output as [label]."""
+        if self._is_running:
+            return
+        self.clear()
+        self.write(f"$ python [{label}]\n\n", "info")
+        self._is_running = True
+        self._run_btn.configure(state="disabled")
+        self._stop_btn.configure(state="normal")
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, encoding="utf-8"
+        )
+        tmp.write(code)
+        tmp.close()
+        threading.Thread(
+            target=self._run_process, args=(tmp.name,), daemon=True
+        ).start()
 
     def terminate(self) -> None:
         """Kill the running process if one is active."""
