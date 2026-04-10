@@ -2068,17 +2068,19 @@ class Notepad(Tk):
 
         # Set sash to midpoint after geometry settles. Read split_pane width
         # fresh at callback time — it's stable by then on all platforms.
-        # Session restore fires at 50ms (pane sashes) and 250ms (sidebar
-        # relayout), both of which cascade into _split_pane weight redistribution.
-        # Set our sash at 350ms — after all restore callbacks have settled.
-        def _set_split_mid():
-            try:
-                w = self._split_pane.winfo_width()
-                if w > 10:
-                    self._split_pane.sashpos(0, w // 2)
-            except Exception:
-                pass
-        self.after(350, _set_split_mid)
+        # Use a one-shot <Configure> binding — fires when _split_pane receives
+        # its final size after all layout passes, regardless of timing.
+        # This survives session restore cascades that would override a fixed delay.
+        _mid_set = [False]
+        def _on_split_configured(event):
+            if _mid_set[0]:
+                return
+            w = event.width
+            if w > 10:
+                _mid_set[0] = True
+                self._split_pane.unbind("<Configure>")
+                self._split_pane.sashpos(0, w // 2)
+        self._split_pane.bind("<Configure>", _on_split_configured)
 
         # Thin header with "SPLIT" label, lock button, and × close button
         hdr = tk.Frame(self._nb_frame_r, bg="#2d2d30", height=24)
