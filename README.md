@@ -49,7 +49,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 ### Split Editor
 - Side-by-side editing — drag a tab past the midpoint or use Ctrl+\\ / right-click menu
-- Scroll lock — ⇕ button syncs both panes to the same scroll position
+- Scroll lock — ⇕ button syncs both panes to the same scroll position; keyboard Scroll Lock key toggles it
 - Unsaved changes check when closing the split pane
 
 ### Git Integration
@@ -72,6 +72,8 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 ### Terminal & Output
 - Integrated terminal — full PTY shell (PowerShell/bash) with ANSI color support, direct keyboard input
 - Run / Output panel with stdout/stderr coloring
+- **Run Line** — right-click any line to execute it instantly in the output panel
+- **Run Selection** — right-click a highlighted block to run just that snippet (auto-dedents indented blocks)
 - OUTPUT and TERMINAL tabs share the bottom panel
 
 ### Project Wizard
@@ -129,3 +131,5 @@ python main.py
 | Add cursor | Alt+Click |
 | Clear cursors | Escape / Click |
 | Toggle overwrite | Insert |
+| Run line / selection | Right-click menu |
+| Toggle scroll sync | Scroll Lock |
