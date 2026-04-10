@@ -310,6 +310,414 @@ class _Section(Frame):
         self._canvas.config(bg=bg)
 
 
+class _HistorySection(Frame):
+    """Collapsible commit history: search bar + scrollable commit rows with
+    expandable file lists and hover popups."""
+
+    _ROW_H      = 26   # commit row height px
+    _FILE_ROW_H = 20   # file sub-row height px
+    _HDR_H      = 24   # section header height px
+    _SEARCH_H   = 36   # search bar height px
+
+    _REF_COLORS = ["#569cd6", "#73c991", "#c586c0", "#ce9178", "#dcdcaa", "#4ec9b0"]
+
+    def __init__(self, parent,
+                 on_diff:       "Callable[[str, str], None] | None" = None,
+                 on_expand:     "Callable[[str], None] | None"      = None,
+                 on_load_more:  "Callable[[], None] | None"         = None,
+                 on_toggle:     "Callable[[], None] | None"         = None) -> None:
+        super().__init__(parent, bg=_BG)
+        self.pack_propagate(False)
+
+        self._on_diff       = on_diff
+        self._on_expand     = on_expand
+        self._on_load_more  = on_load_more
+        self._on_toggle     = on_toggle
+
+        self._commits:    list  = []
+        self._filtered:   list  = []
+        self._expanded:   set   = set()
+        self._file_cache: dict  = {}   # hash -> list[(status, path)] | None=loading
+        self._collapsed        = True
+        self._search_active    = False
+        self._hover_popup      = None
+        self._hover_after      = None
+
+        self._build_header()
+        self._build_search()
+        self._build_canvas()
+
+    # ── Build ─────────────────────────────────────────────────────────────────
+
+    def _build_header(self) -> None:
+        hdr = Frame(self, bg=_HDR_BG, height=self._HDR_H)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+
+        self._arrow = Label(hdr, text="▸", bg=_HDR_BG, fg=_FG,
+                            font=("Segoe UI", 8))
+        self._arrow.pack(side="left", padx=(4, 0))
+        Label(hdr, text="HISTORY", bg=_HDR_BG, fg=_FG,
+              font=("Segoe UI", 8, "bold"), anchor="w").pack(
+                  side="left", fill="x", expand=True)
+        self._count_lbl = Label(hdr, text="", bg=_HDR_BG, fg=_DIM,
+                                font=("Segoe UI", 8), padx=6)
+        self._count_lbl.pack(side="right")
+
+        for w in hdr.winfo_children():
+            w.bind("<Button-1>", lambda _: self._toggle())
+        hdr.bind("<Button-1>", lambda _: self._toggle())
+
+    def _build_search(self) -> None:
+        self._search_frame = Frame(self, bg=_BG)
+
+        inner = Frame(self._search_frame, bg="#3c3c3c")
+        inner.pack(fill="x", padx=6, pady=4)
+
+        Label(inner, text="⌕", bg="#3c3c3c", fg=_DIM,
+              font=("Segoe UI", 10), padx=4).pack(side="left")
+
+        self._search_var = tk.StringVar()
+        self._search_var.trace_add("write", lambda *_: self._apply_filter())
+        self._search_entry = tk.Entry(
+            inner, textvariable=self._search_var,
+            bg="#3c3c3c", fg=_DIM, insertbackground=_FG,
+            relief="flat", font=("Segoe UI", 8), bd=0,
+        )
+        self._search_entry.insert(0, "Filter commits…")
+        self._search_entry.pack(side="left", fill="x", expand=True, padx=4, pady=3)
+        self._search_entry.bind("<FocusIn>",  self._search_focus_in)
+        self._search_entry.bind("<FocusOut>", self._search_focus_out)
+
+    def _build_canvas(self) -> None:
+        self._canvas_frame = Frame(self, bg=_BG)
+
+        self._vsb = ttk.Scrollbar(self._canvas_frame, orient="vertical")
+        self._vsb.pack(side="right", fill="y")
+        self._canvas = tk.Canvas(self._canvas_frame, bg=_BG,
+                                 highlightthickness=0, bd=0,
+                                 yscrollcommand=self._vsb.set)
+        self._canvas.pack(side="left", fill="both", expand=True)
+        self._vsb.configure(command=self._canvas.yview)
+
+        self._inner = Frame(self._canvas, bg=_BG)
+        self._win = self._canvas.create_window(0, 0, window=self._inner, anchor="nw")
+        self._inner.bind("<Configure>",
+                         lambda _: self._canvas.configure(
+                             scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>",
+                          lambda e: self._canvas.itemconfigure(
+                              self._win, width=e.width))
+        for w in (self._canvas, self._inner):
+            w.bind("<MouseWheel>", self._on_wheel)
+            w.bind("<Button-4>",   self._on_wheel)
+            w.bind("<Button-5>",   self._on_wheel)
+
+    # ── Scroll ────────────────────────────────────────────────────────────────
+
+    def _on_wheel(self, event) -> None:
+        if event.num == 4 or event.delta > 0:
+            self._canvas.yview_scroll(-1, "units")
+        else:
+            self._canvas.yview_scroll(1, "units")
+
+    # ── Toggle / search ───────────────────────────────────────────────────────
+
+    def _toggle(self) -> None:
+        self._collapsed = not self._collapsed
+        self._arrow.config(text="▸" if self._collapsed else "▾")
+        if self._collapsed:
+            self._search_frame.pack_forget()
+            self._canvas_frame.pack_forget()
+        else:
+            self._search_frame.pack(fill="x")
+            self._canvas_frame.pack(fill="both", expand=True)
+        if self._on_toggle:
+            self._on_toggle()
+
+    def _search_focus_in(self, _) -> None:
+        if not self._search_active:
+            self._search_entry.delete(0, "end")
+            self._search_entry.config(fg=_FG)
+            self._search_active = True
+
+    def _search_focus_out(self, _) -> None:
+        if not self._search_entry.get():
+            self._search_entry.insert(0, "Filter commits…")
+            self._search_entry.config(fg=_DIM)
+            self._search_active = False
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def load(self, commits: list) -> None:
+        self._commits = commits
+        self._count_lbl.config(text=f"({len(commits)})")
+        self._apply_filter()
+
+    def cache_files(self, commit_hash: str, files: list) -> None:
+        """Called when git returns the file list for an expanded commit."""
+        self._file_cache[commit_hash] = files
+        self._rebuild_rows()
+
+    def apply_theme(self, bg: str, fg: str) -> None:
+        pass   # colours are hardcoded to dark theme constants for now
+
+    # ── Filter + render ───────────────────────────────────────────────────────
+
+    def _apply_filter(self) -> None:
+        query = (self._search_var.get().lower().strip()
+                 if self._search_active else "")
+        if query:
+            self._filtered = [
+                c for c in self._commits
+                if query in c.subject.lower()
+                or query in c.author.lower()
+                or query in c.short.lower()
+                or any(query in r.lower() for r in c.refs)
+            ]
+        else:
+            self._filtered = list(self._commits)
+        self._rebuild_rows()
+
+    def _rebuild_rows(self) -> None:
+        self._hide_hover()
+        for w in self._inner.winfo_children():
+            w.destroy()
+        for commit in self._filtered:
+            self._build_commit_row(commit)
+        # "Load more" button
+        if len(self._commits) >= 50 and self._on_load_more:
+            btn_f = Frame(self._inner, bg=_BG)
+            btn_f.pack(fill="x", pady=4)
+            lbl = Label(btn_f, text="  Load 50 more…", bg=_BG, fg=_DIM,
+                        font=("Segoe UI", 8), cursor="hand2", pady=4, anchor="w")
+            lbl.pack(fill="x")
+            lbl.bind("<Button-1>", lambda _: self._on_load_more())
+            lbl.bind("<Enter>", lambda _: lbl.config(fg=_FG))
+            lbl.bind("<Leave>", lambda _: lbl.config(fg=_DIM))
+            btn_f.bind("<MouseWheel>", self._on_wheel)
+            lbl.bind("<MouseWheel>",   self._on_wheel)
+
+    def _ref_color(self, ref: str, idx: int) -> str:
+        rl = ref.lower()
+        if "main" in rl or "master" in rl:  return "#569cd6"
+        if rl.startswith("tag:"):           return "#dcdcaa"
+        if "head" in rl:                    return "#73c991"
+        if "origin" in rl:                  return "#4ec9b0"
+        return self._REF_COLORS[idx % len(self._REF_COLORS)]
+
+    def _build_commit_row(self, commit) -> None:
+        is_expanded = commit.hash in self._expanded
+
+        row = Frame(self._inner, bg=_ITEM_BG, cursor="hand2",
+                    height=self._ROW_H)
+        row.pack(fill="x")
+        row.pack_propagate(False)
+
+        # Dot
+        Label(row, text="●", bg=_ITEM_BG, fg="#569cd6",
+              font=("Segoe UI", 7), padx=4).pack(side="left")
+
+        # Ref badges (max 2)
+        for i, ref in enumerate(commit.refs[:2]):
+            if not ref:
+                continue
+            display = ref
+            if "->" in ref:
+                display = ref.split("->")[-1].strip()
+            elif ref.lower().startswith("tag:"):
+                display = ref[4:].strip()
+            if display.startswith("origin/"):
+                display = display[7:]
+            if len(display) > 10:
+                display = display[:9] + "…"
+            color = self._ref_color(ref, i)
+            Label(row, text=f" {display} ", bg=_ITEM_BG, fg=color,
+                  font=("Segoe UI", 7, "bold"), padx=1).pack(side="left")
+
+        # Short hash
+        Label(row, text=commit.short, bg=_ITEM_BG, fg=_DIM,
+              font=("Consolas", 8), padx=3).pack(side="left")
+
+        # Author + time (right side)
+        Label(row, text=f"{commit.author}  {commit.rel_time}",
+              bg=_ITEM_BG, fg=_DIM,
+              font=("Segoe UI", 7), padx=4).pack(side="right")
+
+        # Subject (fills remaining width)
+        Label(row, text=commit.subject, bg=_ITEM_BG, fg=_FG,
+              font=("Segoe UI", 8), anchor="w").pack(
+                  side="left", fill="x", expand=True)
+
+        # Expand arrow overlay (bottom-right)
+        exp = Label(row, text="▾" if is_expanded else "▸",
+                    bg=_ITEM_BG, fg=_DIM, font=("Segoe UI", 7), padx=4)
+        exp.place(relx=0.0, rely=0.5, anchor="w", x=2)
+
+        def _hover_enter(e, c=commit, r=row):
+            self._schedule_hover(e, c)
+            self._row_highlight(r, True)
+
+        def _hover_leave(_, r=row):
+            self._cancel_hover()
+            self._row_highlight(r, False)
+
+        def _click(_, c=commit):
+            self._hide_hover()
+            self._toggle_expand(c)
+
+        for w in [row] + list(row.winfo_children()):
+            w.bind("<Enter>",      _hover_enter)
+            w.bind("<Leave>",      _hover_leave)
+            w.bind("<Button-1>",   _click)
+            w.bind("<MouseWheel>", self._on_wheel)
+            w.bind("<Button-4>",   self._on_wheel)
+            w.bind("<Button-5>",   self._on_wheel)
+
+        # File sub-rows when expanded
+        if is_expanded:
+            files = self._file_cache.get(commit.hash)
+            if files is None:
+                # Still loading
+                loading = Frame(self._inner, bg=_BG)
+                loading.pack(fill="x")
+                Label(loading, text="     Loading…", bg=_BG, fg=_DIM,
+                      font=("Segoe UI", 8), pady=2).pack(side="left")
+                for w in (loading,) + tuple(loading.winfo_children()):
+                    w.bind("<MouseWheel>", self._on_wheel)
+            else:
+                for status, filepath in files:
+                    self._build_file_row(commit.hash, status, filepath)
+
+    def _build_file_row(self, commit_hash: str,
+                        status: str, filepath: str) -> None:
+        color = STATUS_COLORS.get(status, _FG)
+        row = Frame(self._inner, bg=_BG, cursor="hand2",
+                    height=self._FILE_ROW_H)
+        row.pack(fill="x")
+        row.pack_propagate(False)
+
+        Label(row, text="   │ ", bg=_BG, fg=_DIM,
+              font=("Segoe UI", 8)).pack(side="left")
+        Label(row, text=os.path.basename(filepath), bg=_BG, fg=color,
+              font=("Segoe UI", 8), anchor="w").pack(
+                  side="left", fill="x", expand=True)
+        Label(row, text=f" {status} ", bg=_BG, fg=color,
+              font=("Segoe UI", 8, "bold"), padx=4).pack(side="right")
+
+        def _enter(_, r=row):
+            r.config(bg=_HOV_BG)
+            for w in r.winfo_children(): w.config(bg=_HOV_BG)
+
+        def _leave(_, r=row):
+            r.config(bg=_BG)
+            for w in r.winfo_children(): w.config(bg=_BG)
+
+        def _click(_, h=commit_hash, fp=filepath):
+            if self._on_diff:
+                self._on_diff(h, fp)
+
+        for w in [row] + list(row.winfo_children()):
+            w.bind("<Enter>",      _enter)
+            w.bind("<Leave>",      _leave)
+            w.bind("<Button-1>",   _click)
+            w.bind("<MouseWheel>", self._on_wheel)
+            w.bind("<Button-4>",   self._on_wheel)
+            w.bind("<Button-5>",   self._on_wheel)
+
+    def _row_highlight(self, row: Frame, on: bool) -> None:
+        c = _HOV_BG if on else _ITEM_BG
+        try:
+            row.config(bg=c)
+            for w in row.winfo_children():
+                w.config(bg=c)
+        except Exception:
+            pass
+
+    def _toggle_expand(self, commit) -> None:
+        if commit.hash in self._expanded:
+            self._expanded.discard(commit.hash)
+        else:
+            self._expanded.add(commit.hash)
+            if commit.hash not in self._file_cache:
+                self._file_cache[commit.hash] = None   # mark as loading
+                if self._on_expand:
+                    self._on_expand(commit.hash)
+        self._rebuild_rows()
+
+    # ── Hover popup ───────────────────────────────────────────────────────────
+
+    def _schedule_hover(self, event, commit) -> None:
+        self._cancel_hover()
+        self._hover_after = self.after(
+            550, lambda e=event, c=commit: self._show_hover(e, c))
+
+    def _cancel_hover(self) -> None:
+        if self._hover_after:
+            self.after_cancel(self._hover_after)
+            self._hover_after = None
+
+    def _hide_hover(self) -> None:
+        self._cancel_hover()
+        if self._hover_popup:
+            try:
+                self._hover_popup.destroy()
+            except Exception:
+                pass
+            self._hover_popup = None
+
+    def _show_hover(self, event, commit) -> None:
+        self._hide_hover()
+        popup = tk.Toplevel(self)
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        self._hover_popup = popup
+
+        outer = Frame(popup, bg="#454545", padx=1, pady=1)
+        outer.pack(fill="both", expand=True)
+        body = Frame(outer, bg="#1e1e1e", padx=10, pady=8)
+        body.pack(fill="both", expand=True)
+
+        # Hash · relative time
+        Label(body, text=f"{commit.hash[:12]}  ·  {commit.rel_time}",
+              bg="#1e1e1e", fg=_DIM, font=("Consolas", 8)).pack(anchor="w")
+        # Author
+        Label(body, text=commit.author, bg="#1e1e1e", fg="#73c991",
+              font=("Segoe UI", 8)).pack(anchor="w")
+        # Absolute time
+        abs_display = commit.abs_time[:19].replace("T", "  ")
+        Label(body, text=abs_display, bg="#1e1e1e", fg=_DIM,
+              font=("Segoe UI", 7)).pack(anchor="w")
+
+        Frame(body, bg="#454545", height=1).pack(fill="x", pady=(5, 4))
+
+        # Subject (wrapped)
+        Label(body, text=commit.subject, bg="#1e1e1e", fg=_FG,
+              font=("Segoe UI", 9), wraplength=300,
+              justify="left").pack(anchor="w")
+
+        # Ref badges
+        if commit.refs:
+            Frame(body, bg="#454545", height=1).pack(fill="x", pady=(5, 3))
+            for i, ref in enumerate(commit.refs):
+                color = self._ref_color(ref, i)
+                Label(body, text=f"  {ref}", bg="#1e1e1e", fg=color,
+                      font=("Segoe UI", 8)).pack(anchor="w")
+
+        popup.update_idletasks()
+        pw = popup.winfo_reqwidth()
+        ph = popup.winfo_reqheight()
+        x  = event.x_root + 14
+        y  = event.y_root - ph // 2
+        sw = popup.winfo_screenwidth()
+        sh = popup.winfo_screenheight()
+        if x + pw > sw - 10:
+            x = event.x_root - pw - 14
+        y = max(10, min(y, sh - ph - 10))
+        popup.geometry(f"+{x}+{y}")
+        popup.bind("<Leave>", lambda _: self._hide_hover())
+
+
 class SourceControlPanel(ttk.Frame):
     """Git source control panel: staged / unstaged file lists + commit UI."""
 
@@ -329,6 +737,8 @@ class SourceControlPanel(ttk.Frame):
         on_add_to_gitignore:  Callable[[str], None] | None = None,
         gitignore_check_fn:   Callable[[], bool] | None = None,
         repo_root_fn:         Callable[[], str] | None = None,
+        on_history_diff:      Callable[[str, str], None] | None = None,
+        on_expand_commit:     Callable[[str], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
@@ -343,6 +753,8 @@ class SourceControlPanel(ttk.Frame):
         self._on_add_to_gitignore   = on_add_to_gitignore
         self._gitignore_check_fn    = gitignore_check_fn
         self._repo_root_fn          = repo_root_fn
+        self._on_history_diff       = on_history_diff
+        self._on_expand_commit      = on_expand_commit
         self._ctx_path            = ""
         self._warn_visible        = False
         self._last_staged:  dict[str, str] = {}
@@ -381,6 +793,15 @@ class SourceControlPanel(ttk.Frame):
         self._sep = ttk.Separator(self._body_frame, orient="horizontal")
         self._unstaged_sec = _Section(self._body_frame, "CHANGES",
                                       on_toggle=self._repack_sections)
+        self._hist_sep   = ttk.Separator(self._body_frame, orient="horizontal")
+        self._history_sec = _HistorySection(
+            self._body_frame,
+            on_diff=self._on_history_diff,
+            on_expand=self._on_expand_commit,
+            on_load_more=self._history_load_more,
+            on_toggle=self._repack_sections,
+        )
+        self._history_offset = 0   # how many commits already loaded
         self._repack_sections()
 
         # Single unified context menu — items shown/hidden based on context
@@ -402,11 +823,13 @@ class SourceControlPanel(ttk.Frame):
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def _repack_sections(self) -> None:
-        """Re-pack both sections so layout reflects current state."""
+        """Re-pack all sections so layout reflects current state."""
         self._warn_frame.pack_forget()
         self._staged_sec.pack_forget()
         self._sep.pack_forget()
         self._unstaged_sec.pack_forget()
+        self._hist_sep.pack_forget()
+        self._history_sec.pack_forget()
 
         staged_has_items = bool(self._staged_sec._items)
 
@@ -416,6 +839,8 @@ class SourceControlPanel(ttk.Frame):
         if staged_has_items:
             self._sep.pack(fill="x")
         self._unstaged_sec.pack(fill="x")
+        self._hist_sep.pack(fill="x")
+        self._history_sec.pack(fill="x")
         self._update_body_layout()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -458,6 +883,22 @@ class SourceControlPanel(ttk.Frame):
             panel_menu_cb=lambda e: self._show_ctx(e, "", None),
         )
         self._repack_sections()
+
+    def refresh_history(self, commits: list) -> None:
+        """Populate the HISTORY section with a new commit list."""
+        self._history_offset = len(commits)
+        self._history_sec.load(commits)
+        self._repack_sections()
+
+    def commit_files_ready(self, commit_hash: str, files: list) -> None:
+        """Forward fetched file list to the history section."""
+        self._history_sec.cache_files(commit_hash, files)
+
+    def _history_load_more(self) -> None:
+        """Called when user clicks 'Load 50 more' — delegated to app via on_expand."""
+        # Re-use on_expand_commit with a sentinel to signal load-more
+        if self._on_expand_commit:
+            self._on_expand_commit(f"__load_more__:{self._history_offset}")
 
     def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
         ttk.Style().configure("SC.TFrame", background=bg)
@@ -588,10 +1029,13 @@ class SourceControlPanel(ttk.Frame):
             warn_h = self._warn_frame.winfo_reqheight() if self._warn_visible else 0
 
             # Section natural heights
+            _SEARCH = _HistorySection._SEARCH_H
             staged_has   = bool(self._staged_sec._items)
             n_staged     = len(self._staged_sec._items)
             n_unstaged   = len(self._unstaged_sec._items)
+            n_history    = len(self._history_sec._filtered)
             sep_h        = 2 if staged_has else 0
+            hist_sep_h   = 1
 
             if self._staged_sec._collapsed or not staged_has:
                 staged_natural = _HDR
@@ -604,28 +1048,38 @@ class SourceControlPanel(ttk.Frame):
                 unstaged_natural = _HDR + max(_MIN_CONTENT if n_unstaged > 0 else 0,
                                               min(n_unstaged * _ROW, _MAX_SEC))
 
-            fixed_h      = health_h + warn_h + sep_h
-            total_natural = fixed_h + staged_natural + unstaged_natural
-            extra        = max(0, canvas_h - total_natural)
+            if self._history_sec._collapsed:
+                history_natural = _HDR
+            else:
+                history_natural = _HDR + _SEARCH + max(
+                    _MIN_CONTENT if n_history > 0 else 0,
+                    min(n_history * _HistorySection._ROW_H, _MAX_SEC))
+
+            fixed_h       = health_h + warn_h + sep_h + hist_sep_h
+            total_natural = fixed_h + staged_natural + unstaged_natural + history_natural
+            extra         = max(0, canvas_h - total_natural)
 
             staged_growable   = staged_has and not self._staged_sec._collapsed
             unstaged_growable = not self._unstaged_sec._collapsed
-            n_growable        = sum([staged_growable, unstaged_growable])
+            history_growable  = not self._history_sec._collapsed and n_history > 0
+            n_growable        = sum([staged_growable, unstaged_growable, history_growable])
             extra_per         = extra // n_growable if n_growable > 0 else 0
 
             staged_h   = staged_natural   + (extra_per if staged_growable   else 0)
             unstaged_h = unstaged_natural + (extra_per if unstaged_growable else 0)
+            history_h  = history_natural  + (extra_per if history_growable  else 0)
 
             # Give leftover pixel(s) to unstaged
-            used = fixed_h + staged_h + unstaged_h
+            used = fixed_h + staged_h + unstaged_h + history_h
             leftover = canvas_h - used
             if leftover > 0 and unstaged_growable:
                 unstaged_h += leftover
 
             self._staged_sec.config(height=staged_h)
             self._unstaged_sec.config(height=unstaged_h)
+            self._history_sec.config(height=history_h)
 
-            frame_h = max(fixed_h + staged_h + unstaged_h, canvas_h)
+            frame_h = max(fixed_h + staged_h + unstaged_h + history_h, canvas_h)
             self._body_canvas.itemconfigure(self._body_win, width=canvas_w, height=frame_h)
             self._body_canvas.configure(scrollregion=(0, 0, 0, frame_h))
         finally:

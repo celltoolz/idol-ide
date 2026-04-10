@@ -138,6 +138,36 @@ def _parse_hunks(diff_text: str) -> list[tuple[int, int, str]]:
     return hunks
 
 
+class CommitInfo:
+    """Immutable record for a single git log entry."""
+    __slots__ = ("hash", "short", "subject", "author", "rel_time", "abs_time", "refs")
+
+    def __init__(self, hash: str, short: str, subject: str, author: str,
+                 rel_time: str, abs_time: str, refs: list) -> None:
+        self.hash     = hash
+        self.short    = short
+        self.subject  = subject
+        self.author   = author
+        self.rel_time = rel_time
+        self.abs_time = abs_time
+        self.refs     = refs   # list[str]
+
+
+def _parse_log(output: str) -> "list[CommitInfo]":
+    commits = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\x00")
+        if len(parts) < 7:
+            continue
+        hash_, short, subject, author, rel_time, abs_time, refs_raw = parts[:7]
+        refs = [r.strip() for r in refs_raw.split(",") if r.strip()]
+        commits.append(CommitInfo(hash_, short, subject, author,
+                                  rel_time, abs_time, refs))
+    return commits
+
+
 class GitManager:
     """Thin async wrapper around git CLI for a single repository root."""
 
@@ -238,4 +268,48 @@ class GitManager:
             out = _run_git_output(["pull"], self._root)
             if callback:
                 self._after(0, lambda o=out: callback(o))
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ── History ───────────────────────────────────────────────────────────────
+
+    def get_log(self, n: int,
+                callback: "Callable[[list[CommitInfo]], None]") -> None:
+        """Fetch the last *n* commits and return a list of CommitInfo via callback."""
+        def _run() -> None:
+            fmt = "%H%x00%h%x00%s%x00%an%x00%ar%x00%ai%x00%D"
+            out = _run_git(["log", f"--format={fmt}", f"-n{n}"], self._root)
+            commits = _parse_log(out)
+            self._after(0, lambda c=commits: callback(c))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def get_commit_files(self, commit_hash: str,
+                         callback: "Callable[[list[tuple[str,str]]], None]") -> None:
+        """Return [(status, filepath)] for all files changed in *commit_hash*."""
+        def _run() -> None:
+            out = _run_git(
+                ["show", "--name-status", "--format=", commit_hash], self._root
+            )
+            files: list[tuple[str, str]] = []
+            for line in out.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split("\t", 1)
+                if len(parts) == 2:
+                    raw_status, path = parts
+                    s = raw_status[0]
+                    mapped = {"M": "M", "A": "A", "D": "D",
+                              "R": "R", "C": "A"}.get(s, "M")
+                    files.append((mapped, path))
+            self._after(0, lambda f=files: callback(f))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def get_commit_diff(self, commit_hash: str, filepath: str,
+                        callback: "Callable[[str], None]") -> None:
+        """Return unified diff for *filepath* as it was changed in *commit_hash*."""
+        def _run() -> None:
+            out = _run_git(
+                ["show", commit_hash, "--", filepath], self._root
+            )
+            self._after(0, lambda o=out: callback(o))
         threading.Thread(target=_run, daemon=True).start()

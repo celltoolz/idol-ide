@@ -244,6 +244,8 @@ class Notepad(Tk):
                 "add_to_gitignore": self._sc_add_to_gitignore,
                 "gitignore_check": self._sc_gitignore_exists,
                 "repo_root": lambda: self._git._root if self._git else "",
+                "history_diff": self._sc_history_diff,
+                "expand_commit": self._sc_expand_commit,
             },
             on_file_move=self._on_explorer_file_move,
             on_root_change=self._on_explorer_root_change,
@@ -1027,6 +1029,9 @@ class Notepad(Tk):
         # Keep SC panel up to date if it's visible
         if self._sidebar._sc_visible:
             self._refresh_sc_panel()
+        else:
+            # History refreshes independently (no file-list cost when SC hidden)
+            self._refresh_history()
 
     def _refresh_git_hunks(self) -> None:
         tab_id = self._current_tab_id
@@ -1049,6 +1054,7 @@ class Notepad(Tk):
         if not self._git:
             return
         self._git.get_full_status(self._on_sc_status)
+        self._refresh_history()
 
     def _on_sc_status(self, staged: dict, unstaged: dict) -> None:
         self._sidebar.source_control.refresh(staged, unstaged)
@@ -1131,6 +1137,40 @@ class Notepad(Tk):
             self._open_diff_tab(name, diff_text)
 
         self._git.get_file_diff(path, _show)
+
+    def _sc_history_diff(self, commit_hash: str, filepath: str) -> None:
+        """Open a diff tab for *filepath* as changed in *commit_hash*."""
+        if not self._git:
+            return
+
+        def _show(diff_text: str) -> None:
+            if not diff_text:
+                return
+            name = f"Δ {os.path.basename(filepath)} @ {commit_hash[:7]}"
+            self._open_diff_tab(name, diff_text)
+
+        self._git.get_commit_diff(commit_hash, filepath, _show)
+
+    def _sc_expand_commit(self, token: str) -> None:
+        """Fetch file list for a commit, or load more history (load-more token)."""
+        if not self._git:
+            return
+        if token.startswith("__load_more__:"):
+            offset = int(token.split(":")[1])
+            n = offset + 50
+            def _on_more(commits):
+                self._sidebar.source_control.refresh_history(commits)
+            self._git.get_log(n, _on_more)
+        else:
+            def _on_files(files, h=token):
+                self._sidebar.source_control.commit_files_ready(h, files)
+            self._git.get_commit_files(token, _on_files)
+
+    def _refresh_history(self) -> None:
+        """Fetch the latest 50 commits and push them to the HISTORY section."""
+        if not self._git or not self._sidebar._sc_visible:
+            return
+        self._git.get_log(50, self._sidebar.source_control.refresh_history)
 
     def _sc_gitignore_exists(self) -> bool:
         if not self._git:
