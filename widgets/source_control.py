@@ -480,6 +480,8 @@ class _HistorySection(Frame):
         self._rebuild_rows()
 
     def _rebuild_rows(self) -> None:
+        if not hasattr(self, "_inner"):
+            return   # canvas not built yet (trace fired during __init__)
         self._hide_hover()
         for w in self._inner.winfo_children():
             w.destroy()
