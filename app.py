@@ -330,9 +330,20 @@ class Notepad(Tk):
         self.bind("<Configure>", self._on_window_configure)
 
     def _init_sash_pos(self, _=None) -> None:
-        """Set the output panel to a small strip on first launch."""
+        """Set default sash positions once the window has real pixel dimensions."""
         self.unbind("<Map>")  # only run once
         self.update_idletasks()
+
+        # Guarantee the sidebar has a sensible width.  On Linux the h_pane sash
+        # defaults to 0 (collapsing the sidebar entirely) when no session exists
+        # or when the async session restore hasn't fired yet.  Set it here while
+        # we're in the Map handler so the window is definitely visible.
+        try:
+            if self._h_pane.sashpos(0) < 50:
+                self._h_pane.sashpos(0, 220)
+        except Exception:
+            pass
+
         total = self._v_pane.winfo_height()
         if total > 200:
             self._v_pane.sashpos(0, total - 160)
