@@ -254,7 +254,7 @@ class Notepad(Tk):
             on_root_change=self._on_explorer_root_change,
         )
         self._sidebar.configure(width=220)
-        self._h_pane.add(self._sidebar, weight=0)
+        self._h_pane.add(self._sidebar, weight=0, minsize=220)
         self._outline = self._sidebar.outline  # keep existing references working
 
         # Right panel – vertical split: notebook (top) | output (bottom)
