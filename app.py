@@ -2066,6 +2066,18 @@ class Notepad(Tk):
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
 
+        # Explicitly set sash to midpoint after geometry settles.
+        # ttk.PanedWindow on Windows doesn't honour equal weights until
+        # the widget has been laid out, so we nudge it after 50ms.
+        def _set_split_mid():
+            try:
+                w = self._split_pane.winfo_width()
+                if w > 10:
+                    self._split_pane.sashpos(0, w // 2)
+            except Exception:
+                pass
+        self.after(50, _set_split_mid)
+
         # Thin header with "SPLIT" label, lock button, and × close button
         hdr = tk.Frame(self._nb_frame_r, bg="#2d2d30", height=24)
         hdr.pack(fill="x")
