@@ -1029,14 +1029,7 @@ class Notepad(Tk):
     def _on_sc_status(self, staged: dict, unstaged: dict) -> None:
         self._sidebar.source_control.refresh(staged, unstaged)
 
-    def _debug_populate_sc(self) -> None:
-        """DEBUG: populate SC panel with 20 fake staged and 20 fake changed files."""
-        statuses = ["M", "A", "U", "D"]
-        staged   = {f"src/staged/fake_file_{i:02d}.py":  statuses[i % 4] for i in range(20)}
-        unstaged = {f"src/changed/fake_file_{i:02d}.py": statuses[i % 4] for i in range(20)}
-        self._sidebar.source_control.refresh(staged, unstaged)
-
-    # ── Source Control actions ─────────────────────────────────────────────────
+# ── Source Control actions ─────────────────────────────────────────────────
 
     def _sc_stage(self, path: str) -> None:
         if self._git:
