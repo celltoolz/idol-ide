@@ -225,19 +225,27 @@ class GitManager:
 
     def stage(self, path: str, callback: Callable[[], None] | None = None) -> None:
         def _run() -> None:
-            _run_git(["add", "--", path], self._root)
+            try:
+                rel = os.path.relpath(path, self._root)
+            except ValueError:
+                rel = path
+            _run_git(["add", "--", rel], self._root)
             if callback:
                 self._after(0, callback)
         threading.Thread(target=_run, daemon=True).start()
 
     def unstage(self, path: str, callback: Callable[[], None] | None = None) -> None:
         def _run() -> None:
+            try:
+                rel = os.path.relpath(path, self._root)
+            except ValueError:
+                rel = path
             # If HEAD doesn't exist (no commits yet), use rm --cached instead
             has_head = _run_git(["rev-parse", "--verify", "HEAD"], self._root) != ""
             if has_head:
-                out = _run_git_output(["restore", "--staged", "--", path], self._root)
+                _run_git_output(["restore", "--staged", "--", rel], self._root)
             else:
-                out = _run_git_output(["rm", "--cached", "--", path], self._root)
+                _run_git_output(["rm", "--cached", "--", rel], self._root)
             if callback:
                 self._after(0, callback)
         threading.Thread(target=_run, daemon=True).start()
