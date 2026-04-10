@@ -25,6 +25,8 @@ The goal is to make Python development and education feel native: real editor fe
 - Symbol crumbs — updates live as the cursor moves; shows class › method hierarchy in the active file's color scheme
 - **Sibling picker** — click any symbol crumb to see all peer symbols at that scope level and jump to one
 - **Locals drill-down** — a `›` appears after the innermost crumb when locals exist; clicking it opens a picker showing all local variables, loop targets, and nested definitions inside that function
+- **Syntax-highlighted footer** — hover any local to see its source line rendered with the active theme's token colors
+- **Marquee scroll** — when the source preview overflows the footer width it smoothly ping-pongs left and right so the full line is always readable
 - Keyboard navigation (↑↓ Enter Escape) in both pickers; scrollable for large symbol lists
 
 ### Intelligence (LSP)
@@ -57,6 +59,12 @@ The goal is to make Python development and education feel native: real editor fe
 - Git Health panel — scannable checklist (`.gitignore` exists, no venv tracked, no secrets staged) with one-click fixes
 - Inline file explanations — hover any file in the Source Control list for a tooltip explaining what it is and why git cares
 - Guided Fix Wizard — step-by-step: what happened → why it matters → how to fix it, with an action button
+- **Commit History panel** — scrollable HISTORY section inside Source Control showing the last 50 commits with colored ref/branch badges, author, and relative timestamps
+  - Click any commit to expand an inline list of changed files
+  - Click a file to open a syntax-highlighted diff tab scoped to that commit
+  - Hover a commit row for a popup showing the full hash, author, absolute date, subject, and all refs
+  - Filter bar to search commits by message, author, short hash, or branch name
+  - "Load 50 more" button for repos with deep history
 
 ### Terminal & Output
 - Integrated terminal — full PTY shell (PowerShell/bash) with ANSI color support, direct keyboard input
