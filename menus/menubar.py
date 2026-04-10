@@ -135,6 +135,8 @@ def build_menubar(app) -> Menu:
         accelerator="Ctrl+Shift+P",
     )
     help_menu.add_separator()
+    help_menu.add_command(label="Debug: Test Marquee", command=app.help_test_marquee)
+    help_menu.add_separator()
     help_menu.add_command(label="About", command=app.help_about)
     menubar.add_cascade(label="Help", menu=help_menu)
 

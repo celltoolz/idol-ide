@@ -2398,3 +2398,125 @@ class Notepad(Tk):
             "Notepad",
             "A Python code editor built with tkinter.\n\nCreated/Authored By:\nAlex Fero & Claude Sonnet",
         )
+
+    def help_test_marquee(self) -> None:
+        """Standalone marquee test window — Help > Debug: Test Marquee."""
+        import tkinter as _tk
+
+        win = _tk.Toplevel(self)
+        win.title("Marquee Test")
+        win.configure(bg="#1e1e1e")
+        win.resizable(True, False)
+        win.geometry("420x220")
+
+        _tk.Label(win, text="Marquee Test", bg="#1e1e1e", fg="#cccccc",
+                  font=("Segoe UI", 10, "bold")).pack(pady=(12, 4))
+        _tk.Label(win, text="Text overflows → marquee should scroll back and forth",
+                  bg="#1e1e1e", fg="#858585", font=("Segoe UI", 8)).pack()
+
+        frame = _tk.Frame(win, bg="#2d2d2d", pady=6)
+        frame.pack(fill="x", padx=16, pady=10)
+
+        txt = _tk.Text(frame, height=1, bg="#2d2d2d", fg="#d4d4d4",
+                       font=("Consolas", 11), relief="flat", bd=0,
+                       state="disabled", wrap="none", cursor="arrow",
+                       highlightthickness=0)
+        txt.pack(fill="x", padx=6)
+
+        # ── same marquee logic as breadcrumb_bar ─────────────────────────────
+        mq: dict = {"job": None, "check": None, "pos": 0.0, "dir": 1, "pause": 0}
+
+        def _step() -> None:
+            if not txt.winfo_exists():
+                return
+            if mq["pause"] > 0:
+                mq["pause"] -= 1
+                mq["job"] = txt.after(30, _step)
+                return
+            start, end = txt.xview()
+            visible = end - start
+            max_pos = 1.0 - visible
+            if max_pos <= 0.001:
+                return
+            w = txt.winfo_width()
+            step = (visible / w * 2.0) if w > 0 else 0.01
+            mq["pos"] += mq["dir"] * step
+            if mq["pos"] >= max_pos:
+                mq["pos"] = max_pos; mq["dir"] = -1; mq["pause"] = 15
+            elif mq["pos"] <= 0.0:
+                mq["pos"] = 0.0;     mq["dir"] =  1; mq["pause"] = 15
+            txt.xview_moveto(mq["pos"])
+            mq["job"] = txt.after(30, _step)
+
+        def _stop() -> None:
+            if mq["check"]: txt.after_cancel(mq["check"]); mq["check"] = None
+            if mq["job"]:   txt.after_cancel(mq["job"]);   mq["job"]   = None
+            mq["pos"] = 0.0; txt.xview_moveto(0.0)
+
+        def _start() -> None:
+            _stop()
+            mq["dir"] = 1; mq["pause"] = 0
+            mq["job"] = txt.after(600, _step)
+
+        def _load(content: str) -> None:
+            _stop()
+            txt.configure(state="normal")
+            txt.delete("1.0", "end")
+            txt.insert("end", content)
+            txt.configure(state="disabled")
+            def _check() -> None:
+                mq["check"] = None
+                if txt.winfo_exists() and txt.xview()[1] < 1.0:
+                    _start()
+                _tk.Label(info_var_frame, textvariable=None).pack_forget()
+                xv = txt.xview()
+                info.set(f"xview={xv[0]:.3f}–{xv[1]:.3f}  "
+                         f"overflow={'YES' if xv[1]<1.0 else 'NO'}  "
+                         f"width={txt.winfo_width()}px")
+            mq["check"] = txt.after(50, _check)
+
+        # ── controls ─────────────────────────────────────────────────────────
+        ctrl = _tk.Frame(win, bg="#1e1e1e")
+        ctrl.pack(fill="x", padx=16)
+
+        samples = [
+            ("Short",  "hi()"),
+            ("Medium", "my_function(arg1, arg2)"),
+            ("Long",   "very_long_variable_name_that_definitely_overflows  :  for token, color in self._highlight_fn(source_line):"),
+        ]
+        for label, text in samples:
+            _tk.Button(ctrl, text=label, command=lambda t=text: _load(t),
+                       bg="#3c3c3c", fg="#cccccc", relief="flat",
+                       font=("Segoe UI", 9), padx=8, pady=3,
+                       activebackground="#505050", activeforeground="#ffffff",
+                       cursor="hand2").pack(side="left", padx=(0, 6))
+
+        _tk.Button(ctrl, text="Stop", command=_stop,
+                   bg="#3c3c3c", fg="#cccccc", relief="flat",
+                   font=("Segoe UI", 9), padx=8, pady=3,
+                   activebackground="#505050", activeforeground="#ffffff",
+                   cursor="hand2").pack(side="left", padx=(0, 6))
+
+        # ── custom text entry ─────────────────────────────────────────────────
+        entry_row = _tk.Frame(win, bg="#1e1e1e")
+        entry_row.pack(fill="x", padx=16, pady=(8, 0))
+        entry_var = _tk.StringVar()
+        entry = _tk.Entry(entry_row, textvariable=entry_var, bg="#3c3c3c",
+                          fg="#d4d4d4", insertbackground="#d4d4d4",
+                          relief="flat", font=("Consolas", 10))
+        entry.pack(side="left", fill="x", expand=True, ipady=3)
+        entry.bind("<Return>", lambda _: _load(entry_var.get()))
+        _tk.Button(entry_row, text="Go", command=lambda: _load(entry_var.get()),
+                   bg="#0e639c", fg="white", relief="flat",
+                   font=("Segoe UI", 9), padx=10, pady=3,
+                   cursor="hand2").pack(side="left", padx=(6, 0))
+
+        # ── info bar ─────────────────────────────────────────────────────────
+        info = _tk.StringVar(value="← click a sample or type custom text")
+        info_var_frame = _tk.Frame(win, bg="#1e1e1e")
+        info_var_frame.pack(fill="x", padx=16, pady=(6, 0))
+        _tk.Label(info_var_frame, textvariable=info, bg="#1e1e1e", fg="#569cd6",
+                  font=("Consolas", 8), anchor="w").pack(fill="x")
+
+        # auto-load the long sample so it's immediately visible
+        win.after(100, lambda: _load(samples[2][1]))
