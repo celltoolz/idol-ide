@@ -2063,17 +2063,17 @@ class Notepad(Tk):
         """Create the right notebook frame and wire it up."""
         import tkinter as tk
 
+        # Capture full width BEFORE adding the right pane — after add()
+        # the left notebook has already shrunk so winfo_width() is stale.
+        _full_w = self._split_pane.winfo_width()
+
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
 
-        # Explicitly set sash to midpoint after geometry settles.
-        # ttk.PanedWindow on Windows doesn't honour equal weights until
-        # the widget has been laid out, so we nudge it after 50ms.
-        # Use the left notebook's width (same reference as the drag overlay)
-        # so the sash lands exactly where the blue preview indicated.
+        # Set sash to midpoint after geometry settles.
         def _set_split_mid():
             try:
-                w = self.notebook.winfo_width()
+                w = _full_w if _full_w > 10 else self._split_pane.winfo_width()
                 if w > 10:
                     self._split_pane.sashpos(0, w // 2)
             except Exception:
