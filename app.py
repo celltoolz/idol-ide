@@ -215,6 +215,9 @@ class Notepad(Tk):
         elif not session_utils.restore(self):
             self._new_tab("Untitled", "")
             self._set_explorer_root(os.getcwd())
+            # No session file — trigger sidebar relayout once the window has
+            # real pixel dimensions (250 ms is enough for all platforms).
+            self.after(250, self._sidebar._relayout)
 
     # ── Layout ────────────────────────────────────────────────────────────────
 

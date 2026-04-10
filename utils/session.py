@@ -72,10 +72,14 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     except Exception:
         pass
     sb = app._sidebar
-    layout["sidebar_sash1"]       = sb._sash1_y
-    layout["sidebar_sash2"]       = sb._sash2_y
-    layout["sidebar_sash3"]       = sb._sash3_y
-    layout["sidebar_sash4"]       = sb._sash4_y
+    # Only save sash heights that are large enough to be meaningful — zero or
+    # near-zero values (from a race-condition layout) must not be persisted or
+    # they will override the seeding logic on the next launch.
+    _MS = 40   # mirrors _MIN_SASH used in restore
+    if sb._sash1_y >= _MS: layout["sidebar_sash1"] = sb._sash1_y
+    if sb._sash2_y >= _MS: layout["sidebar_sash2"] = sb._sash2_y
+    if sb._sash3_y >= _MS: layout["sidebar_sash3"] = sb._sash3_y
+    if sb._sash4_y >= _MS: layout["sidebar_sash4"] = sb._sash4_y
     layout["outline_collapsed"]   = sb._outline_collapsed
     layout["refs_collapsed"]      = sb._refs_collapsed
     layout["refs_visible"]        = sb._refs_visible
@@ -165,10 +169,15 @@ def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
     app.minimap_visible_var.set(minimap)
     app.view_toggle_minimap()
 
-    # ── Layout — must wait until widgets have real pixel dimensions ───────────
+    # ── Layout — two-stage to let pane geometry settle before sidebar measures ──
     layout = data.get("layout")
     if layout:
-        app.after(50, lambda: _apply_layout(app, layout))
+        # Stage 1 (50 ms): set h_pane / v_pane sash positions so the sidebar
+        # and editor panels get their correct pixel dimensions.
+        app.after(50,  lambda: _apply_pane_sashes(app, layout))
+        # Stage 2 (250 ms): by now the pane geometry has propagated; apply the
+        # sidebar collapse states, sash heights, and relayout.
+        app.after(250, lambda: _apply_sidebar_layout(app, layout))
 
     return True
 
@@ -176,13 +185,10 @@ def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
 _MIN_SASH = 40   # px — below this a saved sash value is considered corrupt
 
 
-def _apply_layout(app: "Notepad", layout: dict) -> None:
-    """Apply saved sash positions after the window is fully rendered."""
-    # Do NOT call update_idletasks() here — it processes pending geometry events
-    # which can trigger _relayout() re-entrancy and cascade configure loops.
-
+def _apply_pane_sashes(app: "Notepad", layout: dict) -> None:
+    """Stage 1 — restore h_pane and v_pane sash positions only."""
     h = layout.get("h_sash")
-    if h and h > 50:  # skip if 0, missing, or suspiciously small
+    if h and h > 50:
         try:
             app._h_pane.sashpos(0, h)
         except Exception:
@@ -195,6 +201,13 @@ def _apply_layout(app: "Notepad", layout: dict) -> None:
         except Exception:
             pass
 
+
+def _apply_sidebar_layout(app: "Notepad", layout: dict) -> None:
+    """Stage 2 — restore sidebar collapse states, panel heights, and relayout.
+
+    Called 250 ms after restore so the pane geometry from stage 1 has had
+    time to propagate; winfo_height() will now return real pixel dimensions.
+    """
     sb = app._sidebar
 
     # Restore collapse states before sash heights so _relayout sees them
@@ -211,8 +224,8 @@ def _apply_layout(app: "Notepad", layout: dict) -> None:
     if layout.get("sc_collapsed") and not sb._sc_collapsed:
         sb._toggle_sc()
 
-    # Validate sash heights before applying — corrupt/cross-platform values
-    # (e.g. saved when sidebar was squished to near-zero) must be discarded.
+    # Validate sash heights — corrupt/cross-platform values are discarded so
+    # the seeding logic in _do_relayout fills them with sensible defaults.
     s1 = layout.get("sidebar_sash1", 0)
     s2 = layout.get("sidebar_sash2", 0)
     s3 = layout.get("sidebar_sash3", 0)
@@ -227,3 +240,9 @@ def _apply_layout(app: "Notepad", layout: dict) -> None:
         sb._sash4_y = s4
 
     sb._relayout()
+
+
+# keep the old name alive so any external callers aren't broken
+def _apply_layout(app: "Notepad", layout: dict) -> None:
+    _apply_pane_sashes(app, layout)
+    _apply_sidebar_layout(app, layout)
