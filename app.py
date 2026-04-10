@@ -2063,22 +2063,19 @@ class Notepad(Tk):
         """Create the right notebook frame and wire it up."""
         import tkinter as tk
 
-        _full_w = self._split_pane.winfo_width()
-
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
 
-        # Set sash to midpoint. Run at 50ms and again at 200ms in case a
-        # subsequent layout pass (minimap, tab render) overrides the first set.
+        # Set sash to midpoint after geometry settles. Read split_pane width
+        # fresh at callback time — it's stable by then on all platforms.
         def _set_split_mid():
             try:
-                w = _full_w if _full_w > 10 else self._split_pane.winfo_width()
+                w = self._split_pane.winfo_width()
                 if w > 10:
                     self._split_pane.sashpos(0, w // 2)
             except Exception:
                 pass
-        self.after(50,  _set_split_mid)
-        self.after(200, _set_split_mid)
+        self.after(150, _set_split_mid)
 
         # Thin header with "SPLIT" label, lock button, and × close button
         hdr = tk.Frame(self._nb_frame_r, bg="#2d2d30", height=24)
