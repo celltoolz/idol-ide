@@ -2073,9 +2073,18 @@ class Notepad(Tk):
                 w = self._split_pane.winfo_width()
                 if w > 10:
                     self._split_pane.sashpos(0, w // 2)
-            except Exception:
-                pass
+                    print(f"[split] set sash={w//2}  w={w}")
+            except Exception as e:
+                print(f"[split] err: {e}")
+
+        def _check_sash():
+            try:
+                print(f"[split] 500ms check: sash={self._split_pane.sashpos(0)}  w={self._split_pane.winfo_width()}")
+            except Exception as e:
+                print(f"[split] check err: {e}")
+
         self.after(150, _set_split_mid)
+        self.after(500, _check_sash)
 
         # Thin header with "SPLIT" label, lock button, and × close button
         hdr = tk.Frame(self._nb_frame_r, bg="#2d2d30", height=24)
