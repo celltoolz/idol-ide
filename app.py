@@ -379,6 +379,7 @@ class Notepad(Tk):
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
         self.bind("<F11>", lambda _: self.view_zen_mode())
+        self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
@@ -2077,35 +2078,32 @@ class Notepad(Tk):
             fg="#858585",
             font=("Segoe UI", 8, "bold"),
         ).pack(side="left")
-        tk.Button(
+        close_lbl = tk.Label(
             hdr,
-            text="×",
+            text="✕",
             bg="#2d2d30",
             fg="#858585",
-            activebackground="#2d2d30",
-            activeforeground="#cccccc",
-            relief="flat",
-            bd=0,
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 9),
             cursor="hand2",
-            command=self._close_split,
-        ).pack(side="right", padx=4)
+            padx=6,
+        )
+        close_lbl.pack(side="right")
+        close_lbl.bind("<Enter>",    lambda _: close_lbl.config(fg="#cccccc"))
+        close_lbl.bind("<Leave>",    lambda _: close_lbl.config(fg="#858585"))
+        close_lbl.bind("<Button-1>", lambda _: self._close_split())
 
         self._scroll_locked = False
-        self._lock_btn = tk.Button(
+        self._lock_btn = tk.Label(
             hdr,
             text="⇕",
             bg="#2d2d30",
             fg="#555555",
-            activebackground="#2d2d30",
-            activeforeground="#cccccc",
-            relief="flat",
-            bd=0,
             font=("Segoe UI", 10),
             cursor="hand2",
-            command=self._toggle_scroll_lock,
+            padx=4,
         )
-        self._lock_btn.pack(side="right", padx=2)
+        self._lock_btn.pack(side="right")
+        self._lock_btn.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
 
         self._notebook_r = CustomNotebook(
             self._nb_frame_r,
