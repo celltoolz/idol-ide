@@ -417,7 +417,7 @@ class BreadcrumbBar(tk.Frame):
         preview_text.tag_configure("src",          foreground="#cccccc")
 
         # ── Footer marquee animation ──────────────────────────────────────────
-        _mq: dict = {"job": None, "pos": 0.0, "dir": 1, "pause": 0}
+        _mq: dict = {"job": None, "check": None, "pos": 0.0, "dir": 1, "pause": 0}
 
         def _marquee_step() -> None:
             if not preview_text.winfo_exists():
@@ -454,6 +454,9 @@ class BreadcrumbBar(tk.Frame):
             _mq["job"]   = preview_text.after(600, _marquee_step)  # initial delay
 
         def _stop_marquee() -> None:
+            if _mq["check"]:
+                preview_text.after_cancel(_mq["check"])
+                _mq["check"] = None
             if _mq["job"]:
                 preview_text.after_cancel(_mq["job"])
                 _mq["job"] = None
@@ -484,9 +487,10 @@ class BreadcrumbBar(tk.Frame):
             # layout, so xview() returns (0.0, 1.0) immediately after
             # insert even when there is real overflow.
             def _maybe_start_marquee() -> None:
+                _mq["check"] = None
                 if preview_text.winfo_exists() and preview_text.xview()[1] < 1.0:
                     _start_marquee()
-            preview_text.after(50, _maybe_start_marquee)
+            _mq["check"] = preview_text.after(50, _maybe_start_marquee)
 
         # ── Scrollable content ────────────────────────────────────────────────
         def _wheel(e):
