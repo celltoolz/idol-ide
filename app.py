@@ -227,7 +227,7 @@ class Notepad(Tk):
         self._statusbar.pack(side="bottom", fill="x")
 
         # Horizontal split: outline (left) | editor+output (right)
-        self._h_pane = ttk.PanedWindow(self, orient="horizontal")
+        self._h_pane = tk.PanedWindow(self, orient="horizontal", sashwidth=4, bd=0, bg="#3c3c3c")
         self._h_pane.pack(fill="both", expand=True)
 
         # Left panel – sidebar (outline + source control + explorer)
@@ -254,12 +254,12 @@ class Notepad(Tk):
             on_root_change=self._on_explorer_root_change,
         )
         self._sidebar.configure(width=220)
-        self._h_pane.add(self._sidebar, weight=0, minsize=220)
+        self._h_pane.add(self._sidebar, minsize=220, stretch="never")
         self._outline = self._sidebar.outline  # keep existing references working
 
         # Right panel – vertical split: notebook (top) | output (bottom)
         self._v_pane = ttk.PanedWindow(self._h_pane, orient="vertical")
-        self._h_pane.add(self._v_pane, weight=1)
+        self._h_pane.add(self._v_pane, stretch="always")
 
         # Horizontal split pane — holds left notebook (always) + right notebook (when split)
         self._split_pane = ttk.PanedWindow(self._v_pane, orient="horizontal")
@@ -1965,7 +1965,7 @@ class Notepad(Tk):
         # Restore in reverse pack order: statusbar first (side=bottom),
         # then sidebar back into h_pane at position 0, then output into v_pane.
         self._statusbar.pack(side="bottom", fill="x")
-        self._h_pane.insert(0, self._sidebar, weight=0)
+        self._h_pane.insert(0, self._sidebar, minsize=220, stretch="never")
         if self.output_visible_var.get():
             self._v_pane.add(self._output, weight=1)
         self.title("Notepad")
