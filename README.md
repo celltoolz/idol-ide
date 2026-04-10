@@ -8,6 +8,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 ![Editor Screenshot](screenshots/editor.png)
 ![Editor Screenshot](screenshots/editor-osx.png)
+![Editor Screenshot](screenshots/editor-linux.png)
 
 ## Features
 
