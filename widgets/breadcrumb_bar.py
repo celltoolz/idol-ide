@@ -563,33 +563,46 @@ class BreadcrumbBar(tk.Frame):
         # ── Popup-level Motion binding (macOS fallback) ───────────────────────
         # On macOS overrideredirect windows, <Enter>/<Motion> on child widgets
         # don't fire until the window is first clicked.  Binding <Motion> on
-        # the Toplevel itself does fire, so we hit-test with winfo_containing.
+        # ── Hover via polling (macOS: no Motion/Enter on overrideredirect) ──────
+        # On macOS, neither <Enter> nor <Motion> — even on the Toplevel itself —
+        # fires for overrideredirect windows until after the first click.
+        # Polling winfo_containing every 50 ms is the only reliable cross-platform
+        # solution; it's lightweight and 20 fps is more than enough for hover.
         _row_widgets: dict[int, int] = {}
         for i, (rw, nw, lw, _) in enumerate(rows):
             for w in (rw, nw, lw):
                 _row_widgets[id(w)] = i
 
-        def _popup_motion(event) -> None:
-            w = popup.winfo_containing(event.x_root, event.y_root)
-            if w is None:
+        def _hover_poll() -> None:
+            if not popup.winfo_exists():
                 return
-            i = _row_widgets.get(id(w))
-            if i is None or sel[0] == i:
-                return
-            t, n = _row_meta[i]
-            sel[0] = i; _highlight(i); _update_preview(t, n, rows[i][3])
+            try:
+                x = popup.winfo_pointerx()
+                y = popup.winfo_pointery()
+                w = popup.winfo_containing(x, y)
+                if w is not None:
+                    i = _row_widgets.get(id(w))
+                    if i is not None and sel[0] != i:
+                        t, n = _row_meta[i]
+                        sel[0] = i; _highlight(i); _update_preview(t, n, rows[i][3])
+            except Exception:
+                pass
+            popup.after(50, _hover_poll)
 
-        popup.bind("<Motion>", _popup_motion)
+        popup.after(100, _hover_poll)
 
-        # Keyboard nav also updates the preview footer
+        # Keyboard nav preview — must be bound AFTER _finalise_popup so
+        # add="+" appends after _finalise_popup's own _key handler (which
+        # updates sel[0] first); a plain bind() here would be overwritten.
         def _key_preview(event) -> None:
             if event.keysym in ("Up", "Down") and 0 <= sel[0] < len(rows):
                 t, n = _row_meta[sel[0]]
                 _update_preview(t, n, rows[sel[0]][3])
-        popup.bind("<KeyPress>", _key_preview, add="+")
 
         self._finalise_popup(popup, canvas, vsb, rows, sel, anchor, popup_w,
                              content_h, MAX_H, footer_h=FOOTER_H)
+
+        popup.bind("<KeyPress>", _key_preview, add="+")
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
