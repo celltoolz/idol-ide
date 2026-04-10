@@ -56,6 +56,7 @@ class Sidebar(ttk.Frame):
         self._drag_start_below: int = 0
 
         self._relaying_out: bool = False   # instance-level re-entrancy guard
+        self._dragging:     bool = False
 
         # ── Sections ──────────────────────────────────────────────────────────
         self._outline_hdr = self._make_header("OUTLINE",    self._toggle_outline)
@@ -202,7 +203,8 @@ class Sidebar(ttk.Frame):
     def _make_sash(self) -> Frame:
         sash = Frame(self, bg="#3c3c3c", cursor="sb_v_double_arrow",
                      height=_SASH_H)
-        sash.bind("<B1-Motion>", self._sash_drag)
+        sash.bind("<B1-Motion>",        self._sash_drag)
+        sash.bind("<ButtonRelease-1>",  self._sash_release)
         return sash
 
     # ── Collapse toggles ──────────────────────────────────────────────────────
@@ -247,13 +249,26 @@ class Sidebar(ttk.Frame):
     # ── Sash drag ─────────────────────────────────────────────────────────────
 
     def _sash_press(self, event, slot_above: int, slot_below: int) -> None:
+        self._dragging         = True
         self._drag_slot_above  = slot_above
         self._drag_slot_below  = slot_below
         self._drag_start_y     = event.y_root
         self._drag_start_above = self._get_h(slot_above)
         self._drag_start_below = self._get_h(slot_below)
+        # Grab all mouse events to this sash so motion keeps firing even when
+        # the cursor moves off the widget during a fast drag.
+        event.widget.grab_set()
+
+    def _sash_release(self, event) -> None:
+        self._dragging = False
+        try:
+            event.widget.grab_release()
+        except Exception:
+            pass
 
     def _sash_drag(self, event) -> None:
+        if not self._dragging:
+            return
         delta = event.y_root - self._drag_start_y
         new_above = max(_MIN_BODY, self._drag_start_above + delta)
         # Give the below panel exactly what the above panel gave up (or gained)
@@ -305,7 +320,7 @@ class Sidebar(ttk.Frame):
         n = len(sections)
         free_h = max(0, h - H * n - S * (n - 1))
 
-        # Expanded slots
+        # Expanded slots in display order
         exp_slots = [slot for _, _, c, slot in sections if not c]
         n_exp = max(len(exp_slots), 1)
         default_h = max(M, free_h // n_exp)
@@ -319,14 +334,25 @@ class Sidebar(ttk.Frame):
         desired = {slot: self._get_h(slot) for slot in exp_slots}
         total_desired = sum(desired.values())
 
-        # Only squish when the total truly overflows available space
         body_h: dict[int, int] = {}
-        if total_desired <= free_h or not desired:
-            body_h = dict(desired)
-        else:
+        if not desired:
+            pass
+        elif total_desired > free_h:
+            # Panels overflow — proportionally squish to fit
             for slot, want in desired.items():
                 ratio = want / total_desired
                 body_h[slot] = max(M, int(free_h * ratio))
+        else:
+            # Panels fit — assign desired heights, give leftover to last expanded panel
+            body_h = dict(desired)
+
+        # Ensure total fills free_h exactly (no empty gap at the bottom)
+        if body_h and exp_slots:
+            used = sum(body_h.values())
+            leftover = free_h - used
+            if leftover != 0:
+                last = exp_slots[-1]
+                body_h[last] = max(M, body_h[last] + leftover)
 
         # Hide everything, then re-place top-to-bottom
         for widget in (self.outline, self.references, self.source_control,

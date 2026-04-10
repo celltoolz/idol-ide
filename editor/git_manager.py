@@ -145,12 +145,13 @@ class GitManager:
         self._root  = root
         self._after = after_fn
 
-    # ── Sync ──────────────────────────────────────────────────────────────────
-
-    def is_repo(self) -> bool:
-        return bool(_run_git(["rev-parse", "--is-inside-work-tree"], self._root).strip())
-
     # ── Async ─────────────────────────────────────────────────────────────────
+
+    def is_repo(self, callback: Callable[[bool], None]) -> None:
+        def _run() -> None:
+            result = bool(_run_git(["rev-parse", "--is-inside-work-tree"], self._root).strip())
+            self._after(0, lambda r=result: callback(r))
+        threading.Thread(target=_run, daemon=True).start()
 
     def get_branch(self, callback: Callable[[str], None]) -> None:
         def _run() -> None:

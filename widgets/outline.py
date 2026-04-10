@@ -261,8 +261,6 @@ class OutlinePanel(ttk.Frame):
                                              values=(aline,),
                                              tags=("attr",))
                         locals_ = self._local_vars(child)
-                        for aname, aline in self._instance_attrs(child):
-                            locals_.append(("attr", aname, aline))
                         self._locals[child.lineno] = locals_
                         for ltag, lname, lline in locals_:
                             icon = "◈" if ltag in ("nested_fn", "nested_class") else "◦"

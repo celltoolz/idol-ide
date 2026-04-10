@@ -66,7 +66,9 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     except Exception:
         pass
     try:
-        layout["v_sash"] = app._v_pane.sashpos(0)
+        v = app._v_pane.sashpos(0)
+        if v > 0:  # skip if widget is being torn down
+            layout["v_sash"] = v
     except Exception:
         pass
     sb = app._sidebar

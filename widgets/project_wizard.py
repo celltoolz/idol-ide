@@ -170,7 +170,8 @@ class ProjectWizard(tk.Toplevel):
         self._git_var     = tk.BooleanVar(value=True)
         self._files_var   = tk.BooleanVar(value=True)
 
-        self._pythons: list[tuple[str, str]] = []   # all detected, populated lazily
+        self._pythons: list[tuple[str, str]] = []   # populated by background thread
+        self._detecting = True
         self._show_venv_var   = tk.BooleanVar(value=False)  # hide venv by default
         self._show_system_var = tk.BooleanVar(value=True)
 
@@ -205,7 +206,24 @@ class ProjectWizard(tk.Toplevel):
 
         self._nav_btn(nav, "Cancel", self.destroy).pack(side="right", padx=8)
 
+        threading.Thread(target=self._detect_pythons_bg, daemon=True).start()
         self._render()
+
+    # ── Python detection (background) ─────────────────────────────────────────
+
+    def _detect_pythons_bg(self) -> None:
+        """Run interpreter detection off the main thread."""
+        results = _detect_pythons()
+        self.after(0, self._on_pythons_ready, results)
+
+    def _on_pythons_ready(self, results: list[tuple[str, str]]) -> None:
+        """Called on the main thread when detection finishes."""
+        if not self.winfo_exists():
+            return
+        self._pythons = results
+        self._detecting = False
+        if self._step == 1:
+            self._render()
 
     # ── Navigation helpers ────────────────────────────────────────────────────
 
@@ -228,6 +246,8 @@ class ProjectWizard(tk.Toplevel):
             self._render()
 
     def _next(self) -> None:
+        if self._step == 1 and self._detecting:
+            return
         if not self._validate():
             return
         if self._step < len(self._STEPS) - 1:
@@ -364,61 +384,69 @@ class ProjectWizard(tk.Toplevel):
               justify="left").pack(anchor="w")
 
         self._row("Python Interpreter")
-        if not self._pythons:
-            self._pythons = _detect_pythons()
-            if self._pythons:
-                self._python_var.set(self._pythons[0][1])
 
-        combo = ttk.Combobox(self._content, state="readonly", font=("Segoe UI", 9))
+        combo = ttk.Combobox(self._content, font=("Segoe UI", 9))
         combo.pack(fill="x", ipady=3)
 
-        def _filtered() -> list[tuple[str, str]]:
-            show_venv   = self._show_venv_var.get()
-            show_system = self._show_system_var.get()
-            out = []
-            for label, exe in self._pythons:
-                cat = _categorize(exe)
-                if cat == "venv"   and not show_venv:   continue
-                if cat == "system" and not show_system: continue
-                out.append((label, exe))
-            return out
+        if self._detecting:
+            # ── Loading state: detection still running in background ──────────
+            combo.configure(state="disabled")
+            combo["values"] = ["Detecting Python interpreters…"]
+            combo.current(0)
+            self._set_nav_enabled(self._next_btn, False)
+            Label(self._content, text="Scanning for interpreters, please wait…",
+                  bg=_BG, fg=_DIM, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+        else:
+            # ── Ready: populate combo with detected interpreters ──────────────
+            combo.configure(state="readonly")
 
-        def _refresh_combo(*_) -> None:
-            if not combo.winfo_exists():
-                return
-            visible = _filtered()
-            if not visible:
-                combo["values"] = ["(no interpreters match filters)"]
-                combo.current(0)
-                self._python_var.set("")
-                return
-            combo["values"] = [label for label, _ in visible]
-            cur = self._python_var.get()
-            try:
-                idx = next(i for i, (_, exe) in enumerate(visible) if exe == cur)
-            except StopIteration:
-                idx = 0
-            combo.current(idx)
-            self._python_var.set(visible[idx][1])
+            def _filtered() -> list[tuple[str, str]]:
+                show_venv   = self._show_venv_var.get()
+                show_system = self._show_system_var.get()
+                out = []
+                for label, exe in self._pythons:
+                    cat = _categorize(exe)
+                    if cat == "venv"   and not show_venv:   continue
+                    if cat == "system" and not show_system: continue
+                    out.append((label, exe))
+                return out
 
-        def _on_select(_=None) -> None:
-            visible = _filtered()
-            idx = combo.current()
-            if 0 <= idx < len(visible):
+            def _refresh_combo(*_) -> None:
+                if not combo.winfo_exists():
+                    return
+                visible = _filtered()
+                if not visible:
+                    combo["values"] = ["(no interpreters match filters)"]
+                    combo.current(0)
+                    self._python_var.set("")
+                    return
+                combo["values"] = [label for label, _ in visible]
+                cur = self._python_var.get()
+                try:
+                    idx = next(i for i, (_, exe) in enumerate(visible) if exe == cur)
+                except StopIteration:
+                    idx = 0
+                combo.current(idx)
                 self._python_var.set(visible[idx][1])
 
-        combo.bind("<<ComboboxSelected>>", _on_select)
-        self._show_venv_var.trace_add("write",   lambda *_: _refresh_combo())
-        self._show_system_var.trace_add("write",  lambda *_: _refresh_combo())
-        _refresh_combo()
+            def _on_select(_=None) -> None:
+                visible = _filtered()
+                idx = combo.current()
+                if 0 <= idx < len(visible):
+                    self._python_var.set(visible[idx][1])
 
-        # Filter toggles
-        filter_row = Frame(self._content, bg=_BG)
-        filter_row.pack(fill="x", pady=(4, 0))
-        Label(filter_row, text="Show:", bg=_BG, fg=_DIM,
-              font=("Segoe UI", 8)).pack(side="left", padx=(0, 6))
-        self._mini_check(filter_row, "venv",   self._show_venv_var)
-        self._mini_check(filter_row, "system", self._show_system_var)
+            combo.bind("<<ComboboxSelected>>", _on_select)
+            self._show_venv_var.trace_add("write",  lambda *_: _refresh_combo())
+            self._show_system_var.trace_add("write", lambda *_: _refresh_combo())
+            _refresh_combo()
+
+            # Filter toggles
+            filter_row = Frame(self._content, bg=_BG)
+            filter_row.pack(fill="x", pady=(4, 0))
+            Label(filter_row, text="Show:", bg=_BG, fg=_DIM,
+                  font=("Segoe UI", 8)).pack(side="left", padx=(0, 6))
+            self._mini_check(filter_row, "venv",   self._show_venv_var)
+            self._mini_check(filter_row, "system", self._show_system_var)
 
         Label(self._content, text="", bg=_BG).pack()  # spacer
         self._check("Create virtual environment (recommended)", self._venv_var,

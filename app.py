@@ -3,6 +3,8 @@ from __future__ import annotations
 import builtins
 import os
 import re
+import threading
+import tkinter as tk
 from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showinfo, showerror, askyesnocancel, askyesno
@@ -253,17 +255,30 @@ class Notepad(Tk):
         # Inline find/replace bar (lives inside nb_frame, hidden by default)
         self._find_replace = FindReplaceBar(nb_frame)
 
+        # ‹ › + tab navigation buttons — parented to nb_frame and lifted above
+        # the notebook so they float over the tab bar row.  relx=1.0 keeps them
+        # flush-right on every resize with zero Configure wiring.
+        self._btn_frame = tk.Frame(nb_frame, bg="#2d2d30")
+
         def _make_tab_btn(text: str, command, fg_hover: str = "#cccccc") -> Label:
-            lbl = Label(nb_frame, text=text, bg="#2d2d30", fg="#858585",
+            lbl = Label(self._btn_frame, text=text, bg="#2d2d30", fg="#858585",
                         font=("Segoe UI", 11, "bold"), cursor="hand2", padx=6, pady=0)
             lbl.bind("<Button-1>", lambda _: command())
             lbl.bind("<Enter>",   lambda _: lbl.config(fg=fg_hover))
             lbl.bind("<Leave>",   lambda _: lbl.config(fg="#858585"))
+            lbl.pack(side="left")
             return lbl
 
         self._prev_btn = _make_tab_btn(" ‹ ", self.notebook.select_prev)
         self._next_btn = _make_tab_btn(" › ", self.notebook.select_next)
         self._plus_btn = _make_tab_btn(" + ", self.file_new, fg_hover="#2ea043")
+
+        # Anchor to top-right of nb_frame; lift above the packed notebook so
+        # the frame floats over the tab bar row (not the editor content).
+        self._btn_frame.place(relx=1.0, rely=0.0, anchor="ne", y=2)
+        self._btn_frame.lift()
+        # Reserve tab bar right margin so tabs never slide under the buttons
+        ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, 62, 0])
 
         self._output = BottomPanel(self._v_pane, run_callback=self.run_file,
                                    cwd=os.getcwd())
@@ -274,7 +289,7 @@ class Notepad(Tk):
         # Start LSP and Git after the UI is fully mapped
         self.after(500, self._start_lsp)
         self.after(700, self._start_git)
-        # Re-position <> + buttons and completion popup whenever the window is moved/resized
+        # Reposition autocomplete popup on window move/resize
         self.bind("<Configure>", self._on_window_configure)
 
     def _init_sash_pos(self, _=None) -> None:
@@ -284,20 +299,10 @@ class Notepad(Tk):
         total = self._v_pane.winfo_height()
         if total > 200:
             self._v_pane.sashpos(0, total - 160)
-        self._place_plus_btn()
 
     def _on_window_configure(self, event=None) -> None:
-        # root.bind("<Configure>") fires for EVERY widget's geometry change in
-        # the process, not just actual window resizes.  Filter to only the root
-        # window itself; child-widget events (buttons, labels, canvas items…)
-        # must be ignored or place() calls inside _place_plus_btn generate new
-        # Configure events that re-trigger this handler in a tight 10 ms loop,
-        # causing the whole-window flicker visible in the SC panel.
         if event is not None and event.widget is not self:
             return
-        if hasattr(self, "_place_btn_id"):
-            self.after_cancel(self._place_btn_id)
-        self._place_btn_id = self.after(10, self._place_plus_btn)
         if self._completion.visible:
             cv = self._current_codeview
             if cv is None:
@@ -311,50 +316,6 @@ class Notepad(Tk):
                 cv.winfo_rooty() + by + bh + 2,
             )
 
-    def _place_plus_btn(self) -> None:
-        """Position the ‹ › + buttons directly above the vertical scrollbar."""
-        nb = self.notebook  # buttons always live in the left notebook frame
-        left_cv_id = nb.select() if nb.tabs() else None
-        left_cv = self._codeviews.get(left_cv_id) if left_cv_id else None
-        if left_cv is None:
-            return
-        vs = left_cv._vs
-        vs_x = vs.winfo_x() + left_cv._frame.winfo_x() + nb.winfo_x()
-        vs_w = vs.winfo_width()
-        crumb = self._breadcrumbs.get(left_cv_id)
-        crumb_h = crumb.winfo_height() if crumb and crumb.winfo_ismapped() else 0
-        tab_h = nb.winfo_height() - left_cv._frame.winfo_height() - crumb_h
-        btn_h = max(tab_h - 6, 16)
-
-        # Account for minimap + border widths so buttons sit left of them
-        mm = left_cv._minimap
-        mm_w = (
-            (mm.winfo_width() + mm._border.winfo_width()) if mm.winfo_ismapped() else 0
-        )
-        right_x = vs_x + vs_w + mm_w  # right edge of the minimap column
-
-        # Place ‹ › + side by side, each the same width as the scrollbar
-        self._prev_btn.place(
-            x=right_x - vs_w * 3, y=3, width=vs_w, height=btn_h, anchor="nw"
-        )
-        self._next_btn.place(
-            x=right_x - vs_w * 2, y=3, width=vs_w, height=btn_h, anchor="nw"
-        )
-        self._plus_btn.place(
-            x=right_x - vs_w, y=3, width=vs_w, height=btn_h, anchor="nw"
-        )
-
-        # Keep find/replace bar above the buttons at all times
-        if self._find_replace:
-            self._find_replace.lift()
-
-        # Reserve tab bar margin so tabs never slide under the buttons
-        btn_area = vs_w * 3 + 6
-        if getattr(self, "_last_btn_area", None) != btn_area:
-            self._last_btn_area = btn_area
-            ttk.Style().configure(
-                "CustomNotebook", tabmargins=[2, 5, btn_area + mm_w, 0]
-            )
 
     def _bind_shortcuts(self) -> None:
         self.bind("<Control-n>", lambda _: self.file_new())
@@ -675,7 +636,6 @@ class Notepad(Tk):
             crumb = self._breadcrumbs.get(tab_id)
             if crumb:
                 crumb.invalidate()
-            self.after(50, self._place_plus_btn)
             # Apply cached git hunks for this tab; fetch fresh ones
             cv._line_numbers.set_git_hunks(self._git_hunks.get(tab_id, []))
             self._refresh_git_hunks()
@@ -966,14 +926,19 @@ class Notepad(Tk):
 
     def _start_git(self) -> None:
         root = str(self._sidebar.explorer._root or os.getcwd())
-        self._git = GitManager(root, after_fn=self.after)
-        if not self._git.is_repo():
-            self._git = None
-            self._on_git_branch("")
-            if self._sidebar._sc_visible:
-                self._sidebar.source_control.refresh({}, {})
-            return
-        self._refresh_git()
+        git = GitManager(root, after_fn=self.after)
+        self._git = git
+
+        def _on_is_repo(ok: bool) -> None:
+            if not ok:
+                self._git = None
+                self._on_git_branch("")
+                if self._sidebar._sc_visible:
+                    self._sidebar.source_control.refresh({}, {})
+                return
+            self._refresh_git()
+
+        git.is_repo(_on_is_repo)
 
     def _refresh_git(self) -> None:
         if not self._git:
@@ -1053,7 +1018,7 @@ class Notepad(Tk):
             return
 
         def _done(output: str) -> None:
-            self._output.output.write(f"[git commit]\n{output}\n", "stdout")
+            self._output.output.write(f"[git commit]\n{output}\n", "info")
             self._refresh_git()
             self._refresh_sc_panel()
 
@@ -1062,11 +1027,11 @@ class Notepad(Tk):
     def _sc_push(self) -> None:
         if not self._git:
             return
-        self._output.output.write("[git push] Running…\n", "stdout")
+        self._output.output.write("[git push] Running…\n", "info")
 
         def _done(output: str) -> None:
-            self._output.output.write(f"{output}\n", "stdout")
-            if "no configured push destination" in output or "fatal" in output.lower() and "remote" in output.lower():
+            self._output.output.write(f"{output}\n", "info")
+            if "no configured push destination" in output or ("fatal" in output.lower() and "remote" in output.lower()):
                 self._show_remote_guide()
             self._refresh_git()
 
@@ -1080,10 +1045,10 @@ class Notepad(Tk):
     def _sc_pull(self) -> None:
         if not self._git:
             return
-        self._output.output.write("[git pull] Running…\n", "stdout")
+        self._output.output.write("[git pull] Running…\n", "info")
 
         def _done(output: str) -> None:
-            self._output.output.write(f"{output}\n", "stdout")
+            self._output.output.write(f"{output}\n", "info")
             self._refresh_git()
             self._refresh_sc_panel()
 
@@ -1117,70 +1082,84 @@ class Notepad(Tk):
             rel = os.path.relpath(path, root).replace("\\", "/")
         except ValueError:
             rel = os.path.basename(path)
-        # Don't add a duplicate entry
-        if os.path.exists(gitignore_path):
-            with open(gitignore_path, "r", encoding="utf-8") as f:
-                existing = f.read()
-            if rel in existing.splitlines():
-                self._output.output.write(f"[.gitignore] {rel} is already listed.\n", "stdout")
-                return
-            with open(gitignore_path, "a", encoding="utf-8") as f:
-                if not existing.endswith("\n"):
-                    f.write("\n")
-                f.write(f"{rel}\n")
-        else:
-            with open(gitignore_path, "w", encoding="utf-8") as f:
-                f.write(f"{rel}\n")
-        self._output.output.write(f"[.gitignore] Added: {rel}\n", "stdout")
-        self._refresh_git()
-        self._refresh_sc_panel()
+
+        def _run() -> None:
+            # Don't add a duplicate entry
+            if os.path.exists(gitignore_path):
+                with open(gitignore_path, "r", encoding="utf-8") as f:
+                    existing = f.read()
+                if rel in existing.splitlines():
+                    self.after(0, lambda: self._output.output.write(
+                        f"[.gitignore] {rel} is already listed.\n", "info"))
+                    return
+                with open(gitignore_path, "a", encoding="utf-8") as f:
+                    if not existing.endswith("\n"):
+                        f.write("\n")
+                    f.write(f"{rel}\n")
+            else:
+                with open(gitignore_path, "w", encoding="utf-8") as f:
+                    f.write(f"{rel}\n")
+            self.after(0, lambda: (
+                self._output.output.write(f"[.gitignore] Added: {rel}\n", "info"),
+                self._refresh_git(),
+                self._refresh_sc_panel(),
+            ))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _sc_create_gitignore(self) -> None:
         """Create a standard Python .gitignore in the repo root if absent."""
         if not self._git:
             return
         dest = os.path.join(self._git._root, ".gitignore")
-        if os.path.exists(dest):
-            self._output.output.write("[.gitignore] File already exists.\n", "stderr")
-            return
-        template = (
-            "# Byte-compiled / optimized / DLL files\n"
-            "__pycache__/\n"
-            "*.py[cod]\n"
-            "*$py.class\n\n"
-            "# Distribution / packaging\n"
-            "dist/\n"
-            "build/\n"
-            "*.egg-info/\n"
-            ".eggs/\n\n"
-            "# Virtual environments (named folders)\n"
-            ".venv/\n"
-            "venv/\n"
-            "env/\n"
-            "# Virtual environment files at repo root (macOS/Linux venv created in-place)\n"
-            "bin/\n"
-            "include/\n"
-            "lib/\n"
-            "lib64\n"
-            "pyvenv.cfg\n"
-            "share/\n\n"
-            "# Unit test / coverage\n"
-            ".pytest_cache/\n"
-            ".coverage\n"
-            "htmlcov/\n\n"
-            "# IDEs / editors\n"
-            ".vscode/\n"
-            ".idea/\n"
-            "*.swp\n\n"
-            "# OS\n"
-            ".DS_Store\n"
-            "Thumbs.db\n"
-        )
-        with open(dest, "w", encoding="utf-8") as f:
-            f.write(template)
-        self._output.output.write("[.gitignore] Created.\n", "stdout")
-        self._refresh_git()
-        self._refresh_sc_panel()
+
+        def _run() -> None:
+            if os.path.exists(dest):
+                self.after(0, lambda: self._output.output.write(
+                    "[.gitignore] File already exists.\n", "stderr"))
+                return
+            template = (
+                "# Byte-compiled / optimized / DLL files\n"
+                "__pycache__/\n"
+                "*.py[cod]\n"
+                "*$py.class\n\n"
+                "# Distribution / packaging\n"
+                "dist/\n"
+                "build/\n"
+                "*.egg-info/\n"
+                ".eggs/\n\n"
+                "# Virtual environments (named folders)\n"
+                ".venv/\n"
+                "venv/\n"
+                "env/\n"
+                "# Virtual environment files at repo root (macOS/Linux venv created in-place)\n"
+                "bin/\n"
+                "include/\n"
+                "lib/\n"
+                "lib64\n"
+                "pyvenv.cfg\n"
+                "share/\n\n"
+                "# Unit test / coverage\n"
+                ".pytest_cache/\n"
+                ".coverage\n"
+                "htmlcov/\n\n"
+                "# IDEs / editors\n"
+                ".vscode/\n"
+                ".idea/\n"
+                "*.swp\n\n"
+                "# OS\n"
+                ".DS_Store\n"
+                "Thumbs.db\n"
+            )
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write(template)
+            self.after(0, lambda: (
+                self._output.output.write("[.gitignore] Created.\n", "info"),
+                self._refresh_git(),
+                self._refresh_sc_panel(),
+            ))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _open_diff_tab(self, title: str, diff_text: str) -> None:
         """Create a read-only syntax-colored tab showing a unified diff."""
@@ -1193,7 +1172,7 @@ class Notepad(Tk):
             bg="#1e1e1e",
             fg="#cccccc",
             font=self._codeviews[self._current_tab_id].cget("font")
-            if self._current_tab_id and self._codeviews
+            if self._current_tab_id and self._codeviews.get(self._current_tab_id)
             else ("Consolas", 11),
             insertwidth=0,
             relief="flat",
@@ -1482,6 +1461,7 @@ class Notepad(Tk):
             old_tab_id is not None
             and self._titles.get(old_tab_id) == "Untitled"
             and not self._dirty.get(old_tab_id)
+            and self._codeviews[old_tab_id] is not None
             and not self._codeviews[old_tab_id].get("1.0", "end-1c").strip()
         )
 
@@ -1613,10 +1593,20 @@ class Notepad(Tk):
         for tab_id in list(self.notebook.tabs()):
             if not self._confirm_close_tab(tab_id):
                 return  # user cancelled — abort exit
+        self._do_exit()
+
+    def _do_exit(self) -> None:
+        """Save session and quit — called exactly once."""
+        if getattr(self, "_exiting", False):
+            return
+        self._exiting = True
         session_utils.save(self)
         self.quit()
 
     def destroy(self) -> None:
+        # destroy() is called by the WM close button; route through file_exit
+        # so dirty-tab prompts run.  _do_exit guards against double-save if
+        # quit() triggers another destroy() before the process exits.
         self.file_exit()
 
     def workspace_new(self, *_) -> None:
@@ -1804,6 +1794,10 @@ class Notepad(Tk):
                 cv.show_minimap()
             else:
                 cv.hide_minimap()
+        # Shift btn_frame left of minimap when visible (minimap=90px + 1px border)
+        mm_offset = 91 if show else 0
+        self._btn_frame.place(relx=1.0, rely=0.0, anchor="ne", y=2, x=-mm_offset)
+        ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, 62 + mm_offset, 0])
 
     def view_split_editor(self) -> None:
         """Toggle the split editor."""
