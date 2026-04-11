@@ -84,6 +84,10 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - **Real-world example** — how you'd actually use it
 - Zero overhead when the tab is closed — hover bindings are no-ops until F1 is active
 - Covers 20+ IDE elements: editor, tabs, outline, references, source control, explorer, commit/push/pull/stage/discard, git health, commit history, status bar segments, breadcrumb bar, find & replace, output, terminal
+- **✦ Local AI explanations** — powered by [Ollama](https://ollama.com) (no API key, runs fully offline)
+  - Each hovered element gets an **Ask AI** button that streams a beginner-friendly explanation in real time
+  - Offline card shows platform-specific install instructions and model setup when Ollama isn't running
+  - Recommended model: `qwen2.5-coder` (~4GB) — install with `ollama pull qwen2.5-coder`
 
 ### Project Wizard
 - **File → New Project…** launches a guided 4-step project setup wizard
