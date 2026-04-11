@@ -10,6 +10,7 @@ from utils import bind_right_click
 from utils.git_diagnostics import (
     classify_file, analyze_files, health_checks, FileInfo, Issue, HealthCheck
 )
+from utils.learning_registry import LearningManager
 from widgets.guide_window import GuideWindow, GuidePage
 
 
@@ -808,6 +809,10 @@ class SourceControlPanel(ttk.Frame):
         self._history_offset = 0   # how many commits already loaded
         self._repack_sections()
 
+        LearningManager.register(self._staged_sec,   "sc_stage_btn")
+        LearningManager.register(self._unstaged_sec, "sc_stage_btn")
+        LearningManager.register(self._history_sec,  "commit_history")
+
         # Single unified context menu — items shown/hidden based on context
         self._ctx_menu = Menu(self, tearoff=0)
         self._ctx_menu.add_command(label="Open Changes",     command=self._ctx_do_diff)
@@ -951,11 +956,16 @@ class SourceControlPanel(ttk.Frame):
             lbl.bind("<Leave>", lambda _: lbl.config(bg=_BTN_BG))
             return lbl
 
-        _btn(btn_row, "✓ Commit", self._do_commit).pack(side="left")
+        self._commit_btn = _btn(btn_row, "✓ Commit", self._do_commit)
+        self._commit_btn.pack(side="left")
         self._push_btn = self._make_confirm_btn(btn_row, "↑ Push", self._on_push)
         self._push_btn.pack(side="left", padx=(4, 0))
         self._pull_btn = self._make_confirm_btn(btn_row, "↓ Pull", self._on_pull)
         self._pull_btn.pack(side="left", padx=(4, 0))
+
+        LearningManager.register(self._commit_btn, "sc_commit_btn")
+        LearningManager.register(self._push_btn,   "sc_push_btn")
+        LearningManager.register(self._pull_btn,   "sc_pull_btn")
 
     _BTN_CONFIRM = "#c47a00"   # amber — "are you sure?"
     _BTN_CONF_ACT = "#d48b0e"  # slightly lighter on hover
@@ -1168,6 +1178,7 @@ class SourceControlPanel(ttk.Frame):
         self._health_rows: list[Frame] = []
 
         self._health_frame.pack(fill="x")
+        LearningManager.register(self._health_frame, "git_health_panel")
 
     def _toggle_health(self) -> None:
         self._health_collapsed = not self._health_collapsed

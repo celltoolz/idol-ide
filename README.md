@@ -76,6 +76,15 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **Run Selection** — right-click a highlighted block to run just that snippet (auto-dedents indented blocks)
 - OUTPUT and TERMINAL tabs share the bottom panel
 
+### Learning Mode (F1)
+- Press **F1** (or **Help → Learning Mode**) to open a dedicated Learning tab in the editor
+- Hover over any IDE element — panels, buttons, the editor, status bar, breadcrumb — and the Learning tab populates instantly with:
+  - **What it is** — plain-English description
+  - **How it works** — the mechanics behind it
+  - **Real-world example** — how you'd actually use it
+- Zero overhead when the tab is closed — hover bindings are no-ops until F1 is active
+- Covers 20+ IDE elements: editor, tabs, outline, references, source control, explorer, commit/push/pull/stage/discard, git health, commit history, status bar segments, breadcrumb bar, find & replace, output, terminal
+
 ### Project Wizard
 - **File → New Project…** launches a guided 4-step project setup wizard
   - Step 1: Project name and location (with live path preview)
@@ -126,6 +135,7 @@ python main.py
 | Split editor | Ctrl+\\ |
 | Source control | Ctrl+Shift+G |
 | New terminal | Ctrl+` |
+| Learning Mode | F1 |
 | Zen mode | F11 |
 | Change font | Ctrl+L |
 | Add cursor | Alt+Click |

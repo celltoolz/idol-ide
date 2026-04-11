@@ -37,6 +37,8 @@ from editor.lsp_manager import (
 from editor.git_manager import GitManager
 from menus.menubar import build_menubar
 from utils import session as session_utils
+from utils.learning_registry import LearningManager
+from widgets.learning_panel import LearningPanel
 
 # Words that should NOT trigger word-highlight on click
 _SKIP_HIGHLIGHT = (
@@ -184,6 +186,10 @@ class Notepad(Tk):
         self._git_status: dict[str, str] = {}  # normcase_path → M/A/U/D
         self._git_tab_status: dict[str, str] = {}  # tab_id → status char
         self._git_hunks: dict[str, list] = {}  # tab_id → hunk list
+
+        # Learning Mode
+        self._learning_tab: str | None = None   # tab_id of the Learning tab, or None
+        self._learning_panel: LearningPanel | None = None
 
         # Split editor
         self._split_active: bool = False
@@ -380,8 +386,13 @@ class Notepad(Tk):
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
         self.bind("<F11>", lambda _: self.view_zen_mode())
+        self.bind("<F1>",  lambda _: self.view_learning_mode())
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
+
+        # Learning Mode — register handler (no-op until F1 tab is open)
+        LearningManager.set_handler(self._on_learning_hover)
+        self._register_learning_widgets()
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
 
@@ -447,6 +458,9 @@ class Notepad(Tk):
         codeview.pack(fill="both", expand=True)
         codeview.insert("1.0", content)
         codeview.edit_reset()  # clear undo history after initial load
+
+        LearningManager.register(crumb,     "breadcrumb_bar")
+        LearningManager.register(codeview,  "editor")
 
         self.notebook.add(frame, text=f"  {title}  ")
         self.notebook.select(frame)
@@ -2062,6 +2076,72 @@ class Notepad(Tk):
             self._close_split()
         else:
             self._open_in_split(self._current_tab_id)
+
+    # ── Learning Mode ─────────────────────────────────────────────────────────
+
+    def view_learning_mode(self) -> None:
+        """F1 — open or focus the Learning Mode tab."""
+        # If already open, just focus it
+        if self._learning_tab:
+            try:
+                self.notebook.select(self._learning_tab)
+                return
+            except Exception:
+                self._learning_tab = None
+                self._learning_panel = None
+
+        frame = ttk.Frame(self.notebook)
+        panel = LearningPanel(frame)
+        panel.pack(fill="both", expand=True)
+
+        self.notebook.add(frame, text="  📖 Learning  ")
+        self.notebook.select(frame)
+
+        self._learning_tab   = self.notebook.select()
+        self._learning_panel = panel
+
+    def _on_learning_hover(self, lid: str) -> None:
+        """Called when any registered widget is hovered — update Learning panel."""
+        if not self._learning_tab or not self._learning_panel:
+            return
+        # Only update if the Learning tab is currently visible
+        try:
+            if self.notebook.select() != self._learning_tab:
+                return
+        except Exception:
+            return
+        self._learning_panel.show(lid)
+
+    def _register_learning_widgets(self) -> None:
+        """Tag all known IDE widgets with their learning IDs."""
+        LM = LearningManager
+
+        # Sidebar section headers
+        LM.register(self._sidebar._outline_hdr,    "outline_panel")
+        LM.register(self._sidebar.outline,          "outline_panel")
+        LM.register(self._sidebar._refs_hdr,        "references_panel")
+        LM.register(self._sidebar.references,       "references_panel")
+        LM.register(self._sidebar._sc_hdr,          "source_control_panel")
+        LM.register(self._sidebar.source_control,   "source_control_panel")
+        LM.register(self._sidebar._explorer_hdr,    "explorer_panel")
+
+        # Source control action buttons
+        sc = self._sidebar.source_control
+        LM.register(sc._push_btn,   "sc_push_btn")
+        LM.register(sc._pull_btn,   "sc_pull_btn")
+
+        # Status bar segments
+        LM.register(self._statusbar._pos_lbl,     "statusbar_position")
+        LM.register(self._statusbar._branch_lbl,  "statusbar_branch")
+        LM.register(self._statusbar._lexer_lbl,   "statusbar_lexer")
+        LM.register(self._statusbar._indent_lbl,  "statusbar_indent")
+
+        # Find & Replace bar
+        LM.register(self._find_replace, "find_replace_bar")
+
+        # Output / Terminal bottom panel
+        LM.register(self._output.output,   "output_panel")
+        LM.register(self._output.terminal, "terminal_panel")
 
     # ── Zen mode ──────────────────────────────────────────────────────────────
 
