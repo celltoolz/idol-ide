@@ -952,8 +952,54 @@ class SourceControlPanel(ttk.Frame):
             return lbl
 
         _btn(btn_row, "✓ Commit", self._do_commit).pack(side="left")
-        _btn(btn_row, "↑ Push",   self._on_push).pack(side="left", padx=(4, 0))
-        _btn(btn_row, "↓ Pull",   self._on_pull).pack(side="left", padx=(4, 0))
+        self._push_btn = self._make_confirm_btn(btn_row, "↑ Push", self._on_push)
+        self._push_btn.pack(side="left", padx=(4, 0))
+        self._pull_btn = self._make_confirm_btn(btn_row, "↓ Pull", self._on_pull)
+        self._pull_btn.pack(side="left", padx=(4, 0))
+
+    _BTN_CONFIRM = "#c47a00"   # amber — "are you sure?"
+    _BTN_CONF_ACT = "#d48b0e"  # slightly lighter on hover
+
+    def _make_confirm_btn(self, parent, label: str, action: Callable) -> Label:
+        """Two-stage push/pull button: first click arms it (amber), second fires."""
+        _armed = [False]
+        _reset_id = [None]
+
+        lbl = Label(parent, text=label, bg=_BTN_BG, fg="white",
+                    font=("Segoe UI", 8, "bold"), cursor="hand2",
+                    padx=8, pady=3)
+
+        def _reset():
+            _armed[0] = False
+            lbl.config(text=label, bg=_BTN_BG)
+            if _reset_id[0]:
+                lbl.after_cancel(_reset_id[0])
+                _reset_id[0] = None
+
+        def _click(_evt=None):
+            if not _armed[0]:
+                # Arm it
+                _armed[0] = True
+                lbl.config(text=label.split()[0] + " Confirm?",
+                           bg=self._BTN_CONFIRM)
+                if _reset_id[0]:
+                    lbl.after_cancel(_reset_id[0])
+                _reset_id[0] = lbl.after(3000, _reset)
+            else:
+                # Execute and reset
+                _reset()
+                action()
+
+        def _enter(_):
+            lbl.config(bg=self._BTN_CONF_ACT if _armed[0] else _BTN_ACT)
+
+        def _leave(_):
+            lbl.config(bg=self._BTN_CONFIRM if _armed[0] else _BTN_BG)
+
+        lbl.bind("<Button-1>", _click)
+        lbl.bind("<Enter>",    _enter)
+        lbl.bind("<Leave>",    _leave)
+        return lbl
 
     def _msg_focus_in(self, _) -> None:
         if self._placeholder_active:

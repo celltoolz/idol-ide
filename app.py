@@ -1315,39 +1315,97 @@ class Notepad(Tk):
         threading.Thread(target=_run, daemon=True).start()
 
     def _sc_untrack_venv(self) -> None:
-        """Run git rm -r --cached on all detected venv folders in the repo."""
+        """Fix venv git tracking: add patterns to .gitignore (untracked) or git rm --cached (tracked)."""
         if not self._git:
             return
         root = self._git._root
-        # Common venv folder names to untrack
-        venv_candidates = [".venv", "venv", "env", ".env",
-                           "bin", "lib", "lib64", "include", "share"]
+        venv_candidates = [".venv", "venv", "env", "bin", "lib", "lib64", "include", "share"]
         import subprocess
 
         def _run() -> None:
-            removed_any = False
+            # Get current git status to distinguish untracked (??) vs tracked files
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=root, capture_output=True, text=True
+            )
+            untracked_folders: list[str] = []
+            tracked_folders:   list[str] = []
+
             for name in venv_candidates:
                 folder = os.path.join(root, name)
-                if os.path.exists(folder):
-                    result = subprocess.run(
-                        ["git", "rm", "-r", "--cached", "--ignore-unmatch", name],
-                        cwd=root, capture_output=True, text=True
-                    )
-                    if result.stdout.strip():
-                        removed_any = True
-                        self.after(0, lambda o=result.stdout.strip():
-                            self._output.output.write(f"{o}\n", "info"))
-            if removed_any:
+                if not os.path.isdir(folder):
+                    continue
+                # Check if any files from this folder appear as untracked (??) or tracked
+                folder_prefix = name + "/"
+                has_untracked = any(
+                    line[3:].startswith(folder_prefix) or line[3:].strip() == name
+                    for line in status_result.stdout.splitlines()
+                    if line.startswith("??")
+                )
+                has_tracked = any(
+                    line[3:].startswith(folder_prefix) or line[3:].strip() == name
+                    for line in status_result.stdout.splitlines()
+                    if not line.startswith("??")
+                )
+                if has_untracked:
+                    untracked_folders.append(name)
+                elif has_tracked:
+                    tracked_folders.append(name)
+                else:
+                    # Folder exists but nothing shows in status — could be fully tracked
+                    tracked_folders.append(name)
+
+            did_something = False
+
+            # Untracked venv folders → add patterns to .gitignore
+            if untracked_folders:
+                gitignore_path = os.path.join(root, ".gitignore")
+                existing = ""
+                if os.path.exists(gitignore_path):
+                    with open(gitignore_path, "r", encoding="utf-8") as f:
+                        existing = f.read()
+
+                lines_to_add: list[str] = []
+                for name in untracked_folders:
+                    pattern = name + "/"
+                    if pattern not in existing and name not in existing:
+                        lines_to_add.append(pattern)
+
+                if lines_to_add:
+                    addition = "\n# Virtual Environment\n" + "\n".join(lines_to_add) + "\n"
+                    with open(gitignore_path, "a", encoding="utf-8") as f:
+                        f.write(addition)
+                    added = ", ".join(lines_to_add)
+                    self.after(0, lambda a=added: self._output.output.write(
+                        f"[.gitignore] Added: {a}\n", "info"))
+                    did_something = True
+                else:
+                    self.after(0, lambda: self._output.output.write(
+                        "[.gitignore] Venv patterns already present.\n", "info"))
+                    did_something = True
+
+            # Tracked venv folders → remove from git index
+            for name in tracked_folders:
+                result = subprocess.run(
+                    ["git", "rm", "-r", "--cached", "--ignore-unmatch", name],
+                    cwd=root, capture_output=True, text=True
+                )
+                if result.stdout.strip():
+                    did_something = True
+                    self.after(0, lambda o=result.stdout.strip():
+                        self._output.output.write(f"{o}\n", "info"))
+
+            if did_something:
                 self.after(0, lambda: (
                     self._output.output.write(
-                        "\n[git] Venv files removed from tracking. "
-                        "Commit these changes to complete the cleanup.\n", "success"),
+                        "\n[git] Venv cleanup complete. "
+                        "Commit any staged removals to finish.\n", "success"),
                     self._refresh_git(),
                     self._refresh_sc_panel(),
                 ))
             else:
                 self.after(0, lambda: self._output.output.write(
-                    "[git] No tracked venv folders found to remove.\n", "warning"))
+                    "[git] No venv folders found to fix.\n", "warning"))
 
         if not self.output_visible_var.get():
             self.output_visible_var.set(True)

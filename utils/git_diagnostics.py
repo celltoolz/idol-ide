@@ -174,12 +174,21 @@ def analyze_files(unstaged: dict[str, str],
 
     if counts.get("venv", 0) > 0:
         has_gitignore = bool(repo_root and os.path.exists(os.path.join(repo_root, ".gitignore")))
+        # Are the venv files untracked (never committed) or tracked (in the git index)?
+        venv_paths = [p for p in unstaged if classify_file(p).category == "venv"]
+        all_untracked = all(unstaged.get(p, "") in ("?", "U", "??") for p in venv_paths)
         if has_gitignore:
-            fix_label = "Remove from git tracking"
-            fix_fn    = fix_fns.get("untrack_venv")
-            how = ("Your .gitignore already exists — add .venv/ and venv/ to it if they're missing. "
-                   "Then click 'Remove from git tracking' to run: git rm -r --cached <venv folder>. "
-                   "After that, git will stop tracking those files.")
+            if all_untracked:
+                fix_label = "Add to .gitignore"
+                how = ("Your .gitignore exists but is missing venv patterns. "
+                       "Click 'Add to .gitignore' to append the venv folder entries automatically. "
+                       "Git will then ignore those files going forward.")
+            else:
+                fix_label = "Remove from git tracking"
+                how = ("Your .gitignore already exists — add .venv/ and venv/ to it if they're missing. "
+                       "Then click 'Remove from git tracking' to run: git rm -r --cached <venv folder>. "
+                       "After that, git will stop tracking those files.")
+            fix_fn = fix_fns.get("untrack_venv")
         else:
             fix_label = "Create .gitignore"
             fix_fn    = fix_fns.get("create_gitignore")
