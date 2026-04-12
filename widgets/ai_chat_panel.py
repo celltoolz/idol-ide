@@ -251,18 +251,20 @@ class AiChatPanel(tk.Frame):
         ollama_client.check_async(_after_check)
 
     def _clear_offline_cards(self) -> None:
-        """Remove any 'Ollama not running' messages from the chat area."""
-        for widget in list(self._msg_inner.winfo_children()):
-            try:
-                # Offline cards are plain frames; check their child labels for the marker text
-                for child in widget.winfo_children():
-                    if isinstance(child, tk.Label):
-                        txt = child.cget("text")
-                        if "not running" in txt or "Ollama" in txt:
-                            widget.destroy()
-                            break
-            except Exception:
-                pass
+        """Remove all offline-card frames (and their preceding spacers) from the chat."""
+        children = list(self._msg_inner.winfo_children())
+        for i, widget in enumerate(children):
+            if getattr(widget, "_is_offline_card", False):
+                # destroy the spacer that precedes it, if any
+                if i > 0:
+                    try:
+                        children[i - 1].destroy()
+                    except Exception:
+                        pass
+                try:
+                    widget.destroy()
+                except Exception:
+                    pass
 
     def _on_ollama_status(self, available: bool) -> None:
         self._ai_available = available
@@ -273,6 +275,10 @@ class AiChatPanel(tk.Frame):
                 pass
 
     def _show_offline_card(self) -> None:
+        # Don't add another card if one is already visible
+        for w in self._msg_inner.winfo_children():
+            if getattr(w, "_is_offline_card", False):
+                return
         import sys
         if sys.platform == "win32":
             install_cmd = "irm https://ollama.com/install.ps1 | iex"
@@ -281,15 +287,22 @@ class AiChatPanel(tk.Frame):
             install_cmd = "curl -fsSL https://ollama.com/install.sh | sh"
             shell_note  = "Terminal"
 
-        self._append_system(
-            f"Local AI (Ollama) is not running.\n\n"
-            f"Step 1 — Install Ollama (run in {shell_note}):\n"
-            f"  {install_cmd}\n\n"
-            f"Step 2 — Install the AI model (~4GB):\n"
-            f"  ollama pull qwen2.5-coder\n\n"
-            f"Then reopen this tab.",
-            color=_WARN_FG,
-        )
+        self._add_spacer(8)
+        f = tk.Frame(self._msg_inner, bg=_MSG_BG, padx=12, pady=8)
+        f._is_offline_card = True
+        f.pack(fill="x", padx=10)
+        tk.Label(f,
+                 text=(f"Local AI (Ollama) is not running.\n\n"
+                       f"Step 1 — Install Ollama (run in {shell_note}):\n"
+                       f"  {install_cmd}\n\n"
+                       f"Step 2 — Install the AI model (~4GB):\n"
+                       f"  ollama pull qwen2.5-coder\n\n"
+                       f"Then reopen this tab."),
+                 bg=_MSG_BG, fg=_WARN_FG,
+                 font=("Segoe UI", 9), wraplength=400,
+                 justify="left", anchor="nw").pack(anchor="w")
+        self._bind_scroll_recursive(f)
+        self._scroll_bottom()
 
     # ── Welcome ───────────────────────────────────────────────────────────────
 
