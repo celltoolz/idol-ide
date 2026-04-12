@@ -2158,7 +2158,7 @@ class Notepad(Tk):
         frame = ttk.Frame(self.notebook)
         panel = PackageManagerPanel(
             frame,
-            get_output_panel=lambda: getattr(self._bottom_panel, "_output", None),
+            get_output_panel=lambda: self._output.output,
             get_ai_panel=lambda: self._ai_chat_panel,
         )
         panel.pack(fill="both", expand=True)

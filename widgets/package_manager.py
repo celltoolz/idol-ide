@@ -395,6 +395,11 @@ class PackageManagerPanel(tk.Frame):
     def _run_pip(self, args: list[str]) -> None:
         output = self._get_output_panel() if self._get_output_panel else None
         if output:
+            # Switch bottom panel to OUTPUT tab so user sees progress
+            try:
+                output.master._set_active("output")
+            except Exception:
+                pass
             output.write(f"\n$ pip {' '.join(args)}\n", tag="cmd")
 
         def _run():
@@ -520,10 +525,34 @@ class _DetailPanel(tk.Frame):
 
     def _make_action_btn(self, parent, text: str,
                          bg: str, cmd: Callable) -> tk.Label:
+        def _hover_color(base: str) -> str:
+            # Lighten the hex color slightly for hover
+            try:
+                r = min(255, int(base[1:3], 16) + 30)
+                g = min(255, int(base[3:5], 16) + 30)
+                b = min(255, int(base[5:7], 16) + 30)
+                return f"#{r:02x}{g:02x}{b:02x}"
+            except Exception:
+                return base
+
+        hover = _hover_color(bg)
         btn = tk.Label(parent, text=text, bg=bg, fg="white",
                        font=("Segoe UI", 8), cursor="hand2",
                        padx=10, pady=4)
-        btn.bind("<Button-1>", lambda _: cmd())
+        btn.bind("<Button-1>", lambda _: cmd() if btn.cget("state") != "disabled" else None)
+        btn.bind("<Enter>",    lambda _: btn.config(bg=hover) if btn.cget("state") != "disabled" else None)
+        btn.bind("<Leave>",    lambda _: btn.config(bg=btn._base_bg))
+        btn._base_bg = bg
+
+        # Update hover/base when button is enabled/disabled
+        _orig_config = btn.config
+        def _config(*a, **kw):
+            _orig_config(*a, **kw)
+            if "bg" in kw:
+                btn._base_bg = kw["bg"]
+                btn._hover_bg = _hover_color(kw["bg"])
+        btn.config = _config
+
         return btn
 
     def _show_placeholder(self) -> None:
