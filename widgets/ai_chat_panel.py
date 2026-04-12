@@ -92,8 +92,11 @@ class AiChatPanel(tk.Frame):
         input_outer = tk.Frame(self, bg=_INPUT_BG)
         input_outer.pack(fill="x", side="bottom")
 
-        # URL row — created FIRST so pack order puts it above ctx_row; hidden until ⚙ clicked
-        self._url_row = tk.Frame(input_outer, bg=_INPUT_BG)
+        # URL wrapper — always packed first (fixes position); inner row toggled by ⚙
+        url_wrapper = tk.Frame(input_outer, bg=_INPUT_BG)
+        url_wrapper.pack(fill="x")
+        self._url_row = tk.Frame(url_wrapper, bg=_INPUT_BG)
+        # _url_row is NOT packed yet — ⚙ packs/forgets it inside url_wrapper
         tk.Label(self._url_row, text="Ollama URL:", bg=_INPUT_BG, fg=_DIM,
                  font=("Segoe UI", 8)).pack(side="left", padx=(8, 4), pady=4)
         self._url_var = tk.StringVar(value=ollama_client.get_base_url())
@@ -110,7 +113,6 @@ class AiChatPanel(tk.Frame):
                                     font=("Segoe UI", 8))
         self._url_status.pack(side="left")
         self._url_row_visible = False
-        # Don't pack yet — ⚙ button reveals it
 
         # Context buttons row
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
