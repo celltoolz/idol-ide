@@ -71,7 +71,10 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - "Load 50 more" button for repos with deep history
 
 ### Terminal & Output
-- Integrated terminal — full PTY shell (PowerShell/bash) with ANSI color support, direct keyboard input
+- Integrated terminal — full VT100 PTY shell (PowerShell/bash/zsh) with accurate ANSI color rendering via [pyte](https://github.com/selectel/pyte), direct keyboard input, and scrollback history
+- Mouse wheel scrolling — passes SGR scroll sequences to TUI apps (vim, htop) when mouse mode is active, otherwise scrolls the history buffer
+- **Text selection** — click and drag to select; **Copy** via right-click or Ctrl+Shift+C; **Paste** via right-click or Ctrl+Shift+V
+- **Virtual environment detection** — toolbar shows the active venv name and a Deactivate button when a venv is active; shows Activate when a `.venv` exists in the current directory; Switch button when a different venv is active
 - Run / Output panel with stdout/stderr coloring
 - **Run Line** — right-click any line to execute it instantly in the output panel
 - **Run Selection** — right-click a highlighted block to run just that snippet (auto-dedents indented blocks)
@@ -155,6 +158,8 @@ python main.py
 | Split editor | Ctrl+\\ |
 | Source control | Ctrl+Shift+G |
 | New terminal | Ctrl+` |
+| Terminal copy | Ctrl+Shift+C |
+| Terminal paste | Ctrl+Shift+V |
 | Learning Mode | F1 |
 | AI Chat | F2 |
 | Toggle sidebar | Ctrl+B |
