@@ -221,11 +221,14 @@ class TerminalPanel(ttk.Frame):
         self._session_id = 0   # incremented on each start(); guards stale sentinels
 
         # Venv tracking
-        self._cwd_current: str = ""        # last CWD from OSC 7
+        self._cwd_current: str = ""        # last CWD from OSC 7 / state file
         self._venv_active:  str = ""        # $VIRTUAL_ENV from shell hook ("" = none)
         self._raw_buf: str = ""            # partial raw output buffer for marker scanning
         # IDOL's own venv — inherited by child shells, ignore for user detection
         self._idol_venv: str = os.environ.get("VIRTUAL_ENV", "")
+        # Windows: temp file used to pass CWD/VENV without polluting stdout
+        self._state_file: str = ""
+        self._state_file_mtime: float = 0.0
 
         self._build_ui()
         self._poll()
@@ -269,6 +272,7 @@ class TerminalPanel(ttk.Frame):
             self._raw_buf  = ""
             self._cwd_current = ""
             self._venv_active  = ""
+            self._state_file_mtime = 0.0
             threading.Thread(target=self._read_loop, args=(sid,), daemon=True).start()
             self._text.focus_set()
             # Inject OSC 7 CWD + VENV reporting hook after shell is ready
@@ -720,21 +724,28 @@ class TerminalPanel(ttk.Frame):
     # ── Venv tracking ─────────────────────────────────────────────────────────
 
     def _inject_shell_hooks(self) -> None:
-        """Inject OSC 7 CWD + VENV reporting into the running shell."""
+        """Inject CWD + VENV reporting into the running shell."""
         if not self._running:
             return
         sys = platform.system()
         shell_cmd = (self.SHELLS.get(self._shell_var.get()) or _default_shell())
-        shell_name = os.path.basename(shell_cmd[0]) if shell_cmd else ""
+        shell_name = os.path.basename(shell_cmd[0]).lower() if shell_cmd else ""
 
         if sys == "Windows":
-            # PowerShell prompt hook
+            # Write CWD/VENV to a temp file instead of stdout — avoids any PTY
+            # cursor/encoding interference; Python polls the file every 500 ms.
+            import tempfile
+            state_path = os.path.join(tempfile.gettempdir(), "idol_state.txt")
+            # Escape backslashes for embedding in a PowerShell string
+            ps_path = state_path.replace("\\", "\\\\")
+            self._state_file = state_path
+            self._state_file_mtime = 0.0
+            self.after(500, self._poll_state_file)
             hook = (
                 'function prompt {'
                 ' $p = $PWD.Path;'
                 ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
-                ' Write-Host -NoNewline "`e]7;file://$env:COMPUTERNAME/$p`a";'
-                ' Write-Host -NoNewline "IDOL_VENV:$v`n";'
+                f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v");'
                 ' "PS $p> "'
                 '}\r'
             )
@@ -754,48 +765,60 @@ class TerminalPanel(ttk.Frame):
             )
         self.send(hook)
 
+    def _poll_state_file(self) -> None:
+        """Windows-only: read CWD/VENV from temp file written by the PS prompt hook."""
+        if not self._running or not self._state_file:
+            return
+        try:
+            mtime = os.path.getmtime(self._state_file)
+            if mtime != self._state_file_mtime:
+                self._state_file_mtime = mtime
+                with open(self._state_file, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.read().splitlines()
+                if lines:
+                    self._cwd_current = lines[0].strip()
+                    self._venv_active = lines[1].strip() if len(lines) > 1 else ""
+                    self._refresh_venv_state()
+        except Exception:
+            pass
+        self.after(500, self._poll_state_file)
+
     def _process_markers(self, raw: str) -> str:
-        """Scan raw PTY output for OSC 7 and IDOL_VENV markers.
-        Uses _raw_buf to handle markers that span chunk boundaries.
-        Returns the string with marker lines stripped out for pyte."""
-        # OSC 7: ESC ] 7 ; file://host/path BEL  (complete sequences only)
+        """Scan raw PTY output for Unix CWD/VENV markers and strip them.
+        Unix:    OSC 7 for CWD,  IDOL_VENV:<path> line for venv
+        Windows: CWD/VENV are read from a temp file (see _poll_state_file); no
+                 stdout markers are used so this function is a no-op on Windows."""
+
+        # ── Unix OSC 7 (ESC ] 7 ; file://host/path BEL) ──────────────────────
         for m in re.finditer(r'\x1b\]7;file://[^/]*(/[^\x07\x1b]*)\x07', raw):
-            path = m.group(1)
-            if platform.system() == "Windows":
-                path = re.sub(r'^/([A-Za-z]):', r'\1:', path)
-            self._cwd_current = path
+            self._cwd_current = m.group(1)
             self.after(0, self._refresh_venv_state)
-        # Strip OSC 7 sequences from output
         raw = re.sub(r'\x1b\]7;[^\x07]*\x07', '', raw)
 
-        # Buffer incomplete lines to handle chunk-boundary splits
+        # ── Unix IDOL_VENV: line ───────────────────────────────────────────────
         self._raw_buf += raw
         lines = self._raw_buf.split("\n")
-        # Last element may be an incomplete line — keep in buffer
-        self._raw_buf = lines.pop()
+        self._raw_buf = lines.pop()   # hold incomplete last line
 
         out_lines = []
         changed = False
         for line in lines:
-            m = re.match(r'IDOL_VENV:(.*)', line.rstrip("\r"))
+            m = re.match(r'IDOL_VENV:(.*)', line.strip("\r"))
             if m:
                 self._venv_active = m.group(1).strip()
                 changed = True
-                # Don't add to out_lines — strip it from output
-            else:
-                out_lines.append(line)
+                continue
+            out_lines.append(line)
 
         if changed:
             self.after(0, self._refresh_venv_state)
 
-        # Rejoin complete lines
         result = "\n".join(out_lines)
         if out_lines:
             result += "\n"
 
-        # Flush the incomplete line buffer to pyte unless it looks like a
-        # partial IDOL_VENV marker still arriving — prompts have no trailing \n
-        if self._raw_buf and not self._raw_buf.startswith("IDOL_VENV:"):
+        # Flush buffered partial line unless it looks like a partial IDOL_VENV marker
+        if self._raw_buf and not re.match(r'IDOL_VENV:', self._raw_buf):
             result += self._raw_buf
             self._raw_buf = ""
 
@@ -806,24 +829,34 @@ class TerminalPanel(ttk.Frame):
         cwd    = self._cwd_current
         active = self._venv_active
 
-        # Treat IDOL's own inherited venv as "nothing active" for user purposes
-        user_active = active if (active and active != self._idol_venv) else ""
-
         # Check for .venv in CWD
         venv_activate_path = ""
         if cwd:
-            candidate = Path(cwd) / ".venv"
-            if (candidate / "bin" / "activate").exists():
-                venv_activate_path = str(candidate / "bin" / "activate")
-            elif (candidate / "Scripts" / "Activate.ps1").exists():
-                venv_activate_path = str(candidate / "Scripts" / "Activate.ps1")
+            try:
+                candidate = Path(cwd) / ".venv"
+                if (candidate / "bin" / "activate").exists():
+                    venv_activate_path = str(candidate / "bin" / "activate")
+                elif (candidate / "Scripts" / "Activate.ps1").exists():
+                    venv_activate_path = str(candidate / "Scripts" / "Activate.ps1")
+            except Exception:
+                pass
 
         cwd_venv = str(Path(cwd) / ".venv") if cwd else ""
 
+        def _norm(p: str) -> str:
+            """Normalize path for comparison — lowercase on Windows, forward slashes."""
+            p = p.replace("\\", "/").rstrip("/")
+            if platform.system() == "Windows":
+                p = p.lower()
+            return p
+
+        # Treat IDOL's own inherited venv as "nothing active" — case-insensitive on Windows
+        user_active = active if (active and _norm(active) != _norm(self._idol_venv)) else ""
+
         if user_active:
-            # A user venv is active — does it match the one in CWD?
-            if cwd_venv and (user_active == cwd_venv or
-                             user_active.startswith(cwd_venv + os.sep)):
+            na = _norm(user_active)
+            nv = _norm(cwd_venv)
+            if nv and (na == nv or na.startswith(nv + "/")):
                 self._venv_btn_state = "active_match"
             else:
                 self._venv_btn_state = "active_other"
