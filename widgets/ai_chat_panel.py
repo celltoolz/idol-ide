@@ -92,10 +92,12 @@ class AiChatPanel(tk.Frame):
         input_outer = tk.Frame(self, bg=_INPUT_BG)
         input_outer.pack(fill="x", side="bottom")
 
-        # Server URL row (hidden by default, toggled with ⚙)
+        # Server URL row — pack it now to establish position (above ctx_row),
+        # then immediately hide it; toggle just calls pack/pack_forget.
         self._url_row = tk.Frame(input_outer, bg=_INPUT_BG)
-        self._input_outer = input_outer   # keep ref for re-packing
-        # not packed initially
+        self._url_row.pack(fill="x", padx=8, pady=(4, 0))
+        self._url_row.pack_forget()
+        # not visible initially
 
         tk.Label(self._url_row, text="Ollama URL:", bg=_INPUT_BG, fg=_DIM,
                  font=("Segoe UI", 8)).pack(side="left", padx=(0, 4))
@@ -107,8 +109,11 @@ class AiChatPanel(tk.Frame):
                              highlightcolor=_BTN_BG)
         url_entry.pack(side="left", fill="x", expand=True, ipady=2)
         url_entry.bind("<Return>", lambda _: self._apply_url())
-        url_entry.bind("<FocusOut>", lambda _: self._apply_url())
-        self._make_ctx_btn(self._url_row, "Apply", self._apply_url).pack(side="left", padx=(4, 0))
+        self._apply_btn = self._make_ctx_btn(self._url_row, "Apply", self._apply_url)
+        self._apply_btn.pack(side="left", padx=(4, 0))
+        self._url_status = tk.Label(self._url_row, text="", bg=_INPUT_BG, fg=_DIM,
+                                    font=("Segoe UI", 8))
+        self._url_status.pack(side="left", padx=(6, 0))
         self._url_row_visible = False
 
         # Context buttons row
@@ -140,6 +145,13 @@ class AiChatPanel(tk.Frame):
         input_row = tk.Frame(input_outer, bg=_INPUT_BG)
         input_row.pack(fill="x", padx=8, pady=(4, 8))
 
+        # Pack send_btn BEFORE the text widget so expand=True doesn't steal its space
+        send_btn = tk.Label(input_row, text="↑", bg=_SEND_BG, fg="white",
+                            font=("Segoe UI", 14, "bold"),
+                            cursor="hand2", width=2, pady=4)
+        send_btn.pack(side="right", padx=(6, 0), fill="y")
+        send_btn.bind("<Button-1>", lambda _: self._send())
+
         self._input = tk.Text(input_row, bg=_INPUT_BG, fg=_FG,
                               insertbackground=_FG,
                               font=("Segoe UI", 10),
@@ -151,12 +163,6 @@ class AiChatPanel(tk.Frame):
         self._input.pack(side="left", fill="both", expand=True)
         self._input.bind("<Return>",       self._on_return)
         self._input.bind("<Shift-Return>", self._on_shift_return)
-
-        send_btn = tk.Label(input_row, text="↑", bg=_SEND_BG, fg="white",
-                            font=("Segoe UI", 14, "bold"),
-                            cursor="hand2", width=2, pady=4)
-        send_btn.pack(side="right", padx=(6, 0), fill="y")
-        send_btn.bind("<Button-1>", lambda _: self._send())
         send_btn.bind("<Enter>",    lambda _: send_btn.config(bg=_BTN_ACT))
         send_btn.bind("<Leave>",    lambda _: send_btn.config(bg=_SEND_BG))
 
@@ -232,8 +238,7 @@ class AiChatPanel(tk.Frame):
             self._url_row.pack_forget()
             self._url_row_visible = False
         else:
-            # Pack before ctx_row so it appears above it
-            self._url_row.pack(fill="x", padx=8, pady=(4, 0), before=self._ctx_row)
+            self._url_row.pack(fill="x", padx=8, pady=(4, 0))
             self._url_row_visible = True
 
     def _apply_url(self) -> None:
@@ -241,13 +246,15 @@ class AiChatPanel(tk.Frame):
         if not url:
             return
         ollama_client.set_base_url(url)
-        # Re-check; on success clear offline cards and restore chat
+        self._url_status.config(text="Connecting…", fg=_DIM)
         def _after_check(available: bool) -> None:
             self._ai_available = available
             if available:
                 self.after(0, self._clear_offline_cards)
+                self.after(0, lambda: self._url_status.config(text="Connected", fg="#50fa7b"))
             else:
                 self.after(0, self._show_offline_card)
+                self.after(0, lambda: self._url_status.config(text="Not reachable", fg=_WARN_FG))
         ollama_client.check_async(_after_check)
 
     def _clear_offline_cards(self) -> None:
