@@ -88,6 +88,8 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     layout["explorer_collapsed"]  = sb._explorer_collapsed
 
     # AI panel
+    from utils import ollama_client
+    layout["ollama_url"] = ollama_client.get_base_url()
     layout["ai_panel_visible"] = app._ai_panel_visible
     if app._ai_panel_visible:
         try:
@@ -212,6 +214,13 @@ def _apply_pane_sashes(app: "Notepad", layout: dict) -> None:
             app._v_pane.sashpos(0, v)
         except Exception:
             pass
+
+    # Restore Ollama URL if customized
+    if layout.get("ollama_url"):
+        from utils import ollama_client
+        ollama_client.set_base_url(layout["ollama_url"])
+        if hasattr(app, "_ai_chat_panel"):
+            app._ai_chat_panel._url_var.set(ollama_client.get_base_url())
 
     # AI panel — show it if it was visible; sash follows via _apply_ai_panel_sash
     if layout.get("ai_panel_visible"):

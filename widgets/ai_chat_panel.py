@@ -92,6 +92,25 @@ class AiChatPanel(tk.Frame):
         input_outer = tk.Frame(self, bg=_INPUT_BG)
         input_outer.pack(fill="x", side="bottom")
 
+        # Server URL row (hidden by default, toggled with ⚙)
+        self._url_row = tk.Frame(input_outer, bg=_INPUT_BG)
+        self._input_outer = input_outer   # keep ref for re-packing
+        # not packed initially
+
+        tk.Label(self._url_row, text="Ollama URL:", bg=_INPUT_BG, fg=_DIM,
+                 font=("Segoe UI", 8)).pack(side="left", padx=(0, 4))
+        self._url_var = tk.StringVar(value=ollama_client.get_base_url())
+        url_entry = tk.Entry(self._url_row, textvariable=self._url_var,
+                             bg=_INPUT_BG, fg=_FG, insertbackground=_FG,
+                             font=("Segoe UI", 9), relief="flat", bd=0,
+                             highlightthickness=1, highlightbackground=_BORDER,
+                             highlightcolor=_BTN_BG)
+        url_entry.pack(side="left", fill="x", expand=True, ipady=2)
+        url_entry.bind("<Return>", lambda _: self._apply_url())
+        url_entry.bind("<FocusOut>", lambda _: self._apply_url())
+        self._make_ctx_btn(self._url_row, "Apply", self._apply_url).pack(side="left", padx=(4, 0))
+        self._url_row_visible = False
+
         # Context buttons row
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
         ctx_row.pack(fill="x", padx=8, pady=(6, 0))
@@ -114,6 +133,7 @@ class AiChatPanel(tk.Frame):
         self._make_ctx_btn(ctx_row, "💾 Save",  self._save_conversation).pack(side="right")
         self._make_ctx_btn(ctx_row, "📂 Load",  self._load_conversation).pack(side="right", padx=(0, 4))
         self._make_ctx_btn(ctx_row, "🗑 Clear", self._clear_conversation).pack(side="right", padx=(0, 4))
+        self._make_ctx_btn(ctx_row, "⚙",       self._toggle_url_row).pack(side="right", padx=(0, 4))
 
         # Text input + send button
         input_row = tk.Frame(input_outer, bg=_INPUT_BG)
@@ -205,6 +225,21 @@ class AiChatPanel(tk.Frame):
             pass
 
     # ── Ollama status ─────────────────────────────────────────────────────────
+
+    def _toggle_url_row(self) -> None:
+        if self._url_row_visible:
+            self._url_row.pack_forget()
+            self._url_row_visible = False
+        else:
+            self._url_row.pack(fill="x", padx=8, pady=(4, 0))
+            self._url_row_visible = True
+
+    def _apply_url(self) -> None:
+        url = self._url_var.get().strip()
+        if url:
+            ollama_client.set_base_url(url)
+            # Re-check availability with the new URL
+            ollama_client.check_async(self._on_ollama_status)
 
     def _on_ollama_status(self, available: bool) -> None:
         self._ai_available = available

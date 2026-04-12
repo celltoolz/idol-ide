@@ -16,6 +16,16 @@ _TIMEOUT_HEALTH  = 2    # seconds — fast ping
 _TIMEOUT_GENERATE = 60  # seconds — give the model time to respond
 
 
+def set_base_url(url: str) -> None:
+    """Override the Ollama server URL (e.g. to tunnel through to a remote host)."""
+    global _BASE_URL
+    _BASE_URL = url.rstrip("/")
+
+
+def get_base_url() -> str:
+    return _BASE_URL
+
+
 # ── Health check ──────────────────────────────────────────────────────────────
 
 def is_available() -> bool:
