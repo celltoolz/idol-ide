@@ -1,22 +1,24 @@
-"""TerminalPanel — a full interactive PTY terminal embedded in the editor.
+"""TerminalPanel — full PTY terminal with pyte VT100 screen buffer.
 
 Cross-platform PTY support:
   - Windows:     pywinpty  (pip install pywinpty)
   - Linux/macOS: ptyprocess (pip install ptyprocess)
 
-Input is typed directly into the output area (VS Code style) — no separate
-input bar. All keystrokes are forwarded to the PTY; the shell echoes them back.
+pyte maintains a proper 2D character grid so zsh completions, vim, htop,
+and any TUI app render correctly on all platforms.
 """
 from __future__ import annotations
 
 import os
 import platform
 import queue
-import re
 import shutil
 import threading
-from tkinter import StringVar, Text, ttk
+import tkinter as tk
+from tkinter import StringVar, ttk
 from typing import Optional
+
+import pyte
 
 PTY_AVAILABLE = False
 _pty_spawn = None   # callable(cmd, dimensions, env) → pty object
@@ -39,38 +41,7 @@ else:
         pass
 
 
-# ── ANSI escape code parser ────────────────────────────────────────────────────
-
-# Matches ESC [ ... sequences — params include ? for private modes like ESC[?1004h
-_ANSI_RE = re.compile(r'\x1b\[([0-9;?<=>!]*)([A-Za-z@^`])')
-# OSC sequences: ESC ] ... BEL  or  ESC ] ... ST (ESC \)
-_OSC_RE  = re.compile(r'\x1b\].*?(?:\x07|\x1b\\)', re.DOTALL)
-# Other single-char or two-char escape sequences to silently consume
-_ESC_RE  = re.compile(r'\x1b[()^_PX][^\x1b]*(?:\x1b\\|\x07)?|\x1b[A-Z\\]')
-
-# Map ANSI color index → hex (Dracula palette)
-_ANSI_COLORS = {
-    0:  "#1e1e1e",  # black
-    1:  "#ff5555",  # red
-    2:  "#50fa7b",  # green
-    3:  "#f1fa8c",  # yellow
-    4:  "#6272a4",  # blue
-    5:  "#ff79c6",  # magenta
-    6:  "#8be9fd",  # cyan
-    7:  "#f8f8f2",  # white
-    8:  "#44475a",  # bright black
-    9:  "#ff6e6e",  # bright red
-    10: "#69ff94",  # bright green
-    11: "#ffffa5",  # bright yellow
-    12: "#d6acff",  # bright blue
-    13: "#ff92df",  # bright magenta
-    14: "#a4ffff",  # bright cyan
-    15: "#ffffff",  # bright white
-}
-
-
 def _default_shell() -> list[str]:
-    """Return the best available shell command for the current platform."""
     system = platform.system()
     if system == "Windows":
         for shell in ("pwsh.exe", "powershell.exe", "cmd.exe"):
@@ -79,89 +50,86 @@ def _default_shell() -> list[str]:
         return ["cmd.exe"]
     else:
         shell = os.environ.get("SHELL", "")
-        if not shell or not shutil.which(shell):
-            for sh in ("bash", "zsh", "sh"):
-                path = shutil.which(sh)
-                if path:
-                    return [path]
-        return [shell]
+        if shell and shutil.which(shell):
+            return [shell]
+        for sh in ("bash", "zsh", "sh"):
+            path = shutil.which(sh)
+            if path:
+                return [path]
+        return ["sh"]
 
 
-class AnsiParser:
-    """Stateful ANSI SGR parser — converts escape sequences to tag names."""
+# ── Colour helpers ─────────────────────────────────────────────────────────────
 
-    def __init__(self) -> None:
-        self._fg: Optional[str] = None
-        self._bg: Optional[str] = None
-        self._bold = False
+# pyte default 8-colour palette (used when colour is an int 0-7 / 8-15)
+_PALETTE = {
+    "black":   "#1e1e1e",
+    "red":     "#ff5555",
+    "green":   "#50fa7b",
+    "brown":   "#f1fa8c",   # pyte calls yellow "brown"
+    "blue":    "#6272a4",
+    "magenta": "#ff79c6",
+    "cyan":    "#8be9fd",
+    "white":   "#f8f8f2",
+}
 
-    def reset(self) -> None:
-        self._fg = None
-        self._bg = None
-        self._bold = False
+_PALETTE_BRIGHT = {
+    "black":   "#44475a",
+    "red":     "#ff6e6e",
+    "green":   "#69ff94",
+    "brown":   "#ffffa5",
+    "blue":    "#d6acff",
+    "magenta": "#ff92df",
+    "cyan":    "#a4ffff",
+    "white":   "#ffffff",
+}
 
-    def process(self, codes: str) -> None:
-        """Update internal state for a semicolon-separated list of SGR codes."""
-        parts = [int(x) for x in codes.split(";") if x.isdigit()]
-        if not parts:
-            parts = [0]
+_DEFAULT_FG = "#f8f8f2"
+_DEFAULT_BG = "#1e1e1e"
 
-        i = 0
-        while i < len(parts):
-            c = parts[i]
-            if c == 0:
-                self.reset()
-            elif c == 1:
-                self._bold = True
-            elif c == 22:
-                self._bold = False
-            elif 30 <= c <= 37:
-                self._fg = _ANSI_COLORS.get(c - 30, None)
-            elif c == 39:
-                self._fg = None
-            elif 40 <= c <= 47:
-                self._bg = _ANSI_COLORS.get(c - 40, None)
-            elif c == 49:
-                self._bg = None
-            elif 90 <= c <= 97:
-                self._fg = _ANSI_COLORS.get(c - 90 + 8, None)
-            elif 100 <= c <= 107:
-                self._bg = _ANSI_COLORS.get(c - 100 + 8, None)
-            elif c == 38 and i + 2 < len(parts) and parts[i + 1] == 5:
-                self._fg = _ANSI_COLORS.get(parts[i + 2], None)
-                i += 2
-            elif c == 48 and i + 2 < len(parts) and parts[i + 1] == 5:
-                self._bg = _ANSI_COLORS.get(parts[i + 2], None)
-                i += 2
-            i += 1
 
-    def tag(self) -> str:
-        parts = []
-        if self._fg:
-            parts.append(f"fg_{self._fg.lstrip('#')}")
-        if self._bg:
-            parts.append(f"bg_{self._bg.lstrip('#')}")
-        if self._bold:
-            parts.append("bold")
-        return "_".join(parts) if parts else "plain"
+def _resolve_color(color, default: str, bright: bool = False) -> str:
+    """Convert a pyte colour value to a hex string."""
+    if color == "default" or color is None:
+        return default
+    if isinstance(color, str) and color.startswith("#"):
+        return color
+    if isinstance(color, int):
+        # 256-colour palette — approximate with 6x6x6 cube for > 15
+        if color < 8:
+            palette = _PALETTE_BRIGHT if bright else _PALETTE
+            names = list(_PALETTE.keys())
+            return palette.get(names[color], default)
+        elif color < 16:
+            names = list(_PALETTE.keys())
+            return _PALETTE_BRIGHT.get(names[color - 8], default)
+        elif color < 232:
+            # 6x6x6 colour cube
+            color -= 16
+            b = color % 6
+            g = (color // 6) % 6
+            r = color // 36
+            to_hex = lambda v: 0 if v == 0 else (55 + v * 40)
+            return f"#{to_hex(r):02x}{to_hex(g):02x}{to_hex(b):02x}"
+        else:
+            # Greyscale ramp
+            v = 8 + (color - 232) * 10
+            return f"#{v:02x}{v:02x}{v:02x}"
+    if isinstance(color, str):
+        return _PALETTE.get(color, default)
+    return default
 
-    def fg(self) -> Optional[str]:
-        return self._fg
 
-    def bg(self) -> Optional[str]:
-        return self._bg
-
-    def bold(self) -> bool:
-        return self._bold
+def _cell_tag(char) -> tuple[str, str, bool]:
+    """Return (fg_hex, bg_hex, bold) for a pyte Char."""
+    bold   = char.bold
+    fg_hex = _resolve_color(char.fg, _DEFAULT_FG, bright=bold)
+    bg_hex = _resolve_color(char.bg, _DEFAULT_BG)
+    return fg_hex, bg_hex, bold
 
 
 class TerminalPanel(ttk.Frame):
-    """Interactive PTY terminal panel.
-
-    Spawns a real shell in a pseudo-terminal. Output is rendered in a
-    tk.Text widget with ANSI colour support. Typing goes directly into
-    the output area — keystrokes are forwarded to the PTY (VS Code style).
-    """
+    """Interactive PTY terminal using pyte for VT100 screen buffer."""
 
     SHELLS = {
         "Auto":        None,
@@ -172,7 +140,6 @@ class TerminalPanel(ttk.Frame):
         "Python REPL": ["python"],
     }
 
-    # Special key → byte sequence to send to PTY
     _KEY_MAP = {
         "Up":    "\x1b[A",
         "Down":  "\x1b[B",
@@ -180,24 +147,40 @@ class TerminalPanel(ttk.Frame):
         "Left":  "\x1b[D",
         "Home":  "\x1b[H",
         "End":   "\x1b[F",
-        "Prior": "\x1b[5~",  # Page Up
-        "Next":  "\x1b[6~",  # Page Down
+        "Prior": "\x1b[5~",
+        "Next":  "\x1b[6~",
         "Delete":"\x1b[3~",
-        "F1":  "\x1bOP", "F2": "\x1bOQ", "F3": "\x1bOR", "F4": "\x1bOS",
-        "F5":  "\x1b[15~", "F6": "\x1b[17~", "F7": "\x1b[18~",
-        "F8":  "\x1b[19~", "F9": "\x1b[20~", "F10": "\x1b[21~",
-        "F11": "\x1b[23~", "F12": "\x1b[24~",
+        "F1":  "\x1bOP",   "F2":  "\x1bOQ",  "F3":  "\x1bOR",  "F4":  "\x1bOS",
+        "F5":  "\x1b[15~", "F6":  "\x1b[17~","F7":  "\x1b[18~","F8":  "\x1b[19~",
+        "F9":  "\x1b[20~", "F10": "\x1b[21~","F11": "\x1b[23~","F12": "\x1b[24~",
     }
+
+    # How many rows of scrollback to keep above the live screen
+    _SCROLLBACK = 500
 
     def __init__(self, master, **kwargs) -> None:
         super().__init__(master, **kwargs)
-        self._pty: object = None
-        self._queue:  queue.Queue = queue.Queue()
-        self._parser  = AnsiParser()
-        self._tags:   set[str] = set()
+        self._pty:      object = None
+        self._queue:    queue.Queue = queue.Queue()
         self._shell_var = StringVar(value="Auto")
-        self._running = False
+        self._running   = False
         self._cwd: Optional[str] = None
+
+        # pyte screen — sized properly once the widget is mapped
+        self._rows = 24
+        self._cols = 80
+        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=self._SCROLLBACK)
+        self._stream = pyte.ByteStream(self._screen)
+
+        # Scrollback: list of rendered line strings + their tag maps
+        # Each entry: list of (text, fg, bg, bold) segments for one row
+        self._scrollback: list[list] = []
+
+        # Tag cache: (fg, bg, bold) → tag name
+        self._tag_cache: dict[tuple, str] = {}
+        self._tag_count = 0
+
+        self._resize_job = None
 
         self._build_ui()
         self._poll()
@@ -206,23 +189,27 @@ class TerminalPanel(ttk.Frame):
 
     def start(self, shell: list[str] | None = None,
               cwd: str | None = None) -> None:
-        """Spawn a new shell session, killing any existing one first."""
         if cwd is not None:
             self._cwd = cwd
         self.stop()
         if not PTY_AVAILABLE:
-            self._write("\n  PTY library not found.\n", "error")
+            self._write_error("PTY library not found.\n")
             if platform.system() == "Windows":
-                self._write("  Run: pip install pywinpty\n\n", "error")
+                self._write_error("Run: pip install pywinpty\n")
             else:
-                self._write("  Run: pip install ptyprocess\n\n", "error")
+                self._write_error("Run: pip install ptyprocess\n")
             return
 
         cmd = shell or _default_shell()
         try:
             env = os.environ.copy()
-            env["TERM"] = "xterm-256color"
-            self._pty = _pty_spawn(cmd, dimensions=(24, 80), env=env)
+            env["TERM"]           = "xterm-256color"
+            env["COLORTERM"]      = "truecolor"
+            env["IDOL_TERMINAL"]  = "1"   # lets users detect our terminal in .zshrc
+            self._scrollback.clear()
+            self._screen = pyte.HistoryScreen(self._cols, self._rows, history=self._SCROLLBACK)
+            self._stream = pyte.ByteStream(self._screen)
+            self._pty = _pty_spawn(cmd, dimensions=(self._rows, self._cols), env=env)
             self._running = True
             threading.Thread(target=self._read_loop, daemon=True).start()
             self._text.focus_set()
@@ -230,10 +217,9 @@ class TerminalPanel(ttk.Frame):
             if _cwd and os.path.isdir(_cwd):
                 self.after(300, lambda c=_cwd: self.send_text(f'cd "{c}"\r'))
         except Exception as e:
-            self._write(f"\n  Failed to start shell: {e}\n", "error")
+            self._write_error(f"Failed to start shell: {e}\n")
 
     def send_text(self, text: str) -> None:
-        """Send raw text to the PTY (e.g. a shell command)."""
         if self._pty and self._running:
             try:
                 self._pty.write(text)
@@ -241,45 +227,52 @@ class TerminalPanel(ttk.Frame):
                 pass
 
     def stop(self) -> None:
-        """Terminate the current PTY process."""
         self._running = False
-        if self._pty and self._pty.isalive():
+        if self._pty:
             try:
-                self._pty.terminate(force=True)
+                if self._pty.isalive():
+                    self._pty.terminate(force=True)
             except Exception:
                 pass
         self._pty = None
 
     def send(self, text: str) -> None:
-        """Write text directly to the PTY stdin."""
-        if self._pty and self._pty.isalive():
+        if self._pty and self._running:
             try:
                 self._pty.write(text)
             except Exception:
                 pass
 
     def resize(self, rows: int, cols: int) -> None:
-        """Notify the PTY of a terminal size change."""
-        if self._pty and self._pty.isalive():
+        if rows == self._rows and cols == self._cols:
+            return
+        self._rows = rows
+        self._cols = cols
+        self._screen.resize(rows, cols)
+        if self._pty and self._running:
             try:
                 self._pty.setwinsize(rows, cols)
             except Exception:
                 pass
 
+    def clear(self) -> None:
+        self._scrollback.clear()
+        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=self._SCROLLBACK)
+        self._stream = pyte.ByteStream(self._screen)
+        self._redraw_full()
+
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        # ── Toolbar ──────────────────────────────────────────────────────────
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", side="top", pady=(2, 0), padx=4)
 
         ttk.Label(toolbar, text="TERMINAL",
                   font=("TkDefaultFont", 8, "bold")).pack(side="left", padx=(0, 8))
 
-        shells = list(self.SHELLS.keys())
         self._shell_cb = ttk.Combobox(
             toolbar, textvariable=self._shell_var,
-            values=shells, width=12, state="readonly",
+            values=list(self.SHELLS.keys()), width=12, state="readonly",
         )
         self._shell_cb.pack(side="left", padx=2)
         self._shell_cb.bind("<<ComboboxSelected>>", self._on_shell_change)
@@ -291,73 +284,233 @@ class TerminalPanel(ttk.Frame):
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
-        # ── Output / input area ───────────────────────────────────────────────
         text_frame = ttk.Frame(self)
         text_frame.pack(fill="both", expand=True)
         text_frame.grid_rowconfigure(0, weight=1)
         text_frame.grid_columnconfigure(0, weight=1)
 
-        self._text = Text(
+        self._text = tk.Text(
             text_frame,
-            bg="#1e1e1e", fg="#f8f8f2",
+            bg=_DEFAULT_BG, fg=_DEFAULT_FG,
             font=("Consolas", 10),
-            wrap="word",
+            wrap="none",
             relief="flat", borderwidth=0,
-            insertbackground="#f8f8f2",
+            insertbackground=_DEFAULT_FG,
             cursor="xterm",
             takefocus=True,
+            state="disabled",
         )
-        vs = ttk.Scrollbar(text_frame, orient="vertical", command=self._text.yview)
-        self._text.configure(yscrollcommand=vs.set)
+        vs = ttk.Scrollbar(text_frame, orient="vertical", command=self._on_scroll)
+        self._scrollbar = vs
+        self._text.configure(yscrollcommand=self._on_yscroll_update)
         self._text.grid(row=0, column=0, sticky="nswe")
         vs.grid(row=0, column=1, sticky="ns")
 
-        # Remove the 'Text' class bindings so the widget never auto-inserts
-        # typed characters — we forward everything to the PTY ourselves.
+        # Preconfigure base tags
+        self._text.tag_configure("plain", foreground=_DEFAULT_FG, background=_DEFAULT_BG)
+        self._text.tag_configure("error", foreground="#ff5555")
+        self._text.tag_configure("cursor_block",
+                                 background=_DEFAULT_FG, foreground=_DEFAULT_BG)
+
+        # Remove default Text bindings — we handle everything ourselves
         self._text.bindtags((str(self._text), '.', 'all'))
 
-        # Click anywhere in the output → grab focus so typing works
         self._text.bind("<ButtonPress-1>", lambda _: self._text.focus_set())
+        self._text.bind("<Key>",           self._on_key)
+        self._text.bind("<Return>",        lambda _: (self.send("\r"),   "break")[1])
+        self._text.bind("<BackSpace>",     lambda _: (self.send("\x7f"), "break")[1])
+        self._text.bind("<Tab>",           lambda _: (self.send("\t"),   "break")[1])
+        self._text.bind("<Escape>",        lambda _: (self.send("\x1b"), "break")[1])
+        self._text.bind("<Control-c>",     lambda _: (self.send("\x03"), "break")[1])
+        self._text.bind("<Control-d>",     lambda _: (self.send("\x04"), "break")[1])
+        self._text.bind("<Control-z>",     lambda _: (self.send("\x1a"), "break")[1])
+        self._text.bind("<Control-l>",     lambda _: (self.send("\x0c"), "break")[1])
+        self._text.bind("<Control-a>",     lambda _: (self.send("\x01"), "break")[1])
+        self._text.bind("<Control-e>",     lambda _: (self.send("\x05"), "break")[1])
+        self._text.bind("<Control-u>",     lambda _: (self.send("\x15"), "break")[1])
+        self._text.bind("<Control-k>",     lambda _: (self.send("\x0b"), "break")[1])
+        self._text.bind("<Control-w>",     lambda _: (self.send("\x17"), "break")[1])
+        self._text.bind("<Control-r>",     lambda _: (self.send("\x12"), "break")[1])
+        self._text.bind("<<Paste>>",       self._on_paste)
+        self._text.bind("<Configure>",     self._on_resize)
 
-        # Forward all keystrokes to the PTY
-        self._text.bind("<Key>",       self._on_key)
-        self._text.bind("<Return>",    lambda _: (self.send("\r"),    "break")[1])
-        self._text.bind("<BackSpace>", lambda _: (self.send("\x7f"),  "break")[1])
-        self._text.bind("<Tab>",       lambda _: (self.send("\t"),    "break")[1])
-        self._text.bind("<Escape>",    lambda _: (self.send("\x1b"),  "break")[1])
-        self._text.bind("<Control-c>", lambda _: (self.send("\x03"),  "break")[1])
-        self._text.bind("<Control-d>", lambda _: (self.send("\x04"),  "break")[1])
-        self._text.bind("<Control-z>", lambda _: (self.send("\x1a"),  "break")[1])
-        self._text.bind("<Control-l>", lambda _: (self.send("\x0c"),  "break")[1])
-        self._text.bind("<Control-a>", lambda _: (self.send("\x01"),  "break")[1])
-        self._text.bind("<Control-e>", lambda _: (self.send("\x05"),  "break")[1])
-        self._text.bind("<Control-u>", lambda _: (self.send("\x15"),  "break")[1])
-        self._text.bind("<Control-k>", lambda _: (self.send("\x0b"),  "break")[1])
-        self._text.bind("<Control-w>", lambda _: (self.send("\x17"),  "break")[1])
-        self._text.bind("<Control-r>", lambda _: (self.send("\x12"),  "break")[1])
-
-        # Paste → send clipboard to PTY rather than inserting into widget
-        self._text.bind("<<Paste>>",   self._on_paste)
-
-        # Arrow / navigation keys → ANSI escape sequences
         for keysym, seq in self._KEY_MAP.items():
             self._text.bind(f"<{keysym}>",
                             lambda _, s=seq: (self.send(s), "break")[1])
 
-        # Resize → update PTY dimensions
-        self._text.bind("<Configure>", self._on_resize)
+    # ── Scrollback / scroll handling ──────────────────────────────────────────
+
+    def _on_scroll(self, *args) -> None:
+        """Scrollbar drag — scroll through combined scrollback + screen view."""
+        self._text.yview(*args)
+
+    def _on_yscroll_update(self, first: str, last: str) -> None:
+        self._scrollbar.set(first, last)
+
+    # ── Rendering ─────────────────────────────────────────────────────────────
+
+    def _get_tag(self, fg: str, bg: str, bold: bool) -> str:
+        """Return (creating if needed) a tk tag for this fg/bg/bold combo."""
+        key = (fg, bg, bold)
+        if key in self._tag_cache:
+            return self._tag_cache[key]
+        self._tag_count += 1
+        name = f"t{self._tag_count}"
+        opts: dict = {"foreground": fg, "background": bg}
+        if bold:
+            opts["font"] = ("Consolas", 10, "bold")
+        self._text.tag_configure(name, **opts)
+        self._tag_cache[key] = name
+        return name
+
+    def _screen_to_lines(self) -> list[list]:
+        """Convert current pyte screen to a list of segment lists."""
+        lines = []
+        for row_idx in range(self._screen.lines):
+            row = self._screen.buffer[row_idx]
+            segments = []
+            run_text = ""
+            run_fg = _DEFAULT_FG
+            run_bg = _DEFAULT_BG
+            run_bold = False
+            for col_idx in range(self._screen.columns):
+                char = row[col_idx]
+                fg, bg, bold = _cell_tag(char)
+                ch = char.data if char.data else " "
+                if fg == run_fg and bg == run_bg and bold == run_bold:
+                    run_text += ch
+                else:
+                    if run_text:
+                        segments.append((run_text, run_fg, run_bg, run_bold))
+                    run_text = ch
+                    run_fg, run_bg, run_bold = fg, bg, bold
+            if run_text:
+                segments.append((run_text, run_fg, run_bg, run_bold))
+            lines.append(segments)
+        return lines
+
+    def _redraw_full(self) -> None:
+        """Redraw the entire text widget from scrollback + current screen."""
+        self._text.config(state="normal")
+        self._text.delete("1.0", "end")
+
+        # Scrollback lines
+        for seg_list in self._scrollback:
+            for text, fg, bg, bold in seg_list:
+                tag = self._get_tag(fg, bg, bold)
+                self._text.insert("end", text, tag)
+            self._text.insert("end", "\n", "plain")
+
+        # Live screen rows
+        screen_lines = self._screen_to_lines()
+        cursor_row = self._screen.cursor.y
+        cursor_col = self._screen.cursor.x
+
+        for row_idx, seg_list in enumerate(screen_lines):
+            col = 0
+            for text, fg, bg, bold in seg_list:
+                # Insert cursor block on the cursor cell
+                if row_idx == cursor_row:
+                    for ci, ch in enumerate(text):
+                        if col + ci == cursor_col:
+                            self._text.insert("end", ch, "cursor_block")
+                        else:
+                            tag = self._get_tag(fg, bg, bold)
+                            self._text.insert("end", ch, tag)
+                    col += len(text)
+                else:
+                    tag = self._get_tag(fg, bg, bold)
+                    self._text.insert("end", text, tag)
+            if row_idx < len(screen_lines) - 1:
+                self._text.insert("end", "\n", "plain")
+
+        self._text.config(state="disabled")
+        self._text.see("end")
+
+    def _flush_scrollback(self) -> None:
+        """Move lines that scrolled off the top of the screen into scrollback."""
+        history = self._screen.history
+        # pyte stores scrolled-off lines in screen.history.top (a deque)
+        while self._screen.history.top:
+            row = self._screen.history.top.popleft()
+            segments = []
+            run_text = ""
+            run_fg = _DEFAULT_FG
+            run_bg = _DEFAULT_BG
+            run_bold = False
+            for col_idx in range(self._screen.columns):
+                char = row[col_idx]
+                fg, bg, bold = _cell_tag(char)
+                ch = char.data if char.data else " "
+                if fg == run_fg and bg == run_bg and bold == run_bold:
+                    run_text += ch
+                else:
+                    if run_text:
+                        segments.append((run_text, run_fg, run_bg, run_bold))
+                    run_text = ch
+                    run_fg, run_bg, run_bold = fg, bg, bold
+            if run_text:
+                segments.append((run_text, run_fg, run_bg, run_bold))
+            self._scrollback.append(segments)
+
+        # Cap scrollback length
+        if len(self._scrollback) > self._SCROLLBACK:
+            self._scrollback = self._scrollback[-self._SCROLLBACK:]
+
+    # ── PTY I/O ───────────────────────────────────────────────────────────────
+
+    def _read_loop(self) -> None:
+        while self._running and self._pty and self._pty.isalive():
+            try:
+                chunk = self._pty.read(4096)
+                if chunk:
+                    if isinstance(chunk, str):
+                        chunk = chunk.encode("utf-8", errors="replace")
+                    self._queue.put(chunk)
+            except EOFError:
+                break
+            except Exception:
+                break
+        self._queue.put(None)
+
+    def _poll(self) -> None:
+        chunks = []
+        sentinel = False
+        try:
+            while True:
+                item = self._queue.get_nowait()
+                if item is None:
+                    sentinel = True
+                    break
+                chunks.append(item)
+        except queue.Empty:
+            pass
+
+        if chunks:
+            # Feed all bytes through pyte
+            for chunk in chunks:
+                self._stream.feed(chunk)
+            self._flush_scrollback()
+            self._redraw_full()
+
+        if sentinel:
+            self._running = False
+            self._text.config(state="normal")
+            self._text.insert("end", "\n[Process exited]\n", "plain")
+            self._text.config(state="disabled")
+            self._text.see("end")
+
+        self.after(30, self._poll)
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
     def _on_key(self, event) -> str:
-        """Forward printable characters to the PTY."""
         char = event.char
         if char and char not in ("\r", "\n", "\x08"):
             self.send(char)
         return "break"
 
     def _on_paste(self, _=None) -> str:
-        """Send clipboard text to PTY instead of inserting into the widget."""
         try:
             text = self._text.clipboard_get()
             if text:
@@ -375,7 +528,15 @@ class TerminalPanel(ttk.Frame):
         self.start(cmd, cwd=self._cwd)
 
     def _on_resize(self, _=None) -> None:
-        """Update PTY dimensions when the widget resizes."""
+        if self._resize_job:
+            try:
+                self.after_cancel(self._resize_job)
+            except Exception:
+                pass
+        self._resize_job = self.after(50, self._do_resize)
+
+    def _do_resize(self) -> None:
+        self._resize_job = None
         try:
             font_w = self._text.tk.call("font", "measure",
                                         str(self._text.cget("font")), "0")
@@ -390,201 +551,8 @@ class TerminalPanel(ttk.Frame):
         except Exception:
             pass
 
-    # ── Output rendering ──────────────────────────────────────────────────────
-
-    def clear(self) -> None:
-        self._text.delete("1.0", "end")
-        self._text.mark_set("insert", "end")
-
-    def _write(self, text: str, tag: str = "plain") -> None:
-        self._text.mark_set("insert", "end")
-        self._text.insert("insert", text, tag)
+    def _write_error(self, text: str) -> None:
+        self._text.config(state="normal")
+        self._text.insert("end", text, "error")
+        self._text.config(state="disabled")
         self._text.see("end")
-
-    def _ensure_tag(self, tag: str, fg: str | None, bg: str | None, bold: bool) -> None:
-        if tag in self._tags or tag == "plain":
-            return
-        opts: dict = {}
-        if fg:
-            opts["foreground"] = fg
-        if bg:
-            opts["background"] = bg
-        if bold:
-            opts["font"] = ("Consolas", 10, "bold")
-        if opts:
-            self._text.tag_configure(tag, **opts)
-        self._tags.add(tag)
-
-    def _render_chunk(self, chunk: str) -> None:
-        """Render PTY output with proper CR/LF/BS/ANSI handling."""
-        # Normalize \r\n → \n so they are treated as a single line-feed.
-        # Lone \r (carriage return without LF) is handled separately below.
-        chunk = chunk.replace('\r\n', '\n')
-
-        # Position write cursor at the logical end of existing content.
-        self._text.mark_set("insert", "end-1c")
-
-        i = 0
-        n = len(chunk)
-        while i < n:
-            c = chunk[i]
-
-            if c == '\r':
-                # Lone carriage return: move to column 0 of current line.
-                line = int(self._text.index("insert").split('.')[0])
-                self._text.mark_set("insert", f"{line}.0")
-                i += 1
-
-            elif c == '\n':
-                # Line feed: append a newline at the END of the current line
-                # (not at the cursor, which may be mid-line after a \r), then
-                # advance the cursor to the start of the new line.
-                line = int(self._text.index("insert").split('.')[0])
-                self._text.insert(f"{line}.end", "\n")
-                self._text.mark_set("insert", f"{line + 1}.0")
-                i += 1
-
-            elif c == '\x08':
-                # Backspace: delete the character left of the cursor.
-                if self._text.compare("insert", ">", "insert linestart"):
-                    self._text.delete("insert-1c", "insert")
-                i += 1
-
-            elif c == '\x1b':
-                m = _ANSI_RE.match(chunk, i)
-                if m:
-                    code, letter = m.group(1), m.group(2)
-                    p = [int(x) for x in code.split(';') if x.isdigit()]
-
-                    if letter == 'm':
-                        self._parser.process(code)
-
-                    elif letter == 'K':
-                        # Erase in line
-                        amt = p[0] if p else 0
-                        if amt == 0:
-                            self._text.delete("insert", "insert lineend")
-                        elif amt == 1:
-                            self._text.delete("insert linestart", "insert")
-                        elif amt == 2:
-                            self._text.delete("insert linestart", "insert lineend")
-
-                    elif letter == 'G':
-                        # Cursor Horizontal Absolute — ESC[nG moves to column n (1-based)
-                        col = (p[0] - 1) if p else 0
-                        line = int(self._text.index("insert").split('.')[0])
-                        self._text.mark_set("insert", f"{line}.{max(0, col)}")
-
-                    elif letter in ('H', 'f'):
-                        # Cursor Position — ESC[row;colH (1-based, default 1)
-                        col = (p[1] - 1) if len(p) >= 2 else 0
-                        line = int(self._text.index("insert").split('.')[0])
-                        self._text.mark_set("insert", f"{line}.{max(0, col)}")
-
-                    elif letter == 'A':
-                        # Cursor Up n lines
-                        amt = p[0] if p else 1
-                        cur = self._text.index("insert")
-                        cur_line, cur_col = map(int, cur.split('.'))
-                        new_line = max(1, cur_line - amt)
-                        self._text.mark_set("insert", f"{new_line}.{cur_col}")
-
-                    elif letter == 'B':
-                        # Cursor Down n lines — insert blank lines if needed
-                        amt = p[0] if p else 1
-                        cur = self._text.index("insert")
-                        cur_line, cur_col = map(int, cur.split('.'))
-                        total = int(self._text.index("end-1c").split('.')[0])
-                        new_line = cur_line + amt
-                        if new_line > total:
-                            self._text.insert("end", "\n" * (new_line - total))
-                        self._text.mark_set("insert", f"{new_line}.{cur_col}")
-
-                    elif letter == 'C':
-                        # Cursor Forward n columns
-                        amt = p[0] if p else 1
-                        self._text.mark_set("insert", f"insert+{amt}c")
-
-                    elif letter == 'D':
-                        # Cursor Back n columns (don't go past line start)
-                        amt = p[0] if p else 1
-                        new_idx = f"insert-{amt}c"
-                        if self._text.compare(new_idx, "<", "insert linestart"):
-                            new_idx = "insert linestart"
-                        self._text.mark_set("insert", new_idx)
-
-                    # All other CSI sequences silently consumed
-                    i = m.end()
-                else:
-                    # Try OSC (title, color set, etc.) — silently consume
-                    m = _OSC_RE.match(chunk, i)
-                    if m:
-                        i = m.end()
-                    else:
-                        # Try other non-CSI escape sequences — silently consume
-                        m = _ESC_RE.match(chunk, i)
-                        if m:
-                            i = m.end()
-                        else:
-                            i += 1
-
-            else:
-                # Collect a run of printable characters.
-                j = i + 1
-                while j < n and chunk[j] not in ('\r', '\n', '\x08', '\x1b'):
-                    j += 1
-                segment = chunk[i:j]
-                tag = self._parser.tag()
-                self._ensure_tag(tag, self._parser.fg(), self._parser.bg(), self._parser.bold())
-                # When the cursor is mid-line (e.g. after a \r), overwrite the
-                # existing characters rather than inserting in front of them.
-                if self._text.compare("insert", "<", "insert lineend"):
-                    del_to = f"insert+{len(segment)}c"
-                    if self._text.compare(del_to, ">", "insert lineend"):
-                        del_to = "insert lineend"
-                    self._text.delete("insert", del_to)
-                self._text.insert("insert", segment, tag)
-                i = j
-
-        self._text.see("end")
-
-    # ── PTY read loop ─────────────────────────────────────────────────────────
-
-    def _read_loop(self) -> None:
-        """Read from the PTY in a background thread and push to the queue."""
-        while self._running and self._pty and self._pty.isalive():
-            try:
-                chunk = self._pty.read(4096)
-                if chunk:
-                    self._queue.put(chunk)
-            except EOFError:
-                break
-            except Exception:
-                break
-        self._queue.put(None)  # sentinel
-
-    def _poll(self) -> None:
-        """Drain the queue every 30 ms on the main thread."""
-        chunks = []
-        sentinel = False
-        try:
-            while True:
-                item = self._queue.get_nowait()
-                if item is None:
-                    sentinel = True
-                    break
-                chunks.append(item)
-        except queue.Empty:
-            pass
-
-        # Combine all chunks into one string before rendering so that
-        # \r\n normalization and cursor tracking work correctly across
-        # chunk boundaries (e.g. prompt split as "...\r" + "\n└─$ ").
-        if chunks:
-            self._render_chunk("".join(chunks))
-
-        if sentinel:
-            self._running = False
-            self._write("\n[Process exited]\n", "plain")
-
-        self.after(30, self._poll)
