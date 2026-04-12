@@ -77,13 +77,15 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - OUTPUT and TERMINAL tabs share the bottom panel
 
 ### AI Chat (F2)
-- Press **F2** (or **Help → Ask AI**) to open a persistent `🤖 AI` chat tab
+- Press **F2** (or **Help → Ask AI**) to toggle a persistent right-side chat panel — stays open alongside your code
+- Draggable sash lets you size the panel; width and visibility are saved across sessions
 - Conversational interface to a local Ollama LLM — fully offline, no API key needed
 - **📄 Send File** — attaches your currently open file as context for the next question
 - **✂ Selection** — attaches highlighted code from the editor
 - Streaming responses appear word-by-word in real time
-- Code blocks in responses are syntax-highlighted in a distinct monospace style
-- Full conversation history maintained within the session
+- Code blocks are syntax-highlighted with a **⎘ Copy** button that strips the language hint automatically
+- **💾 Save / 📂 Load** — export and reload full conversation history as JSON
+- Live token counter shows approximate context usage (e.g. `~1,200 / 32,000 tokens`) — turns amber near the limit
 - Same offline install card as Learning Mode when Ollama isn't running
 
 ### Learning Mode (F1)

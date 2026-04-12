@@ -188,9 +188,10 @@ class Notepad(Tk):
         self._git_tab_status: dict[str, str] = {}  # tab_id → status char
         self._git_hunks: dict[str, list] = {}  # tab_id → hunk list
 
-        # AI Chat
-        self._ai_chat_tab: str | None = None
-        self._ai_chat_panel: AiChatPanel | None = None
+        # AI Chat panel (right-side panel, not a tab)
+        self._ai_panel_visible: bool = False
+        self._ai_panel_width:   int  = 350          # restored width in px
+        self._ai_chat_panel: AiChatPanel | None = None   # set in _build_layout
         self._last_editor_tab: str | None = None   # last tab with a real codeview
 
         # Learning Mode
@@ -336,6 +337,15 @@ class Notepad(Tk):
             self._v_pane, run_callback=self.run_file, cwd=os.getcwd()
         )
         self._v_pane.add(self._output, weight=1)
+
+        # AI Chat right panel — created here but not added to _h_pane until F2
+        self._ai_panel_frame = tk.Frame(self._h_pane, bg="#1e1e1e")
+        self._ai_chat_panel = AiChatPanel(
+            self._ai_panel_frame,
+            get_file_content=self._ai_get_file_content,
+            get_selection=self._ai_get_selection,
+        )
+        self._ai_chat_panel.pack(fill="both", expand=True)
 
         # Snap the sash once the window is actually visible on screen
         self.bind("<Map>", self._init_sash_pos)
@@ -2151,28 +2161,29 @@ class Notepad(Tk):
         self.after(150, lambda: self._learning_show_overlays(""))
 
     def view_ai_chat(self) -> None:
-        """Open or focus the AI Chat tab."""
-        if self._ai_chat_tab:
+        """Toggle the AI Chat right panel (F2)."""
+        if self._ai_panel_visible:
+            # Save current width before hiding
             try:
-                self.notebook.select(self._ai_chat_tab)
-                return
+                total = self._h_pane.winfo_width()
+                sash  = self._h_pane.sashpos(1)
+                self._ai_panel_width = max(280, total - sash)
             except Exception:
-                self._ai_chat_tab = None
-                self._ai_chat_panel = None
+                pass
+            self._h_pane.forget(self._ai_panel_frame)
+            self._ai_panel_visible = False
+        else:
+            self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
+            self._ai_panel_visible = True
+            self.after(20, self._apply_ai_panel_sash)
 
-        frame = ttk.Frame(self.notebook)
-        panel = AiChatPanel(
-            frame,
-            get_file_content=self._ai_get_file_content,
-            get_selection=self._ai_get_selection,
-        )
-        panel.pack(fill="both", expand=True)
-
-        self.notebook.add(frame, text="  🤖 AI  ")
-        self.notebook.select(frame)
-
-        self._ai_chat_tab   = self.notebook.select()
-        self._ai_chat_panel = panel
+    def _apply_ai_panel_sash(self) -> None:
+        """Position the sash so the AI panel has its saved width."""
+        try:
+            total = self._h_pane.winfo_width()
+            self._h_pane.sashpos(1, max(200, total - self._ai_panel_width))
+        except Exception:
+            pass
 
     def _ai_get_file_content(self) -> tuple[str, str]:
         """Return (filename, content) of the last active editor tab."""
@@ -2382,6 +2393,8 @@ class Notepad(Tk):
     def _enter_zen(self) -> None:
         self._zen_mode = True
         self._h_pane.forget(self._sidebar)
+        if self._ai_panel_visible:
+            self._h_pane.forget(self._ai_panel_frame)
         if self.output_visible_var.get():
             self._v_pane.forget(self._output)
         self._statusbar.pack_forget()
@@ -2390,10 +2403,15 @@ class Notepad(Tk):
 
     def _exit_zen(self) -> None:
         self._zen_mode = False
-        # Restore in reverse pack order: statusbar first (side=bottom),
-        # then sidebar back into h_pane at position 0, then output into v_pane.
         self._statusbar.pack(side="bottom", fill="x")
-        self._h_pane.insert(0, self._sidebar, minsize=220, stretch="never")
+        # tk.PanedWindow has no insert() — rebuild the pane order so sidebar
+        # goes back at position 0: forget v_pane, add sidebar, re-add v_pane.
+        self._h_pane.forget(self._v_pane)
+        self._h_pane.add(self._sidebar, minsize=220, stretch="never")
+        self._h_pane.add(self._v_pane, stretch="always")
+        if self._ai_panel_visible:
+            self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
+            self.after(20, self._apply_ai_panel_sash)
         if self.output_visible_var.get():
             self._v_pane.add(self._output, weight=1)
         self.title("Notepad")

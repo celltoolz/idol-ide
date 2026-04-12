@@ -87,6 +87,18 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
     layout["sc_visible"]          = sb._sc_visible
     layout["explorer_collapsed"]  = sb._explorer_collapsed
 
+    # AI panel
+    layout["ai_panel_visible"] = app._ai_panel_visible
+    if app._ai_panel_visible:
+        try:
+            total = app._h_pane.winfo_width()
+            sash  = app._h_pane.sashpos(1)
+            layout["ai_panel_width"] = max(280, total - sash)
+        except Exception:
+            layout["ai_panel_width"] = app._ai_panel_width
+    else:
+        layout["ai_panel_width"] = app._ai_panel_width
+
     explorer_root = str(app._sidebar.explorer._root or os.getcwd())
 
     try:
@@ -200,6 +212,13 @@ def _apply_pane_sashes(app: "Notepad", layout: dict) -> None:
             app._v_pane.sashpos(0, v)
         except Exception:
             pass
+
+    # AI panel — show it if it was visible; sash follows via _apply_ai_panel_sash
+    if layout.get("ai_panel_visible"):
+        w = layout.get("ai_panel_width", 350)
+        app._ai_panel_width = max(280, w)
+        if not app._ai_panel_visible:
+            app.view_ai_chat()
 
 
 def _apply_sidebar_layout(app: "Notepad", layout: dict) -> None:

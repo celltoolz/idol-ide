@@ -1,8 +1,9 @@
 """AI Chat panel — conversational interface to local Ollama LLM."""
 from __future__ import annotations
 
+import json
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox, filedialog
 from typing import Callable
 
 from utils import ollama_client
@@ -50,6 +51,9 @@ class AiChatPanel(tk.Frame):
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build(self) -> None:
+        # Left border — visually separates panel from the editor
+        tk.Frame(self, bg=_BORDER, width=1).pack(side="left", fill="y")
+
         # ── Message scroll area ───────────────────────────────────────────────
         msg_frame = tk.Frame(self, bg=_BG)
         msg_frame.pack(fill="both", expand=True)
@@ -65,12 +69,17 @@ class AiChatPanel(tk.Frame):
                                                    anchor="nw")
         self._msg_inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>",    self._on_canvas_configure)
-        # Bind scroll on both canvas and inner frame so it fires regardless
-        # of which child widget the pointer is over
+
+        # Linux / macOS: direct per-widget bindings work fine
         for w in (self._canvas, self._msg_inner):
-            w.bind("<MouseWheel>", self._on_mousewheel, add="+")
-            w.bind("<Button-4>",   self._on_mousewheel, add="+")
-            w.bind("<Button-5>",   self._on_mousewheel, add="+")
+            w.bind("<Button-4>", self._on_mousewheel, add="+")
+            w.bind("<Button-5>", self._on_mousewheel, add="+")
+
+        # Windows: <MouseWheel> fires on the *focused* widget, not the one
+        # under the cursor.  Grab all mousewheel events while the cursor is
+        # inside this panel, release them when it leaves.
+        self.bind("<Enter>", self._grab_scroll,    add="+")
+        self.bind("<Leave>", self._release_scroll, add="+")
 
         # ── Separator ─────────────────────────────────────────────────────────
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x")
@@ -83,14 +92,23 @@ class AiChatPanel(tk.Frame):
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
         ctx_row.pack(fill="x", padx=8, pady=(6, 0))
 
-        self._file_btn = self._make_ctx_btn(ctx_row, "📄 Send File",  self._attach_file)
+        self._file_btn = self._make_ctx_btn(ctx_row, "📄 Send File", self._attach_file)
         self._file_btn.pack(side="left", padx=(0, 4))
-        self._sel_btn  = self._make_ctx_btn(ctx_row, "✂ Selection",  self._attach_selection)
+        self._sel_btn  = self._make_ctx_btn(ctx_row, "✂ Selection", self._attach_selection)
         self._sel_btn.pack(side="left")
 
         self._ctx_label = tk.Label(ctx_row, text="", bg=_INPUT_BG, fg=_DIM,
                                    font=("Segoe UI", 8), anchor="w")
         self._ctx_label.pack(side="left", padx=(8, 0))
+
+        # Token usage indicator (right side, before save/load)
+        self._token_label = tk.Label(ctx_row, text="", bg=_INPUT_BG, fg=_DIM,
+                                     font=("Segoe UI", 7), anchor="e")
+        self._token_label.pack(side="right", padx=(0, 8))
+
+        # Save / Load on the right
+        self._make_ctx_btn(ctx_row, "💾 Save", self._save_conversation).pack(side="right")
+        self._make_ctx_btn(ctx_row, "📂 Load", self._load_conversation).pack(side="right", padx=(0, 4))
 
         # Text input + send button
         input_row = tk.Frame(input_outer, bg=_INPUT_BG)
@@ -128,6 +146,30 @@ class AiChatPanel(tk.Frame):
 
     def _on_canvas_configure(self, event) -> None:
         self._canvas.itemconfig(self._msg_win, width=event.width)
+
+    def _grab_scroll(self, event=None) -> None:
+        """Bind all mousewheel events to this panel (Windows focus workaround)."""
+        try:
+            self.winfo_toplevel().bind_all("<MouseWheel>", self._on_mousewheel)
+        except Exception:
+            pass
+
+    def _release_scroll(self, event) -> None:
+        """Unbind global mousewheel only when the cursor truly leaves the panel."""
+        try:
+            # winfo_containing gives us the widget now under the cursor.
+            # Walk its parent chain — if we find self, still inside the panel.
+            w = self.winfo_containing(event.x_root, event.y_root)
+            while w:
+                if w is self:
+                    return          # still inside — keep the grab
+                try:
+                    w = w.master
+                except Exception:
+                    break
+            self.winfo_toplevel().unbind_all("<MouseWheel>")
+        except Exception:
+            pass
 
     def _on_mousewheel(self, event) -> None:
         if event.num == 4:
@@ -232,6 +274,78 @@ class AiChatPanel(tk.Frame):
         self._pending_ctx = ""
         self._ctx_label.config(text="")
 
+    # ── Save / Load conversation ──────────────────────────────────────────────
+
+    def _save_conversation(self) -> None:
+        if not self._history:
+            messagebox.showinfo("Save Conversation", "Nothing to save — conversation is empty.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Conversation",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._history, f, indent=2, ensure_ascii=False)
+            self._append_system(f"Conversation saved to {path}")
+        except Exception as exc:
+            messagebox.showerror("Save Failed", str(exc))
+
+    def _load_conversation(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Load Conversation",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as exc:
+            messagebox.showerror("Load Failed", str(exc))
+            return
+
+        if not isinstance(data, list):
+            messagebox.showerror("Load Failed", "Invalid conversation file.")
+            return
+
+        if self._history:
+            if not messagebox.askyesno(
+                "Load Conversation",
+                "Loading will clear the current conversation. Continue?",
+            ):
+                return
+
+        # Clear UI
+        for w in self._msg_inner.winfo_children():
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self._history = []
+        self._current_ai_label = None
+
+        # Replay history into the UI
+        for msg in data:
+            role    = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                # Show only the user-typed portion (strip attached context block)
+                display = content.split("\n\n")[-1] if "\n\n# " not in content else content.split("\n\n")[-1]
+                self._append_user(display)
+            elif role == "assistant":
+                bubble = self._append_ai_bubble()
+                self._current_ai_label = bubble
+                self._update_ai_bubble(content)
+            self._history.append(msg)
+
+        self._current_ai_label = None
+        self._update_token_label()
+        self._append_system(f"Conversation loaded from {path}")
+
     # ── Send ──────────────────────────────────────────────────────────────────
 
     def _on_return(self, event) -> str:
@@ -261,6 +375,7 @@ class AiChatPanel(tk.Frame):
 
         # Add to history
         self._history.append({"role": "user", "content": full_msg})
+        self._update_token_label()
 
         if not self._ai_available:
             self._append_system("Ollama is not running. See setup instructions above.", _WARN_FG)
@@ -286,6 +401,10 @@ class AiChatPanel(tk.Frame):
         def _on_done(full: str) -> None:
             self._generating = False
             self._history.append({"role": "assistant", "content": full})
+            try:
+                self.after(0, self._update_token_label)
+            except Exception:
+                pass
             # Final render — cancel any pending debounce and render immediately
             try:
                 self.after(0, lambda: (
@@ -309,6 +428,22 @@ class AiChatPanel(tk.Frame):
             on_done=_on_done,
             on_error=_on_error,
         )
+
+    def _update_token_label(self) -> None:
+        """Show an approximate token count for the current conversation."""
+        # Rough estimate: 1 token ≈ 4 chars.  qwen2.5-coder context ≈ 32k tokens.
+        _CONTEXT_TOKENS = 32_000
+        total_chars = sum(len(m.get("content", "")) for m in self._history)
+        tokens = total_chars // 4
+        pct = min(100, int(tokens * 100 / _CONTEXT_TOKENS))
+        color = _DIM if pct < 70 else (_WARN_FG if pct < 90 else "#f44747")
+        try:
+            self._token_label.config(
+                text=f"~{tokens:,} / {_CONTEXT_TOKENS:,} tokens  ({pct}%)",
+                fg=color,
+            )
+        except Exception:
+            pass
 
     def _build_prompt(self) -> str:
         """Flatten history into a single prompt string."""
@@ -361,9 +496,8 @@ class AiChatPanel(tk.Frame):
                              state="disabled", cursor="arrow",
                              height=1)
         stream_txt.pack(fill="x", anchor="w")
-        stream_txt.bind("<MouseWheel>", self._on_mousewheel)
-        stream_txt.bind("<Button-4>",   self._on_mousewheel)
-        stream_txt.bind("<Button-5>",   self._on_mousewheel)
+        stream_txt.bind("<Button-4>", self._on_mousewheel)
+        stream_txt.bind("<Button-5>", self._on_mousewheel)
         bubble._stream_txt = stream_txt   # type: ignore[attr-defined]
 
         return bubble
@@ -483,9 +617,8 @@ class AiChatPanel(tk.Frame):
                 txt.pack(fill="x", padx=6, pady=(2, 4))
                 txt.insert("1.0", code + "\n")        # trailing newline = bottom padding
                 txt.config(state="disabled")
-                txt.bind("<MouseWheel>", self._on_mousewheel)
-                txt.bind("<Button-4>",   self._on_mousewheel)
-                txt.bind("<Button-5>",   self._on_mousewheel)
+                txt.bind("<Button-4>", self._on_mousewheel)
+                txt.bind("<Button-5>", self._on_mousewheel)
 
             else:
                 # ── Plain text ────────────────────────────────────────────────
@@ -494,9 +627,8 @@ class AiChatPanel(tk.Frame):
                                    font=("Segoe UI", 10), wraplength=500,
                                    justify="left", anchor="nw")
                     lbl.pack(fill="x", anchor="w")
-                    lbl.bind("<MouseWheel>", self._on_mousewheel)
-                    lbl.bind("<Button-4>",   self._on_mousewheel)
-                    lbl.bind("<Button-5>",   self._on_mousewheel)
+                    lbl.bind("<Button-4>", self._on_mousewheel)
+                    lbl.bind("<Button-5>", self._on_mousewheel)
 
     def _append_system(self, text: str, color: str = _DIM) -> None:
         self._add_spacer(8)
@@ -512,9 +644,10 @@ class AiChatPanel(tk.Frame):
         tk.Frame(self._msg_inner, bg=_BG, height=h).pack(fill="x")
 
     def _bind_scroll_recursive(self, widget) -> None:
-        widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
-        widget.bind("<Button-4>",   self._on_mousewheel, add="+")
-        widget.bind("<Button-5>",   self._on_mousewheel, add="+")
+        # Windows: covered by bind_all in _grab_scroll.
+        # Linux / macOS: bind Button-4 / Button-5 on each child.
+        widget.bind("<Button-4>", self._on_mousewheel, add="+")
+        widget.bind("<Button-5>", self._on_mousewheel, add="+")
         for child in widget.winfo_children():
             self._bind_scroll_recursive(child)
 
