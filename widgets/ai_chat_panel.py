@@ -50,7 +50,11 @@ class AiChatPanel(tk.Frame):
         self._pending_render_text: str = ""
 
         self._build()
-        ollama_client.check_async(self._on_ollama_status)
+        try:
+            import requests  # noqa: F401
+            ollama_client.check_async(self._on_ollama_status)
+        except ImportError:
+            self.after(100, self._show_requests_missing)
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
@@ -277,6 +281,17 @@ class AiChatPanel(tk.Frame):
                 self.after(0, self._show_offline_card)
             except Exception:
                 pass
+
+    def _show_requests_missing(self) -> None:
+        self._add_spacer(8)
+        f = tk.Frame(self._msg_inner, bg=_MSG_BG, padx=12, pady=8)
+        f._is_offline_card = True
+        f.pack(fill="x", padx=10)
+        tk.Label(f, text="Missing dependency: requests\n\nRun this in your terminal:\n  pip install requests\n\nThen restart IDOL.",
+                 bg=_MSG_BG, fg=_WARN_FG, font=("Segoe UI", 9),
+                 wraplength=400, justify="left", anchor="nw").pack(anchor="w")
+        self._bind_scroll_recursive(f)
+        self._scroll_bottom()
 
     def _show_offline_card(self) -> None:
         # Don't add another card if one is already visible
