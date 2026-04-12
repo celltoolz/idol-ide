@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 from typing import Callable
 
@@ -15,102 +16,48 @@ try:
 except ImportError:
     _REQUESTS_OK = False
 
-_BG         = "#1e1e1e"
-_PANEL_BG   = "#252526"
-_INPUT_BG   = "#2d2d30"
-_BORDER     = "#3c3c3c"
-_FG         = "#cccccc"
-_DIM        = "#858585"
-_ACCENT     = "#0e639c"
-_ACCENT_HOV = "#1177bb"
-_GREEN      = "#4ec9b0"
-_RED        = "#f44747"
-_WARN       = "#ce9178"
-_SEL_BG     = "#094771"
+_BG       = "#1e1e1e"
+_PANEL_BG = "#252526"
+_INPUT_BG = "#2d2d30"
+_BORDER   = "#3c3c3c"
+_FG       = "#cccccc"
+_DIM      = "#858585"
+_ACCENT   = "#0e639c"
+_GREEN    = "#4ec9b0"
+_SEL_BG   = "#094771"
+_WARN     = "#ce9178"
 
-# ── Package category map ───────────────────────────────────────────────────────
-# Keys are lowercase package names; value is the category label.
-# Unknown packages fall into "Other".
-_CATEGORIES: dict[str, str] = {
-    # Code Quality & Formatting
-    "black":            "Code Quality & Formatting",
-    "pyflakes":         "Code Quality & Formatting",
-    "mypy_extensions":  "Code Quality & Formatting",
-    "mypy-extensions":  "Code Quality & Formatting",
-    "autopep8":         "Code Quality & Formatting",
-    "flake8":           "Code Quality & Formatting",
-    "isort":            "Code Quality & Formatting",
-    "pylint":           "Code Quality & Formatting",
-    "ruff":             "Code Quality & Formatting",
-    # IDE / Language Server
-    "jedi":                  "IDE / Language Server",
-    "parso":                 "IDE / Language Server",
-    "python-lsp-server":     "IDE / Language Server",
-    "python_lsp_server":     "IDE / Language Server",
-    "python-lsp-jsonrpc":    "IDE / Language Server",
-    "python_lsp_jsonrpc":    "IDE / Language Server",
-    "docstring-to-markdown": "IDE / Language Server",
-    "docstring_to_markdown": "IDE / Language Server",
-    "pygments":              "IDE / Language Server",
-    "pytokens":              "IDE / Language Server",
-    "pycodestyle":           "IDE / Language Server",
-    "mccabe":                "IDE / Language Server",
-    "pyflakes":              "IDE / Language Server",
-    # Terminal / CLI
-    "click":      "Terminal / CLI",
-    "colorama":   "Terminal / CLI",
-    "ptyprocess": "Terminal / CLI",
-    "pyte":       "Terminal / CLI",
-    "pywinpty":   "Terminal / CLI",
-    "rich":       "Terminal / CLI",
-    "typer":      "Terminal / CLI",
-    # Networking / Encoding
-    "certifi":           "Networking / Encoding",
-    "charset-normalizer": "Networking / Encoding",
-    "charset_normalizer": "Networking / Encoding",
-    "idna":              "Networking / Encoding",
-    "urllib3":           "Networking / Encoding",
-    "requests":          "Networking / Encoding",
-    "httpx":             "Networking / Encoding",
-    "aiohttp":           "Networking / Encoding",
-    # Packaging / Runtime Utilities
-    "pip":                "Packaging / Runtime",
-    "setuptools":         "Packaging / Runtime",
-    "wheel":              "Packaging / Runtime",
-    "packaging":          "Packaging / Runtime",
-    "importlib_metadata": "Packaging / Runtime",
-    "importlib-metadata": "Packaging / Runtime",
-    "pluggy":             "Packaging / Runtime",
-    "platformdirs":       "Packaging / Runtime",
-    "pathspec":           "Packaging / Runtime",
-    "toml":               "Packaging / Runtime",
-    "tomli":              "Packaging / Runtime",
-    "zipp":               "Packaging / Runtime",
-    "attrs":              "Packaging / Runtime",
-    "six":                "Packaging / Runtime",
-    # Media / System
-    "pillow":    "Media / System",
-    "pyperclip": "Media / System",
-    "tkcolorpicker":  "Media / System",
-    "tkfontchooser":  "Media / System",
-}
-
-# Display order for categories
-_CATEGORY_ORDER = [
-    "Code Quality & Formatting",
-    "IDE / Language Server",
-    "Terminal / CLI",
-    "Networking / Encoding",
-    "Packaging / Runtime",
-    "Media / System",
-    "Other",
-]
+_CACHE_FILE = Path.home() / ".notepad_ide" / "pkg_cache.json"
 
 
-def _get_category(name: str) -> str:
-    return _CATEGORIES.get(name.lower(), _CATEGORIES.get(
-        name.lower().replace("-", "_"), _CATEGORIES.get(
-        name.lower().replace("_", "-"), "Other")))
+def _topic_from_classifiers(classifiers: list[str]) -> str:
+    """Extract a short human-readable topic from PyPI classifiers."""
+    # Walk the Topic :: hierarchy and return the top-level bucket
+    mapping = {
+        "Software Development": "Development Tools",
+        "Scientific/Engineering": "Science & Data",
+        "Internet": "Networking & Web",
+        "Text Processing": "Text Processing",
+        "System": "System & OS",
+        "Database": "Database",
+        "Security": "Security",
+        "Multimedia": "Multimedia",
+        "Education": "Education",
+        "Games/Entertainment": "Games",
+        "Office/Business": "Office & Business",
+        "Communications": "Communications",
+        "Utilities": "Utilities",
+    }
+    for c in classifiers:
+        if c.startswith("Topic :: "):
+            parts = c.split(" :: ")
+            if len(parts) >= 2:
+                top = parts[1]
+                for key, label in mapping.items():
+                    if key.lower() in top.lower():
+                        return label
+                return top   # use raw top-level if no mapping hit
+    return "Other"
 
 
 class PackageManagerPanel(tk.Frame):
@@ -124,11 +71,32 @@ class PackageManagerPanel(tk.Frame):
         self._get_output_panel = get_output_panel
         self._get_ai_panel     = get_ai_panel
         self._installed: dict[str, str] = {}   # name → version
-        self._search_results: list[str] = []
         self._selected_pkg: str = ""
-        self._pypi_cache: dict[str, dict] = {}
+        self._pypi_cache: dict[str, dict] = {}   # per-session detail cache
+        self._topic_cache: dict[str, str] = {}   # name → topic (persisted)
+        self._grouped = False
+        self._grouping_active = False
+        self._load_topic_cache()
         self._build()
         self.after(100, self._load_installed)
+
+    # ── Disk cache ────────────────────────────────────────────────────────────
+
+    def _load_topic_cache(self) -> None:
+        try:
+            if _CACHE_FILE.exists():
+                self._topic_cache = json.loads(
+                    _CACHE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            self._topic_cache = {}
+
+    def _save_topic_cache(self) -> None:
+        try:
+            _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _CACHE_FILE.write_text(
+                json.dumps(self._topic_cache, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
@@ -143,6 +111,9 @@ class PackageManagerPanel(tk.Frame):
         self._refresh_btn = self._make_btn(toolbar, "↻ Refresh", self._load_installed)
         self._refresh_btn.pack(side="right", padx=(0, 8), pady=4)
 
+        self._group_btn = self._make_btn(toolbar, "⊞ Group by Topic", self._toggle_group)
+        self._group_btn.pack(side="right", padx=(0, 4), pady=4)
+
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x")
 
         # ── Search bar ────────────────────────────────────────────────────────
@@ -150,17 +121,17 @@ class PackageManagerPanel(tk.Frame):
         search_frame.pack(fill="x", padx=8, pady=6)
 
         self._search_var = tk.StringVar()
-        search_entry = tk.Entry(search_frame, textvariable=self._search_var,
-                                bg=_INPUT_BG, fg=_FG, insertbackground=_FG,
-                                font=("Segoe UI", 10), relief="flat", bd=0,
-                                highlightthickness=1, highlightbackground=_BORDER,
-                                highlightcolor=_ACCENT)
-        search_entry.pack(side="left", fill="x", expand=True, ipady=4, padx=(6, 0))
-        search_entry.insert(0, "Search PyPI…")
-        search_entry.config(fg=_DIM)
-        search_entry.bind("<FocusIn>",  lambda _: self._search_focus_in(search_entry))
-        search_entry.bind("<FocusOut>", lambda _: self._search_focus_out(search_entry))
-        search_entry.bind("<Return>",   lambda _: self._do_search())
+        self._search_entry = tk.Entry(search_frame, textvariable=self._search_var,
+                                      bg=_INPUT_BG, fg=_FG, insertbackground=_FG,
+                                      font=("Segoe UI", 10), relief="flat", bd=0,
+                                      highlightthickness=1, highlightbackground=_BORDER,
+                                      highlightcolor=_ACCENT)
+        self._search_entry.pack(side="left", fill="x", expand=True, ipady=4, padx=(6, 0))
+        self._search_entry.insert(0, "Search PyPI…")
+        self._search_entry.config(fg=_DIM)
+        self._search_entry.bind("<FocusIn>",  lambda _: self._search_focus_in())
+        self._search_entry.bind("<FocusOut>", lambda _: self._search_focus_out())
+        self._search_entry.bind("<Return>",   lambda _: self._do_search())
 
         self._search_btn = self._make_btn(search_frame, "Search", self._do_search)
         self._search_btn.pack(side="right", padx=(4, 4), pady=2)
@@ -214,19 +185,21 @@ class PackageManagerPanel(tk.Frame):
 
     # ── Search placeholder helpers ─────────────────────────────────────────────
 
-    def _search_focus_in(self, entry: tk.Entry) -> None:
-        if entry.get() == "Search PyPI…":
-            entry.delete(0, "end")
-            entry.config(fg=_FG)
+    def _search_focus_in(self) -> None:
+        if self._search_entry.get() == "Search PyPI…":
+            self._search_entry.delete(0, "end")
+            self._search_entry.config(fg=_FG)
 
-    def _search_focus_out(self, entry: tk.Entry) -> None:
-        if not entry.get().strip():
-            entry.insert(0, "Search PyPI…")
-            entry.config(fg=_DIM)
+    def _search_focus_out(self) -> None:
+        if not self._search_entry.get().strip():
+            self._search_entry.insert(0, "Search PyPI…")
+            self._search_entry.config(fg=_DIM)
 
     # ── Load installed packages ────────────────────────────────────────────────
 
     def _load_installed(self) -> None:
+        self._grouped = False
+        self._group_btn.config(text="⊞ Group by Topic")
         self._tree_label.config(text="INSTALLED  (loading…)")
         self._tree.delete(*self._tree.get_children())
         threading.Thread(target=self._fetch_installed, daemon=True).start()
@@ -241,21 +214,84 @@ class PackageManagerPanel(tk.Frame):
             self._installed = {p["name"]: p["version"] for p in pkgs}
         except Exception:
             self._installed = {}
-        self.after(0, self._populate_installed)
+        self.after(0, self._populate_flat)
 
-    def _populate_installed(self) -> None:
+    def _populate_flat(self) -> None:
         self._tree.delete(*self._tree.get_children())
         self._tree_label.config(text=f"INSTALLED  ({len(self._installed)})")
-
-        # Group packages by category
-        groups: dict[str, list[str]] = {c: [] for c in _CATEGORY_ORDER}
         for name in sorted(self._installed, key=str.lower):
-            groups[_get_category(name)].append(name)
+            ver = self._installed[name]
+            self._tree.insert("", "end", iid=f"pkg:{name}",
+                              text=f"  {name}  {ver}", tags=("installed",))
+        self._tree.tag_configure("installed", foreground=_FG)
 
-        for cat in _CATEGORY_ORDER:
-            pkgs = groups[cat]
-            if not pkgs:
+    # ── Grouping ──────────────────────────────────────────────────────────────
+
+    def _toggle_group(self) -> None:
+        if self._grouping_active:
+            return   # already fetching
+        if self._grouped:
+            # Switch back to flat
+            self._grouped = False
+            self._group_btn.config(text="⊞ Group by Topic")
+            self._populate_flat()
+            return
+
+        # Need to fetch topics for packages not yet cached
+        missing = [n for n in self._installed if n not in self._topic_cache]
+        if missing:
+            self._grouping_active = True
+            self._group_btn.config(text=f"  Fetching 0/{len(missing)}…")
+            threading.Thread(target=self._fetch_topics,
+                             args=(missing,), daemon=True).start()
+        else:
+            self._grouped = True
+            self._group_btn.config(text="⊟ Flat list")
+            self._populate_grouped()
+
+    def _fetch_topics(self, names: list[str]) -> None:
+        total = len(names)
+        for i, name in enumerate(names):
+            if name in self._topic_cache:
                 continue
+            topic = "Other"
+            if _REQUESTS_OK:
+                try:
+                    r = _requests.get(f"https://pypi.org/pypi/{name}/json",
+                                      timeout=6)
+                    if r.status_code == 200:
+                        data = r.json()
+                        classifiers = data.get("info", {}).get("classifiers", [])
+                        topic = _topic_from_classifiers(classifiers)
+                        # Also cache the full data for the detail panel
+                        self._pypi_cache[name] = data
+                except Exception:
+                    pass
+            self._topic_cache[name] = topic
+            progress = i + 1
+            self.after(0, lambda p=progress, t=total:
+                       self._group_btn.config(text=f"  Fetching {p}/{t}…"))
+
+        self._save_topic_cache()
+        self.after(0, self._on_topics_ready)
+
+    def _on_topics_ready(self) -> None:
+        self._grouping_active = False
+        self._grouped = True
+        self._group_btn.config(text="⊟ Flat list")
+        self._populate_grouped()
+
+    def _populate_grouped(self) -> None:
+        self._tree.delete(*self._tree.get_children())
+        self._tree_label.config(text=f"INSTALLED  ({len(self._installed)})  — by topic")
+
+        groups: dict[str, list[str]] = {}
+        for name in sorted(self._installed, key=str.lower):
+            topic = self._topic_cache.get(name, "Other")
+            groups.setdefault(topic, []).append(name)
+
+        for cat in sorted(groups):
+            pkgs = groups[cat]
             cat_iid = f"cat:{cat}"
             self._tree.insert("", "end", iid=cat_iid,
                               text=f"  {cat}  ({len(pkgs)})",
@@ -265,8 +301,7 @@ class PackageManagerPanel(tk.Frame):
                 self._tree.insert(cat_iid, "end", iid=f"pkg:{name}",
                                   text=f"  {name}  {ver}", tags=("installed",))
 
-        self._tree.tag_configure("category", foreground=_DIM,
-                                 font=("Segoe UI", 8, "bold"))
+        self._tree.tag_configure("category", foreground=_DIM)
         self._tree.tag_configure("installed", foreground=_FG)
 
     # ── PyPI search ────────────────────────────────────────────────────────────
@@ -283,21 +318,14 @@ class PackageManagerPanel(tk.Frame):
     def _fetch_search(self, query: str) -> None:
         results = []
         if _REQUESTS_OK:
+            # Exact match first
             try:
-                r = _requests.get(
-                    f"https://pypi.org/search/",
-                    params={"q": query, "format": "application/json"},
-                    timeout=8
-                )
-                # PyPI search doesn't have a public JSON API, use simple API instead
-                r2 = _requests.get(
-                    f"https://pypi.org/pypi/{query}/json", timeout=5
-                )
-                if r2.status_code == 200:
-                    results = [query]   # exact match
+                r = _requests.get(f"https://pypi.org/pypi/{query}/json", timeout=5)
+                if r.status_code == 200:
+                    results = [query]
             except Exception:
                 pass
-            # Also search via XML-RPC (most reliable public endpoint)
+            # XML-RPC search
             try:
                 import xmlrpc.client
                 client = xmlrpc.client.ServerProxy("https://pypi.org/pypi")
@@ -312,12 +340,11 @@ class PackageManagerPanel(tk.Frame):
         self._tree_label.config(text=f"SEARCH RESULTS  ({len(results)})")
         for name in sorted(results, key=str.lower):
             installed = name in self._installed
-            tag = "installed" if installed else "search"
+            tag = "found_installed" if installed else "search"
             label = f"  {name}  ✓" if installed else f"  {name}"
             self._tree.insert("", "end", iid=f"pkg:{name}", text=label, tags=(tag,))
-        self._tree.tag_configure("installed", foreground=_GREEN)
-        self._tree.tag_configure("search",    foreground=_FG)
-        # Add "back to installed" link
+        self._tree.tag_configure("found_installed", foreground=_GREEN)
+        self._tree.tag_configure("search", foreground=_FG)
         self._tree.insert("", "end", iid="__back__",
                           text="  ← Back to installed", tags=("back",))
         self._tree.tag_configure("back", foreground=_DIM)
@@ -333,7 +360,7 @@ class PackageManagerPanel(tk.Frame):
             self._load_installed()
             return
         if iid.startswith("cat:"):
-            return   # category header — just expand/collapse
+            return
         name = iid.replace("pkg:", "")
         self._selected_pkg = name
         self._detail.show_loading(name)
@@ -360,12 +387,12 @@ class PackageManagerPanel(tk.Frame):
     # ── Install / Uninstall ────────────────────────────────────────────────────
 
     def _install_pkg(self, name: str) -> None:
-        self._run_pip(["install", name], f"Installing {name}…")
+        self._run_pip(["install", name])
 
     def _uninstall_pkg(self, name: str) -> None:
-        self._run_pip(["uninstall", "-y", name], f"Uninstalling {name}…")
+        self._run_pip(["uninstall", "-y", name])
 
-    def _run_pip(self, args: list[str], label: str) -> None:
+    def _run_pip(self, args: list[str]) -> None:
         output = self._get_output_panel() if self._get_output_panel else None
         if output:
             output.write(f"\n$ pip {' '.join(args)}\n", tag="cmd")
@@ -395,7 +422,8 @@ class PackageManagerPanel(tk.Frame):
         if not ai:
             return
         prompt = (f"Show me practical beginner-friendly usage examples for the "
-                  f"Python package **{name}**. {('It is described as: ' + summary) if summary else ''} "
+                  f"Python package **{name}**."
+                  f"{(' It is described as: ' + summary) if summary else ''} "
                   f"Include 2-3 short, real-world code snippets with comments.")
         ai.send_prefilled(prompt)
 
@@ -430,7 +458,6 @@ class _DetailPanel(tk.Frame):
         self._show_placeholder()
 
     def _build(self) -> None:
-        # Header: name + version
         header = tk.Frame(self, bg=_PANEL_BG)
         header.pack(fill="x", padx=16, pady=(14, 0))
 
@@ -442,7 +469,6 @@ class _DetailPanel(tk.Frame):
                                  font=("Segoe UI", 10), anchor="w")
         self._ver_lbl.pack(side="left", padx=(8, 0))
 
-        # Action buttons
         btn_row = tk.Frame(self, bg=_PANEL_BG)
         btn_row.pack(fill="x", padx=16, pady=(8, 0))
 
@@ -460,7 +486,6 @@ class _DetailPanel(tk.Frame):
 
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x", padx=16, pady=10)
 
-        # Meta row: author, license, homepage
         meta = tk.Frame(self, bg=_PANEL_BG)
         meta.pack(fill="x", padx=16)
 
@@ -470,7 +495,6 @@ class _DetailPanel(tk.Frame):
 
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x", padx=16, pady=10)
 
-        # Description
         tk.Label(self, text="DESCRIPTION", bg=_PANEL_BG, fg=_DIM,
                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=16)
 
@@ -524,7 +548,7 @@ class _DetailPanel(tk.Frame):
 
     def show(self, name: str, data: dict, installed_ver: str | None) -> None:
         if name != self._current_name:
-            return   # stale response
+            return
         info = data.get("info", {})
         self._current_summary = info.get("summary", "")
 
@@ -539,24 +563,18 @@ class _DetailPanel(tk.Frame):
         self._ver_lbl.config(text=ver_text)
 
         author = info.get("author") or info.get("author_email") or ""
-        self._author_lbl.config(
-            text=f"Author: {author}" if author else "")
+        self._author_lbl.config(text=f"Author: {author}" if author else "")
         lic = info.get("license") or ""
-        self._license_lbl.config(
-            text=f"License: {lic}" if lic else "")
+        self._license_lbl.config(text=f"License: {lic}" if lic else "")
         home = info.get("home_page") or info.get("project_url") or ""
-        self._home_lbl.config(
-            text=f"Homepage: {home}" if home else "")
+        self._home_lbl.config(text=f"Homepage: {home}" if home else "")
 
-        # Buttons
         if installed_ver:
-            self._install_btn.config(state="disabled", bg="#333333")
-            self._uninstall_btn.config(state="normal", bg="#5a1a1a",
-                                       cursor="hand2")
+            self._install_btn.config(state="disabled", bg="#333333", cursor="arrow")
+            self._uninstall_btn.config(state="normal", bg="#5a1a1a", cursor="hand2")
         else:
-            self._install_btn.config(state="normal", bg=_ACCENT,
-                                     cursor="hand2")
-            self._uninstall_btn.config(state="disabled", bg="#333333")
+            self._install_btn.config(state="normal", bg=_ACCENT, cursor="hand2")
+            self._uninstall_btn.config(state="disabled", bg="#333333", cursor="arrow")
         self._ai_btn.config(state="normal", bg="#1a3a2a", cursor="hand2")
 
         desc = info.get("summary") or ""
