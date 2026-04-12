@@ -366,19 +366,31 @@ class LearningManager:
     """
 
     _handler: Callable[[str], None] | None = None
+    _registrations: list = []   # list of (widget, lid, overlay)
 
     @classmethod
     def set_handler(cls, fn: Callable[[str], None]) -> None:
         cls._handler = fn
 
     @classmethod
-    def register(cls, widget, lid: str) -> None:
-        """Bind <Enter> on *widget* (and all its children) to fire the handler."""
+    def register(cls, widget, lid: str, overlay: bool = True) -> None:
+        """Bind <Enter> on *widget* to fire the handler.
+
+        overlay=True  → widget also gets a visual selection box in Learning Mode
+        overlay=False → hover still works, but no overlay box (used for large panels)
+        """
         if lid not in REGISTRY:
             return
+
+        cls._registrations.append((widget, lid, overlay))
 
         def _fire(event=None):
             if cls._handler:
                 cls._handler(lid)
 
         widget.bind("<Enter>", _fire, add="+")
+
+    @classmethod
+    def overlay_registrations(cls) -> list:
+        """Return [(widget, lid)] for widgets that should get visual overlay boxes."""
+        return [(w, l) for w, l, o in cls._registrations if o]

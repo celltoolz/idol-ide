@@ -293,6 +293,8 @@ class Sidebar(ttk.Frame):
 
     # ── Layout engine ─────────────────────────────────────────────────────────
 
+    on_relayout: Callable | None = None   # set by app to reposition overlays
+
     def _relayout(self) -> None:
         if self._relaying_out:
             return
@@ -301,6 +303,8 @@ class Sidebar(ttk.Frame):
             self._do_relayout()
         finally:
             self._relaying_out = False
+        if self.on_relayout:
+            self.after(50, self.on_relayout)
 
     def _do_relayout(self) -> None:
         w = self.winfo_width()

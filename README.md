@@ -76,6 +76,16 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **Run Selection** — right-click a highlighted block to run just that snippet (auto-dedents indented blocks)
 - OUTPUT and TERMINAL tabs share the bottom panel
 
+### AI Chat (F2)
+- Press **F2** (or **Help → Ask AI**) to open a persistent `🤖 AI` chat tab
+- Conversational interface to a local Ollama LLM — fully offline, no API key needed
+- **📄 Send File** — attaches your currently open file as context for the next question
+- **✂ Selection** — attaches highlighted code from the editor
+- Streaming responses appear word-by-word in real time
+- Code blocks in responses are syntax-highlighted in a distinct monospace style
+- Full conversation history maintained within the session
+- Same offline install card as Learning Mode when Ollama isn't running
+
 ### Learning Mode (F1)
 - Press **F1** (or **Help → Learning Mode**) to open a dedicated Learning tab in the editor
 - Hover over any IDE element — panels, buttons, the editor, status bar, breadcrumb — and the Learning tab populates instantly with:
@@ -140,6 +150,7 @@ python main.py
 | Source control | Ctrl+Shift+G |
 | New terminal | Ctrl+` |
 | Learning Mode | F1 |
+| AI Chat | F2 |
 | Zen mode | F11 |
 | Change font | Ctrl+L |
 | Add cursor | Alt+Click |

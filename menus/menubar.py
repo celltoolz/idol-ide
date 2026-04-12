@@ -134,6 +134,11 @@ def build_menubar(app) -> Menu:
         command=app.view_learning_mode,
         accelerator="F1",
     )
+    help_menu.add_command(
+        label="Ask AI",
+        command=app.view_ai_chat,
+        accelerator="F2",
+    )
     help_menu.add_separator()
     help_menu.add_command(
         label="Command Palette...",

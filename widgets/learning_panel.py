@@ -175,6 +175,7 @@ class LearningPanel(tk.Frame):
 
         tk.Frame(self._inner, bg=_BG, height=16).pack(fill="x")
         self._canvas.yview_moveto(0)
+        self._bind_scroll_recursive(self._inner)
 
     def _render_ai_section(self, payload: dict) -> None:
         pad = {"padx": 14, "pady": 0}
@@ -371,6 +372,14 @@ class LearningPanel(tk.Frame):
             on_done=_on_done,
             on_error=_on_error,
         )
+
+    def _bind_scroll_recursive(self, widget) -> None:
+        """Bind mousewheel on every child so scrolling works over all content."""
+        widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
+        widget.bind("<Button-4>",   self._on_mousewheel, add="+")
+        widget.bind("<Button-5>",   self._on_mousewheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_scroll_recursive(child)
 
     def apply_theme(self, bg: str, fg: str, _select_bg: str) -> None:
         pass

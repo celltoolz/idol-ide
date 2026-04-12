@@ -39,6 +39,7 @@ from menus.menubar import build_menubar
 from utils import session as session_utils
 from utils.learning_registry import LearningManager
 from widgets.learning_panel import LearningPanel
+from widgets.ai_chat_panel import AiChatPanel
 
 # Words that should NOT trigger word-highlight on click
 _SKIP_HIGHLIGHT = (
@@ -187,9 +188,17 @@ class Notepad(Tk):
         self._git_tab_status: dict[str, str] = {}  # tab_id → status char
         self._git_hunks: dict[str, list] = {}  # tab_id → hunk list
 
+        # AI Chat
+        self._ai_chat_tab: str | None = None
+        self._ai_chat_panel: AiChatPanel | None = None
+        self._last_editor_tab: str | None = None   # last tab with a real codeview
+
         # Learning Mode
-        self._learning_tab: str | None = None   # tab_id of the Learning tab, or None
+        self._learning_tab: str | None = None
         self._learning_panel: LearningPanel | None = None
+        self._learning_overlay_widgets: list = []
+        self._learning_active_lid: str = ""
+        self._learning_resize_id = None
 
         # Split editor
         self._split_active: bool = False
@@ -387,6 +396,7 @@ class Notepad(Tk):
         self.bind("<Control-P>", lambda _: self.open_command_palette())
         self.bind("<F11>", lambda _: self.view_zen_mode())
         self.bind("<F1>",  lambda _: self.view_learning_mode())
+        self.bind("<F2>",  lambda _: self.view_ai_chat())
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -710,6 +720,41 @@ class Notepad(Tk):
             cv.config(
                 blockcursor=ovr,
                 insertwidth=0 if ovr else 2,
+            )
+
+        # Track last real editor tab (used by AI Send File / Selection)
+        if tab_id and tab_id in self._codeviews:
+            self._last_editor_tab = tab_id
+
+        # Learning Mode overlay sync — show when on learning tab, hide otherwise
+        if self._learning_tab:
+            try:
+                tabs = self.notebook.tabs()
+            except Exception:
+                tabs = []
+            if self._learning_tab not in tabs:
+                # Tab was closed
+                self._learning_tab = None
+                self._learning_panel = None
+                self._learning_destroy_overlays()
+            elif self.notebook.select() == self._learning_tab:
+                self.after(100, lambda: self._learning_show_overlays(self._learning_active_lid))
+            else:
+                self._learning_destroy_overlays()
+
+    def _on_app_configure(self, event) -> None:
+        if event.widget is not self:
+            return
+        if self._learning_overlay_widgets:
+            if self._learning_resize_id:
+                self.after_cancel(self._learning_resize_id)
+            # Two-pass redraw: first pass catches most widgets, second pass
+            # catches slow-to-settle panels (bottom panel on maximize)
+            self._learning_resize_id = self.after(
+                150, lambda: (
+                    self._learning_reposition(),
+                    self.after(350, self._learning_reposition),
+                )
             )
 
     def _on_content_changed(self) -> None:
@@ -2081,14 +2126,15 @@ class Notepad(Tk):
 
     def view_learning_mode(self) -> None:
         """F1 — open or focus the Learning Mode tab."""
-        # If already open, just focus it
         if self._learning_tab:
             try:
                 self.notebook.select(self._learning_tab)
+                self.after(50, lambda: self._learning_show_overlays(self._learning_active_lid))
                 return
             except Exception:
                 self._learning_tab = None
                 self._learning_panel = None
+                self._learning_destroy_overlays()
 
         frame = ttk.Frame(self.notebook)
         panel = LearningPanel(frame)
@@ -2099,49 +2145,230 @@ class Notepad(Tk):
 
         self._learning_tab   = self.notebook.select()
         self._learning_panel = panel
+        self._learning_active_lid = ""
 
-    def _on_learning_hover(self, lid: str) -> None:
-        """Called when any registered widget is hovered — update Learning panel."""
-        if not self._learning_tab or not self._learning_panel:
-            return
-        # Only update if the Learning tab is currently visible
+        # Show overlays after layout settles
+        self.after(150, lambda: self._learning_show_overlays(""))
+
+    def view_ai_chat(self) -> None:
+        """Open or focus the AI Chat tab."""
+        if self._ai_chat_tab:
+            try:
+                self.notebook.select(self._ai_chat_tab)
+                return
+            except Exception:
+                self._ai_chat_tab = None
+                self._ai_chat_panel = None
+
+        frame = ttk.Frame(self.notebook)
+        panel = AiChatPanel(
+            frame,
+            get_file_content=self._ai_get_file_content,
+            get_selection=self._ai_get_selection,
+        )
+        panel.pack(fill="both", expand=True)
+
+        self.notebook.add(frame, text="  🤖 AI  ")
+        self.notebook.select(frame)
+
+        self._ai_chat_tab   = self.notebook.select()
+        self._ai_chat_panel = panel
+
+    def _ai_get_file_content(self) -> tuple[str, str]:
+        """Return (filename, content) of the last active editor tab."""
+        tab_id = self._last_editor_tab or self._current_tab_id
+        cv = self._codeviews.get(tab_id) if tab_id else None
+        if not cv or not tab_id:
+            return ("", "")
+        filepath = self._files.get(tab_id, "")
+        filename = os.path.basename(filepath) if filepath else "Untitled"
+        return (filename, cv.get("1.0", "end-1c"))
+
+    def _ai_get_selection(self) -> str:
+        """Return selected text from the last active editor."""
+        tab_id = self._last_editor_tab or self._current_tab_id
+        cv = self._codeviews.get(tab_id) if tab_id else None
+        if not cv:
+            return ""
         try:
-            if self.notebook.select() != self._learning_tab:
+            return cv.get("sel.first", "sel.last")
+        except Exception:
+            return ""
+
+    def _on_learning_hover(self, *_) -> None:
+        """Hover — no-op for content. Clicks via overlays drive content updates."""
+        pass
+
+    def _learning_show_overlays(self, active_lid: str) -> None:
+        """Destroy old overlays and create new ones for all widgets except active_lid."""
+        if not self._learning_tab:
+            return
+        # Check the tab still exists
+        try:
+            if self._learning_tab not in self.notebook.tabs():
+                self._learning_tab = None
+                self._learning_panel = None
+                self._learning_destroy_overlays()
                 return
         except Exception:
             return
-        self._learning_panel.show(lid)
+
+        self._learning_destroy_overlays()
+        self._learning_active_lid = active_lid
+
+        for widget, lid in LearningManager.overlay_registrations():
+            if lid == active_lid:
+                continue
+            self._learning_add_overlay(widget, lid)
+
+    def _learning_add_overlay(self, widget, lid: str) -> None:
+        """Place a thin colored border + badge over *widget* as a clickable overlay."""
+        try:
+            if not widget.winfo_exists() or not widget.winfo_viewable():
+                return
+            rw = widget.winfo_width()
+            rh = widget.winfo_height()
+            if rw < 4 or rh < 4:
+                return
+            rx = widget.winfo_rootx() - self.winfo_rootx()
+            ry = widget.winfo_rooty() - self.winfo_rooty()
+        except Exception:
+            return
+
+        color       = "#007acc"
+        hover_color = "#1e90ff"
+        t = 2  # border thickness
+
+        parts = []
+
+        # Stipple fill — simulates a semi-transparent blue tint over the widget.
+        # Hidden by default, shown on hover.
+        fill = tk.Canvas(self, bg=color, highlightthickness=0, cursor="hand2")
+        fill.place(x=rx, y=ry, width=rw, height=rh)
+        fill._rect = fill.create_rectangle(0, 0, rw, rh,
+                                           fill=color, stipple="gray25", outline="")
+        fill.place_forget()   # hidden until hover
+        parts.append(fill)
+
+        # Four border lines
+        for bx, by, bw, bh in [
+            (rx,        ry,        rw, t),
+            (rx,        ry+rh-t,   rw, t),
+            (rx,        ry,        t,  rh),
+            (rx+rw-t,   ry,        t,  rh),
+        ]:
+            f = tk.Frame(self, bg=color, cursor="hand2")
+            f.place(x=bx, y=by, width=bw, height=bh)
+            f.lift()
+            parts.append(f)
+
+        # Small badge at top-right corner
+        badge = tk.Label(self, text="📖", bg=color, fg="white",
+                         font=("Segoe UI", 7), cursor="hand2",
+                         padx=2, pady=0)
+        badge.place(x=rx + rw - 20, y=ry)
+        badge.lift()
+        parts.append(badge)
+
+        def _on_enter(_):
+            # Show fill, switch borders + badge to hover color
+            try:
+                fill.place(x=rx, y=ry, width=rw, height=rh)
+                fill.lift()
+                fill.itemconfig(fill._rect, fill=hover_color)
+            except Exception:
+                pass
+            for p in parts[1:]:   # skip fill canvas
+                try:
+                    p.config(bg=hover_color)
+                except Exception:
+                    pass
+
+        def _on_leave(_):
+            try:
+                fill.place_forget()
+            except Exception:
+                pass
+            for p in parts[1:]:
+                try:
+                    p.config(bg=color)
+                except Exception:
+                    pass
+
+        def _on_click(_):
+            self._on_overlay_click(lid)
+
+        for p in parts:
+            p.bind("<Enter>",    _on_enter)
+            p.bind("<Leave>",    _on_leave)
+            p.bind("<Button-1>", _on_click)
+
+        self._learning_overlay_widgets.extend(parts)
+
+    def _on_overlay_click(self, lid: str) -> None:
+        """Switch learning content to *lid* and update overlays."""
+        # Focus the learning tab
+        if self._learning_tab:
+            try:
+                self.notebook.select(self._learning_tab)
+            except Exception:
+                pass
+        if self._learning_panel:
+            self._learning_panel.show(lid)
+        self._learning_show_overlays(lid)
+
+    def _learning_destroy_overlays(self) -> None:
+        for w in self._learning_overlay_widgets:
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self._learning_overlay_widgets = []
+
+    def _learning_reposition(self) -> None:
+        """Rebuild overlays at updated positions after window resize."""
+        if self._learning_overlay_widgets:
+            self._learning_show_overlays(self._learning_active_lid)
 
     def _register_learning_widgets(self) -> None:
         """Tag all known IDE widgets with their learning IDs."""
         LM = LearningManager
 
-        # Sidebar section headers
-        LM.register(self._sidebar._outline_hdr,    "outline_panel")
-        LM.register(self._sidebar.outline,          "outline_panel")
-        LM.register(self._sidebar._refs_hdr,        "references_panel")
-        LM.register(self._sidebar.references,       "references_panel")
-        LM.register(self._sidebar._sc_hdr,          "source_control_panel")
-        LM.register(self._sidebar.source_control,   "source_control_panel")
-        LM.register(self._sidebar._explorer_hdr,    "explorer_panel")
+        # Sidebar section headers — overlay on header only, not the large body panel
+        LM.register(self._sidebar._outline_hdr,   "outline_panel")
+        LM.register(self._sidebar.outline,         "outline_panel",   overlay=False)
+        LM.register(self._sidebar._refs_hdr,       "references_panel")
+        LM.register(self._sidebar.references,      "references_panel", overlay=False)
+        LM.register(self._sidebar._sc_hdr,         "source_control_panel")
+        LM.register(self._sidebar.source_control,  "source_control_panel", overlay=False)
+        LM.register(self._sidebar._explorer_hdr,   "explorer_panel")
 
         # Source control action buttons
         sc = self._sidebar.source_control
+        LM.register(sc._commit_btn, "sc_commit_btn")
         LM.register(sc._push_btn,   "sc_push_btn")
         LM.register(sc._pull_btn,   "sc_pull_btn")
 
         # Status bar segments
-        LM.register(self._statusbar._pos_lbl,     "statusbar_position")
-        LM.register(self._statusbar._branch_lbl,  "statusbar_branch")
-        LM.register(self._statusbar._lexer_lbl,   "statusbar_lexer")
-        LM.register(self._statusbar._indent_lbl,  "statusbar_indent")
+        LM.register(self._statusbar._pos_lbl,    "statusbar_position")
+        LM.register(self._statusbar._branch_lbl, "statusbar_branch")
+        LM.register(self._statusbar._lexer_lbl,  "statusbar_lexer")
+        LM.register(self._statusbar._indent_lbl, "statusbar_indent")
 
         # Find & Replace bar
         LM.register(self._find_replace, "find_replace_bar")
 
-        # Output / Terminal bottom panel
-        LM.register(self._output.output,   "output_panel")
-        LM.register(self._output.terminal, "terminal_panel")
+        # Output / Terminal — tab buttons get overlays, large panels don't
+        LM.register(self._output.output_tab_btn,   "output_panel")
+        LM.register(self._output.terminal_tab_btn, "terminal_panel")
+        LM.register(self._output.output,   "output_panel",   overlay=False)
+        LM.register(self._output.terminal, "terminal_panel", overlay=False)
+
+        # Sidebar collapse/expand → reposition overlays
+        self._sidebar.on_relayout = self._learning_reposition
+
+        # Window resize → reposition overlays (debounced, two-pass)
+        self.bind("<Configure>", self._on_app_configure, add="+")
 
     # ── Zen mode ──────────────────────────────────────────────────────────────
 
