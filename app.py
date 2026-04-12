@@ -212,9 +212,11 @@ class Notepad(Tk):
 
         # Settings
         self.theme_var = StringVar(value="monokai")
-        self.highlight_line_var = BooleanVar(value=True)
-        self.output_visible_var = BooleanVar(value=True)
+        self.highlight_line_var  = BooleanVar(value=True)
+        self.output_visible_var  = BooleanVar(value=True)
         self.minimap_visible_var = BooleanVar(value=True)
+        self.sidebar_visible_var = BooleanVar(value=True)
+        self._sidebar_shown      = True   # tracks actual pane membership
         self._active_line_color: str | None = None
 
         # Zen mode
@@ -404,6 +406,7 @@ class Notepad(Tk):
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
+        self.bind("<Control-b>", lambda _: self.view_toggle_sidebar())
         self.bind("<F11>", lambda _: self.view_zen_mode())
         self.bind("<F1>",  lambda _: self.view_learning_mode())
         self.bind("<F2>",  lambda _: self.view_ai_chat())
@@ -1924,6 +1927,8 @@ class Notepad(Tk):
             return
         self._exiting = True
         session_utils.save(self)
+        if self._ai_chat_panel:
+            self._ai_chat_panel.auto_save_history()
         self.quit()
 
     def destroy(self) -> None:
@@ -2392,7 +2397,10 @@ class Notepad(Tk):
 
     def _enter_zen(self) -> None:
         self._zen_mode = True
-        self._h_pane.forget(self._sidebar)
+        self._zen_sidebar_was_visible = self._sidebar_shown
+        if self._sidebar_shown:
+            self._h_pane.forget(self._sidebar)
+            self._sidebar_shown = False
         if self._ai_panel_visible:
             self._h_pane.forget(self._ai_panel_frame)
         if self.output_visible_var.get():
@@ -2406,9 +2414,13 @@ class Notepad(Tk):
         self._statusbar.pack(side="bottom", fill="x")
         # tk.PanedWindow has no insert() — rebuild the pane order so sidebar
         # goes back at position 0: forget v_pane, add sidebar, re-add v_pane.
+        restore_sidebar = getattr(self, "_zen_sidebar_was_visible", True)
         self._h_pane.forget(self._v_pane)
-        self._h_pane.add(self._sidebar, minsize=220, stretch="never")
+        if restore_sidebar:
+            self._h_pane.add(self._sidebar, minsize=220, stretch="never")
+            self._sidebar_shown = True
         self._h_pane.add(self._v_pane, stretch="always")
+
         if self._ai_panel_visible:
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self.after(20, self._apply_ai_panel_sash)
@@ -2778,6 +2790,29 @@ class Notepad(Tk):
         ):
             if filepath and self._lsp:
                 self._lsp.open_file(filepath, content)
+
+    def view_toggle_sidebar(self) -> None:
+        """Show or hide the entire left sidebar (Ctrl+B)."""
+        if self._sidebar_shown:
+            self._h_pane.forget(self._sidebar)
+            self._sidebar_shown = False
+            self.sidebar_visible_var.set(False)
+        else:
+            # Tk PanedWindow has no insert — rebuild order in one synchronous
+            # batch (all forget/add calls complete before Tk redraws, so no flash).
+            self._h_pane.forget(self._v_pane)
+            if self._ai_panel_visible:
+                try:
+                    self._h_pane.forget(self._ai_panel_frame)
+                except Exception:
+                    pass
+            self._h_pane.add(self._sidebar, minsize=220, stretch="never")
+            self._h_pane.add(self._v_pane, stretch="always")
+            if self._ai_panel_visible:
+                self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
+                self.after(20, self._apply_ai_panel_sash)
+            self._sidebar_shown = True
+            self.sidebar_visible_var.set(True)
 
     def view_source_control(self) -> None:
         """Toggle the Source Control sidebar panel."""

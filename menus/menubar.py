@@ -101,6 +101,12 @@ def build_menubar(app) -> Menu:
         variable=app.minimap_visible_var,
         command=app.view_toggle_minimap,
     )
+    view_menu.add_checkbutton(
+        label="Show Sidebar",
+        variable=app.sidebar_visible_var,
+        command=app.view_toggle_sidebar,
+        accelerator="Ctrl+B",
+    )
     view_menu.add_separator()
     view_menu.add_command(
         label="Split Editor",

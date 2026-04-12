@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import json
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk, messagebox, filedialog
 from typing import Callable
 
 from utils import ollama_client
+
+_HISTORY_FILE = Path.home() / ".notepad_ide" / "ai_history.json"
+_HISTORY_CAP  = 20   # max messages restored from disk
 
 
 _BG         = "#1e1e1e"
@@ -107,8 +111,9 @@ class AiChatPanel(tk.Frame):
         self._token_label.pack(side="right", padx=(0, 8))
 
         # Save / Load on the right
-        self._make_ctx_btn(ctx_row, "💾 Save", self._save_conversation).pack(side="right")
-        self._make_ctx_btn(ctx_row, "📂 Load", self._load_conversation).pack(side="right", padx=(0, 4))
+        self._make_ctx_btn(ctx_row, "💾 Save",  self._save_conversation).pack(side="right")
+        self._make_ctx_btn(ctx_row, "📂 Load",  self._load_conversation).pack(side="right", padx=(0, 4))
+        self._make_ctx_btn(ctx_row, "🗑 Clear", self._clear_conversation).pack(side="right", padx=(0, 4))
 
         # Text input + send button
         input_row = tk.Frame(input_outer, bg=_INPUT_BG)
@@ -136,8 +141,9 @@ class AiChatPanel(tk.Frame):
 
         self._pending_ctx: str = ""   # attached code context
 
-        # Show welcome message
-        self._show_welcome()
+        # Auto-load persisted history; fall back to welcome message
+        if not self._auto_load_history():
+            self._show_welcome()
 
     # ── Canvas helpers ────────────────────────────────────────────────────────
 
@@ -273,6 +279,73 @@ class AiChatPanel(tk.Frame):
     def _clear_ctx(self) -> None:
         self._pending_ctx = ""
         self._ctx_label.config(text="")
+
+    # ── Persist conversation ──────────────────────────────────────────────────
+
+    def _auto_load_history(self) -> bool:
+        """Load the last _HISTORY_CAP messages from disk. Returns True if loaded."""
+        try:
+            if not _HISTORY_FILE.exists():
+                return False
+            data = json.loads(_HISTORY_FILE.read_text(encoding="utf-8"))
+            if not isinstance(data, list) or not data:
+                return False
+            # Cap to last N messages
+            data = data[-_HISTORY_CAP:]
+            for msg in data:
+                role    = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    display = content.split("\n\n")[-1] if "\n\n# " in content else content
+                    self._append_user(display)
+                elif role == "assistant":
+                    bubble = self._append_ai_bubble()
+                    self._current_ai_label = bubble
+                    self._update_ai_bubble(content)
+                self._history.append(msg)
+            self._current_ai_label = None
+            self._update_token_label()
+            n = len(data)
+            self._append_system(f"Last {n} message{'s' if n != 1 else ''} restored from previous session.")
+            return True
+        except Exception:
+            return False
+
+    def auto_save_history(self) -> None:
+        """Persist current history to disk — called by the app on exit."""
+        try:
+            if not self._history:
+                return
+            _HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _HISTORY_FILE.write_text(
+                json.dumps(self._history, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _clear_conversation(self) -> None:
+        """Wipe conversation history from UI, memory, and disk."""
+        if self._generating:
+            return
+        if self._history:
+            if not messagebox.askyesno("Clear Conversation",
+                                       "Clear the entire conversation history?"):
+                return
+        for w in self._msg_inner.winfo_children():
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self._history = []
+        self._current_ai_label = None
+        self._update_token_label()
+        try:
+            if _HISTORY_FILE.exists():
+                _HISTORY_FILE.unlink()
+        except Exception:
+            pass
+        self._show_welcome()
 
     # ── Save / Load conversation ──────────────────────────────────────────────
 
