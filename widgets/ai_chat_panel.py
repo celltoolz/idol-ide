@@ -520,6 +520,12 @@ class AiChatPanel(tk.Frame):
     def _on_shift_return(self, event) -> None:
         pass   # let default newline insertion happen
 
+    def send_prefilled(self, text: str) -> None:
+        """Open the AI chat (if hidden) and send a pre-built prompt directly."""
+        self._input.delete("1.0", "end")
+        self._input.insert("1.0", text)
+        self._send()
+
     def _send(self) -> None:
         if self._generating:
             return

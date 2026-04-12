@@ -40,6 +40,7 @@ from utils import session as session_utils
 from utils.learning_registry import LearningManager
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
+from widgets.package_manager import PackageManagerPanel
 
 # Words that should NOT trigger word-highlight on click
 _SKIP_HIGHLIGHT = (
@@ -193,6 +194,10 @@ class Notepad(Tk):
         self._ai_panel_width:   int  = 350          # restored width in px
         self._ai_chat_panel: AiChatPanel | None = None   # set in _build_layout
         self._last_editor_tab: str | None = None   # last tab with a real codeview
+
+        # Package Manager
+        self._pkg_tab: str | None = None
+        self._pkg_panel: PackageManagerPanel | None = None
 
         # Learning Mode
         self._learning_tab: str | None = None
@@ -410,6 +415,7 @@ class Notepad(Tk):
         self.bind("<F11>", lambda _: self.view_zen_mode())
         self.bind("<F1>",  lambda _: self.view_learning_mode())
         self.bind("<F2>",  lambda _: self.view_ai_chat())
+        self.bind("<F3>",  lambda _: self.view_package_manager())
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -2136,6 +2142,30 @@ class Notepad(Tk):
             self._close_split()
         else:
             self._open_in_split(self._current_tab_id)
+
+    # ── Package Manager ───────────────────────────────────────────────────────
+
+    def view_package_manager(self) -> None:
+        """Open or focus the Package Manager tab."""
+        if self._pkg_tab:
+            try:
+                self.notebook.select(self._pkg_tab)
+                return
+            except Exception:
+                self._pkg_tab = None
+                self._pkg_panel = None
+
+        frame = ttk.Frame(self.notebook)
+        panel = PackageManagerPanel(
+            frame,
+            get_output_panel=lambda: getattr(self._bottom_panel, "_output", None),
+            get_ai_panel=lambda: self._ai_chat_panel,
+        )
+        panel.pack(fill="both", expand=True)
+        self.notebook.add(frame, text="📦 Packages")
+        self.notebook.select(frame)
+        self._pkg_tab   = self.notebook.select()
+        self._pkg_panel = panel
 
     # ── Learning Mode ─────────────────────────────────────────────────────────
 

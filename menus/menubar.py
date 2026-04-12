@@ -145,6 +145,11 @@ def build_menubar(app) -> Menu:
         command=app.view_ai_chat,
         accelerator="F2",
     )
+    help_menu.add_command(
+        label="Package Manager",
+        command=app.view_package_manager,
+        accelerator="F3",
+    )
     help_menu.add_separator()
     help_menu.add_command(
         label="Command Palette...",
