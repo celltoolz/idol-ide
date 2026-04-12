@@ -1,6 +1,7 @@
 """Ollama local LLM client — health check, one-shot generate, streaming generate."""
 from __future__ import annotations
 
+import sys
 import threading
 from typing import Callable
 
@@ -16,10 +17,15 @@ _TIMEOUT_HEALTH  = 5    # seconds — allow for IPv4/IPv6 fallback on tunnels
 _TIMEOUT_GENERATE = 60  # seconds — give the model time to respond
 
 
+def _dbg(msg: str) -> None:
+    print(f"[ollama_client] {msg}", file=sys.stderr, flush=True)
+
+
 def set_base_url(url: str) -> None:
     """Override the Ollama server URL (e.g. to tunnel through to a remote host)."""
     global _BASE_URL
     _BASE_URL = url.rstrip("/")
+    _dbg(f"set_base_url → {_BASE_URL!r}")
 
 
 def get_base_url() -> str:
@@ -31,18 +37,25 @@ def get_base_url() -> str:
 def is_available() -> bool:
     """Return True if the Ollama server is reachable (blocking, fast)."""
     if not _REQUESTS_OK:
+        _dbg("is_available: requests not installed")
         return False
+    url = f"{_BASE_URL}/api/tags"
+    _dbg(f"is_available: GET {url!r} timeout={_TIMEOUT_HEALTH}s")
     try:
-        r = _requests.get(f"{_BASE_URL}/api/tags", timeout=_TIMEOUT_HEALTH)
+        r = _requests.get(url, timeout=_TIMEOUT_HEALTH)
+        _dbg(f"is_available: status={r.status_code}")
         return r.status_code == 200
-    except Exception:
+    except Exception as exc:
+        _dbg(f"is_available: FAILED — {type(exc).__name__}: {exc}")
         return False
 
 
 def check_async(callback: Callable[[bool], None]) -> None:
     """Non-blocking health check — calls callback(True/False) on a daemon thread."""
     def _run():
-        callback(is_available())
+        result = is_available()
+        _dbg(f"check_async → {result}")
+        callback(result)
     threading.Thread(target=_run, daemon=True).start()
 
 
@@ -76,18 +89,23 @@ def generate(
     """
     def _run():
         if not _REQUESTS_OK:
+            _dbg("generate: requests not installed")
             if on_error:
                 on_error("requests library not available")
             return
+        url = f"{_BASE_URL}/api/generate"
+        _dbg(f"generate: POST {url!r} model={model!r}")
         try:
             r = _requests.post(
-                f"{_BASE_URL}/api/generate",
+                url,
                 json={"model": model, "prompt": prompt, "stream": True},
                 stream=True,
                 timeout=_TIMEOUT_GENERATE,
             )
+            _dbg(f"generate: status={r.status_code}")
             r.raise_for_status()
         except Exception as exc:
+            _dbg(f"generate: FAILED — {type(exc).__name__}: {exc}")
             if on_error:
                 on_error(str(exc))
             return
