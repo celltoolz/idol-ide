@@ -113,6 +113,7 @@ class AiChatPanel(tk.Frame):
 
         # Context buttons row
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
+        self._ctx_row = ctx_row   # ref needed for URL row insertion order
         ctx_row.pack(fill="x", padx=8, pady=(6, 0))
 
         self._file_btn = self._make_ctx_btn(ctx_row, "📄 Send File", self._attach_file)
@@ -231,15 +232,37 @@ class AiChatPanel(tk.Frame):
             self._url_row.pack_forget()
             self._url_row_visible = False
         else:
-            self._url_row.pack(fill="x", padx=8, pady=(4, 0))
+            # Pack before ctx_row so it appears above it
+            self._url_row.pack(fill="x", padx=8, pady=(4, 0), before=self._ctx_row)
             self._url_row_visible = True
 
     def _apply_url(self) -> None:
         url = self._url_var.get().strip()
-        if url:
-            ollama_client.set_base_url(url)
-            # Re-check availability with the new URL
-            ollama_client.check_async(self._on_ollama_status)
+        if not url:
+            return
+        ollama_client.set_base_url(url)
+        # Re-check; on success clear offline cards and restore chat
+        def _after_check(available: bool) -> None:
+            self._ai_available = available
+            if available:
+                self.after(0, self._clear_offline_cards)
+            else:
+                self.after(0, self._show_offline_card)
+        ollama_client.check_async(_after_check)
+
+    def _clear_offline_cards(self) -> None:
+        """Remove any 'Ollama not running' messages from the chat area."""
+        for widget in list(self._msg_inner.winfo_children()):
+            try:
+                # Offline cards are plain frames; check their child labels for the marker text
+                for child in widget.winfo_children():
+                    if isinstance(child, tk.Label):
+                        txt = child.cget("text")
+                        if "not running" in txt or "Ollama" in txt:
+                            widget.destroy()
+                            break
+            except Exception:
+                pass
 
     def _on_ollama_status(self, available: bool) -> None:
         self._ai_available = available
