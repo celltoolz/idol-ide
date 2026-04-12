@@ -12,9 +12,11 @@ from __future__ import annotations
 import os
 import platform
 import queue
+import re
 import shutil
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import StringVar, ttk
 from typing import Optional
 
@@ -214,6 +216,16 @@ class TerminalPanel(ttk.Frame):
         self._tag_count = 0
 
         self._resize_job = None
+        self._sel_start: str | None = None
+        self._sel_end:   str | None = None
+        self._session_id = 0   # incremented on each start(); guards stale sentinels
+
+        # Venv tracking
+        self._cwd_current: str = ""        # last CWD from OSC 7
+        self._venv_active:  str = ""        # $VIRTUAL_ENV from shell hook ("" = none)
+        self._raw_buf: str = ""            # partial raw output buffer for marker scanning
+        # IDOL's own venv — inherited by child shells, ignore for user detection
+        self._idol_venv: str = os.environ.get("VIRTUAL_ENV", "")
 
         self._build_ui()
         self._poll()
@@ -238,14 +250,29 @@ class TerminalPanel(ttk.Frame):
             env = os.environ.copy()
             env["TERM"]           = "xterm-256color"
             env["COLORTERM"]      = "truecolor"
-            env["IDOL_TERMINAL"]  = "1"   # lets users detect our terminal in .zshrc
+            env["IDOL_TERMINAL"]  = "1"
+            # Strip IDOL's own venv so the child shell starts clean
+            env.pop("VIRTUAL_ENV", None)
+            env.pop("VIRTUAL_ENV_PROMPT", None)
+            # Remove venv bin dir from PATH so the shell doesn't inherit it
+            if self._idol_venv:
+                venv_bin = os.path.join(self._idol_venv, "bin") + os.pathsep
+                venv_scripts = os.path.join(self._idol_venv, "Scripts") + os.pathsep
+                env["PATH"] = env.get("PATH", "").replace(venv_bin, "").replace(venv_scripts, "")
             self._scrollback.clear()
             self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
             self._stream = pyte.ByteStream(self._screen)
+            self._session_id += 1
+            sid = self._session_id
             self._pty = _pty_spawn(cmd, dimensions=(self._rows, self._cols), env=env)
             self._running = True
-            threading.Thread(target=self._read_loop, daemon=True).start()
+            self._raw_buf  = ""
+            self._cwd_current = ""
+            self._venv_active  = ""
+            threading.Thread(target=self._read_loop, args=(sid,), daemon=True).start()
             self._text.focus_set()
+            # Inject OSC 7 CWD + VENV reporting hook after shell is ready
+            self.after(400, self._inject_shell_hooks)
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd):
                 self.after(300, lambda c=_cwd: self.send_text(f'cd "{c}"\r'))
@@ -289,10 +316,15 @@ class TerminalPanel(ttk.Frame):
                 pass
 
     def clear(self) -> None:
-        self._scrollback.clear()
-        self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
-        self._stream = pyte.ByteStream(self._screen)
-        self._redraw_full()
+        """Send 'clear' to the shell — lets the shell redraw the prompt naturally."""
+        if self._running and self._pty:
+            self.send("clear\r")
+        else:
+            # No active shell — just wipe the widget directly
+            self._scrollback.clear()
+            self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
+            self._stream = pyte.ByteStream(self._screen)
+            self._redraw_full()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -314,6 +346,28 @@ class TerminalPanel(ttk.Frame):
                    command=self._on_restart).pack(side="left", padx=2)
         ttk.Button(toolbar, text="✕ Clear", width=8,
                    command=self.clear).pack(side="left", padx=2)
+
+        # Venv controls — right-aligned in toolbar
+        self._venv_btn = tk.Label(
+            toolbar, text="▶ Activate venv",
+            bg="#0e639c", fg="white",
+            font=("Segoe UI", 8), cursor="hand2",
+            padx=6, pady=1,
+        )
+        self._venv_btn.pack(side="right", padx=(4, 2))
+        self._venv_btn.bind("<Button-1>", lambda _: self._venv_btn_click())
+        self._venv_btn.bind("<Enter>",    lambda _: self._venv_btn_hover(True))
+        self._venv_btn.bind("<Leave>",    lambda _: self._venv_btn_hover(False))
+
+        self._venv_label = tk.Label(
+            toolbar, text="",
+            bg="#2d2d30", fg="#50fa7b",
+            font=("Segoe UI", 8),
+        )
+        # Packed dynamically in _update_venv_ui when there's content to show
+
+        self._venv_btn_state = "none"   # none | activate | active_match | active_other
+        self._update_venv_ui()
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
@@ -345,15 +399,22 @@ class TerminalPanel(ttk.Frame):
         self._text.tag_configure("error", foreground="#ff5555")
         self._text.tag_configure("cursor_block",
                                  background=_DEFAULT_FG, foreground=_DEFAULT_BG)
+        # sel tag needs explicit colours — disabled widget won't show default highlight
+        self._text.tag_configure("sel", background="#264f78", foreground=_DEFAULT_FG)
+        self._text.tag_raise("sel")
 
         # Remove default Text bindings — we handle everything ourselves
         self._text.bindtags((str(self._text), '.', 'all'))
 
-        self._text.bind("<ButtonPress-1>", lambda _: self._text.focus_set())
-        self._text.bind("<MouseWheel>",    self._on_mousewheel)   # Windows
-        self._text.bind("<Button-4>",      self._on_mousewheel)   # Linux scroll up
-        self._text.bind("<Button-5>",      self._on_mousewheel)   # Linux scroll down
-        self._text.bind("<Key>",           self._on_key)
+        self._text.bind("<ButtonPress-1>",   self._on_click)
+        self._text.bind("<B1-Motion>",      self._on_drag)
+        self._text.bind("<MouseWheel>",     self._on_mousewheel)   # Windows
+        self._text.bind("<Button-4>",       self._on_mousewheel)   # Linux scroll up
+        self._text.bind("<Button-5>",       self._on_mousewheel)   # Linux scroll down
+        self._text.bind("<Button-3>",       self._show_context_menu)
+        self._text.bind("<Control-Shift-C>",lambda _: (self._copy_selection(), "break")[1])
+        self._text.bind("<Control-Shift-V>",lambda _: (self._on_paste(),       "break")[1])
+        self._text.bind("<Key>",            self._on_key)
         self._text.bind("<Return>",        lambda _: (self.send("\r"),   "break")[1])
         self._text.bind("<BackSpace>",     lambda _: (self.send("\x7f"), "break")[1])
         self._text.bind("<Tab>",           lambda _: (self.send("\t"),   "break")[1])
@@ -462,6 +523,13 @@ class TerminalPanel(ttk.Frame):
                 self._text.insert("end", "\n", "plain")
 
         self._text.config(state="disabled")
+        # Re-apply selection — _redraw clears all tags including sel
+        if self._sel_start and self._sel_end:
+            try:
+                self._text.tag_add("sel", self._sel_start, self._sel_end)
+                self._text.tag_raise("sel")
+            except Exception:
+                pass
         self._text.see("end")
         self._text.xview_moveto(0)   # prevent horizontal scroll cutting off left edge
 
@@ -497,26 +565,32 @@ class TerminalPanel(ttk.Frame):
 
     # ── PTY I/O ───────────────────────────────────────────────────────────────
 
-    def _read_loop(self) -> None:
+    def _read_loop(self, sid: int) -> None:
         while self._running and self._pty and self._pty.isalive():
             try:
                 chunk = self._pty.read(4096)
                 if chunk:
-                    if isinstance(chunk, str):
-                        chunk = chunk.encode("utf-8", errors="replace")
-                    self._queue.put(chunk)
+                    # Process markers on string form, then encode for pyte
+                    if isinstance(chunk, bytes):
+                        chunk_str = chunk.decode("utf-8", errors="replace")
+                    else:
+                        chunk_str = chunk
+                    chunk_str = self._process_markers(chunk_str)
+                    self._queue.put((sid, chunk_str.encode("utf-8", errors="replace")))
             except EOFError:
                 break
             except Exception:
                 break
-        self._queue.put(None)
+        self._queue.put((sid, None))
 
     def _poll(self) -> None:
         chunks = []
         sentinel = False
         try:
             while True:
-                item = self._queue.get_nowait()
+                sid, item = self._queue.get_nowait()
+                if sid != self._session_id:
+                    continue   # stale message from a previous session — discard
                 if item is None:
                     sentinel = True
                     break
@@ -525,7 +599,6 @@ class TerminalPanel(ttk.Frame):
             pass
 
         if chunks:
-            # Feed all bytes through pyte
             for chunk in chunks:
                 self._stream.feed(chunk)
             self._flush_scrollback()
@@ -545,6 +618,8 @@ class TerminalPanel(ttk.Frame):
     def _on_key(self, event) -> str:
         char = event.char
         if char and char not in ("\r", "\n", "\x08"):
+            self._sel_start = None
+            self._sel_end   = None
             self.send(char)
         return "break"
 
@@ -573,6 +648,67 @@ class TerminalPanel(ttk.Frame):
             pass
         return "break"
 
+    def _on_click(self, event) -> str:
+        self._text.focus_set()
+        # Clear existing selection and set the drag anchor
+        self._sel_start = None
+        self._sel_end   = None
+        self._sel_anchor = self._text.index(f"@{event.x},{event.y}")
+        self._text.tag_remove("sel", "1.0", "end")
+        return "break"
+
+    def _on_drag(self, event) -> str:
+        if not self._sel_anchor:
+            return "break"
+        cur = self._text.index(f"@{event.x},{event.y}")
+        anchor = self._sel_anchor
+        if self._text.compare(anchor, "<=", cur):
+            start, end = anchor, cur
+        else:
+            start, end = cur, anchor
+        self._sel_start = start
+        self._sel_end   = end
+        self._text.tag_remove("sel", "1.0", "end")
+        self._text.tag_add("sel", start, end)
+        self._text.tag_raise("sel")
+        return "break"
+
+    def _copy_selection(self) -> None:
+        try:
+            text = self._text.get("sel.first", "sel.last")
+            if text:
+                self._text.clipboard_clear()
+                self._text.clipboard_append(text)
+        except Exception:
+            pass
+
+    def _show_context_menu(self, event) -> str:
+        has_sel = False
+        try:
+            self._text.index("sel.first")
+            has_sel = True
+        except Exception:
+            pass
+
+        menu = tk.Menu(self._text, tearoff=0,
+                       bg="#252526", fg="#cccccc",
+                       activebackground="#094771", activeforeground="#ffffff",
+                       relief="flat", bd=0)
+        menu.add_command(
+            label="Copy          Ctrl+Shift+C",
+            command=self._copy_selection,
+            state="normal" if has_sel else "disabled",
+        )
+        menu.add_command(
+            label="Paste        Ctrl+Shift+V",
+            command=self._on_paste,
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
+
     def _on_restart(self) -> None:
         cmd = self.SHELLS.get(self._shell_var.get())
         self.start(cmd, cwd=self._cwd)
@@ -580,6 +716,178 @@ class TerminalPanel(ttk.Frame):
     def _on_shell_change(self, _=None) -> None:
         cmd = self.SHELLS.get(self._shell_var.get())
         self.start(cmd, cwd=self._cwd)
+
+    # ── Venv tracking ─────────────────────────────────────────────────────────
+
+    def _inject_shell_hooks(self) -> None:
+        """Inject OSC 7 CWD + VENV reporting into the running shell."""
+        if not self._running:
+            return
+        sys = platform.system()
+        shell_cmd = (self.SHELLS.get(self._shell_var.get()) or _default_shell())
+        shell_name = os.path.basename(shell_cmd[0]) if shell_cmd else ""
+
+        if sys == "Windows":
+            # PowerShell prompt hook
+            hook = (
+                'function prompt {'
+                ' $p = $PWD.Path;'
+                ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
+                ' Write-Host -NoNewline "`e]7;file://$env:COMPUTERNAME/$p`a";'
+                ' Write-Host -NoNewline "IDOL_VENV:$v`n";'
+                ' "PS $p> "'
+                '}\r'
+            )
+        elif "zsh" in shell_name:
+            hook = (
+                'function _idol_prompt() {'
+                ' printf "\\e]7;file://%s%s\\a" "$HOST" "$PWD";'
+                ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}";'
+                '};'
+                ' precmd_functions+=(_idol_prompt)\r'
+            )
+        else:
+            # bash / sh
+            hook = (
+                'export PROMPT_COMMAND=\'printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
+                ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}"\'\r'
+            )
+        self.send(hook)
+
+    def _process_markers(self, raw: str) -> str:
+        """Scan raw PTY output for OSC 7 and IDOL_VENV markers.
+        Uses _raw_buf to handle markers that span chunk boundaries.
+        Returns the string with marker lines stripped out for pyte."""
+        # OSC 7: ESC ] 7 ; file://host/path BEL  (complete sequences only)
+        for m in re.finditer(r'\x1b\]7;file://[^/]*(/[^\x07\x1b]*)\x07', raw):
+            path = m.group(1)
+            if platform.system() == "Windows":
+                path = re.sub(r'^/([A-Za-z]):', r'\1:', path)
+            self._cwd_current = path
+            self.after(0, self._refresh_venv_state)
+        # Strip OSC 7 sequences from output
+        raw = re.sub(r'\x1b\]7;[^\x07]*\x07', '', raw)
+
+        # Buffer incomplete lines to handle chunk-boundary splits
+        self._raw_buf += raw
+        lines = self._raw_buf.split("\n")
+        # Last element may be an incomplete line — keep in buffer
+        self._raw_buf = lines.pop()
+
+        out_lines = []
+        changed = False
+        for line in lines:
+            m = re.match(r'IDOL_VENV:(.*)', line.rstrip("\r"))
+            if m:
+                self._venv_active = m.group(1).strip()
+                changed = True
+                # Don't add to out_lines — strip it from output
+            else:
+                out_lines.append(line)
+
+        if changed:
+            self.after(0, self._refresh_venv_state)
+
+        # Rejoin complete lines
+        result = "\n".join(out_lines)
+        if out_lines:
+            result += "\n"
+
+        # Flush the incomplete line buffer to pyte unless it looks like a
+        # partial IDOL_VENV marker still arriving — prompts have no trailing \n
+        if self._raw_buf and not self._raw_buf.startswith("IDOL_VENV:"):
+            result += self._raw_buf
+            self._raw_buf = ""
+
+        return result
+
+    def _refresh_venv_state(self) -> None:
+        """Recompute button state based on current CWD and active venv."""
+        cwd    = self._cwd_current
+        active = self._venv_active
+
+        # Treat IDOL's own inherited venv as "nothing active" for user purposes
+        user_active = active if (active and active != self._idol_venv) else ""
+
+        # Check for .venv in CWD
+        venv_activate_path = ""
+        if cwd:
+            candidate = Path(cwd) / ".venv"
+            if (candidate / "bin" / "activate").exists():
+                venv_activate_path = str(candidate / "bin" / "activate")
+            elif (candidate / "Scripts" / "Activate.ps1").exists():
+                venv_activate_path = str(candidate / "Scripts" / "Activate.ps1")
+
+        cwd_venv = str(Path(cwd) / ".venv") if cwd else ""
+
+        if user_active:
+            # A user venv is active — does it match the one in CWD?
+            if cwd_venv and (user_active == cwd_venv or
+                             user_active.startswith(cwd_venv + os.sep)):
+                self._venv_btn_state = "active_match"
+            else:
+                self._venv_btn_state = "active_other"
+        elif venv_activate_path:
+            self._venv_btn_state = "activate"
+        else:
+            self._venv_btn_state = "none"
+
+        self._venv_activate_path = venv_activate_path
+        self._update_venv_ui()
+
+    def _update_venv_ui(self) -> None:
+        state = self._venv_btn_state
+        if state == "activate":
+            self._venv_btn.config(text="▶ Activate venv", bg="#0e639c",
+                                  cursor="hand2", fg="white")
+            self._venv_label.pack_forget()
+        elif state == "active_match":
+            self._venv_btn.config(text="⏹ Deactivate", bg="#1a3a1a",
+                                  cursor="hand2", fg="#50fa7b")
+            name = Path(self._venv_active).name if self._venv_active else ".venv"
+            self._venv_label.config(text=f"({name})", fg="#50fa7b")
+            self._venv_label.pack(side="right", padx=(0, 4))
+        elif state == "active_other":
+            self._venv_btn.config(text="⇄ Switch venv", bg="#3a2a00",
+                                  cursor="hand2", fg="#f1fa8c")
+            name = Path(self._venv_active).name if self._venv_active else "venv"
+            self._venv_label.config(text=f"({name})", fg="#f1fa8c")
+            self._venv_label.pack(side="right", padx=(0, 4))
+        else:
+            self._venv_btn.config(text="▶ Activate venv", bg="#3c3c3c",
+                                  cursor="arrow", fg="#858585")
+            self._venv_label.pack_forget()
+
+    def _venv_btn_hover(self, entering: bool) -> None:
+        if self._venv_btn_state == "none":
+            return
+        colors = {
+            "activate":    ("#1177bb", "#0e639c"),
+            "active_match":("#1a4a1a", "#1a3a1a"),
+            "active_other":("#4a3a00", "#3a2a00"),
+        }
+        hover_bg, normal_bg = colors.get(self._venv_btn_state, ("#3c3c3c", "#3c3c3c"))
+        self._venv_btn.config(bg=hover_bg if entering else normal_bg)
+
+    def _venv_btn_click(self) -> None:
+        state = self._venv_btn_state
+        if state == "activate":
+            path = getattr(self, "_venv_activate_path", "")
+            if path:
+                if platform.system() == "Windows":
+                    self.send(f'& "{path}"\r')
+                else:
+                    self.send(f'source "{path}"\r')
+        elif state == "active_match":
+            self.send("deactivate\r")
+        elif state == "active_other":
+            # Deactivate current, then activate the one in CWD
+            path = getattr(self, "_venv_activate_path", "")
+            if path:
+                if platform.system() == "Windows":
+                    self.send(f'deactivate; & "{path}"\r')
+                else:
+                    self.send(f'deactivate && source "{path}"\r')
 
     def _on_resize(self, _=None) -> None:
         if self._resize_job:
