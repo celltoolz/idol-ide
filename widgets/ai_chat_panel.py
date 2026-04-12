@@ -96,11 +96,10 @@ class AiChatPanel(tk.Frame):
         input_outer = tk.Frame(self, bg=_INPUT_BG)
         input_outer.pack(fill="x", side="bottom")
 
-        # URL wrapper — always packed first (fixes position); inner row toggled by ⚙
-        url_wrapper = tk.Frame(input_outer, bg=_INPUT_BG)
-        url_wrapper.pack(fill="x")
-        self._url_row = tk.Frame(url_wrapper, bg=_INPUT_BG)
-        # _url_row is NOT packed yet — ⚙ packs/forgets it inside url_wrapper
+        # URL row — created before ctx_row so its natural pack position is above it.
+        # We use pack/pack_forget on the row itself; tkinter always restores it to
+        # its creation-order slot when re-packed inside the same parent.
+        self._url_row = tk.Frame(input_outer, bg=_INPUT_BG)
         tk.Label(self._url_row, text="Ollama URL:", bg=_INPUT_BG, fg=_DIM,
                  font=("Segoe UI", 8)).pack(side="left", padx=(8, 4), pady=4)
         self._url_var = tk.StringVar(value=ollama_client.get_base_url())
@@ -117,6 +116,9 @@ class AiChatPanel(tk.Frame):
                                     font=("Segoe UI", 8))
         self._url_status.pack(side="left")
         self._url_row_visible = False
+        # Pack once to register creation-order slot, then hide immediately
+        self._url_row.pack(fill="x")
+        self._url_row.pack_forget()
 
         # Context buttons row
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
@@ -239,7 +241,7 @@ class AiChatPanel(tk.Frame):
             self._url_row.pack_forget()
             self._url_row_visible = False
         else:
-            self._url_row.pack(fill="x", pady=(4, 0))
+            self._url_row.pack(fill="x")
             self._url_row_visible = True
 
     def _apply_url(self) -> None:
