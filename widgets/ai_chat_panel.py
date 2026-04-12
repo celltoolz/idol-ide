@@ -117,26 +117,11 @@ class AiChatPanel(tk.Frame):
         self._url_status.pack(side="left")
         self._url_row_visible = False
 
-        # Context buttons row
+        # Context buttons row — ⚙ Clear Load Save only
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
         self._ctx_row = ctx_row
         ctx_row.pack(fill="x", padx=8, pady=(6, 0))
 
-        self._file_btn = self._make_ctx_btn(ctx_row, "📄 Send File", self._attach_file)
-        self._file_btn.pack(side="left", padx=(0, 4))
-        self._sel_btn  = self._make_ctx_btn(ctx_row, "✂ Selection", self._attach_selection)
-        self._sel_btn.pack(side="left")
-
-        self._ctx_label = tk.Label(ctx_row, text="", bg=_INPUT_BG, fg=_DIM,
-                                   font=("Segoe UI", 8), anchor="w")
-        self._ctx_label.pack(side="left", padx=(8, 0))
-
-        # Token usage indicator (right side, before save/load)
-        self._token_label = tk.Label(ctx_row, text="", bg=_INPUT_BG, fg=_DIM,
-                                     font=("Segoe UI", 7), anchor="e")
-        self._token_label.pack(side="right", padx=(0, 8))
-
-        # Save / Load on the right
         self._make_ctx_btn(ctx_row, "💾 Save",  self._save_conversation).pack(side="right")
         self._make_ctx_btn(ctx_row, "📂 Load",  self._load_conversation).pack(side="right", padx=(0, 4))
         self._make_ctx_btn(ctx_row, "🗑 Clear", self._clear_conversation).pack(side="right", padx=(0, 4))
@@ -144,7 +129,7 @@ class AiChatPanel(tk.Frame):
 
         # Text input + send button
         input_row = tk.Frame(input_outer, bg=_INPUT_BG)
-        input_row.pack(fill="x", padx=8, pady=(4, 8))
+        input_row.pack(fill="x", padx=8, pady=(4, 4))
 
         # Pack send_btn BEFORE the text widget so expand=True doesn't steal its space
         send_btn = tk.Label(input_row, text="↑", bg=_SEND_BG, fg="white",
@@ -152,6 +137,8 @@ class AiChatPanel(tk.Frame):
                             cursor="hand2", width=2, pady=4)
         send_btn.pack(side="right", padx=(6, 0), fill="y")
         send_btn.bind("<Button-1>", lambda _: self._send())
+        send_btn.bind("<Enter>",    lambda _: send_btn.config(bg=_BTN_ACT))
+        send_btn.bind("<Leave>",    lambda _: send_btn.config(bg=_SEND_BG))
 
         self._input = tk.Text(input_row, bg=_INPUT_BG, fg=_FG,
                               insertbackground=_FG,
@@ -164,8 +151,23 @@ class AiChatPanel(tk.Frame):
         self._input.pack(side="left", fill="both", expand=True)
         self._input.bind("<Return>",       self._on_return)
         self._input.bind("<Shift-Return>", self._on_shift_return)
-        send_btn.bind("<Enter>",    lambda _: send_btn.config(bg=_BTN_ACT))
-        send_btn.bind("<Leave>",    lambda _: send_btn.config(bg=_SEND_BG))
+
+        # Bottom row: Send File + Selection on left, ctx label + tokens on right
+        bottom_row = tk.Frame(input_outer, bg=_INPUT_BG)
+        bottom_row.pack(fill="x", padx=8, pady=(0, 8))
+
+        self._file_btn = self._make_ctx_btn(bottom_row, "📄 Send File", self._attach_file)
+        self._file_btn.pack(side="left", padx=(0, 4))
+        self._sel_btn  = self._make_ctx_btn(bottom_row, "✂ Selection", self._attach_selection)
+        self._sel_btn.pack(side="left")
+
+        self._ctx_label = tk.Label(bottom_row, text="", bg=_INPUT_BG, fg=_DIM,
+                                   font=("Segoe UI", 8), anchor="w")
+        self._ctx_label.pack(side="left", padx=(8, 0))
+
+        self._token_label = tk.Label(bottom_row, text="", bg=_INPUT_BG, fg=_DIM,
+                                     font=("Segoe UI", 7), anchor="e")
+        self._token_label.pack(side="right")
 
         self._pending_ctx: str = ""   # attached code context
 
