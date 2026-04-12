@@ -119,6 +119,7 @@ class AiChatPanel(tk.Frame):
 
         # Context buttons row
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
+        self._ctx_row = ctx_row
         ctx_row.pack(fill="x", padx=8, pady=(6, 0))
 
         self._file_btn = self._make_ctx_btn(ctx_row, "📄 Send File", self._attach_file)
