@@ -58,6 +58,26 @@ class AiChatPanel(tk.Frame):
         # Left border — visually separates panel from the editor
         tk.Frame(self, bg=_BORDER, width=1).pack(side="left", fill="y")
 
+        # ── Top URL bar (always visible) ──────────────────────────────────────
+        url_bar = tk.Frame(self, bg=_INPUT_BG)
+        url_bar.pack(fill="x", side="top")
+        tk.Label(url_bar, text="Ollama URL:", bg=_INPUT_BG, fg=_DIM,
+                 font=("Segoe UI", 8)).pack(side="left", padx=(8, 4), pady=4)
+        self._url_var = tk.StringVar(value=ollama_client.get_base_url())
+        url_entry = tk.Entry(url_bar, textvariable=self._url_var,
+                             bg=_INPUT_BG, fg=_FG, insertbackground=_FG,
+                             font=("Segoe UI", 9), relief="flat", bd=0,
+                             highlightthickness=1, highlightbackground=_BORDER,
+                             highlightcolor=_BTN_BG)
+        url_entry.pack(side="left", fill="x", expand=True, ipady=2, pady=4)
+        url_entry.bind("<Return>", lambda _: self._apply_url())
+        self._apply_btn = self._make_ctx_btn(url_bar, "Apply", self._apply_url)
+        self._apply_btn.pack(side="left", padx=(4, 4), pady=4)
+        self._url_status = tk.Label(url_bar, text="", bg=_INPUT_BG, fg=_DIM,
+                                    font=("Segoe UI", 8))
+        self._url_status.pack(side="left", padx=(0, 8))
+        tk.Frame(self, bg=_BORDER, height=1).pack(fill="x", side="top")
+
         # ── Message scroll area ───────────────────────────────────────────────
         msg_frame = tk.Frame(self, bg=_BG)
         msg_frame.pack(fill="both", expand=True)
@@ -92,33 +112,8 @@ class AiChatPanel(tk.Frame):
         input_outer = tk.Frame(self, bg=_INPUT_BG)
         input_outer.pack(fill="x", side="bottom")
 
-        # Server URL row — pack it now to establish position (above ctx_row),
-        # then immediately hide it; toggle just calls pack/pack_forget.
-        self._url_row = tk.Frame(input_outer, bg=_INPUT_BG)
-        self._url_row.pack(fill="x", padx=8, pady=(4, 0))
-        self._url_row.pack_forget()
-        # not visible initially
-
-        tk.Label(self._url_row, text="Ollama URL:", bg=_INPUT_BG, fg=_DIM,
-                 font=("Segoe UI", 8)).pack(side="left", padx=(0, 4))
-        self._url_var = tk.StringVar(value=ollama_client.get_base_url())
-        url_entry = tk.Entry(self._url_row, textvariable=self._url_var,
-                             bg=_INPUT_BG, fg=_FG, insertbackground=_FG,
-                             font=("Segoe UI", 9), relief="flat", bd=0,
-                             highlightthickness=1, highlightbackground=_BORDER,
-                             highlightcolor=_BTN_BG)
-        url_entry.pack(side="left", fill="x", expand=True, ipady=2)
-        url_entry.bind("<Return>", lambda _: self._apply_url())
-        self._apply_btn = self._make_ctx_btn(self._url_row, "Apply", self._apply_url)
-        self._apply_btn.pack(side="left", padx=(4, 0))
-        self._url_status = tk.Label(self._url_row, text="", bg=_INPUT_BG, fg=_DIM,
-                                    font=("Segoe UI", 8))
-        self._url_status.pack(side="left", padx=(6, 0))
-        self._url_row_visible = False
-
         # Context buttons row
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
-        self._ctx_row = ctx_row   # ref needed for URL row insertion order
         ctx_row.pack(fill="x", padx=8, pady=(6, 0))
 
         self._file_btn = self._make_ctx_btn(ctx_row, "📄 Send File", self._attach_file)
@@ -139,7 +134,6 @@ class AiChatPanel(tk.Frame):
         self._make_ctx_btn(ctx_row, "💾 Save",  self._save_conversation).pack(side="right")
         self._make_ctx_btn(ctx_row, "📂 Load",  self._load_conversation).pack(side="right", padx=(0, 4))
         self._make_ctx_btn(ctx_row, "🗑 Clear", self._clear_conversation).pack(side="right", padx=(0, 4))
-        self._make_ctx_btn(ctx_row, "⚙",       self._toggle_url_row).pack(side="right", padx=(0, 4))
 
         # Text input + send button
         input_row = tk.Frame(input_outer, bg=_INPUT_BG)
@@ -232,14 +226,6 @@ class AiChatPanel(tk.Frame):
             pass
 
     # ── Ollama status ─────────────────────────────────────────────────────────
-
-    def _toggle_url_row(self) -> None:
-        if self._url_row_visible:
-            self._url_row.pack_forget()
-            self._url_row_visible = False
-        else:
-            self._url_row.pack(fill="x", padx=8, pady=(4, 0))
-            self._url_row_visible = True
 
     def _apply_url(self) -> None:
         url = self._url_var.get().strip()

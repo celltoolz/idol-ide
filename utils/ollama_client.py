@@ -10,9 +10,9 @@ try:
 except ImportError:
     _REQUESTS_OK = False
 
-_BASE_URL  = "http://localhost:11434"
+_BASE_URL  = "http://127.0.0.1:11434"
 _DEFAULT_MODEL = "qwen2.5-coder"
-_TIMEOUT_HEALTH  = 2    # seconds — fast ping
+_TIMEOUT_HEALTH  = 5    # seconds — allow for IPv4/IPv6 fallback on tunnels
 _TIMEOUT_GENERATE = 60  # seconds — give the model time to respond
 
 
