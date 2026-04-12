@@ -850,11 +850,10 @@ class TerminalPanel(ttk.Frame):
                 p = p.lower()
             return p
 
-        # Treat IDOL's own inherited venv as "nothing active" — case-insensitive on Windows
-        user_active = active if (active and _norm(active) != _norm(self._idol_venv)) else ""
-
-        if user_active:
-            na = _norm(user_active)
+        # Child PTY always starts with VIRTUAL_ENV stripped, so any reported venv
+        # is explicitly user-activated — no need to filter _idol_venv here.
+        if active:
+            na = _norm(active)
             nv = _norm(cwd_venv)
             if nv and (na == nv or na.startswith(nv + "/")):
                 self._venv_btn_state = "active_match"
