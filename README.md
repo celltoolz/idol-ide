@@ -9,6 +9,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 ![Editor Screenshot](screenshots/editor.png)
 ![Editor Screenshot](screenshots/editor-osx.png)
 ![Editor Screenshot](screenshots/editor-linux.png)
+![Editor Screenshot](screenshots/ollama-ai.png)
 
 ## Features
 
@@ -85,6 +86,8 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Streaming responses appear word-by-word in real time
 - Code blocks are syntax-highlighted with a **⎘ Copy** button that strips the language hint automatically
 - **💾 Save / 📂 Load** — export and reload full conversation history as JSON
+- **🗑 Clear** — wipes conversation history from the UI, memory, and disk in one click
+- Conversation auto-saves on exit and restores the last 20 messages on next launch
 - Live token counter shows approximate context usage (e.g. `~1,200 / 32,000 tokens`) — turns amber near the limit
 - Same offline install card as Learning Mode when Ollama isn't running
 
@@ -117,6 +120,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Save / Open Workspace for named sessions
 - Status bar: line/column, cursor count, lexer name, indent cycle (spaces ↔ tabs)
 - Zen mode — F11 hides the sidebar, output panel, and status bar for distraction-free editing; toast notification on entry
+- **Toggle Sidebar** — Ctrl+B (or View → Show Sidebar) hides/shows the entire left panel in one click
 
 ## Requirements
 
@@ -153,6 +157,7 @@ python main.py
 | New terminal | Ctrl+` |
 | Learning Mode | F1 |
 | AI Chat | F2 |
+| Toggle sidebar | Ctrl+B |
 | Zen mode | F11 |
 | Change font | Ctrl+L |
 | Add cursor | Alt+Click |
