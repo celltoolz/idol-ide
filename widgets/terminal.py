@@ -41,6 +41,39 @@ else:
         pass
 
 
+class _RobustScreen(pyte.HistoryScreen):
+    """pyte.HistoryScreen that:
+    - Fixes the private SGR dispatch bug in pyte
+    - Tracks whether the running app has enabled mouse reporting
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mouse_enabled = False
+
+    def set_mode(self, *args, private=False, **kwargs):
+        # Mouse tracking modes: 9=X10, 1000=normal, 1002=button, 1003=any, 1006=SGR
+        if private and args and args[0] in (9, 1000, 1002, 1003, 1006):
+            self.mouse_enabled = True
+        try:
+            super().set_mode(*args, private=private, **kwargs)
+        except Exception:
+            pass
+
+    def reset_mode(self, *args, private=False, **kwargs):
+        if private and args and args[0] in (9, 1000, 1002, 1003, 1006):
+            self.mouse_enabled = False
+        try:
+            super().reset_mode(*args, private=private, **kwargs)
+        except Exception:
+            pass
+
+    def select_graphic_rendition(self, *args, private=False, **kwargs):
+        if private:
+            return   # ignore malformed private SGR sequences
+        super().select_graphic_rendition(*args, **kwargs)
+
+
 def _default_shell() -> list[str]:
     system = platform.system()
     if system == "Windows":
@@ -169,7 +202,7 @@ class TerminalPanel(ttk.Frame):
         # pyte screen — sized properly once the widget is mapped
         self._rows = 24
         self._cols = 80
-        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=self._SCROLLBACK)
+        self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
         self._stream = pyte.ByteStream(self._screen)
 
         # Scrollback: list of rendered line strings + their tag maps
@@ -207,7 +240,7 @@ class TerminalPanel(ttk.Frame):
             env["COLORTERM"]      = "truecolor"
             env["IDOL_TERMINAL"]  = "1"   # lets users detect our terminal in .zshrc
             self._scrollback.clear()
-            self._screen = pyte.HistoryScreen(self._cols, self._rows, history=self._SCROLLBACK)
+            self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
             self._stream = pyte.ByteStream(self._screen)
             self._pty = _pty_spawn(cmd, dimensions=(self._rows, self._cols), env=env)
             self._running = True
@@ -257,7 +290,7 @@ class TerminalPanel(ttk.Frame):
 
     def clear(self) -> None:
         self._scrollback.clear()
-        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=self._SCROLLBACK)
+        self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
         self._stream = pyte.ByteStream(self._screen)
         self._redraw_full()
 
@@ -299,6 +332,7 @@ class TerminalPanel(ttk.Frame):
             cursor="xterm",
             takefocus=True,
             state="disabled",
+            pady=4,
         )
         vs = ttk.Scrollbar(text_frame, orient="vertical", command=self._on_scroll)
         self._scrollbar = vs
@@ -316,6 +350,9 @@ class TerminalPanel(ttk.Frame):
         self._text.bindtags((str(self._text), '.', 'all'))
 
         self._text.bind("<ButtonPress-1>", lambda _: self._text.focus_set())
+        self._text.bind("<MouseWheel>",    self._on_mousewheel)   # Windows
+        self._text.bind("<Button-4>",      self._on_mousewheel)   # Linux scroll up
+        self._text.bind("<Button-5>",      self._on_mousewheel)   # Linux scroll down
         self._text.bind("<Key>",           self._on_key)
         self._text.bind("<Return>",        lambda _: (self.send("\r"),   "break")[1])
         self._text.bind("<BackSpace>",     lambda _: (self.send("\x7f"), "break")[1])
@@ -426,6 +463,7 @@ class TerminalPanel(ttk.Frame):
 
         self._text.config(state="disabled")
         self._text.see("end")
+        self._text.xview_moveto(0)   # prevent horizontal scroll cutting off left edge
 
     def _flush_scrollback(self) -> None:
         """Move lines that scrolled off the top of the screen into scrollback."""
@@ -510,6 +548,22 @@ class TerminalPanel(ttk.Frame):
             self.send(char)
         return "break"
 
+    def _on_mousewheel(self, event) -> str:
+        """Handle mouse wheel — send SGR sequences to TUI apps, scroll view at shell."""
+        up = event.num == 4 or (hasattr(event, "delta") and event.delta > 0)
+
+        if self._screen.mouse_enabled:
+            # App has mouse tracking on — send SGR wheel sequence at screen centre
+            col = max(1, self._cols // 2)
+            row = max(1, self._rows // 2)
+            btn = 64 if up else 65
+            self.send(f"\x1b[<{btn};{col};{row}M")
+        else:
+            # Normal shell — scroll the view
+            self._text.yview_scroll(-3 if up else 3, "units")
+
+        return "break"
+
     def _on_paste(self, _=None) -> str:
         try:
             text = self._text.clipboard_get()
@@ -546,7 +600,7 @@ class TerminalPanel(ttk.Frame):
             h = self._text.winfo_height()
             if w > 0 and h > 0 and font_w > 0 and font_h > 0:
                 cols = max(10, w  // font_w)
-                rows = max(5,  h  // font_h)
+                rows = max(5,  (h - 8) // font_h)  # -8 accounts for pady=4 top+bottom
                 self.resize(rows, cols)
         except Exception:
             pass
