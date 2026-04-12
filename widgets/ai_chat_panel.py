@@ -116,9 +116,6 @@ class AiChatPanel(tk.Frame):
                                     font=("Segoe UI", 8))
         self._url_status.pack(side="left")
         self._url_row_visible = False
-        # Pack once to register creation-order slot, then hide immediately
-        self._url_row.pack(fill="x")
-        self._url_row.pack_forget()
 
         # Context buttons row
         ctx_row = tk.Frame(input_outer, bg=_INPUT_BG)
@@ -241,7 +238,7 @@ class AiChatPanel(tk.Frame):
             self._url_row.pack_forget()
             self._url_row_visible = False
         else:
-            self._url_row.pack(fill="x")
+            self._url_row.pack(fill="x", before=self._ctx_row)
             self._url_row_visible = True
 
     def _apply_url(self) -> None:
