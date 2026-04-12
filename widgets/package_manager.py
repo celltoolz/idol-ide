@@ -28,6 +28,90 @@ _RED        = "#f44747"
 _WARN       = "#ce9178"
 _SEL_BG     = "#094771"
 
+# ── Package category map ───────────────────────────────────────────────────────
+# Keys are lowercase package names; value is the category label.
+# Unknown packages fall into "Other".
+_CATEGORIES: dict[str, str] = {
+    # Code Quality & Formatting
+    "black":            "Code Quality & Formatting",
+    "pyflakes":         "Code Quality & Formatting",
+    "mypy_extensions":  "Code Quality & Formatting",
+    "mypy-extensions":  "Code Quality & Formatting",
+    "autopep8":         "Code Quality & Formatting",
+    "flake8":           "Code Quality & Formatting",
+    "isort":            "Code Quality & Formatting",
+    "pylint":           "Code Quality & Formatting",
+    "ruff":             "Code Quality & Formatting",
+    # IDE / Language Server
+    "jedi":                  "IDE / Language Server",
+    "parso":                 "IDE / Language Server",
+    "python-lsp-server":     "IDE / Language Server",
+    "python_lsp_server":     "IDE / Language Server",
+    "python-lsp-jsonrpc":    "IDE / Language Server",
+    "python_lsp_jsonrpc":    "IDE / Language Server",
+    "docstring-to-markdown": "IDE / Language Server",
+    "docstring_to_markdown": "IDE / Language Server",
+    "pygments":              "IDE / Language Server",
+    "pytokens":              "IDE / Language Server",
+    "pycodestyle":           "IDE / Language Server",
+    "mccabe":                "IDE / Language Server",
+    "pyflakes":              "IDE / Language Server",
+    # Terminal / CLI
+    "click":      "Terminal / CLI",
+    "colorama":   "Terminal / CLI",
+    "ptyprocess": "Terminal / CLI",
+    "pyte":       "Terminal / CLI",
+    "pywinpty":   "Terminal / CLI",
+    "rich":       "Terminal / CLI",
+    "typer":      "Terminal / CLI",
+    # Networking / Encoding
+    "certifi":           "Networking / Encoding",
+    "charset-normalizer": "Networking / Encoding",
+    "charset_normalizer": "Networking / Encoding",
+    "idna":              "Networking / Encoding",
+    "urllib3":           "Networking / Encoding",
+    "requests":          "Networking / Encoding",
+    "httpx":             "Networking / Encoding",
+    "aiohttp":           "Networking / Encoding",
+    # Packaging / Runtime Utilities
+    "pip":                "Packaging / Runtime",
+    "setuptools":         "Packaging / Runtime",
+    "wheel":              "Packaging / Runtime",
+    "packaging":          "Packaging / Runtime",
+    "importlib_metadata": "Packaging / Runtime",
+    "importlib-metadata": "Packaging / Runtime",
+    "pluggy":             "Packaging / Runtime",
+    "platformdirs":       "Packaging / Runtime",
+    "pathspec":           "Packaging / Runtime",
+    "toml":               "Packaging / Runtime",
+    "tomli":              "Packaging / Runtime",
+    "zipp":               "Packaging / Runtime",
+    "attrs":              "Packaging / Runtime",
+    "six":                "Packaging / Runtime",
+    # Media / System
+    "pillow":    "Media / System",
+    "pyperclip": "Media / System",
+    "tkcolorpicker":  "Media / System",
+    "tkfontchooser":  "Media / System",
+}
+
+# Display order for categories
+_CATEGORY_ORDER = [
+    "Code Quality & Formatting",
+    "IDE / Language Server",
+    "Terminal / CLI",
+    "Networking / Encoding",
+    "Packaging / Runtime",
+    "Media / System",
+    "Other",
+]
+
+
+def _get_category(name: str) -> str:
+    return _CATEGORIES.get(name.lower(), _CATEGORIES.get(
+        name.lower().replace("-", "_"), _CATEGORIES.get(
+        name.lower().replace("_", "-"), "Other")))
+
 
 class PackageManagerPanel(tk.Frame):
     """Left/right split: treeview of packages on the left, detail panel on the right."""
@@ -162,10 +246,27 @@ class PackageManagerPanel(tk.Frame):
     def _populate_installed(self) -> None:
         self._tree.delete(*self._tree.get_children())
         self._tree_label.config(text=f"INSTALLED  ({len(self._installed)})")
+
+        # Group packages by category
+        groups: dict[str, list[str]] = {c: [] for c in _CATEGORY_ORDER}
         for name in sorted(self._installed, key=str.lower):
-            ver = self._installed[name]
-            self._tree.insert("", "end", iid=f"pkg:{name}",
-                              text=f"  {name}  {ver}", tags=("installed",))
+            groups[_get_category(name)].append(name)
+
+        for cat in _CATEGORY_ORDER:
+            pkgs = groups[cat]
+            if not pkgs:
+                continue
+            cat_iid = f"cat:{cat}"
+            self._tree.insert("", "end", iid=cat_iid,
+                              text=f"  {cat}  ({len(pkgs)})",
+                              tags=("category",), open=True)
+            for name in pkgs:
+                ver = self._installed[name]
+                self._tree.insert(cat_iid, "end", iid=f"pkg:{name}",
+                                  text=f"  {name}  {ver}", tags=("installed",))
+
+        self._tree.tag_configure("category", foreground=_DIM,
+                                 font=("Segoe UI", 8, "bold"))
         self._tree.tag_configure("installed", foreground=_FG)
 
     # ── PyPI search ────────────────────────────────────────────────────────────
@@ -231,6 +332,8 @@ class PackageManagerPanel(tk.Frame):
         if iid == "__back__":
             self._load_installed()
             return
+        if iid.startswith("cat:"):
+            return   # category header — just expand/collapse
         name = iid.replace("pkg:", "")
         self._selected_pkg = name
         self._detail.show_loading(name)
