@@ -39,7 +39,10 @@ class AiChatPanel(tk.Frame):
         self._generating       = False
         self._history: list[dict] = []              # [{role, content}]
         self._ai_available     = False
-        self._current_ai_label: tk.Text | None = None
+        self._current_ai_label: tk.Frame | None = None
+        self._scroll_job = None
+        self._render_job = None
+        self._pending_render_text: str = ""
 
         self._build()
         ollama_client.check_async(self._on_ollama_status)
@@ -62,9 +65,12 @@ class AiChatPanel(tk.Frame):
                                                    anchor="nw")
         self._msg_inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>",    self._on_canvas_configure)
-        self._canvas.bind("<MouseWheel>",   self._on_mousewheel)
-        self._canvas.bind("<Button-4>",     self._on_mousewheel)
-        self._canvas.bind("<Button-5>",     self._on_mousewheel)
+        # Bind scroll on both canvas and inner frame so it fires regardless
+        # of which child widget the pointer is over
+        for w in (self._canvas, self._msg_inner):
+            w.bind("<MouseWheel>", self._on_mousewheel, add="+")
+            w.bind("<Button-4>",   self._on_mousewheel, add="+")
+            w.bind("<Button-5>",   self._on_mousewheel, add="+")
 
         # ── Separator ─────────────────────────────────────────────────────────
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x")
@@ -132,8 +138,23 @@ class AiChatPanel(tk.Frame):
             self._canvas.yview_scroll(int(-event.delta / 120), "units")
 
     def _scroll_bottom(self) -> None:
-        self._canvas.update_idletasks()
-        self._canvas.yview_moveto(1.0)
+        """Debounced scroll-to-bottom — coalesces rapid calls into one."""
+        if self._scroll_job:
+            try:
+                self.after_cancel(self._scroll_job)
+            except Exception:
+                pass
+        try:
+            self._scroll_job = self.after(50, self._do_scroll_bottom)
+        except Exception:
+            pass
+
+    def _do_scroll_bottom(self) -> None:
+        self._scroll_job = None
+        try:
+            self._canvas.yview_moveto(1.0)
+        except Exception:
+            pass
 
     # ── Ollama status ─────────────────────────────────────────────────────────
 
@@ -255,17 +276,23 @@ class AiChatPanel(tk.Frame):
 
         def _on_chunk(token: str) -> None:
             accumulated.append(token)
-            text = "".join(accumulated)
+            self._pending_render_text = "".join(accumulated)
             try:
-                self.after(0, lambda t=text: self._update_ai_bubble(t))
+                self.after(0, self._schedule_render)
             except Exception:
                 pass
+
 
         def _on_done(full: str) -> None:
             self._generating = False
             self._history.append({"role": "assistant", "content": full})
+            # Final render — cancel any pending debounce and render immediately
             try:
-                self.after(0, self._scroll_bottom)
+                self.after(0, lambda: (
+                    self._cancel_render_job(),
+                    self._update_ai_bubble(full),
+                    self._scroll_bottom(),
+                ))
             except Exception:
                 pass
 
@@ -314,8 +341,8 @@ class AiChatPanel(tk.Frame):
                  justify="left", anchor="nw").pack(anchor="w")
         self._scroll_bottom()
 
-    def _append_ai_bubble(self) -> tk.Text:
-        """Add an AI bubble with an empty Text widget for streaming into."""
+    def _append_ai_bubble(self) -> tk.Frame:
+        """Add an AI bubble with a plain streaming Text widget."""
         self._add_spacer(6)
         row = tk.Frame(self._msg_inner, bg=_BG)
         row.pack(fill="x", padx=10)
@@ -326,57 +353,150 @@ class AiChatPanel(tk.Frame):
         tk.Label(bubble, text="🤖 AI", bg=_AI_BG, fg=_DIM,
                  font=("Segoe UI", 7, "bold")).pack(anchor="w")
 
-        txt = tk.Text(bubble, bg=_AI_BG, fg=_AI_FG,
-                      font=("Segoe UI", 10),
-                      wrap="word", relief="flat", bd=0,
-                      highlightthickness=0,
-                      state="disabled", cursor="arrow",
-                      height=1)
-        txt.pack(fill="x", anchor="w")
-        txt.bind("<MouseWheel>", self._on_mousewheel)
-        txt.bind("<Button-4>",   self._on_mousewheel)
-        txt.bind("<Button-5>",   self._on_mousewheel)
+        # Single plain-text widget used during streaming — replaced on completion
+        stream_txt = tk.Text(bubble, bg=_AI_BG, fg=_AI_FG,
+                             font=("Segoe UI", 10),
+                             wrap="word", relief="flat", bd=0,
+                             highlightthickness=0,
+                             state="disabled", cursor="arrow",
+                             height=1)
+        stream_txt.pack(fill="x", anchor="w")
+        stream_txt.bind("<MouseWheel>", self._on_mousewheel)
+        stream_txt.bind("<Button-4>",   self._on_mousewheel)
+        stream_txt.bind("<Button-5>",   self._on_mousewheel)
+        bubble._stream_txt = stream_txt   # type: ignore[attr-defined]
 
-        # Code block tag
-        txt.tag_configure("code", font=("Courier New", 9),
-                          background=_CODE_BG, foreground=_CODE_FG,
-                          lmargin1=6, lmargin2=6, rmargin=6)
-        return txt
+        return bubble
 
-    def _update_ai_bubble(self, text: str) -> None:
-        """Re-render streaming text into the current AI bubble with code highlighting."""
-        txt = self._current_ai_label
-        if not txt:
+    def _schedule_render(self) -> None:
+        """Stream update — just update the plain-text widget, no rebuilding."""
+        text = self._pending_render_text
+        bubble = self._current_ai_label
+        if not bubble:
             return
         try:
-            if not txt.winfo_exists():
+            if not bubble.winfo_exists():
+                return
+        except Exception:
+            return
+        # Update the single streaming Text widget in-place — no destroy/rebuild
+        txt = getattr(bubble, "_stream_txt", None)
+        if txt:
+            try:
+                if not txt.winfo_exists():
+                    return
+                txt.config(state="normal")
+                txt.delete("1.0", "end")
+                txt.insert("1.0", text)
+                lines = int(txt.index("end-1c").split(".")[0])
+                txt.config(height=max(1, lines), state="disabled")
+            except Exception:
+                pass
+        self._scroll_bottom()
+
+    def _cancel_render_job(self) -> None:
+        if self._render_job:
+            try:
+                self.after_cancel(self._render_job)
+            except Exception:
+                pass
+            self._render_job = None
+
+    def _flush_render(self) -> None:
+        self._render_job = None
+
+    def _update_ai_bubble(self, text: str) -> None:
+        """Final render — replace streaming widget with formatted code blocks."""
+        bubble = self._current_ai_label
+        if not bubble:
+            return
+        try:
+            if not bubble.winfo_exists():
                 return
         except Exception:
             return
 
-        txt.config(state="normal")
-        txt.delete("1.0", "end")
-        self._render_message(txt, text)
+        # Remove all content below the header label (including stream widget)
+        children = bubble.winfo_children()
+        for w in children[1:]:
+            try:
+                w.destroy()
+            except Exception:
+                pass
 
-        # Auto-size height to content
-        lines = int(txt.index("end-1c").split(".")[0])
-        txt.config(height=max(1, lines), state="disabled")
+        self._render_message(bubble, text)
+        self._bind_scroll_recursive(bubble)
         self._scroll_bottom()
 
-    def _render_message(self, txt: tk.Text, text: str) -> None:
-        """Insert text with code block formatting."""
+    def _render_message(self, bubble: tk.Frame, text: str) -> None:
+        """Render text + code blocks as child widgets of *bubble*."""
         parts = text.split("```")
         for i, part in enumerate(parts):
             if i % 2 == 1:
-                # Inside a code block — strip language hint on first line
+                # ── Code block ────────────────────────────────────────────────
                 lines = part.split("\n")
-                if lines and not lines[0].strip().replace("-", "").replace("_", "").isidentifier():
+                # Strip language hint (e.g. "python", "bash") from first line
+                if lines and lines[0].strip().replace("-", "").replace("_", "").isidentifier():
                     lines = lines[1:]
                 code = "\n".join(lines).strip()
-                txt.insert("end", "\n" + code + "\n", "code")
+                if not code:
+                    continue
+                code_lines = code.count("\n") + 1
+
+                # Outer frame — black background, slight padding
+                code_frame = tk.Frame(bubble, bg=_CODE_BG, pady=0)
+                code_frame.pack(fill="x", anchor="w", pady=(4, 0))
+
+                # Header row: "code" label + Copy button
+                hdr = tk.Frame(code_frame, bg=_CODE_BG)
+                hdr.pack(fill="x", padx=6, pady=(4, 0))
+
+                tk.Label(hdr, text="code", bg=_CODE_BG, fg=_DIM,
+                         font=("Segoe UI", 7)).pack(side="left")
+
+                copy_btn = tk.Label(hdr, text="⎘ Copy", bg=_CODE_BG, fg=_DIM,
+                                    font=("Segoe UI", 7), cursor="hand2")
+                copy_btn.pack(side="right")
+
+                # Bind copy — capture code value
+                def _copy(_, c=code):
+                    try:
+                        bubble.clipboard_clear()
+                        bubble.clipboard_append(c)
+                    except Exception:
+                        pass
+
+                def _copy_enter(_, btn=copy_btn): btn.config(fg=_AI_FG)
+                def _copy_leave(_, btn=copy_btn): btn.config(fg=_DIM)
+
+                copy_btn.bind("<Button-1>", _copy)
+                copy_btn.bind("<Enter>",    _copy_enter)
+                copy_btn.bind("<Leave>",    _copy_leave)
+
+                # Code text widget
+                txt = tk.Text(code_frame, bg=_CODE_BG, fg=_CODE_FG,
+                              font=("Courier New", 9),
+                              wrap="none", relief="flat", bd=0,
+                              highlightthickness=0,
+                              state="normal", cursor="arrow",
+                              height=code_lines + 1)  # +1 = empty line at bottom
+                txt.pack(fill="x", padx=6, pady=(2, 4))
+                txt.insert("1.0", code + "\n")        # trailing newline = bottom padding
+                txt.config(state="disabled")
+                txt.bind("<MouseWheel>", self._on_mousewheel)
+                txt.bind("<Button-4>",   self._on_mousewheel)
+                txt.bind("<Button-5>",   self._on_mousewheel)
+
             else:
-                if part:
-                    txt.insert("end", part)
+                # ── Plain text ────────────────────────────────────────────────
+                if part.strip():
+                    lbl = tk.Label(bubble, text=part, bg=_AI_BG, fg=_AI_FG,
+                                   font=("Segoe UI", 10), wraplength=500,
+                                   justify="left", anchor="nw")
+                    lbl.pack(fill="x", anchor="w")
+                    lbl.bind("<MouseWheel>", self._on_mousewheel)
+                    lbl.bind("<Button-4>",   self._on_mousewheel)
+                    lbl.bind("<Button-5>",   self._on_mousewheel)
 
     def _append_system(self, text: str, color: str = _DIM) -> None:
         self._add_spacer(8)
