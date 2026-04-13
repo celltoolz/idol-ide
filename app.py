@@ -2673,7 +2673,8 @@ class IDOL(Tk):
         )
         self._lock_btn.pack(side="right")
         self._lock_btn.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
-        self._lock_btn.bind("<Enter>", lambda _: self._lock_btn.config(fg="#cccccc"))
+        self._lock_btn.bind("<Enter>", lambda _: self._lock_btn.config(
+            fg="#1a9fd4" if self._scroll_locked else "#cccccc"))
         self._lock_btn.bind("<Leave>", lambda _: self._lock_btn.config(
             fg="#007acc" if self._scroll_locked else "#555555"))
 

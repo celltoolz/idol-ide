@@ -97,7 +97,10 @@ class CustomNotebook(ttk.Notebook):
         # Show drop zone when cursor crosses into the right drop region AND
         # has been dragged below the tab bar — prevents accidental splits when
         # just reordering tabs horizontally.
-        tab_bar_bottom = self.winfo_rooty() + self.winfo_height()
+        # Use _tab_bar_height() not winfo_height() — the latter returns the full
+        # notebook height (including content area) which makes the threshold
+        # impossibly low and the drag-to-split condition never fires.
+        tab_bar_bottom = self.winfo_rooty() + self._tab_bar_height() + 14
         below_tab_bar  = event.y_root > tab_bar_bottom
 
         nb_right = self.winfo_rootx() + self.winfo_width()
@@ -128,7 +131,7 @@ class CustomNotebook(ttk.Notebook):
         self._hide_drop_zone()
         # Released past the threshold AND below the tab bar → open in split
         if tab_id and self._on_split:
-            tab_bar_bottom = self.winfo_rooty() + self.winfo_height()
+            tab_bar_bottom = self.winfo_rooty() + self._tab_bar_height() + 14
             nb_right = self.winfo_rootx() + self.winfo_width()
             if self._split_open_ref and self._split_open_ref():
                 threshold = nb_right - 8

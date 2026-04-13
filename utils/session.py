@@ -44,6 +44,22 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     except (ValueError, Exception):
         pass
 
+    # ── Appearance ────────────────────────────────────────────────────────────
+    appearance: dict = {
+        "theme":            app.theme_var.get(),
+        "minimap_visible":  app.minimap_visible_var.get(),
+    }
+    # Grab the font from the active codeview (all tabs share the same font)
+    cv_any = next((cv for cv in app._codeviews.values() if cv is not None), None)
+    if cv_any is not None:
+        try:
+            appearance["font"] = cv_any.cget("font")
+        except Exception:
+            pass
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+    layout: dict = {}
+
     # ── Window geometry ───────────────────────────────────────────────────────
     try:
         state = app.wm_state()
@@ -62,22 +78,6 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
             layout["window_geometry"] = app.wm_geometry()
     except Exception:
         pass
-
-    # ── Appearance ────────────────────────────────────────────────────────────
-    appearance: dict = {
-        "theme":            app.theme_var.get(),
-        "minimap_visible":  app.minimap_visible_var.get(),
-    }
-    # Grab the font from the active codeview (all tabs share the same font)
-    cv_any = next((cv for cv in app._codeviews.values() if cv is not None), None)
-    if cv_any is not None:
-        try:
-            appearance["font"] = cv_any.cget("font")
-        except Exception:
-            pass
-
-    # ── Layout ────────────────────────────────────────────────────────────────
-    layout: dict = {}
     try:
         h = app._h_pane.sashpos(0)
         if h > 50:  # only save valid non-collapsed positions

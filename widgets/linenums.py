@@ -140,6 +140,16 @@ class TkLineNumbers(Canvas):
         while end > lineno and not self._line_text(end).strip():
             end -= 1
 
+        # For bracket-type folds include the closing bracket line (e.g. ")")
+        # that sits at the base indent level immediately after the block.
+        _PAIRS = {"(": ")", "[": "]", "{": "}"}
+        last_char = line_text.rstrip()[-1] if line_text.rstrip() else ""
+        closing = _PAIRS.get(last_char)
+        if closing and end < last_line:
+            next_text = self._line_text(end + 1).strip()
+            if next_text.startswith(closing):
+                end += 1
+
         return (lineno, end) if end > lineno else None
 
     def _line_text(self, lineno: int) -> str:
@@ -274,12 +284,14 @@ class TkLineNumbers(Canvas):
         _PAIRS = {"(": ")", "[": "]", "{": "}"}
         closing = _PAIRS.get(open_line[-1]) if open_line else None
         if closing:
-            # Find the end of this fold range and grab the closing bracket text
+            # Use the tag's last position (not the mark) to find the closing bracket
             marker = f"fold_{line}"
-            end_idx = self.textwidget.index(f"{marker} lineend")
-            end_line_text = self.textwidget.get(
-                f"{end_idx} linestart", f"{end_idx} lineend").strip()
-            # Use just the first character if it's the closing bracket
+            try:
+                end_idx = self.textwidget.index(f"{marker}.last")
+                end_line_text = self.textwidget.get(
+                    f"{end_idx} linestart", end_idx).strip()
+            except Exception:
+                end_line_text = ""
             suffix = f" {end_line_text[0]}" if end_line_text.startswith(closing) else f" {closing}"
             dot_text = f" ··· {suffix}"
         else:
