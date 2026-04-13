@@ -75,6 +75,10 @@ class AiChatPanel(tk.Frame):
         self._msg_inner = tk.Frame(self._canvas, bg=_BG)
         self._msg_win = self._canvas.create_window((0, 0), window=self._msg_inner,
                                                    anchor="nw")
+        # Bottom spacer — always packed last so the user can scroll the final
+        # message up away from the input box rather than it sitting flush.
+        self._msg_bottom_spacer = tk.Frame(self._msg_inner, bg=_BG, height=80)
+        self._msg_bottom_spacer.pack(fill="x", side="bottom")
         self._msg_inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>",    self._on_canvas_configure)
 
@@ -95,7 +99,7 @@ class AiChatPanel(tk.Frame):
         # ── Input area ────────────────────────────────────────────────────────
         tk.Frame(self, bg="#3c3c3c", height=1).pack(fill="x", side="bottom")
         input_outer = tk.Frame(self, bg=_INPUT_BG)
-        input_outer.pack(fill="x", side="bottom", pady=(8, 6))
+        input_outer.pack(fill="x", side="bottom", pady=(4, 0))
 
         # URL row — created before ctx_row so its natural pack position is above it.
         # We use pack/pack_forget on the row itself; tkinter always restores it to

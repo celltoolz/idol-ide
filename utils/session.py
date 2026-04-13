@@ -60,22 +60,15 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     # ── Layout ────────────────────────────────────────────────────────────────
     layout: dict = {}
 
-    # ── Window geometry ───────────────────────────────────────────────────────
+    # ── Window state (maximize only — position is not restored) ──────────────
     try:
         state = app.wm_state()
-        # Treat zoomed (Windows max), and also check -zoomed attribute (Linux)
         is_maximized = (state == "zoomed")
         try:
             is_maximized = is_maximized or bool(app.attributes("-zoomed"))
         except Exception:
             pass
         layout["window_maximized"] = is_maximized
-        # Only save size+pos when normal and fully drawn — skip iconified,
-        # withdrawn, zoomed (restoring geometry after un-maximize is handled
-        # by the OS), and pre-layout 1×1 placeholder sizes.
-        if state == "normal" and not is_maximized \
-                and app.winfo_width() > 400 and app.winfo_height() > 300:
-            layout["window_geometry"] = app.wm_geometry()
     except Exception:
         pass
     try:
@@ -205,9 +198,8 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # ── Layout — two-stage to let pane geometry settle before sidebar measures ──
     layout = data.get("layout")
     if layout:
-        # Restore window size/position.
+        # Restore maximize state only — position is not persisted
         maximized = layout.get("window_maximized", False)
-        geom      = layout.get("window_geometry", "")
         if maximized:
             try:
                 app.wm_state("zoomed")      # Windows / macOS
@@ -217,14 +209,6 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
                 app.attributes("-zoomed", True)  # Linux fallback
             except Exception:
                 pass
-        elif geom:
-            import re as _re
-            m = _re.match(r"(\d+)x(\d+)", geom)
-            if m and int(m.group(1)) >= 400 and int(m.group(2)) >= 300:
-                try:
-                    app.geometry(geom)
-                except Exception:
-                    pass
         # Stage 1 (50 ms): set h_pane / v_pane sash positions so the sidebar
         # and editor panels get their correct pixel dimensions.
         app.after(50,  lambda: _apply_pane_sashes(app, layout))
