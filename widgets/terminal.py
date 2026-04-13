@@ -277,6 +277,7 @@ class TerminalPanel(ttk.Frame):
             self._text.focus_set()
             # Inject OSC 7 CWD + VENV reporting hook after shell is ready
             self.after(400, self._inject_shell_hooks)
+            self.after(700, lambda: self.send_text("clear\r"))
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd):
                 self.after(300, lambda c=_cwd: self.send_text(f'cd "{c}"\r'))

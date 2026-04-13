@@ -191,9 +191,9 @@ class IDOL(Tk):
 
         # AI Chat panel (right-side panel, not a tab)
         self._ai_panel_visible: bool = False
-        self._ai_panel_width:   int  = 350          # restored width in px
-        self._ai_chat_panel: AiChatPanel | None = None   # set in _build_layout
-        self._last_editor_tab: str | None = None   # last tab with a real codeview
+        self._ai_panel_width: int = 350  # restored width in px
+        self._ai_chat_panel: AiChatPanel | None = None  # set in _build_layout
+        self._last_editor_tab: str | None = None  # last tab with a real codeview
 
         # Package Manager
         self._pkg_tab: str | None = None
@@ -217,11 +217,11 @@ class IDOL(Tk):
 
         # Settings
         self.theme_var = StringVar(value="monokai")
-        self.highlight_line_var  = BooleanVar(value=True)
-        self.output_visible_var  = BooleanVar(value=True)
+        self.highlight_line_var = BooleanVar(value=True)
+        self.output_visible_var = BooleanVar(value=True)
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
-        self._sidebar_shown      = True   # tracks actual pane membership
+        self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
         # Zen mode
@@ -250,7 +250,9 @@ class IDOL(Tk):
         self._statusbar.pack(side="bottom", fill="x")
 
         # Horizontal split: outline (left) | editor+output (right)
-        self._h_pane = tk.PanedWindow(self, orient="horizontal", sashwidth=4, bd=0, bg="#3c3c3c")
+        self._h_pane = tk.PanedWindow(
+            self, orient="horizontal", sashwidth=4, bd=0, bg="#3c3c3c"
+        )
         self._h_pane.pack(fill="both", expand=True)
 
         # Left panel – sidebar (outline + source control + explorer)
@@ -268,7 +270,7 @@ class IDOL(Tk):
                 "diff": self._sc_open_diff,
                 "create_gitignore": self._sc_create_gitignore,
                 "add_to_gitignore": self._sc_add_to_gitignore,
-                "untrack_venv":     self._sc_untrack_venv,
+                "untrack_venv": self._sc_untrack_venv,
                 "gitignore_check": self._sc_gitignore_exists,
                 "repo_root": lambda: self._git._root if self._git else "",
                 "history_diff": self._sc_history_diff,
@@ -413,9 +415,9 @@ class IDOL(Tk):
         self.bind("<Control-P>", lambda _: self.open_command_palette())
         self.bind("<Control-b>", lambda _: self.view_toggle_sidebar())
         self.bind("<F11>", lambda _: self.view_zen_mode())
-        self.bind("<F1>",  lambda _: self.view_learning_mode())
-        self.bind("<F2>",  lambda _: self.view_ai_chat())
-        self.bind("<F3>",  lambda _: self.view_package_manager())
+        self.bind("<F1>", lambda _: self.view_learning_mode())
+        self.bind("<F2>", lambda _: self.view_ai_chat())
+        self.bind("<F3>", lambda _: self.view_package_manager())
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -488,8 +490,8 @@ class IDOL(Tk):
         codeview.insert("1.0", content)
         codeview.edit_reset()  # clear undo history after initial load
 
-        LearningManager.register(crumb,     "breadcrumb_bar")
-        LearningManager.register(codeview,  "editor")
+        LearningManager.register(crumb, "breadcrumb_bar")
+        LearningManager.register(codeview, "editor")
 
         self.notebook.add(frame, text=f"  {title}  ")
         self.notebook.select(frame)
@@ -757,7 +759,9 @@ class IDOL(Tk):
                 self._learning_panel = None
                 self._learning_destroy_overlays()
             elif self.notebook.select() == self._learning_tab:
-                self.after(100, lambda: self._learning_show_overlays(self._learning_active_lid))
+                self.after(
+                    100, lambda: self._learning_show_overlays(self._learning_active_lid)
+                )
             else:
                 self._learning_destroy_overlays()
 
@@ -770,10 +774,11 @@ class IDOL(Tk):
             # Two-pass redraw: first pass catches most widgets, second pass
             # catches slow-to-settle panels (bottom panel on maximize)
             self._learning_resize_id = self.after(
-                150, lambda: (
+                150,
+                lambda: (
                     self._learning_reposition(),
                     self.after(350, self._learning_reposition),
-                )
+                ),
             )
 
     def _on_content_changed(self) -> None:
@@ -1171,7 +1176,7 @@ class IDOL(Tk):
     def _on_sc_status(self, staged: dict, unstaged: dict) -> None:
         self._sidebar.source_control.refresh(staged, unstaged)
 
-# ── Source Control actions ─────────────────────────────────────────────────
+    # ── Source Control actions ─────────────────────────────────────────────────
 
     def _sc_stage(self, path: str) -> None:
         if self._git:
@@ -1270,12 +1275,16 @@ class IDOL(Tk):
         if token.startswith("__load_more__:"):
             offset = int(token.split(":")[1])
             n = offset + 50
+
             def _on_more(commits):
                 self._sidebar.source_control.refresh_history(commits)
+
             self._git.get_log(n, _on_more)
         else:
+
             def _on_files(files, h=token):
                 self._sidebar.source_control.commit_files_ready(h, files)
+
             self._git.get_commit_files(token, _on_files)
 
     def _refresh_history(self) -> None:
@@ -1397,17 +1406,28 @@ class IDOL(Tk):
         if not self._git:
             return
         root = self._git._root
-        venv_candidates = [".venv", "venv", "env", "bin", "lib", "lib64", "include", "share"]
+        venv_candidates = [
+            ".venv",
+            "venv",
+            "env",
+            "bin",
+            "lib",
+            "lib64",
+            "include",
+            "share",
+        ]
         import subprocess
 
         def _run() -> None:
             # Get current git status to distinguish untracked (??) vs tracked files
             status_result = subprocess.run(
                 ["git", "status", "--porcelain"],
-                cwd=root, capture_output=True, text=True
+                cwd=root,
+                capture_output=True,
+                text=True,
             )
             untracked_folders: list[str] = []
-            tracked_folders:   list[str] = []
+            tracked_folders: list[str] = []
 
             for name in venv_candidates:
                 folder = os.path.join(root, name)
@@ -1450,40 +1470,65 @@ class IDOL(Tk):
                         lines_to_add.append(pattern)
 
                 if lines_to_add:
-                    addition = "\n# Virtual Environment\n" + "\n".join(lines_to_add) + "\n"
+                    addition = (
+                        "\n# Virtual Environment\n" + "\n".join(lines_to_add) + "\n"
+                    )
                     with open(gitignore_path, "a", encoding="utf-8") as f:
                         f.write(addition)
                     added = ", ".join(lines_to_add)
-                    self.after(0, lambda a=added: self._output.output.write(
-                        f"[.gitignore] Added: {a}\n", "info"))
+                    self.after(
+                        0,
+                        lambda a=added: self._output.output.write(
+                            f"[.gitignore] Added: {a}\n", "info"
+                        ),
+                    )
                     did_something = True
                 else:
-                    self.after(0, lambda: self._output.output.write(
-                        "[.gitignore] Venv patterns already present.\n", "info"))
+                    self.after(
+                        0,
+                        lambda: self._output.output.write(
+                            "[.gitignore] Venv patterns already present.\n", "info"
+                        ),
+                    )
                     did_something = True
 
             # Tracked venv folders → remove from git index
             for name in tracked_folders:
                 result = subprocess.run(
                     ["git", "rm", "-r", "--cached", "--ignore-unmatch", name],
-                    cwd=root, capture_output=True, text=True
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
                 )
                 if result.stdout.strip():
                     did_something = True
-                    self.after(0, lambda o=result.stdout.strip():
-                        self._output.output.write(f"{o}\n", "info"))
+                    self.after(
+                        0,
+                        lambda o=result.stdout.strip(): self._output.output.write(
+                            f"{o}\n", "info"
+                        ),
+                    )
 
             if did_something:
-                self.after(0, lambda: (
-                    self._output.output.write(
-                        "\n[git] Venv cleanup complete. "
-                        "Commit any staged removals to finish.\n", "success"),
-                    self._refresh_git(),
-                    self._refresh_sc_panel(),
-                ))
+                self.after(
+                    0,
+                    lambda: (
+                        self._output.output.write(
+                            "\n[git] Venv cleanup complete. "
+                            "Commit any staged removals to finish.\n",
+                            "success",
+                        ),
+                        self._refresh_git(),
+                        self._refresh_sc_panel(),
+                    ),
+                )
             else:
-                self.after(0, lambda: self._output.output.write(
-                    "[git] No venv folders found to fix.\n", "warning"))
+                self.after(
+                    0,
+                    lambda: self._output.output.write(
+                        "[git] No venv folders found to fix.\n", "warning"
+                    ),
+                )
 
         if not self.output_visible_var.get():
             self.output_visible_var.set(True)
@@ -1908,7 +1953,8 @@ class IDOL(Tk):
             self._dirty[tab_id] = False
             self._refresh_tab_title(tab_id)
             self._update_title()
-            # Refresh git status + hunks after saving
+            # Refresh explorer (soft — preserves expanded folders) and git
+            self.after(100, self._sidebar.explorer.soft_refresh)
             if self._git:
                 self.after(400, self._refresh_git)
             return True
@@ -2165,7 +2211,7 @@ class IDOL(Tk):
         panel.pack(fill="both", expand=True)
         self.notebook.add(frame, text="📦 Packages")
         self.notebook.select(frame)
-        self._pkg_tab   = self.notebook.select()
+        self._pkg_tab = self.notebook.select()
         self._pkg_panel = panel
 
     # ── Learning Mode ─────────────────────────────────────────────────────────
@@ -2175,7 +2221,9 @@ class IDOL(Tk):
         if self._learning_tab:
             try:
                 self.notebook.select(self._learning_tab)
-                self.after(50, lambda: self._learning_show_overlays(self._learning_active_lid))
+                self.after(
+                    50, lambda: self._learning_show_overlays(self._learning_active_lid)
+                )
                 return
             except Exception:
                 self._learning_tab = None
@@ -2189,7 +2237,7 @@ class IDOL(Tk):
         self.notebook.add(frame, text="  📖 Learning  ")
         self.notebook.select(frame)
 
-        self._learning_tab   = self.notebook.select()
+        self._learning_tab = self.notebook.select()
         self._learning_panel = panel
         self._learning_active_lid = ""
 
@@ -2202,7 +2250,7 @@ class IDOL(Tk):
             # Save current width before hiding
             try:
                 total = self._h_pane.winfo_width()
-                sash  = self._h_pane.sashpos(1)
+                sash = self._h_pane.sashpos(1)
                 self._ai_panel_width = max(280, total - sash)
             except Exception:
                 pass
@@ -2289,7 +2337,7 @@ class IDOL(Tk):
         except Exception:
             return
 
-        color       = "#007acc"
+        color = "#007acc"
         hover_color = "#1e90ff"
         t = 2  # border thickness
 
@@ -2299,17 +2347,18 @@ class IDOL(Tk):
         # Hidden by default, shown on hover.
         fill = tk.Canvas(self, bg=color, highlightthickness=0, cursor="hand2")
         fill.place(x=rx, y=ry, width=rw, height=rh)
-        fill._rect = fill.create_rectangle(0, 0, rw, rh,
-                                           fill=color, stipple="gray25", outline="")
-        fill.place_forget()   # hidden until hover
+        fill._rect = fill.create_rectangle(
+            0, 0, rw, rh, fill=color, stipple="gray25", outline=""
+        )
+        fill.place_forget()  # hidden until hover
         parts.append(fill)
 
         # Four border lines
         for bx, by, bw, bh in [
-            (rx,        ry,        rw, t),
-            (rx,        ry+rh-t,   rw, t),
-            (rx,        ry,        t,  rh),
-            (rx+rw-t,   ry,        t,  rh),
+            (rx, ry, rw, t),
+            (rx, ry + rh - t, rw, t),
+            (rx, ry, t, rh),
+            (rx + rw - t, ry, t, rh),
         ]:
             f = tk.Frame(self, bg=color, cursor="hand2")
             f.place(x=bx, y=by, width=bw, height=bh)
@@ -2317,9 +2366,16 @@ class IDOL(Tk):
             parts.append(f)
 
         # Small badge at top-right corner
-        badge = tk.Label(self, text="📖", bg=color, fg="white",
-                         font=("Segoe UI", 7), cursor="hand2",
-                         padx=2, pady=0)
+        badge = tk.Label(
+            self,
+            text="📖",
+            bg=color,
+            fg="white",
+            font=("Segoe UI", 7),
+            cursor="hand2",
+            padx=2,
+            pady=0,
+        )
         badge.place(x=rx + rw - 20, y=ry)
         badge.lift()
         parts.append(badge)
@@ -2332,7 +2388,7 @@ class IDOL(Tk):
                 fill.itemconfig(fill._rect, fill=hover_color)
             except Exception:
                 pass
-            for p in parts[1:]:   # skip fill canvas
+            for p in parts[1:]:  # skip fill canvas
                 try:
                     p.config(bg=hover_color)
                 except Exception:
@@ -2353,8 +2409,8 @@ class IDOL(Tk):
             self._on_overlay_click(lid)
 
         for p in parts:
-            p.bind("<Enter>",    _on_enter)
-            p.bind("<Leave>",    _on_leave)
+            p.bind("<Enter>", _on_enter)
+            p.bind("<Leave>", _on_leave)
             p.bind("<Button-1>", _on_click)
 
         self._learning_overlay_widgets.extend(parts)
@@ -2389,33 +2445,33 @@ class IDOL(Tk):
         LM = LearningManager
 
         # Sidebar section headers — overlay on header only, not the large body panel
-        LM.register(self._sidebar._outline_hdr,   "outline_panel")
-        LM.register(self._sidebar.outline,         "outline_panel",   overlay=False)
-        LM.register(self._sidebar._refs_hdr,       "references_panel")
-        LM.register(self._sidebar.references,      "references_panel", overlay=False)
-        LM.register(self._sidebar._sc_hdr,         "source_control_panel")
-        LM.register(self._sidebar.source_control,  "source_control_panel", overlay=False)
-        LM.register(self._sidebar._explorer_hdr,   "explorer_panel")
+        LM.register(self._sidebar._outline_hdr, "outline_panel")
+        LM.register(self._sidebar.outline, "outline_panel", overlay=False)
+        LM.register(self._sidebar._refs_hdr, "references_panel")
+        LM.register(self._sidebar.references, "references_panel", overlay=False)
+        LM.register(self._sidebar._sc_hdr, "source_control_panel")
+        LM.register(self._sidebar.source_control, "source_control_panel", overlay=False)
+        LM.register(self._sidebar._explorer_hdr, "explorer_panel")
 
         # Source control action buttons
         sc = self._sidebar.source_control
         LM.register(sc._commit_btn, "sc_commit_btn")
-        LM.register(sc._push_btn,   "sc_push_btn")
-        LM.register(sc._pull_btn,   "sc_pull_btn")
+        LM.register(sc._push_btn, "sc_push_btn")
+        LM.register(sc._pull_btn, "sc_pull_btn")
 
         # Status bar segments
-        LM.register(self._statusbar._pos_lbl,    "statusbar_position")
+        LM.register(self._statusbar._pos_lbl, "statusbar_position")
         LM.register(self._statusbar._branch_lbl, "statusbar_branch")
-        LM.register(self._statusbar._lexer_lbl,  "statusbar_lexer")
+        LM.register(self._statusbar._lexer_lbl, "statusbar_lexer")
         LM.register(self._statusbar._indent_lbl, "statusbar_indent")
 
         # Find & Replace bar
         LM.register(self._find_replace, "find_replace_bar")
 
         # Output / Terminal — tab buttons get overlays, large panels don't
-        LM.register(self._output.output_tab_btn,   "output_panel")
+        LM.register(self._output.output_tab_btn, "output_panel")
         LM.register(self._output.terminal_tab_btn, "terminal_panel")
-        LM.register(self._output.output,   "output_panel",   overlay=False)
+        LM.register(self._output.output, "output_panel", overlay=False)
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
 
         # Sidebar collapse/expand → reposition overlays
@@ -2567,6 +2623,7 @@ class IDOL(Tk):
         # its final size after all layout passes, regardless of timing.
         # This survives session restore cascades that would override a fixed delay.
         _mid_set = [False]
+
         def _on_split_configured(event):
             if _mid_set[0]:
                 return
@@ -2575,6 +2632,7 @@ class IDOL(Tk):
                 _mid_set[0] = True
                 self._split_pane.unbind("<Configure>")
                 self._split_pane.sashpos(0, w // 2)
+
         self._split_pane.bind("<Configure>", _on_split_configured)
 
         # Thin header with "SPLIT" label, lock button, and × close button
@@ -2599,8 +2657,8 @@ class IDOL(Tk):
             padx=6,
         )
         close_lbl.pack(side="right")
-        close_lbl.bind("<Enter>",    lambda _: close_lbl.config(fg="#cccccc"))
-        close_lbl.bind("<Leave>",    lambda _: close_lbl.config(fg="#858585"))
+        close_lbl.bind("<Enter>", lambda _: close_lbl.config(fg="#cccccc"))
+        close_lbl.bind("<Leave>", lambda _: close_lbl.config(fg="#858585"))
         close_lbl.bind("<Button-1>", lambda _: self._close_split())
 
         self._scroll_locked = self._get_system_scroll_lock()
@@ -2615,6 +2673,9 @@ class IDOL(Tk):
         )
         self._lock_btn.pack(side="right")
         self._lock_btn.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
+        self._lock_btn.bind("<Enter>", lambda _: self._lock_btn.config(fg="#cccccc"))
+        self._lock_btn.bind("<Leave>", lambda _: self._lock_btn.config(
+            fg="#007acc" if self._scroll_locked else "#555555"))
 
         self._notebook_r = CustomNotebook(
             self._nb_frame_r,
@@ -2641,13 +2702,18 @@ class IDOL(Tk):
     def _get_system_scroll_lock() -> bool:
         """Return the current hardware Scroll Lock key state."""
         import platform
+
         try:
             if platform.system() == "Windows":
                 import ctypes
+
                 return bool(ctypes.windll.user32.GetKeyState(0x91) & 1)
             elif platform.system() == "Linux":
                 import subprocess
-                out = subprocess.check_output(["xset", "q"], stderr=subprocess.DEVNULL, text=True)
+
+                out = subprocess.check_output(
+                    ["xset", "q"], stderr=subprocess.DEVNULL, text=True
+                )
                 for line in out.splitlines():
                     if "Scroll Lock" in line:
                         return "on" in line.lower().split("Scroll Lock")[1][:10]
@@ -2898,6 +2964,7 @@ class IDOL(Tk):
         except Exception:
             return
         import textwrap
+
         self._run_snippet(textwrap.dedent(code), "selection")
 
     def run_stop(self) -> None:
@@ -2963,6 +3030,7 @@ class IDOL(Tk):
             ("About", "", self.help_about),
         ]
         from widgets.package_manager import _BUILTIN_LOOKUP
+
         CommandPalette(
             self,
             commands,
@@ -2976,6 +3044,7 @@ class IDOL(Tk):
     def _palette_run_pip(self, args: list[str]) -> None:
         """Run a pip command from the command palette, streaming to the Output panel."""
         import subprocess, threading as _threading
+
         output = self._output.output
         try:
             output.master._set_active("output")
@@ -2987,7 +3056,9 @@ class IDOL(Tk):
             try:
                 proc = subprocess.Popen(
                     [__import__("sys").executable, "-m", "pip"] + args,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
                 )
                 for line in proc.stdout:
                     self.after(0, lambda l=line: output.write(l))
@@ -3004,6 +3075,7 @@ class IDOL(Tk):
 
     def help_about(self) -> None:
         from pathlib import Path as _Path
+
         dlg = tk.Toplevel(self)
         dlg.title("About IDOL")
         dlg.resizable(False, False)
@@ -3014,6 +3086,7 @@ class IDOL(Tk):
         logo_path = _Path(__file__).parent / "images" / "gitPIDE.png"
         try:
             from PIL import Image, ImageTk
+
             img = Image.open(logo_path)
             ratio = 420 / img.width
             img = img.resize((420, int(img.height * ratio)), Image.LANCZOS)
@@ -3021,26 +3094,51 @@ class IDOL(Tk):
             dlg._photo = photo
             tk.Label(dlg, image=photo, bg="#0d1117", bd=0).pack(pady=(16, 8))
         except Exception:
-            tk.Label(dlg, text="IDOL", bg="#0d1117", fg="#cccccc",
-                     font=("Segoe UI", 28, "bold")).pack(pady=(24, 8))
+            tk.Label(
+                dlg,
+                text="IDOL",
+                bg="#0d1117",
+                fg="#cccccc",
+                font=("Segoe UI", 28, "bold"),
+            ).pack(pady=(24, 8))
 
         # Info
-        tk.Label(dlg, text="Integrated Development and Objective Learning",
-                 bg="#0d1117", fg="#858585",
-                 font=("Segoe UI", 9)).pack()
-        tk.Label(dlg, text="created by gitPIDE — GitHub's Python IDE",
-                 bg="#0d1117", fg="#569cd6",
-                 font=("Segoe UI", 9)).pack(pady=(2, 12))
+        tk.Label(
+            dlg,
+            text="Integrated Development and Objective Learning",
+            bg="#0d1117",
+            fg="#858585",
+            font=("Segoe UI", 9),
+        ).pack()
+        tk.Label(
+            dlg,
+            text="created by gitPIDE — GitHub's Python IDE",
+            bg="#0d1117",
+            fg="#569cd6",
+            font=("Segoe UI", 9),
+        ).pack(pady=(2, 12))
 
         tk.Frame(dlg, bg="#3c3c3c", height=1).pack(fill="x", padx=24)
 
-        tk.Label(dlg, text="Created by  Alex Fero & Claude Sonnet",
-                 bg="#0d1117", fg="#858585",
-                 font=("Segoe UI", 8)).pack(pady=(10, 2))
+        tk.Label(
+            dlg,
+            text="Built by  Alex Fero & Claude Sonnet",
+            bg="#0d1117",
+            fg="#858585",
+            font=("Segoe UI", 8),
+        ).pack(pady=(10, 2))
 
         # Close button
-        btn = tk.Label(dlg, text="Close", bg="#0e639c", fg="white",
-                       font=("Segoe UI", 9), cursor="hand2", padx=20, pady=5)
+        btn = tk.Label(
+            dlg,
+            text="Close",
+            bg="#0e639c",
+            fg="white",
+            font=("Segoe UI", 9),
+            cursor="hand2",
+            padx=20,
+            pady=5,
+        )
         btn.pack(pady=(10, 20))
         btn.bind("<Button-1>", lambda _: dlg.destroy())
         btn.bind("<Enter>", lambda _: btn.config(bg="#1177bb"))
@@ -3048,7 +3146,6 @@ class IDOL(Tk):
 
         # Center over main window
         dlg.update_idletasks()
-        x = self.winfo_rootx() + (self.winfo_width()  - dlg.winfo_width())  // 2
+        x = self.winfo_rootx() + (self.winfo_width() - dlg.winfo_width()) // 2
         y = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
         dlg.geometry(f"+{x}+{y}")
-

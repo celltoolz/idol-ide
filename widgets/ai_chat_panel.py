@@ -93,8 +93,9 @@ class AiChatPanel(tk.Frame):
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x")
 
         # ── Input area ────────────────────────────────────────────────────────
+        tk.Frame(self, bg="#3c3c3c", height=1).pack(fill="x", side="bottom")
         input_outer = tk.Frame(self, bg=_INPUT_BG)
-        input_outer.pack(fill="x", side="bottom")
+        input_outer.pack(fill="x", side="bottom", pady=(4, 0))
 
         # URL row — created before ctx_row so its natural pack position is above it.
         # We use pack/pack_forget on the row itself; tkinter always restores it to

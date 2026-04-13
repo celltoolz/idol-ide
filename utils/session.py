@@ -47,11 +47,18 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     # ── Window geometry ───────────────────────────────────────────────────────
     try:
         state = app.wm_state()
-        layout["window_maximized"] = (state == "zoomed")
-        # Only save geometry when the window is a normal, visible, reasonable size.
-        # Skip when withdrawn, iconified, or when dimensions look like a
-        # pre-layout placeholder (tkinter reports 1x1 or similar before mapping).
-        if state == "normal" and app.winfo_width() > 400 and app.winfo_height() > 300:
+        # Treat zoomed (Windows max), and also check -zoomed attribute (Linux)
+        is_maximized = (state == "zoomed")
+        try:
+            is_maximized = is_maximized or bool(app.attributes("-zoomed"))
+        except Exception:
+            pass
+        layout["window_maximized"] = is_maximized
+        # Only save size+pos when normal and fully drawn — skip iconified,
+        # withdrawn, zoomed (restoring geometry after un-maximize is handled
+        # by the OS), and pre-layout 1×1 placeholder sizes.
+        if state == "normal" and not is_maximized \
+                and app.winfo_width() > 400 and app.winfo_height() > 300:
             layout["window_geometry"] = app.wm_geometry()
     except Exception:
         pass
@@ -203,9 +210,13 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         geom      = layout.get("window_geometry", "")
         if maximized:
             try:
-                app.wm_state("zoomed")
+                app.wm_state("zoomed")      # Windows / macOS
             except Exception:
-                app.attributes("-zoomed", True)   # Linux fallback
+                pass
+            try:
+                app.attributes("-zoomed", True)  # Linux fallback
+            except Exception:
+                pass
         elif geom:
             import re as _re
             m = _re.match(r"(\d+)x(\d+)", geom)

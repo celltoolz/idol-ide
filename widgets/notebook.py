@@ -94,15 +94,18 @@ class CustomNotebook(ttk.Notebook):
         self._hovered_tab = None
         self._hide_hover_btn()
 
-        # Show drop zone when cursor crosses into the right drop region.
-        # If split is already open the trigger is the right edge of this notebook;
-        # otherwise it's the midpoint (previewing where the split will appear).
+        # Show drop zone when cursor crosses into the right drop region AND
+        # has been dragged below the tab bar — prevents accidental splits when
+        # just reordering tabs horizontally.
+        tab_bar_bottom = self.winfo_rooty() + self.winfo_height()
+        below_tab_bar  = event.y_root > tab_bar_bottom
+
         nb_right = self.winfo_rootx() + self.winfo_width()
         if self._on_split and self._split_open_ref and self._split_open_ref():
             threshold = nb_right - 8   # near the right edge of the left pane
         else:
             threshold = self.winfo_rootx() + self.winfo_width() // 2
-        if event.x_root > threshold:
+        if below_tab_bar and event.x_root > threshold:
             self._show_drop_zone()
             return
         self._hide_drop_zone()
@@ -123,14 +126,15 @@ class CustomNotebook(ttk.Notebook):
         self._drag_tab_id = None
         self.configure(cursor="")
         self._hide_drop_zone()
-        # Released past the threshold → open in split
+        # Released past the threshold AND below the tab bar → open in split
         if tab_id and self._on_split:
+            tab_bar_bottom = self.winfo_rooty() + self.winfo_height()
             nb_right = self.winfo_rootx() + self.winfo_width()
             if self._split_open_ref and self._split_open_ref():
                 threshold = nb_right - 8
             else:
                 threshold = self.winfo_rootx() + self.winfo_width() // 2
-            if event.x_root > threshold:
+            if event.y_root > tab_bar_bottom and event.x_root > threshold:
                 self._on_split(tab_id)
 
     def _show_drop_zone(self) -> None:

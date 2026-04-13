@@ -266,12 +266,28 @@ class TkLineNumbers(Canvas):
     def _show_dots(self, line: str) -> None:
         """Embed a ··· label at the end of *line* to indicate a folded block."""
         self._hide_dots(line)  # destroy any stale widget first
-        fg = self.textwidget["fg"]
-        bg = self.textwidget["bg"]
+        bg   = self.textwidget["bg"]
         font = self.textwidget.cget("font")
+
+        # For bracket-opened folds show the closing bracket: ( ··· )
+        open_line  = self.textwidget.get(f"{line}.0", f"{line}.0 lineend").rstrip()
+        _PAIRS = {"(": ")", "[": "]", "{": "}"}
+        closing = _PAIRS.get(open_line[-1]) if open_line else None
+        if closing:
+            # Find the end of this fold range and grab the closing bracket text
+            marker = f"fold_{line}"
+            end_idx = self.textwidget.index(f"{marker} lineend")
+            end_line_text = self.textwidget.get(
+                f"{end_idx} linestart", f"{end_idx} lineend").strip()
+            # Use just the first character if it's the closing bracket
+            suffix = f" {end_line_text[0]}" if end_line_text.startswith(closing) else f" {closing}"
+            dot_text = f" ··· {suffix}"
+        else:
+            dot_text = " ···"
+
         lbl = Label(
             self.textwidget,
-            text=" ···",
+            text=dot_text,
             font=font,
             fg="#858585",
             bg=bg,

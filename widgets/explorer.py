@@ -353,6 +353,78 @@ class FileExplorer(ttk.Frame):
         else:
             self._populate(parent_item, directory)
 
+    def soft_refresh(self) -> None:
+        """Refresh the visible tree without resetting expanded/collapsed state.
+
+        Adds new files/dirs that appeared on disk, removes items that no longer
+        exist, and leaves everything else (expansion, selection) untouched.
+        Collapsed folders are skipped — they'll lazy-load correctly on open.
+        """
+        if self._root is None:
+            return
+        self._soft_refresh_node("", self._root)
+
+    def _soft_refresh_node(self, parent_item: str, directory: Path) -> None:
+        """Recursively sync one level of the tree with the filesystem."""
+        try:
+            entries = sorted(directory.iterdir(),
+                             key=lambda p: (p.is_file(), p.name.lower()))
+        except PermissionError:
+            return
+
+        visible = {str(p) for p in entries if not p.name.startswith(".")}
+
+        # Remove items that no longer exist on disk
+        for child in list(self._tree.get_children(parent_item)):
+            vals = self._tree.item(child, "values")
+            if not vals or vals[0] == self._LOADING:
+                continue
+            if vals[0] not in visible and self._tree.item(child, "text").strip() != "..":
+                self._tree.delete(child)
+
+        # Build a set of paths already in the tree at this level
+        existing = {}
+        for child in self._tree.get_children(parent_item):
+            vals = self._tree.item(child, "values")
+            if vals and vals[0] != self._LOADING:
+                existing[vals[0]] = child
+
+        # Add new entries that aren't in the tree yet
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            key = str(entry)
+            if key in existing:
+                # Already present — if it's an expanded folder, recurse into it
+                if entry.is_dir():
+                    node = existing[key]
+                    children = self._tree.get_children(node)
+                    is_expanded = self._tree.item(node, "open")
+                    has_real_children = (
+                        children and
+                        self._tree.item(children[0], "values") != (self._LOADING,)
+                    )
+                    if is_expanded or has_real_children:
+                        self._soft_refresh_node(node, entry)
+            else:
+                # New entry — insert it
+                if entry.is_dir():
+                    node = self._tree.insert(
+                        parent_item, "end",
+                        text=f"  {entry.name}",
+                        values=[key],
+                        tags=("folder",),
+                        open=False,
+                    )
+                    self._tree.insert(node, "end", values=[self._LOADING])
+                else:
+                    self._tree.insert(
+                        parent_item, "end",
+                        text=f"  {entry.name}",
+                        values=[key],
+                        tags=("file",),
+                    )
+
     # ── Drag / drop ───────────────────────────────────────────────────────────
 
     _DRAG_THRESHOLD = 6  # pixels before drag activates
