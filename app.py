@@ -296,6 +296,51 @@ class IDOL(Tk):
         self._split_pane.add(nb_frame, weight=1)
         self._nb_frame_l = nb_frame
 
+        # ── Nav toolbar strip ─────────────────────────────────────────────────
+        # Thin strip above the tab bar: left cluster (‹ › +) and right cluster
+        # of view toggles that highlight blue when active.
+        _NAV_BG = "#2d2d30"
+        _nav_bar = tk.Frame(nb_frame, bg=_NAV_BG, height=26)
+        _nav_bar.pack(fill="x", side="top")
+        _nav_bar.pack_propagate(False)
+
+        def _nav_btn(parent, text, cmd, side="left", padx=5, active_fn=None):
+            fg0 = "#007acc" if active_fn and active_fn() else "#858585"
+            lbl = Label(parent, text=text, bg=_NAV_BG, fg=fg0,
+                        font=("Segoe UI", 9), cursor="hand2", padx=padx, pady=0)
+            def _enter(_):
+                lbl.config(fg="#1a9fd4" if active_fn and active_fn() else "#cccccc")
+            def _leave(_):
+                lbl.config(fg="#007acc" if active_fn and active_fn() else "#858585")
+            def _click():
+                cmd()
+                self._refresh_nav_bar()
+            lbl.bind("<Button-1>", lambda _: _click())
+            lbl.bind("<Enter>", _enter)
+            lbl.bind("<Leave>", _leave)
+            lbl.pack(side=side)
+            return lbl
+
+        # Left cluster
+        self._prev_btn = _nav_btn(_nav_bar, " ‹ ", self.notebook.select_prev)
+        self._next_btn = _nav_btn(_nav_bar, " › ", self.notebook.select_next)
+        tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="left", fill="y", pady=4)
+        self._plus_btn = _nav_btn(_nav_bar, " + ", self.file_new)
+        self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043"))
+        self._plus_btn.bind("<Leave>", lambda _: self._plus_btn.config(fg="#858585"))
+
+        # Right cluster — packed side="right" so leftmost button is packed last
+        tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
+        self._nav_zen_btn     = _nav_btn(_nav_bar, " ZEN ",   self.view_zen_mode,
+                                         side="right", active_fn=lambda: self._zen_mode)
+        self._nav_sidebar_btn = _nav_btn(_nav_bar, " ☰ ",     self.view_toggle_sidebar,
+                                         side="right", active_fn=lambda: self._sidebar_shown)
+        self._nav_map_btn     = _nav_btn(_nav_bar, " MAP ",   self.view_toggle_minimap,
+                                         side="right", active_fn=lambda: self.minimap_visible_var.get())
+        self._nav_split_btn   = _nav_btn(_nav_bar, " SPLIT ", self.view_split_editor,
+                                         side="right", active_fn=lambda: self._split_active)
+        self._nav_term_btn    = _nav_btn(_nav_bar, " >_ ",    self.view_new_terminal, side="right")
+
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
         )
@@ -308,39 +353,6 @@ class IDOL(Tk):
 
         # Inline find/replace bar (lives inside nb_frame, hidden by default)
         self._find_replace = FindReplaceBar(nb_frame)
-
-        # ‹ › + tab navigation buttons — parented to nb_frame and lifted above
-        # the notebook so they float over the tab bar row.  relx=1.0 keeps them
-        # flush-right on every resize with zero Configure wiring.
-        self._btn_frame = tk.Frame(nb_frame, bg="#2d2d30")
-
-        def _make_tab_btn(text: str, command, fg_hover: str = "#cccccc") -> Label:
-            lbl = Label(
-                self._btn_frame,
-                text=text,
-                bg="#2d2d30",
-                fg="#858585",
-                font=("Segoe UI", 11, "bold"),
-                cursor="hand2",
-                padx=6,
-                pady=0,
-            )
-            lbl.bind("<Button-1>", lambda _: command())
-            lbl.bind("<Enter>", lambda _: lbl.config(fg=fg_hover))
-            lbl.bind("<Leave>", lambda _: lbl.config(fg="#858585"))
-            lbl.pack(side="left")
-            return lbl
-
-        self._prev_btn = _make_tab_btn(" ‹ ", self.notebook.select_prev)
-        self._next_btn = _make_tab_btn(" › ", self.notebook.select_next)
-        self._plus_btn = _make_tab_btn(" + ", self.file_new, fg_hover="#2ea043")
-
-        # Anchor to top-right of nb_frame; lift above the packed notebook so
-        # the frame floats over the tab bar row (not the editor content).
-        self._btn_frame.place(relx=1.0, rely=0.0, anchor="ne", y=2)
-        self._btn_frame.lift()
-        # Reserve tab bar right margin so tabs never slide under the buttons
-        ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, 62, 0])
 
         self._output = BottomPanel(
             self._v_pane, run_callback=self.run_file, cwd=os.getcwd()
@@ -2177,10 +2189,7 @@ class IDOL(Tk):
                 cv.show_minimap()
             else:
                 cv.hide_minimap()
-        # Buttons always sit flush-right in the tab bar row, directly above the
-        # minimap when visible — minimap lives in the editor content area below.
-        self._btn_frame.place(relx=1.0, rely=0.0, anchor="ne", y=2)
-        ttk.Style().configure("CustomNotebook", tabmargins=[2, 5, 62, 0])
+        self._refresh_nav_bar()
 
     def view_split_editor(self) -> None:
         """Toggle the split editor."""
@@ -2188,6 +2197,21 @@ class IDOL(Tk):
             self._close_split()
         else:
             self._open_in_split(self._current_tab_id)
+
+    def _refresh_nav_bar(self) -> None:
+        """Sync nav bar toggle button colors with current view state."""
+        pairs = [
+            (getattr(self, "_nav_split_btn",   None), lambda: self._split_active),
+            (getattr(self, "_nav_map_btn",     None), lambda: self.minimap_visible_var.get()),
+            (getattr(self, "_nav_sidebar_btn", None), lambda: self._sidebar_shown),
+            (getattr(self, "_nav_zen_btn",     None), lambda: self._zen_mode),
+        ]
+        for btn, active_fn in pairs:
+            if btn is not None:
+                try:
+                    btn.config(fg="#007acc" if active_fn() else "#858585")
+                except Exception:
+                    pass
 
     # ── Package Manager ───────────────────────────────────────────────────────
 
@@ -2501,6 +2525,7 @@ class IDOL(Tk):
             self._v_pane.forget(self._output)
         self._statusbar.pack_forget()
         self.title("IDOL  [Zen]")
+        self._refresh_nav_bar()
         self._show_zen_pill()
 
     def _exit_zen(self) -> None:
@@ -2521,6 +2546,7 @@ class IDOL(Tk):
         if self.output_visible_var.get():
             self._v_pane.add(self._output, weight=1)
         self.title("IDOL")
+        self._refresh_nav_bar()
         self._dismiss_zen_pill()
 
     def _on_escape(self, _=None) -> None:
@@ -2818,6 +2844,7 @@ class IDOL(Tk):
         self._notebook_r = None
         self._split_active = False
         self._set_active_pane("left")
+        self._refresh_nav_bar()
 
     def _new_tab_in(
         self,
@@ -2918,6 +2945,7 @@ class IDOL(Tk):
                 self.after(20, self._apply_ai_panel_sash)
             self._sidebar_shown = True
             self.sidebar_visible_var.set(True)
+        self._refresh_nav_bar()
 
     def view_source_control(self) -> None:
         """Toggle the Source Control sidebar panel."""
