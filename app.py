@@ -300,7 +300,7 @@ class IDOL(Tk):
         # Thin strip above the tab bar: left cluster (‹ › +) and right cluster
         # of view toggles that highlight blue when active.
         _NAV_BG = "#2d2d30"
-        _nav_bar = tk.Frame(nb_frame, bg=_NAV_BG, height=26)
+        _nav_bar = tk.Frame(nb_frame, bg=_NAV_BG, height=24)
         _nav_bar.pack(fill="x", side="top")
         _nav_bar.pack_propagate(False)
 
@@ -329,13 +329,23 @@ class IDOL(Tk):
         self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043"))
         self._plus_btn.bind("<Leave>", lambda _: self._plus_btn.config(fg="#858585"))
 
-        # Right cluster — packed side="right" so leftmost button is packed last
+        # Right cluster — packed side="right" so leftmost button is packed last.
+        # MAP needs to pre-toggle minimap_visible_var since view_toggle_minimap
+        # reads it expecting the checkbutton to have already flipped it.
+        def _nav_map_cmd():
+            self.minimap_visible_var.set(not self.minimap_visible_var.get())
+            self.view_toggle_minimap()
+
+        tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
+        self._nav_learn_btn   = _nav_btn(_nav_bar, " 📖 ",    self.view_learning_mode, side="right")
+        self._nav_ai_btn      = _nav_btn(_nav_bar, " AI ",    self.view_ai_chat,
+                                         side="right", active_fn=lambda: self._ai_panel_visible)
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
         self._nav_zen_btn     = _nav_btn(_nav_bar, " ZEN ",   self.view_zen_mode,
                                          side="right", active_fn=lambda: self._zen_mode)
         self._nav_sidebar_btn = _nav_btn(_nav_bar, " ☰ ",     self.view_toggle_sidebar,
                                          side="right", active_fn=lambda: self._sidebar_shown)
-        self._nav_map_btn     = _nav_btn(_nav_bar, " MAP ",   self.view_toggle_minimap,
+        self._nav_map_btn     = _nav_btn(_nav_bar, " MAP ",   _nav_map_cmd,
                                          side="right", active_fn=lambda: self.minimap_visible_var.get())
         self._nav_split_btn   = _nav_btn(_nav_bar, " SPLIT ", self.view_split_editor,
                                          side="right", active_fn=lambda: self._split_active)
@@ -2205,6 +2215,7 @@ class IDOL(Tk):
             (getattr(self, "_nav_map_btn",     None), lambda: self.minimap_visible_var.get()),
             (getattr(self, "_nav_sidebar_btn", None), lambda: self._sidebar_shown),
             (getattr(self, "_nav_zen_btn",     None), lambda: self._zen_mode),
+            (getattr(self, "_nav_ai_btn",      None), lambda: self._ai_panel_visible),
         ]
         for btn, active_fn in pairs:
             if btn is not None:
@@ -2284,6 +2295,7 @@ class IDOL(Tk):
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
             self.after(20, self._apply_ai_panel_sash)
+        self._refresh_nav_bar()
 
     def _ensure_ai_panel_open(self) -> None:
         """Open the AI Chat panel if it isn't already visible."""
