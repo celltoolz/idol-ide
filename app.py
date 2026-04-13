@@ -221,6 +221,7 @@ class IDOL(Tk):
         self.output_visible_var = BooleanVar(value=True)
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
+        self.zen_mode_var        = BooleanVar(value=False)
         self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
@@ -2573,6 +2574,7 @@ class IDOL(Tk):
 
     def _enter_zen(self) -> None:
         self._zen_mode = True
+        self.zen_mode_var.set(True)
         self._zen_sidebar_was_visible = self._sidebar_shown
         if self._sidebar_shown:
             self._h_pane.forget(self._sidebar)
@@ -2588,6 +2590,7 @@ class IDOL(Tk):
 
     def _exit_zen(self) -> None:
         self._zen_mode = False
+        self.zen_mode_var.set(False)
         self._statusbar.pack(side="bottom", fill="x")
         # tk.PanedWindow has no insert() — rebuild the pane order so sidebar
         # goes back at position 0: forget v_pane, add sidebar, re-add v_pane.

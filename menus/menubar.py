@@ -113,8 +113,9 @@ def build_menubar(app) -> Menu:
         command=app.view_split_editor,
         accelerator="Ctrl+\\",
     )
-    view_menu.add_command(
+    view_menu.add_checkbutton(
         label="Zen Mode",
+        variable=app.zen_mode_var,
         command=app.view_zen_mode,
         accelerator="F11",
     )

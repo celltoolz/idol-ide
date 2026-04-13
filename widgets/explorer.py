@@ -299,12 +299,19 @@ class FileExplorer(ttk.Frame):
         if not name:
             return
         new_path = parent_dir / name
+        if new_path.exists():
+            messagebox.showwarning(
+                "File exists", f"'{name}' already exists in this folder.",
+                parent=self._tree,
+            )
+            return
         try:
             new_path.touch()
         except Exception as e:
             messagebox.showerror("New File failed", str(e), parent=self._tree)
             return
-        self._refresh_node(parent_item, parent_dir)
+        # Use soft refresh so expanded folders stay open
+        self._soft_refresh_node(parent_item, parent_dir)
         self._on_open(str(new_path))
 
     def _new_folder(self) -> None:
@@ -315,12 +322,19 @@ class FileExplorer(ttk.Frame):
         if not name:
             return
         new_path = parent_dir / name
+        if new_path.exists():
+            messagebox.showwarning(
+                "Folder exists", f"'{name}' already exists in this folder.",
+                parent=self._tree,
+            )
+            return
         try:
-            new_path.mkdir(parents=False, exist_ok=False)
+            new_path.mkdir(parents=False)
         except Exception as e:
             messagebox.showerror("New Folder failed", str(e), parent=self._tree)
             return
-        self._refresh_node(parent_item, parent_dir)
+        # Use soft refresh so expanded folders stay open
+        self._soft_refresh_node(parent_item, parent_dir)
 
     def _new_item_context(self) -> tuple[str, Path | None]:
         """Return (parent_tree_item, parent_dir) for a new file/folder action."""
