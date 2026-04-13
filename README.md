@@ -1,8 +1,12 @@
-# Notepad IDE
+# IDOL
+### Integrated Development and Objective Learning
+**created by [gitPIDE](https://github.com/celltoolz/notepad-ide)** — GitHub's Python IDE
 
-A full-featured Python IDE built with tkinter, designed to be what IDLE could have been — a powerful development environment with a built-in learning platform.
+<p align="center">
+  <img src="screenshots/gitPIDE.png" width="65%">
+</p>
 
-The goal is to make Python development and education feel native: real editor features (LSP, git, terminal, split view) alongside guided learning tools (project wizards, interactive guides, and eventually an AI-powered learning mode). Built for beginners who want to grow and developers who want a distraction-free environment — all in pure Python.
+IDOL is what IDLE should have been — a full Python IDE with professional-grade tools (LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
 
 Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
@@ -92,6 +96,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **🗑 Clear** — wipes conversation history from the UI, memory, and disk in one click
 - Conversation auto-saves on exit and restores the last 20 messages on next launch
 - Live token counter shows approximate context usage (e.g. `~1,200 / 32,000 tokens`) — turns amber near the limit
+- **⚙** — toggles a URL field to point IDOL at a different Ollama host (e.g. a remote machine on your network); hit **Apply** to connect and verify instantly
 - Same offline install card as Learning Mode when Ollama isn't running
 
 ### Package Manager (F3)
