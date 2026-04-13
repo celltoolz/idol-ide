@@ -36,13 +36,16 @@ def _show_splash(app: tk.Tk) -> None:
         )
     lbl.pack()
 
-    # Center on screen
+    # Center on the app window
     splash.update_idletasks()
-    sw = splash.winfo_screenwidth()
-    sh = splash.winfo_screenheight()
+    app.update_idletasks()
     w  = splash.winfo_width()
     h  = splash.winfo_height()
-    splash.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
+    ax = app.winfo_rootx()
+    ay = app.winfo_rooty()
+    aw = app.winfo_width()
+    ah = app.winfo_height()
+    splash.geometry(f"+{ax + (aw - w) // 2}+{ay + (ah - h) // 2}")
 
     def _dismiss():
         try:
