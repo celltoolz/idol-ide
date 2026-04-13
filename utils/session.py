@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app import Notepad
+    from app import IDOL
 
-# Auto-session lives in ~/.notepad_ide/session.json
-SESSION_FILE = Path.home() / ".notepad_ide" / "session.json"
+# Auto-session lives in ~/.idol/session.json
+SESSION_FILE = Path.home() / ".idol" / "session.json"
 
 
-def save(app: "Notepad", filepath: str | Path | None = None) -> None:
+def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     """Serialise open tabs, explorer root, and sash layout to *filepath*.
 
     Saves to SESSION_FILE when no path is given (auto-session).
@@ -121,7 +121,7 @@ def save(app: "Notepad", filepath: str | Path | None = None) -> None:
         pass
 
 
-def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
+def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     """Restore tabs, layout, and explorer root from *filepath* (or SESSION_FILE).
     Returns True if anything was loaded.
     """
@@ -199,7 +199,7 @@ def restore(app: "Notepad", filepath: str | Path | None = None) -> bool:
 _MIN_SASH = 40   # px — below this a saved sash value is considered corrupt
 
 
-def _apply_pane_sashes(app: "Notepad", layout: dict) -> None:
+def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
     """Stage 1 — restore h_pane and v_pane sash positions only."""
     h = layout.get("h_sash")
     if h and h > 50:
@@ -230,7 +230,7 @@ def _apply_pane_sashes(app: "Notepad", layout: dict) -> None:
             app.view_ai_chat()
 
 
-def _apply_sidebar_layout(app: "Notepad", layout: dict) -> None:
+def _apply_sidebar_layout(app: "IDOL", layout: dict) -> None:
     """Stage 2 — restore sidebar collapse states, panel heights, and relayout.
 
     Called 250 ms after restore so the pane geometry from stage 1 has had
@@ -271,6 +271,6 @@ def _apply_sidebar_layout(app: "Notepad", layout: dict) -> None:
 
 
 # keep the old name alive so any external callers aren't broken
-def _apply_layout(app: "Notepad", layout: dict) -> None:
+def _apply_layout(app: "IDOL", layout: dict) -> None:
     _apply_pane_sashes(app, layout)
     _apply_sidebar_layout(app, layout)

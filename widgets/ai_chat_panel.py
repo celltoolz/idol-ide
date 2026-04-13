@@ -9,7 +9,7 @@ from typing import Callable
 
 from utils import ollama_client
 
-_HISTORY_FILE = Path.home() / ".notepad_ide" / "ai_history.json"
+_HISTORY_FILE = Path.home() / ".idol" / "ai_history.json"
 _HISTORY_CAP  = 20   # max messages restored from disk
 
 

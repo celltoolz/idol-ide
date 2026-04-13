@@ -27,7 +27,7 @@ _GREEN    = "#4ec9b0"
 _SEL_BG   = "#094771"
 _WARN     = "#ce9178"
 
-_CACHE_FILE   = Path.home() / ".notepad_ide" / "pkg_cache.json"
+_CACHE_FILE   = Path.home() / ".idol" / "pkg_cache.json"
 _LOOKUP_FILE  = Path(__file__).parent / "idol_package_categories.json"
 
 # Load precomputed lookup at import time — zero network cost

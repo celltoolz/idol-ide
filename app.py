@@ -150,10 +150,10 @@ def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
     return result
 
 
-class Notepad(Tk):
+class IDOL(Tk):
     def __init__(self, initial_file: str | None = None) -> None:
         super().__init__()
-        self.title("Notepad")
+        self.title("IDOL")
         self.geometry("1280x800")
 
         # Per-tab state  {tab_id -> value}
@@ -955,7 +955,7 @@ class Notepad(Tk):
         if not tab_id:
             return
         label = self._titles.get(tab_id, "Untitled")
-        self.title(f"{label} – Notepad")
+        self.title(f"{label} – IDOL")
 
     def _update_status_lexer(self, cv: CodeView) -> None:
         name = type(cv._lexer).__name__.replace("Lexer", "") or "Text"
@@ -2436,7 +2436,7 @@ class Notepad(Tk):
         if self.output_visible_var.get():
             self._v_pane.forget(self._output)
         self._statusbar.pack_forget()
-        self.title("Notepad  [Zen]")
+        self.title("IDOL  [Zen]")
         self._show_zen_pill()
 
     def _exit_zen(self) -> None:
@@ -2456,7 +2456,7 @@ class Notepad(Tk):
             self.after(20, self._apply_ai_panel_sash)
         if self.output_visible_var.get():
             self._v_pane.add(self._output, weight=1)
-        self.title("Notepad")
+        self.title("IDOL")
         self._dismiss_zen_pill()
 
     def _on_escape(self, _=None) -> None:
@@ -2965,7 +2965,7 @@ class Notepad(Tk):
 
     def help_about(self) -> None:
         showinfo(
-            "Notepad",
-            "A Python code editor built with tkinter.\n\nCreated/Authored By:\nAlex Fero & Claude Sonnet",
+            "About IDOL",
+            "IDOL — Integrated Development and Objective Learning\n\nGitHub's Python IDE, by gitPIDE.\n\nCreated by:\nAlex Fero & Claude Sonnet",
         )
 
