@@ -321,9 +321,9 @@ class IDOL(Tk):
             lbl.pack(side=side)
             return lbl
 
-        # Left cluster
-        self._prev_btn = _nav_btn(_nav_bar, " ‹ ", self.notebook.select_prev)
-        self._next_btn = _nav_btn(_nav_bar, " › ", self.notebook.select_next)
+        # Left cluster — lambdas defer notebook lookup until after assignment
+        self._prev_btn = _nav_btn(_nav_bar, " ‹ ", lambda: self.notebook.select_prev())
+        self._next_btn = _nav_btn(_nav_bar, " › ", lambda: self.notebook.select_next())
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="left", fill="y", pady=4)
         self._plus_btn = _nav_btn(_nav_bar, " + ", self.file_new)
         self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043"))
