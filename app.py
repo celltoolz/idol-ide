@@ -337,7 +337,10 @@ class IDOL(Tk):
             self.view_toggle_minimap()
 
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
-        self._nav_learn_btn   = _nav_btn(_nav_bar, " 📖 ",    self.view_learning_mode, side="right")
+        self._nav_learn_btn   = _nav_btn(_nav_bar, " 📖 ",    self.view_learning_mode,
+                                         side="right", active_fn=lambda: bool(self._learning_tab))
+        self._nav_pkg_btn     = _nav_btn(_nav_bar, " 📦 ",    self.view_package_manager,
+                                         side="right", active_fn=lambda: bool(self._pkg_tab))
         self._nav_ai_btn      = _nav_btn(_nav_bar, " AI ",    self.view_ai_chat,
                                          side="right", active_fn=lambda: self._ai_panel_visible)
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
@@ -770,6 +773,17 @@ class IDOL(Tk):
             self._last_editor_tab = tab_id
 
         # Learning Mode overlay sync — show when on learning tab, hide otherwise
+        # Keep _pkg_tab in sync when the tab is closed via the × button
+        if self._pkg_tab:
+            try:
+                tabs = self.notebook.tabs()
+            except Exception:
+                tabs = []
+            if self._pkg_tab not in tabs:
+                self._pkg_tab = None
+                self._pkg_panel = None
+                self._refresh_nav_bar()
+
         if self._learning_tab:
             try:
                 tabs = self.notebook.tabs()
@@ -780,6 +794,7 @@ class IDOL(Tk):
                 self._learning_tab = None
                 self._learning_panel = None
                 self._learning_destroy_overlays()
+                self._refresh_nav_bar()
             elif self.notebook.select() == self._learning_tab:
                 self.after(
                     100, lambda: self._learning_show_overlays(self._learning_active_lid)
@@ -2216,6 +2231,8 @@ class IDOL(Tk):
             (getattr(self, "_nav_sidebar_btn", None), lambda: self._sidebar_shown),
             (getattr(self, "_nav_zen_btn",     None), lambda: self._zen_mode),
             (getattr(self, "_nav_ai_btn",      None), lambda: self._ai_panel_visible),
+            (getattr(self, "_nav_pkg_btn",     None), lambda: bool(self._pkg_tab)),
+            (getattr(self, "_nav_learn_btn",   None), lambda: bool(self._learning_tab)),
         ]
         for btn, active_fn in pairs:
             if btn is not None:
@@ -2227,11 +2244,24 @@ class IDOL(Tk):
     # ── Package Manager ───────────────────────────────────────────────────────
 
     def view_package_manager(self) -> None:
-        """Open or focus the Package Manager tab."""
+        """Toggle the Package Manager tab (F3)."""
         if self._pkg_tab:
             try:
-                self.notebook.select(self._pkg_tab)
-                return
+                tabs = self.notebook.tabs()
+                if self._pkg_tab not in tabs:
+                    raise ValueError
+                if self.notebook.select() == self._pkg_tab:
+                    # Already focused — close it
+                    idx = list(tabs).index(self._pkg_tab)
+                    self.notebook.forget(idx)
+                    self._pkg_tab = None
+                    self._pkg_panel = None
+                    self._refresh_nav_bar()
+                    return
+                else:
+                    self.notebook.select(self._pkg_tab)
+                    self._refresh_nav_bar()
+                    return
             except Exception:
                 self._pkg_tab = None
                 self._pkg_panel = None
@@ -2248,18 +2278,33 @@ class IDOL(Tk):
         self.notebook.select(frame)
         self._pkg_tab = self.notebook.select()
         self._pkg_panel = panel
+        self._refresh_nav_bar()
 
     # ── Learning Mode ─────────────────────────────────────────────────────────
 
     def view_learning_mode(self) -> None:
-        """F1 — open or focus the Learning Mode tab."""
+        """Toggle the Learning Mode tab (F1)."""
         if self._learning_tab:
             try:
-                self.notebook.select(self._learning_tab)
-                self.after(
-                    50, lambda: self._learning_show_overlays(self._learning_active_lid)
-                )
-                return
+                tabs = self.notebook.tabs()
+                if self._learning_tab not in tabs:
+                    raise ValueError
+                if self.notebook.select() == self._learning_tab:
+                    # Already focused — close it
+                    idx = list(tabs).index(self._learning_tab)
+                    self.notebook.forget(idx)
+                    self._learning_tab = None
+                    self._learning_panel = None
+                    self._learning_destroy_overlays()
+                    self._refresh_nav_bar()
+                    return
+                else:
+                    self.notebook.select(self._learning_tab)
+                    self.after(
+                        50, lambda: self._learning_show_overlays(self._learning_active_lid)
+                    )
+                    self._refresh_nav_bar()
+                    return
             except Exception:
                 self._learning_tab = None
                 self._learning_panel = None
@@ -2278,6 +2323,7 @@ class IDOL(Tk):
 
         # Show overlays after layout settles
         self.after(150, lambda: self._learning_show_overlays(""))
+        self._refresh_nav_bar()
 
     def view_ai_chat(self) -> None:
         """Toggle the AI Chat right panel (F2)."""
