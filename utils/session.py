@@ -44,6 +44,14 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     except (ValueError, Exception):
         pass
 
+    # ── Window geometry ───────────────────────────────────────────────────────
+    try:
+        # Only save if the window is a reasonable size (not minimised/withdrawn)
+        if app.winfo_width() > 200 and app.winfo_height() > 200:
+            layout["window_geometry"] = app.wm_geometry()
+    except Exception:
+        pass
+
     # ── Appearance ────────────────────────────────────────────────────────────
     appearance: dict = {
         "theme":            app.theme_var.get(),
@@ -186,6 +194,13 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # ── Layout — two-stage to let pane geometry settle before sidebar measures ──
     layout = data.get("layout")
     if layout:
+        # Restore window size/position immediately
+        geom = layout.get("window_geometry")
+        if geom:
+            try:
+                app.geometry(geom)
+            except Exception:
+                pass
         # Stage 1 (50 ms): set h_pane / v_pane sash positions so the sidebar
         # and editor panels get their correct pixel dimensions.
         app.after(50,  lambda: _apply_pane_sashes(app, layout))
