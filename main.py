@@ -49,16 +49,6 @@ def _show_splash(app: tk.Tk) -> None:
             splash.destroy()
         except Exception:
             pass
-        geom = getattr(app, "_startup_geometry", "1280x800")
-        if geom == "zoomed":
-            app.deiconify()
-            try:
-                app.wm_state("zoomed")
-            except Exception:
-                app.attributes("-zoomed", True)   # Linux fallback
-        else:
-            app.geometry(geom)   # set size BEFORE deiconify so macOS honours it
-            app.deiconify()
 
     splash.bind("<Button-1>", lambda _: _dismiss())
     splash.after(_SPLASH_MS, _dismiss)
@@ -68,6 +58,6 @@ if __name__ == "__main__":
     file_path = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else None
 
     from app import IDOL
-    app = IDOL(file_path)   # starts withdrawn (see IDOL.__init__)
+    app = IDOL(file_path)
     _show_splash(app)
     app.mainloop()

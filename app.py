@@ -153,9 +153,8 @@ def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
 class IDOL(Tk):
     def __init__(self, initial_file: str | None = None) -> None:
         super().__init__()
-        self.withdraw()             # stay hidden until splash dismisses
         self.title("IDOL")
-        self._startup_geometry = "1280x800"   # overwritten by session restore if available
+        self.geometry("1280x800")
 
         # Per-tab state  {tab_id -> value}
         self._files: dict[str, str | None] = {}
