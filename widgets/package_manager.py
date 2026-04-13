@@ -188,10 +188,12 @@ class PackageManagerPanel(tk.Frame):
     def __init__(self, parent,
                  get_output_panel: Callable | None = None,
                  get_ai_panel: Callable | None = None,
+                 open_ai_panel: Callable | None = None,
                  **kwargs) -> None:
         super().__init__(parent, bg=_BG, **kwargs)
         self._get_output_panel = get_output_panel
         self._get_ai_panel     = get_ai_panel
+        self._open_ai_panel    = open_ai_panel
         self._installed: dict[str, str] = {}   # name → version
         self._selected_pkg: str = ""
         self._pypi_cache: dict[str, dict] = {}   # per-session detail cache
@@ -612,6 +614,8 @@ class PackageManagerPanel(tk.Frame):
     # ── Ask AI ─────────────────────────────────────────────────────────────────
 
     def _ask_ai(self, name: str, summary: str) -> None:
+        if self._open_ai_panel:
+            self._open_ai_panel()
         ai = self._get_ai_panel() if self._get_ai_panel else None
         if not ai:
             return

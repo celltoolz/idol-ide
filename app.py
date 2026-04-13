@@ -2160,6 +2160,7 @@ class IDOL(Tk):
             frame,
             get_output_panel=lambda: self._output.output,
             get_ai_panel=lambda: self._ai_chat_panel,
+            open_ai_panel=self._ensure_ai_panel_open,
         )
         panel.pack(fill="both", expand=True)
         self.notebook.add(frame, text="📦 Packages")
@@ -2208,6 +2209,13 @@ class IDOL(Tk):
             self._h_pane.forget(self._ai_panel_frame)
             self._ai_panel_visible = False
         else:
+            self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
+            self._ai_panel_visible = True
+            self.after(20, self._apply_ai_panel_sash)
+
+    def _ensure_ai_panel_open(self) -> None:
+        """Open the AI Chat panel if it isn't already visible."""
+        if not self._ai_panel_visible:
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
             self.after(20, self._apply_ai_panel_sash)
