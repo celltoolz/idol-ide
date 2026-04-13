@@ -1,6 +1,7 @@
 """CommandPalette — VS Code-style command palette popup (Ctrl+Shift+P).
 
 Typing '@' switches to symbol-search mode (like VS Code's Go to Symbol).
+Typing '!' switches to pip-command mode.
 """
 from __future__ import annotations
 
@@ -16,7 +17,21 @@ _SEL_BG   = "#0e639c"
 _FG       = "#cccccc"
 _DIM      = "#858585"
 _HINT_FG  = "#569cd6"   # blue hint text in the input when empty
+_PIP_FG   = "#4ec9b0"   # teal for pip mode
 _BORDER   = "#454545"
+
+# pip command templates — (display_label, arg_list_template, needs_package)
+# needs_package=True means the last token the user types becomes the package name
+_PIP_COMMANDS: list[tuple[str, list[str], bool]] = [
+    ("pip install <package>",              ["install"],          True),
+    ("pip install --upgrade <package>",    ["install", "--upgrade"], True),
+    ("pip uninstall <package>",            ["uninstall", "-y"],  True),
+    ("pip show <package>",                 ["show"],             True),
+    ("pip list",                           ["list"],             False),
+    ("pip freeze > requirements.txt",      ["freeze"],           False),
+    ("pip install -r requirements.txt",    ["install", "-r", "requirements.txt"], False),
+    ("pip check",                          ["check"],            False),
+]
 
 
 class CommandPalette(tk.Toplevel):
@@ -26,11 +41,16 @@ class CommandPalette(tk.Toplevel):
     Symbol mode    — activated by typing '@'; shows symbols from the current
                      file using *symbol_fn()* → [(label, lineno), ...].
                      Executing a symbol calls *navigate_fn(lineno)*.
+    Pip mode       — activated by typing '!'; shows pip command suggestions
+                     with package name autocomplete from the builtin lookup.
 
     Args:
-        commands:     [(label, accelerator, callback), ...]
-        symbol_fn:    Optional callable returning [(label, lineno), ...]
-        navigate_fn:  Optional callable(lineno: int) to jump to a line
+        commands:          [(label, accelerator, callback), ...]
+        symbol_fn:         Optional callable returning [(label, lineno), ...]
+        navigate_fn:       Optional callable(lineno: int) to jump to a line
+        run_pip_fn:        Optional callable(args: list[str]) to run a pip command
+        installed_fn:      Optional callable returning {name: version} of installed pkgs
+        pkg_lookup:        Optional dict[str, str] — the 362K package name→category map
     """
 
     def __init__(
@@ -39,15 +59,22 @@ class CommandPalette(tk.Toplevel):
         commands: list[tuple[str, str, Callable]],
         symbol_fn: Callable[[], list[tuple[str, int]]] | None = None,
         navigate_fn: Callable[[int], None] | None = None,
+        run_pip_fn: Callable[[list[str]], None] | None = None,
+        installed_fn: Callable[[], dict[str, str]] | None = None,
+        pkg_lookup: dict[str, str] | None = None,
     ) -> None:
         super().__init__(parent)
         self._parent      = parent
         self._commands    = commands
         self._symbol_fn   = symbol_fn
         self._navigate_fn = navigate_fn
+        self._run_pip_fn  = run_pip_fn
+        self._installed_fn = installed_fn
+        self._pkg_lookup  = pkg_lookup or {}
         self._filtered: list[tuple[str, str, Callable]] = list(commands)
         self._selected      = 0
         self._symbol_mode   = False
+        self._pip_mode      = False
         self._repositioning = False
 
         # ── Window chrome ──────────────────────────────────────────────────────
@@ -74,9 +101,9 @@ class CommandPalette(tk.Toplevel):
         )
         self._entry.pack(fill="x")
 
-        # Hint label (shown below input in symbol mode)
+        # Hint label (shown below input)
         self._hint = tk.Label(
-            self, text="  Type @ to search symbols, or start typing a command",
+            self, text="  Type @ for symbols  ·  ! for pip commands",
             bg=_INPUT_BG, fg=_DIM, font=("Segoe UI", 8), anchor="w",
         )
         self._hint.pack(fill="x")
@@ -215,6 +242,7 @@ class CommandPalette(tk.Toplevel):
         if raw.startswith("@") and self._symbol_fn:
             # ── Symbol mode ───────────────────────────────────────────────────
             self._symbol_mode = True
+            self._pip_mode    = False
             self._hint.config(
                 text="  @ symbols — press Enter or click to navigate",
                 fg=_HINT_FG,
@@ -226,11 +254,23 @@ class CommandPalette(tk.Toplevel):
                 for label, lineno in symbols
                 if sub in label.lower()
             ]
+
+        elif raw.startswith("!"):
+            # ── Pip mode ──────────────────────────────────────────────────────
+            self._symbol_mode = False
+            self._pip_mode    = True
+            self._hint.config(
+                text="  ! pip — press Enter to run in Output panel",
+                fg=_PIP_FG,
+            )
+            self._filtered = self._build_pip_suggestions(raw[1:].strip())
+
         else:
             # ── Command mode ─────────────────────────────────────────────────
             self._symbol_mode = False
+            self._pip_mode    = False
             self._hint.config(
-                text="  Type @ to search symbols, or start typing a command",
+                text="  Type @ for symbols  ·  ! for pip commands",
                 fg=_DIM,
             )
             self._filtered = [
@@ -242,6 +282,73 @@ class CommandPalette(tk.Toplevel):
         self._selected = 0
         self._build_list()
         self._position(len(self._filtered))
+
+    def _build_pip_suggestions(self, after_bang: str) -> list[tuple[str, str, Callable]]:
+        """Return filtered pip command rows based on what the user typed after '!'."""
+        # Parse what the user has typed so far
+        # e.g. "pip install req" → cmd_part="install", pkg_part="req"
+        tokens = after_bang.lower().split()
+        # Strip leading "pip" if typed
+        if tokens and tokens[0] == "pip":
+            tokens = tokens[1:]
+
+        cmd_part = tokens[0] if tokens else ""
+        pkg_part = tokens[1] if len(tokens) > 1 else ""
+
+        installed = self._installed_fn() if self._installed_fn else {}
+        results: list[tuple[str, str, Callable]] = []
+
+        for label_tpl, args, needs_pkg in _PIP_COMMANDS:
+            # Filter by command word
+            subcmd = args[0]  # e.g. "install", "show", "list"
+            if cmd_part and subcmd not in cmd_part and cmd_part not in subcmd:
+                continue
+
+            if needs_pkg and pkg_part:
+                # Generate package-specific suggestions
+                pkg_suggestions = self._pkg_suggestions(pkg_part, subcmd, installed)
+                for pkg in pkg_suggestions:
+                    final_args = args + [pkg]
+                    display = f"pip {' '.join(args)} {pkg}"
+                    hint = "installed" if pkg in installed else ""
+                    results.append((display, hint, lambda a=final_args: self._run_pip(a)))
+                if not pkg_suggestions:
+                    # No matches yet — show the template as a placeholder
+                    display = label_tpl.replace("<package>", pkg_part or "…")
+                    final_args = args + ([pkg_part] if pkg_part else [])
+                    results.append((display, "", lambda a=final_args: self._run_pip(a)))
+            else:
+                display = label_tpl.replace("<package>", pkg_part or "<package>")
+                final_args = args + ([pkg_part] if needs_pkg and pkg_part else [])
+                results.append((display, "", lambda a=final_args: self._run_pip(a)))
+
+        return results[:20]
+
+    def _pkg_suggestions(self, prefix: str, subcmd: str, installed: dict) -> list[str]:
+        """Return up to 8 package name suggestions for the given prefix."""
+        q = prefix.lower()
+        # For uninstall/show/upgrade — only suggest installed packages
+        if subcmd in ("uninstall", "show"):
+            return sorted(
+                (n for n in installed if q in n.lower()),
+                key=lambda n: (not n.lower().startswith(q), len(n))
+            )[:8]
+        # For install — search the 362K lookup by prefix/contains
+        exact, starts, contains = [], [], []
+        for pkg in self._pkg_lookup:
+            if pkg == q:
+                exact.append(pkg)
+            elif pkg.startswith(q):
+                starts.append(pkg)
+            elif q in pkg:
+                contains.append(pkg)
+        starts.sort(key=len)
+        contains.sort(key=len)
+        return (exact + starts + contains)[:8]
+
+    def _run_pip(self, args: list[str]) -> None:
+        if self._run_pip_fn and args:
+            self._run_pip_fn(args)
 
     def _nav(self, lineno: int) -> None:
         if self._navigate_fn:

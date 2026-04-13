@@ -2962,12 +2962,43 @@ class IDOL(Tk):
             # Help
             ("About", "", self.help_about),
         ]
+        from widgets.package_manager import _BUILTIN_LOOKUP
         CommandPalette(
             self,
             commands,
             symbol_fn=self._outline.get_symbols,
             navigate_fn=self._outline_navigate,
+            run_pip_fn=self._palette_run_pip,
+            installed_fn=lambda: self._pkg_panel._installed if self._pkg_panel else {},
+            pkg_lookup=_BUILTIN_LOOKUP,
         )
+
+    def _palette_run_pip(self, args: list[str]) -> None:
+        """Run a pip command from the command palette, streaming to the Output panel."""
+        import subprocess, threading as _threading
+        output = self._output.output
+        try:
+            output.master._set_active("output")
+        except Exception:
+            pass
+        output.write(f"\n$ pip {' '.join(args)}\n", tag="cmd")
+
+        def _run():
+            try:
+                proc = subprocess.Popen(
+                    [__import__("sys").executable, "-m", "pip"] + args,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                )
+                for line in proc.stdout:
+                    self.after(0, lambda l=line: output.write(l))
+                proc.wait()
+                # Refresh pkg panel installed list if it's open
+                if self._pkg_panel:
+                    self.after(0, self._pkg_panel._load_installed)
+            except Exception as e:
+                self.after(0, lambda: output.write(str(e) + "\n", tag="err"))
+
+        _threading.Thread(target=_run, daemon=True).start()
 
     # ── Help ─────────────────────────────────────────────────────────────────
 
