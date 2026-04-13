@@ -5,30 +5,28 @@ import tkinter as tk
 from pathlib import Path
 
 
-_SPLASH_MS   = 2500   # how long the splash stays up
-_LOGO_WIDTH  = 520    # display width of the logo image
+_SPLASH_MS  = 2500   # how long the splash stays up
+_LOGO_WIDTH = 520    # display width of the logo image
 
 
-def _show_splash(root: tk.Tk) -> None:
-    """Display a frameless splash screen centered on the primary monitor."""
+def _show_splash(app: tk.Tk) -> None:
+    """Display a frameless splash screen; reveal *app* when it closes."""
     logo_path = Path(__file__).parent / "images" / "gitPIDE.png"
 
-    splash = tk.Toplevel(root)
+    splash = tk.Toplevel(app)
     splash.overrideredirect(True)
     splash.attributes("-topmost", True)
     splash.configure(bg="#0d1117")
 
-    # Load and scale the logo
     try:
         from PIL import Image, ImageTk
         img = Image.open(logo_path)
         ratio = _LOGO_WIDTH / img.width
         img = img.resize((_LOGO_WIDTH, int(img.height * ratio)), Image.LANCZOS)
         photo = ImageTk.PhotoImage(img)
-        splash._photo = photo   # keep reference
+        splash._photo = photo
         lbl = tk.Label(splash, image=photo, bg="#0d1117", bd=0)
     except Exception:
-        # PIL not available — text-only fallback
         lbl = tk.Label(
             splash,
             text="IDOL\nIntegrated Development and Objective Learning\n\ncreated by gitPIDE",
@@ -46,26 +44,22 @@ def _show_splash(root: tk.Tk) -> None:
     h  = splash.winfo_height()
     splash.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
 
-    # Dismiss on click or after timer
-    splash.bind("<Button-1>", lambda _: splash.destroy())
-    splash.after(_SPLASH_MS, splash.destroy)
+    def _dismiss():
+        try:
+            splash.destroy()
+        except Exception:
+            pass
+        app.deiconify()
+
+    splash.bind("<Button-1>", lambda _: _dismiss())
+    splash.after(_SPLASH_MS, _dismiss)
 
 
 if __name__ == "__main__":
     file_path = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else None
 
-    # Create a hidden root first so Toplevel (splash) has a parent,
-    # then import and build the real app while the splash is visible.
-    root = tk.Tk()
-    root.withdraw()
-
-    _show_splash(root)
-
-    # Build the main app (imports are the slow part — this happens during splash)
     from app import IDOL
     app = IDOL(file_path)
-
-    # Destroy the temporary root now that the real window exists
-    root.destroy()
-
+    app.withdraw()          # hide main window while splash is up
+    _show_splash(app)
     app.mainloop()
