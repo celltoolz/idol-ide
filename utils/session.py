@@ -46,8 +46,12 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
 
     # ── Window geometry ───────────────────────────────────────────────────────
     try:
-        # Only save if the window is a reasonable size (not minimised/withdrawn)
-        if app.winfo_width() > 200 and app.winfo_height() > 200:
+        state = app.wm_state()
+        layout["window_maximized"] = (state == "zoomed")
+        # Only save geometry when the window is a normal, visible, reasonable size.
+        # Skip when withdrawn, iconified, or when dimensions look like a
+        # pre-layout placeholder (tkinter reports 1x1 or similar before mapping).
+        if state == "normal" and app.winfo_width() > 400 and app.winfo_height() > 300:
             layout["window_geometry"] = app.wm_geometry()
     except Exception:
         pass
@@ -194,13 +198,25 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # ── Layout — two-stage to let pane geometry settle before sidebar measures ──
     layout = data.get("layout")
     if layout:
-        # Restore window size/position immediately
-        geom = layout.get("window_geometry")
-        if geom:
+        # Restore window size/position immediately.
+        # Maximized takes priority — don't also set geometry or macOS will
+        # un-maximize when the window is later shown.
+        maximized = layout.get("window_maximized", False)
+        geom      = layout.get("window_geometry", "")
+        if maximized:
             try:
-                app.geometry(geom)
+                app.wm_state("zoomed")
             except Exception:
                 pass
+        elif geom:
+            # Sanity-check the geometry string (WxH+X+Y) before applying
+            import re as _re
+            m = _re.match(r"(\d+)x(\d+)", geom)
+            if m and int(m.group(1)) >= 400 and int(m.group(2)) >= 300:
+                try:
+                    app.geometry(geom)
+                except Exception:
+                    pass
         # Stage 1 (50 ms): set h_pane / v_pane sash positions so the sidebar
         # and editor panels get their correct pixel dimensions.
         app.after(50,  lambda: _apply_pane_sashes(app, layout))
