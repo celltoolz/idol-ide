@@ -3003,8 +3003,52 @@ class IDOL(Tk):
     # ── Help ─────────────────────────────────────────────────────────────────
 
     def help_about(self) -> None:
-        showinfo(
-            "About IDOL",
-            "IDOL — Integrated Development and Objective Learning\n\nGitHub's Python IDE, by gitPIDE.\n\nCreated by:\nAlex Fero & Claude Sonnet",
-        )
+        from pathlib import Path as _Path
+        dlg = tk.Toplevel(self)
+        dlg.title("About IDOL")
+        dlg.resizable(False, False)
+        dlg.configure(bg="#0d1117")
+        dlg.attributes("-topmost", True)
+
+        # Logo
+        logo_path = _Path(__file__).parent / "images" / "gitPIDE.png"
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(logo_path)
+            ratio = 420 / img.width
+            img = img.resize((420, int(img.height * ratio)), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+            dlg._photo = photo
+            tk.Label(dlg, image=photo, bg="#0d1117", bd=0).pack(pady=(16, 8))
+        except Exception:
+            tk.Label(dlg, text="IDOL", bg="#0d1117", fg="#cccccc",
+                     font=("Segoe UI", 28, "bold")).pack(pady=(24, 8))
+
+        # Info
+        tk.Label(dlg, text="Integrated Development and Objective Learning",
+                 bg="#0d1117", fg="#858585",
+                 font=("Segoe UI", 9)).pack()
+        tk.Label(dlg, text="created by gitPIDE — GitHub's Python IDE",
+                 bg="#0d1117", fg="#569cd6",
+                 font=("Segoe UI", 9)).pack(pady=(2, 12))
+
+        tk.Frame(dlg, bg="#3c3c3c", height=1).pack(fill="x", padx=24)
+
+        tk.Label(dlg, text="Created by  Alex Fero & Claude Sonnet",
+                 bg="#0d1117", fg="#858585",
+                 font=("Segoe UI", 8)).pack(pady=(10, 2))
+
+        # Close button
+        btn = tk.Label(dlg, text="Close", bg="#0e639c", fg="white",
+                       font=("Segoe UI", 9), cursor="hand2", padx=20, pady=5)
+        btn.pack(pady=(10, 20))
+        btn.bind("<Button-1>", lambda _: dlg.destroy())
+        btn.bind("<Enter>", lambda _: btn.config(bg="#1177bb"))
+        btn.bind("<Leave>", lambda _: btn.config(bg="#0e639c"))
+
+        # Center over main window
+        dlg.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width()  - dlg.winfo_width())  // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
 

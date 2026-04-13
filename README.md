@@ -3,7 +3,7 @@
 **created by [gitPIDE](https://github.com/celltoolz/notepad-ide)** — GitHub's Python IDE
 
 <p align="center">
-  <img src="screenshots/gitPIDE.png" width="65%">
+  <img src="images/gitPIDE.png" width="65%">
 </p>
 
 IDOL is what IDLE should have been — a full Python IDE with professional-grade tools (LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
