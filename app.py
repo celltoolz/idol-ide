@@ -2341,7 +2341,7 @@ class IDOL(Tk):
         else:
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
-            self.after(20, self._apply_ai_panel_sash)
+            self.after(100, self._apply_ai_panel_sash)
         self._refresh_nav_bar()
 
     def _ensure_ai_panel_open(self) -> None:
@@ -2349,7 +2349,7 @@ class IDOL(Tk):
         if not self._ai_panel_visible:
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
-            self.after(20, self._apply_ai_panel_sash)
+            self.after(100, self._apply_ai_panel_sash)
 
     def _apply_ai_panel_sash(self) -> None:
         """Position the sash so the AI panel has its saved width."""
@@ -2603,7 +2603,7 @@ class IDOL(Tk):
 
         if self._ai_panel_visible:
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
-            self.after(20, self._apply_ai_panel_sash)
+            self.after(100, self._apply_ai_panel_sash)
         if self.output_visible_var.get():
             self._v_pane.add(self._output, weight=1)
         self.title("IDOL")
@@ -3003,7 +3003,7 @@ class IDOL(Tk):
             self._h_pane.add(self._v_pane, stretch="always")
             if self._ai_panel_visible:
                 self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
-                self.after(20, self._apply_ai_panel_sash)
+                self.after(100, self._apply_ai_panel_sash)
             self._sidebar_shown = True
             self.sidebar_visible_var.set(True)
         self._refresh_nav_bar()

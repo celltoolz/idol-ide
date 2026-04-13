@@ -36,16 +36,13 @@ def _show_splash(app: tk.Tk) -> None:
         )
     lbl.pack()
 
-    # Center on the app window
+    # Center on screen
     splash.update_idletasks()
-    app.update_idletasks()
+    sw = splash.winfo_screenwidth()
+    sh = splash.winfo_screenheight()
     w  = splash.winfo_width()
     h  = splash.winfo_height()
-    ax = app.winfo_rootx()
-    ay = app.winfo_rooty()
-    aw = app.winfo_width()
-    ah = app.winfo_height()
-    splash.geometry(f"+{ax + (aw - w) // 2}+{ay + (ah - h) // 2}")
+    splash.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
 
     def _dismiss():
         try:
@@ -53,7 +50,9 @@ def _show_splash(app: tk.Tk) -> None:
         except Exception:
             pass
 
-    splash.bind("<Button-1>", lambda _: _dismiss())
+    # Delay click-to-dismiss by 500ms — on macOS the launch click can fire
+    # <Button-1> on the splash immediately and dismiss it before it's seen.
+    splash.after(500, lambda: splash.bind("<Button-1>", lambda _: _dismiss()))
     splash.after(_SPLASH_MS, _dismiss)
 
 

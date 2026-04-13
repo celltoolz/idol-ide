@@ -80,6 +80,8 @@ class AiChatPanel(tk.Frame):
         self._msg_bottom_spacer = tk.Frame(self._msg_inner, bg=_BG, height=10)
         self._msg_bottom_spacer.pack(fill="x", side="bottom")
         self._msg_inner.bind("<Configure>", self._on_inner_configure)
+        # Registry of wrapping Labels — updated whenever the canvas resizes.
+        self._wrap_labels: list = []
         self._canvas.bind("<Configure>",    self._on_canvas_configure)
 
         # Linux / macOS: direct per-widget bindings work fine
@@ -187,6 +189,12 @@ class AiChatPanel(tk.Frame):
 
     def _on_canvas_configure(self, event) -> None:
         self._canvas.itemconfig(self._msg_win, width=event.width)
+        wl = max(80, event.width - 60)
+        for lbl in self._wrap_labels:
+            try:
+                lbl.config(wraplength=wl)
+            except Exception:
+                pass
 
     def _grab_scroll(self, event=None) -> None:
         """Bind all mousewheel events to this panel (Windows focus workaround)."""
@@ -294,9 +302,11 @@ class AiChatPanel(tk.Frame):
         f = tk.Frame(self._msg_inner, bg=_MSG_BG, padx=12, pady=8)
         f._is_offline_card = True
         f.pack(fill="x", padx=10)
-        tk.Label(f, text="Missing dependency: requests\n\nRun this in your terminal:\n  pip install requests\n\nThen restart IDOL.",
-                 bg=_MSG_BG, fg=_WARN_FG, font=("Segoe UI", 9),
-                 wraplength=400, justify="left", anchor="nw").pack(anchor="w")
+        lbl = tk.Label(f, text="Missing dependency: requests\n\nRun this in your terminal:\n  pip install requests\n\nThen restart IDOL.",
+                       bg=_MSG_BG, fg=_WARN_FG, font=("Segoe UI", 9),
+                       wraplength=400, justify="left", anchor="nw")
+        lbl.pack(anchor="w")
+        self._wrap_labels.append(lbl)
         self._bind_scroll_recursive(f)
         self._scroll_bottom()
 
@@ -326,7 +336,9 @@ class AiChatPanel(tk.Frame):
                        f"Then reopen this tab."),
                  bg=_MSG_BG, fg=_WARN_FG,
                  font=("Segoe UI", 9), wraplength=400,
-                 justify="left", anchor="nw").pack(anchor="w")
+                 justify="left", anchor="nw")
+        lbl.pack(anchor="w")
+        self._wrap_labels.append(lbl)
         self._bind_scroll_recursive(f)
         self._scroll_bottom()
 
@@ -647,9 +659,11 @@ class AiChatPanel(tk.Frame):
 
         tk.Label(bubble, text="You", bg=_USER_BG, fg=_DIM,
                  font=("Segoe UI", 7, "bold")).pack(anchor="w")
-        tk.Label(bubble, text=text, bg=_USER_BG, fg=_USER_FG,
-                 font=("Segoe UI", 10), wraplength=380,
-                 justify="left", anchor="nw").pack(anchor="w")
+        lbl = tk.Label(bubble, text=text, bg=_USER_BG, fg=_USER_FG,
+                       font=("Segoe UI", 10), wraplength=380,
+                       justify="left", anchor="nw")
+        lbl.pack(anchor="w")
+        self._wrap_labels.append(lbl)
         self._scroll_bottom()
 
     def _append_ai_bubble(self) -> tk.Frame:
@@ -805,14 +819,17 @@ class AiChatPanel(tk.Frame):
                     lbl.pack(fill="x", anchor="w")
                     lbl.bind("<Button-4>", self._on_mousewheel)
                     lbl.bind("<Button-5>", self._on_mousewheel)
+                    self._wrap_labels.append(lbl)
 
     def _append_system(self, text: str, color: str = _DIM) -> None:
         self._add_spacer(8)
         f = tk.Frame(self._msg_inner, bg=_MSG_BG, padx=12, pady=8)
         f.pack(fill="x", padx=10)
-        tk.Label(f, text=text, bg=_MSG_BG, fg=color,
-                 font=("Segoe UI", 9), wraplength=400,
-                 justify="left", anchor="nw").pack(anchor="w")
+        lbl = tk.Label(f, text=text, bg=_MSG_BG, fg=color,
+                       font=("Segoe UI", 9), wraplength=400,
+                       justify="left", anchor="nw")
+        lbl.pack(anchor="w")
+        self._wrap_labels.append(lbl)
         self._bind_scroll_recursive(f)
         self._scroll_bottom()
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import platform
+import sys
 import queue
 import re
 import shutil
@@ -254,6 +255,11 @@ class TerminalPanel(ttk.Frame):
             env["TERM"]           = "xterm-256color"
             env["COLORTERM"]      = "truecolor"
             env["IDOL_TERMINAL"]  = "1"
+            # macOS zsh restores ~/.zsh_sessions on startup, which can print
+            # "Saving session..." text that zsh then tries to execute as a
+            # command.  Disabling session history avoids this entirely.
+            if sys.platform == "darwin":
+                env["SHELL_SESSION_HISTORY"] = "0"
             # Strip IDOL's own venv so the child shell starts clean
             env.pop("VIRTUAL_ENV", None)
             env.pop("VIRTUAL_ENV_PROMPT", None)
