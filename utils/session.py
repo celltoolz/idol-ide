@@ -198,25 +198,17 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # ── Layout — two-stage to let pane geometry settle before sidebar measures ──
     layout = data.get("layout")
     if layout:
-        # Restore window size/position immediately.
-        # Maximized takes priority — don't also set geometry or macOS will
-        # un-maximize when the window is later shown.
+        # Store geometry for application after deiconify (macOS ignores
+        # geometry calls while the window is withdrawn).
         maximized = layout.get("window_maximized", False)
         geom      = layout.get("window_geometry", "")
         if maximized:
-            try:
-                app.wm_state("zoomed")
-            except Exception:
-                pass
+            app._startup_geometry = "zoomed"
         elif geom:
-            # Sanity-check the geometry string (WxH+X+Y) before applying
             import re as _re
             m = _re.match(r"(\d+)x(\d+)", geom)
             if m and int(m.group(1)) >= 400 and int(m.group(2)) >= 300:
-                try:
-                    app.geometry(geom)
-                except Exception:
-                    pass
+                app._startup_geometry = geom
         # Stage 1 (50 ms): set h_pane / v_pane sash positions so the sidebar
         # and editor panels get their correct pixel dimensions.
         app.after(50,  lambda: _apply_pane_sashes(app, layout))

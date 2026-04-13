@@ -49,7 +49,16 @@ def _show_splash(app: tk.Tk) -> None:
             splash.destroy()
         except Exception:
             pass
-        app.deiconify()
+        geom = getattr(app, "_startup_geometry", "1280x800")
+        if geom == "zoomed":
+            app.deiconify()
+            try:
+                app.wm_state("zoomed")
+            except Exception:
+                app.attributes("-zoomed", True)   # Linux fallback
+        else:
+            app.geometry(geom)   # set size BEFORE deiconify so macOS honours it
+            app.deiconify()
 
     splash.bind("<Button-1>", lambda _: _dismiss())
     splash.after(_SPLASH_MS, _dismiss)
