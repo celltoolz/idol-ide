@@ -117,7 +117,7 @@ def build_menubar(app) -> Menu:
         label="Zen Mode",
         variable=app.zen_mode_var,
         command=app.view_zen_mode,
-        accelerator="F11",
+        accelerator="F10",
     )
     view_menu.add_command(
         label="Source Control",

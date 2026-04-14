@@ -440,7 +440,7 @@ class IDOL(Tk):
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
         self.bind("<Control-b>", lambda _: self.view_toggle_sidebar())
-        self.bind("<F11>", lambda _: self.view_zen_mode())
+        self.bind("<F10>", lambda _: self.view_zen_mode())
         self.bind("<F1>", lambda _: self.view_learning_mode())
         self.bind("<F2>", lambda _: self.view_ai_chat())
         self.bind("<F3>", lambda _: self.view_package_manager())
@@ -2351,10 +2351,17 @@ class IDOL(Tk):
             self._ai_panel_visible = True
             self.after(100, self._apply_ai_panel_sash)
 
-    def _apply_ai_panel_sash(self) -> None:
-        """Position the sash so the AI panel has its saved width."""
+    def _apply_ai_panel_sash(self, _retries: int = 0) -> None:
+        """Position the sash so the AI panel has its saved width.
+
+        Retries up to 5 times if the pane hasn't been laid out yet
+        (winfo_width returns 0 or 1 on macOS before the first draw).
+        """
         try:
             total = self._h_pane.winfo_width()
+            if total < 10 and _retries < 5:
+                self.after(100, lambda: self._apply_ai_panel_sash(_retries + 1))
+                return
             self._h_pane.sashpos(1, max(200, total - self._ai_panel_width))
         except Exception:
             pass

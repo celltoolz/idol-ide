@@ -61,5 +61,7 @@ if __name__ == "__main__":
 
     from app import IDOL
     app = IDOL(file_path)
-    _show_splash(app)
+    # Schedule splash via after() so the event loop is running when the
+    # Toplevel is created — required on macOS for the window to appear.
+    app.after(50, lambda: _show_splash(app))
     app.mainloop()
