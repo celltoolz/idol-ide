@@ -567,6 +567,7 @@ class IDOL(Tk):
         self._key_handlers[tab_id] = handler
         self._multi_cursors[tab_id] = mc
         self._setup_codeview(codeview, handler, mc)
+        self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
         self._sidebar.apply_theme(
             bg=codeview.cget("bg"),
             fg=codeview.cget("fg"),
@@ -857,6 +858,17 @@ class IDOL(Tk):
                     self.after(350, self._learning_reposition),
                 ),
             )
+
+    def _reset_dirty_after_load(self, tab_id: str) -> None:
+        """Clear the dirty flag after all deferred events from file load have fired.
+
+        codeview.insert() during load fires <<ContentChanged>> with when="tail",
+        which is processed after the synchronous dirty=False assignment.  Calling
+        this via after_idle ensures the flag is cleared once that tail event drains.
+        """
+        if tab_id in self._dirty:
+            self._dirty[tab_id] = False
+            self._refresh_tab_title(tab_id)
 
     def _on_content_changed(self) -> None:
         tab_id = self._current_tab_id
@@ -3042,6 +3054,7 @@ class IDOL(Tk):
         self._indent_sizes[tab_id] = 4
         self._codeviews[tab_id] = codeview
         self._breadcrumbs[tab_id] = crumb
+        self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
 
         is_code = not isinstance(lexer, pygments.lexers.TextLexer)
         handler = KeyHandler(tab_size=4, smart_pairs=is_code)

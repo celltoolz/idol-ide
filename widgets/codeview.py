@@ -113,7 +113,11 @@ class CodeView(Text):
         super().bind(f"<{contmand}-c>", self._copy, add=True)
         super().bind(f"<{contmand}-v>", self._paste, add=True)
         super().bind(f"<{contmand}-a>", self._select_all, add=True)
-        super().bind(f"<{contmand}-Shift-Z>", self.redo, add=True)
+        super().bind(f"<{contmand}-z>", self._undo, add=True)
+        super().bind(f"<{contmand}-Shift-Z>", self._redo, add=True)
+        super().bind(f"<{contmand}-y>", self._redo, add=True)
+        super().bind("<<Undo>>", self._undo, add=True)
+        super().bind("<<Redo>>", self._redo, add=True)
         super().bind("<<ContentChanged>>", self.scroll_line_update, add=True)
         super().bind("<Button-1>", self._line_numbers.redraw, add=True)
         super().bind("<Double-Button-1>", self._on_double_click, add=True)
@@ -122,6 +126,13 @@ class CodeView(Text):
         self._orig = f"{self._w}_widget"
         self.tk.call("rename", self._w, self._orig)
         self.tk.createcommand(self._w, self._cmd_proxy)
+
+        # Python-level snapshot undo/redo (replaces Tk's broken edit undo)
+        self._undo_stack: list[tuple[str, str]] = []
+        self._redo_stack: list[tuple[str, str]] = []
+        self._undo_restoring: bool = False
+        self._undo_pending_save: bool = False
+        self.tk.call(self._orig, "configure", "-undo", False)
 
         self._sticky = StickyScroll(self._frame, self, self._line_numbers)
         # Minimap.grid() also places its border widget in column 3;
@@ -203,11 +214,56 @@ class CodeView(Text):
         self.mark_set("insert", "end")
         return "break"
 
-    def redo(self, event: Event | None = None) -> None:
+    def _undo(self, event: Event | None = None) -> str:
+        if not self._undo_stack:
+            return "break"
+        # Save current state to redo stack before restoring
+        cur_text = self.tk.call(self._orig, "get", "1.0", "end-1c")
+        cur_cursor = self.tk.call(self._orig, "index", "insert")
+        self._redo_stack.append((cur_text, cur_cursor))
+        text, cursor = self._undo_stack.pop()
+        self._undo_restoring = True
         try:
-            self.edit_redo()
-        except TclError:
-            pass
+            self.tk.call(self._orig, "delete", "1.0", "end")
+            self.tk.call(self._orig, "insert", "1.0", text)
+        finally:
+            self._undo_restoring = False
+        with suppress(TclError):
+            self.tk.call(self._orig, "mark", "set", "insert", cursor)
+            self.tk.call(self._orig, "see", "insert")
+        self.after_idle(self.highlight_all)
+        self.after_idle(self.scroll_line_update)
+        return "break"
+
+    def _redo(self, event: Event | None = None) -> str:
+        if not self._redo_stack:
+            return "break"
+        # Save current state to undo stack before redoing
+        cur_text = self.tk.call(self._orig, "get", "1.0", "end-1c")
+        cur_cursor = self.tk.call(self._orig, "index", "insert")
+        self._undo_stack.append((cur_text, cur_cursor))
+        text, cursor = self._redo_stack.pop()
+        self._undo_restoring = True
+        try:
+            self.tk.call(self._orig, "delete", "1.0", "end")
+            self.tk.call(self._orig, "insert", "1.0", text)
+        finally:
+            self._undo_restoring = False
+        with suppress(TclError):
+            self.tk.call(self._orig, "mark", "set", "insert", cursor)
+            self.tk.call(self._orig, "see", "insert")
+        self.after_idle(self.highlight_all)
+        self.after_idle(self.scroll_line_update)
+        return "break"
+
+    def _clear_undo_pending(self) -> None:
+        self._undo_pending_save = False
+
+    def edit_reset(self) -> None:
+        super().edit_reset()
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._undo_pending_save = False
 
     def _paste(self, *_):
         insert = self.index(f"@0,0 + {self.cget('height') // 2} lines")
@@ -241,6 +297,16 @@ class CodeView(Text):
                         )
                         - 1
                     )
+                if not self._undo_restoring:
+                    self._redo_stack.clear()
+                    if not self._undo_pending_save:
+                        snap_text = self.tk.call(self._orig, "get", "1.0", "end-1c")
+                        snap_cursor = self.tk.call(self._orig, "index", "insert")
+                        self._undo_stack.append((snap_text, snap_cursor))
+                        if len(self._undo_stack) > 200:
+                            self._undo_stack.pop(0)
+                        self._undo_pending_save = True
+                        self.after_idle(self._clear_undo_pending)
             result = self.tk.call(self._orig, command, *args)
         except TclError as e:
             error = str(e)
@@ -272,12 +338,6 @@ class CodeView(Text):
                 self.highlight_area(start_line, end_line)
             self.event_generate("<<ContentChanged>>", when="tail")
             self.after(0, self.scroll_line_update)
-        elif command == "edit" and args and args[0] in ("undo", "redo"):
-            # The Tcl undo/redo mechanism replays changes via the original widget
-            # command, bypassing this proxy.  Re-highlight and refresh scroll state
-            # once the undo/redo has completed.
-            self.after_idle(self.highlight_all)
-            self.after_idle(self.scroll_line_update)
 
         return result
 
