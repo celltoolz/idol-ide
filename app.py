@@ -2351,17 +2351,31 @@ class IDOL(Tk):
             self._ai_panel_visible = True
             self.after(100, self._apply_ai_panel_sash)
 
-    def _apply_ai_panel_sash(self, _retries: int = 0) -> None:
+    def _apply_ai_panel_sash(self) -> None:
         """Position the sash so the AI panel has its saved width.
 
-        Retries up to 5 times if the pane hasn't been laid out yet
-        (winfo_width returns 0 or 1 on macOS before the first draw).
+        If the pane hasn't been laid out yet (winfo_width < 10 — common on
+        macOS before the first draw), bind to <Configure> so we set the sash
+        exactly when the geometry settles rather than polling with after().
         """
+        total = self._h_pane.winfo_width()
+        if total < 10:
+            _cbid: list = []
+            def _on_configured(event):
+                w = self._h_pane.winfo_width()
+                if w < 10:
+                    return
+                try:
+                    self._h_pane.unbind("<Configure>", _cbid[0])
+                except Exception:
+                    pass
+                try:
+                    self._h_pane.sashpos(1, max(200, w - self._ai_panel_width))
+                except Exception:
+                    pass
+            _cbid.append(self._h_pane.bind("<Configure>", _on_configured))
+            return
         try:
-            total = self._h_pane.winfo_width()
-            if total < 10 and _retries < 5:
-                self.after(100, lambda: self._apply_ai_panel_sash(_retries + 1))
-                return
             self._h_pane.sashpos(1, max(200, total - self._ai_panel_width))
         except Exception:
             pass
