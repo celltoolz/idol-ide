@@ -2329,18 +2329,23 @@ class IDOL(Tk):
     def view_ai_chat(self) -> None:
         """Toggle the AI Chat right panel (F2)."""
         if self._ai_panel_visible:
-            # Save current width before hiding
+            # Save current width before hiding — measure the frame directly
+            # because sashpos() returns unreliable values on macOS.
             try:
-                total = self._h_pane.winfo_width()
+                w = self._ai_panel_frame.winfo_width()
                 sash = self._h_pane.sashpos(1)
-                self._ai_panel_width = max(280, total - sash)
-            except Exception:
-                pass
+                total = self._h_pane.winfo_width()
+                print(f"[AI SASH SAVE] frame.winfo_width={w}  sashpos(1)={sash}  h_pane.winfo_width={total}  => saving width={max(280, w) if w > 50 else self._ai_panel_width}")
+                if w > 50:
+                    self._ai_panel_width = max(280, w)
+            except Exception as e:
+                print(f"[AI SASH SAVE] exception: {e}")
             self._h_pane.forget(self._ai_panel_frame)
             self._ai_panel_visible = False
         else:
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
+            print(f"[AI SASH OPEN] _ai_panel_width={self._ai_panel_width}  h_pane.winfo_width={self._h_pane.winfo_width()}")
             self.after(100, self._apply_ai_panel_sash)
         self._refresh_nav_bar()
 
@@ -2354,31 +2359,33 @@ class IDOL(Tk):
     def _apply_ai_panel_sash(self) -> None:
         """Position the sash so the AI panel has its saved width.
 
-        If the pane hasn't been laid out yet (winfo_width < 10 — common on
-        macOS before the first draw), bind to <Configure> so we set the sash
-        exactly when the geometry settles rather than polling with after().
+        Always uses a <Configure> binding instead of calling sashpos()
+        immediately, because any sashpos() call made synchronously after
+        add() gets overridden by tkinter's geometry pass — especially on
+        macOS where the pane already has a real width before add().
         """
-        total = self._h_pane.winfo_width()
-        if total < 10:
-            _cbid: list = []
-            def _on_configured(event):
-                w = self._h_pane.winfo_width()
-                if w < 10:
-                    return
-                try:
-                    self._h_pane.unbind("<Configure>", _cbid[0])
-                except Exception:
-                    pass
-                try:
-                    self._h_pane.sashpos(1, max(200, w - self._ai_panel_width))
-                except Exception:
-                    pass
-            _cbid.append(self._h_pane.bind("<Configure>", _on_configured))
-            return
-        try:
-            self._h_pane.sashpos(1, max(200, total - self._ai_panel_width))
-        except Exception:
-            pass
+        _cbid: list = []
+
+        def _set_sash(event=None):
+            w = self._h_pane.winfo_width()
+            target = max(200, w - self._ai_panel_width)
+            print(f"[AI SASH SET] Configure fired: h_pane.winfo_width={w}  _ai_panel_width={self._ai_panel_width}  => sashpos target={target}")
+            if w < 10:
+                print("[AI SASH SET] w < 10, skipping")
+                return
+            try:
+                self._h_pane.unbind("<Configure>", _cbid[0])
+            except Exception:
+                pass
+            try:
+                self._h_pane.sashpos(1, target)
+                actual = self._h_pane.sashpos(1)
+                print(f"[AI SASH SET] sashpos set to {target}, readback={actual}")
+            except Exception as e:
+                print(f"[AI SASH SET] exception: {e}")
+
+        _cbid.append(self._h_pane.bind("<Configure>", _set_sash))
+        print(f"[AI SASH BIND] bound Configure id={_cbid[0] if _cbid else 'none'}")
 
     def _ai_get_file_content(self) -> tuple[str, str]:
         """Return (filename, content) of the last active editor tab."""
