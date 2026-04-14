@@ -316,12 +316,10 @@ class FileExplorer(ttk.Frame):
         # If the parent folder isn't open yet, expand it and load its children.
         if parent_item and not self._tree.item(parent_item, "open"):
             self._tree.item(parent_item, open=True)
-            # Fire the expand handler manually to populate lazy children
-            class _FakeEvent:
-                pass
-            e = _FakeEvent()
-            e.widget = self._tree  # type: ignore[attr-defined]
-            self._on_node_expand(e)
+            # _on_node_expand uses self._tree.focus() — set focus first so it
+            # populates the correct node.
+            self._tree.focus(parent_item)
+            self._on_node_expand(None)
             self._tree.update_idletasks()
 
         tmp_id = self._tree.insert(

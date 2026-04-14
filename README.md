@@ -18,7 +18,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 ## Features
 
 ### Editor
-- Multi-tab editor with drag reorder, hover close button, and right-click tab menu
+- Multi-tab editor with drag reorder, hover close button, and right-click tab menu; hover any tab to see its full file path as a tooltip
 - Syntax highlighting via [Pygments](https://pygments.org/) with multiple color schemes (Dracula, Monokai, Ayu, Material, and more)
 - Line numbers with code folding (click ⊟/⊞ markers to collapse/expand blocks)
 - Sticky scroll — enclosing scope pins to the top while you scroll, fully syntax highlighted with correct line numbers
@@ -47,7 +47,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Command palette — Ctrl+Shift+P; fuzzy search all commands, type @ to search symbols by name
 - AST-based Outline panel — classes, functions, methods, parameters, instance attributes, local variables, and nested definitions; all shown in a collapsible tree
 - File Explorer with lazy loading, directory navigation, and drag-to-resize sash
-  - Right-click menu: New File, New Folder, Rename, Delete, Set as Root Directory, Add to .gitignore
+  - Right-click menu: New File, New Folder, Rename, Delete, Set as Root Directory, Add to .gitignore — New File/Folder uses an inline text field directly in the tree
   - Drag and drop files between folders with unsaved-changes prompt
 - Find References panel — right-click any symbol to see all occurrences
 - VS Code-style inline Find & Replace bar (case, whole word, and regex toggles)
@@ -107,6 +107,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Click any package (installed or from PyPI search) to see its details: version, author, license, and description fetched from PyPI
 - **⬇ Install** and **✕ Uninstall** buttons run pip in the background with live output streamed to the Output panel
 - **✦ Ask AI for examples** — sends the selected package to the AI chat with a prompt for beginner-friendly code examples
+- **? Learn about Package Manager** — paginated guide covering what packages are, installing/uninstalling, managing dependencies, and finding the right package on PyPI
 
 ### Learning Mode (F1)
 - Press **F1** (or **Help → Learning Mode**) to open a dedicated Learning tab in the editor
@@ -133,7 +134,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - Git remotes: repositories, remotes, creating a repo on GitHub, connecting and pushing, authentication
 
 ### Workspace
-- Session persistence — restores open tabs, layout, and explorer root on relaunch
+- Session persistence — restores open tabs, layout, and explorer root on relaunch; unsaved changes are auto-saved to temp files on exit and restored automatically
 - Save / Open Workspace for named sessions
 - Status bar: line/column, cursor count, lexer name, indent cycle (spaces ↔ tabs)
 - Zen mode — F10 hides the sidebar, output panel, and status bar for distraction-free editing; toast notification on entry

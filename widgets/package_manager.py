@@ -11,6 +11,7 @@ from tkinter import ttk
 from typing import Callable
 
 from utils.learning_registry import LearningManager
+from widgets.guide_window import GuideWindow, GuidePage
 
 try:
     import requests as _requests
@@ -234,6 +235,13 @@ class PackageManagerPanel(tk.Frame):
 
         self._refresh_btn = self._make_btn(toolbar, "↻ Refresh", self._load_installed)
         self._refresh_btn.pack(side="right", padx=(0, 8), pady=4)
+
+        self._guide_lbl = tk.Label(
+            toolbar, text="? Learn about Package Manager",
+            bg=_PANEL_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2",
+        )
+        self._guide_lbl.bind("<Button-1>", lambda _: self._open_guide())
+        self._guide_lbl.pack(side="right", padx=(0, 8), pady=4)
 
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x")
 
@@ -629,6 +637,100 @@ class PackageManagerPanel(tk.Frame):
         ai.send_prefilled(prompt)
 
     # ── Helpers ────────────────────────────────────────────────────────────────
+
+    def _open_guide(self) -> None:
+        GuideWindow(self, "Package Manager", [
+            GuidePage(
+                title="What is a Package?",
+                sections=[
+                    ("THE IDEA",
+                     "A package is a bundle of reusable Python code written by someone else "
+                     "that you can drop into your project. Instead of writing everything from scratch, "
+                     "you install a package and call its functions.", "#569cd6"),
+                    ("EXAMPLES",
+                     "• requests — send HTTP requests in two lines of code\n"
+                     "• pandas — load, filter, and analyse tables of data\n"
+                     "• pillow — open, crop, resize, and save images\n"
+                     "• pytest — run automated tests on your code\n"
+                     "• flask — build a web server with almost no boilerplate", "#cccccc"),
+                    ("WHERE THEY COME FROM",
+                     "Most Python packages live on PyPI — the Python Package Index at pypi.org. "
+                     "PyPI hosts over 500,000 packages. When you run 'pip install requests', "
+                     "pip downloads the package from PyPI and installs it into your environment.", "#e2c08d"),
+                ],
+                plain_english=(
+                    "Think of packages like apps on your phone. You don't build a GPS engine "
+                    "to get directions — you install Google Maps. Someone already solved the hard "
+                    "part, packaged it up, and shared it. You just install it and use it."
+                ),
+            ),
+            GuidePage(
+                title="Installing & Uninstalling",
+                sections=[
+                    ("INSTALL",
+                     "pip install <name>\n\n"
+                     "Use the search bar above to find a package on PyPI, then click Install "
+                     "in the detail panel. You can also type the exact name you want.", "#73c991"),
+                    ("UNINSTALL",
+                     "pip uninstall <name>\n\n"
+                     "Select an installed package from the list on the left and click Uninstall "
+                     "in the detail panel. The package is removed from your current environment.", "#f14c4c"),
+                    ("VERSION PINNING",
+                     "To install a specific version: pip install requests==2.31.0\n\n"
+                     "Useful when a newer version breaks your code. Pin the version in "
+                     "requirements.txt to keep things stable.", "#cccccc"),
+                ],
+                plain_english=(
+                    "Installing a package is like downloading an app — one command and it's ready. "
+                    "The Package Manager here does both install and uninstall with a click "
+                    "so you never have to leave the IDE."
+                ),
+            ),
+            GuidePage(
+                title="Managing Dependencies",
+                sections=[
+                    ("requirements.txt",
+                     "pip freeze > requirements.txt\n\n"
+                     "Creates a text file listing every installed package and its exact version. "
+                     "Commit this file so teammates can recreate the same environment.", "#569cd6"),
+                    ("RESTORING",
+                     "pip install -r requirements.txt\n\n"
+                     "Anyone who clones your project runs this one command and gets an identical "
+                     "environment instantly.", "#73c991"),
+                    ("USE A VIRTUAL ENVIRONMENT",
+                     "Always install packages inside a virtual environment (venv) rather than "
+                     "globally. This keeps your project's dependencies isolated and prevents "
+                     "conflicts. See '? Learn about virtual environments' in the New Project wizard.", "#e2c08d"),
+                ],
+                plain_english=(
+                    "requirements.txt is your project's shopping list. Don't commit the groceries "
+                    "(the venv) — just the list. Anyone who needs to restock reads the list and "
+                    "buys exactly what's needed. Fast, repeatable, clean."
+                ),
+            ),
+            GuidePage(
+                title="Finding the Right Package",
+                sections=[
+                    ("SEARCH PyPI",
+                     "Use the search bar at the top of the Package Manager. It searches PyPI "
+                     "in real time and groups results by category so you can quickly compare options.", "#569cd6"),
+                    ("WHAT TO LOOK FOR",
+                     "• Download count — high numbers mean battle-tested\n"
+                     "• Last release date — actively maintained?\n"
+                     "• License — MIT/Apache are permissive; GPL has restrictions\n"
+                     "• Dependencies — fewer is usually safer", "#cccccc"),
+                    ("ASK THE AI",
+                     "Not sure which package fits? Click 'Ask AI ✦' in the detail panel or open "
+                     "AI Chat (F5) and describe what you're trying to do. The AI can compare "
+                     "packages and suggest the best fit.", "#e2c08d"),
+                ],
+                plain_english=(
+                    "With 500,000+ packages on PyPI, picking the right one matters. "
+                    "A package last updated in 2017 or with open security issues is a liability. "
+                    "When in doubt, ask the AI — it's read the docs so you don't have to."
+                ),
+            ),
+        ])
 
     def _register_learning(self) -> None:
         """Register package manager widgets with Learning Mode (called after _build)."""
