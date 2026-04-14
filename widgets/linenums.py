@@ -74,6 +74,9 @@ class TkLineNumbers(Canvas):
         self.bind("<Button1-Motion>", self.in_widget_select_mouse_drag, add=True)
         self.bind("<Button1-Leave>", self.mouse_off_screen_scroll, add=True)
         self.bind("<Button1-Enter>", self.stop_mouse_off_screen_scroll, add=True)
+        # Redraw once the widget is actually mapped (has a real height).
+        # This fires when a hidden tab becomes visible or on first display.
+        self.bind("<Map>", lambda e: self.after_idle(self.redraw), add=True)
 
         textwidget["yscrollcommand"] = self.redraw
         self.redraw()
@@ -82,6 +85,15 @@ class TkLineNumbers(Canvas):
 
     def redraw(self, *_) -> None:
         """Redraw all line numbers and fold markers."""
+        if getattr(self, "_redrawing", False):
+            return
+        self._redrawing = True
+        try:
+            self._do_redraw()
+        finally:
+            self._redrawing = False
+
+    def _do_redraw(self) -> None:
         self.resize()
         self.set_colors()
         self.delete("all")
@@ -108,6 +120,22 @@ class TkLineNumbers(Canvas):
                     size,
                     is_folded,
                 )
+
+        try:
+            cursor_line = int(self.textwidget.index("insert").split(".")[0])
+            last_visible = int(
+                self.textwidget.index(
+                    f"@0,{self.textwidget.winfo_height()}"
+                ).split(".")[0]
+            )
+        except Exception:
+            return
+
+        cursor_dli = self.textwidget.dlineinfo(f"{cursor_line}.0")
+        if (first_line <= cursor_line <= last_visible
+                and cursor_dli is None
+                and self.winfo_ismapped()):
+            self.after(10, self.redraw)
 
     def _is_elided(self, lineno: int) -> bool:
         tags = self.textwidget.tag_names(f"{lineno}.0")

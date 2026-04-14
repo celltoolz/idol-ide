@@ -18,11 +18,13 @@ class FileExplorer(ttk.Frame):
 
     def __init__(self, parent, on_open_file: Callable[[str], None],
                  on_file_move: Callable[[str, str], bool] | None = None,
-                 on_root_change: Callable[[str], None] | None = None) -> None:
+                 on_root_change: Callable[[str], None] | None = None,
+                 on_file_delete: Callable[[str], None] | None = None) -> None:
         super().__init__(parent, style="Explorer.TFrame")
         self._on_open = on_open_file
         self._on_file_move = on_file_move  # (old_path, new_path) -> bool (False = cancel)
         self._on_root_change = on_root_change
+        self._on_file_delete = on_file_delete  # (path) -> None
         self._root: Path | None = None
 
         self._tree = ttk.Treeview(
@@ -282,6 +284,7 @@ class FileExplorer(ttk.Frame):
         if not values or values[0] == self._LOADING:
             return
         path = Path(values[0])
+        was_file = path.is_file()
         kind = "folder" if path.is_dir() else "file"
         if not messagebox.askyesno(
             "Delete", f"Delete {kind} '{path.name}'? This cannot be undone.",
@@ -298,6 +301,8 @@ class FileExplorer(ttk.Frame):
             return
         self._tree.delete(self._menu_item)
         self._menu_item = ""
+        if was_file and self._on_file_delete:
+            self._on_file_delete(str(path))
 
     def _new_file(self) -> None:
         parent_item, parent_dir = self._new_item_context()

@@ -57,6 +57,7 @@ class KeyHandler:
                 else:
                     codeview.mark_set("insert", "insert lineend")
                     codeview.tag_remove("sel", "1.0", "end")
+                codeview.see("insert")
                 return "break"
 
             case "Home" | "KP_Home":
@@ -151,6 +152,7 @@ class KeyHandler:
             self._home_toggle = not self._home_toggle
             codeview.tag_remove("sel", "1.0", "end")
 
+        codeview.see("insert")
         return "break"
 
     def _handle_return(self, codeview) -> str:

@@ -297,6 +297,7 @@ class IDOL(Tk):
             },
             on_file_move=self._on_explorer_file_move,
             on_root_change=self._on_explorer_root_change,
+            on_file_delete=self._on_explorer_file_delete,
         )
         self._sidebar.configure(width=220)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
@@ -544,6 +545,7 @@ class IDOL(Tk):
         codeview.pack(fill="both", expand=True)
         codeview.insert("1.0", content)
         codeview.edit_reset()  # clear undo history after initial load
+        codeview.after(10, codeview._line_numbers.redraw)  # ensure numbers show after layout
 
         LearningManager.register(crumb, "breadcrumb_bar")
         LearningManager.register(codeview, "editor")
@@ -1925,6 +1927,19 @@ class IDOL(Tk):
         if replace:
             old_index = self.notebook.tabs().index(old_tab_id)
             self._close_tab(old_index)
+
+    def _on_explorer_file_delete(self, path: str) -> None:
+        """Called by the explorer after a file is deleted from disk.
+
+        Clears the path reference on any open tab so the tooltip, title, and
+        breadcrumb no longer point to the now-deleted location.
+        """
+        norm = os.path.normcase(path)
+        for tab_id, tab_path in list(self._files.items()):
+            if tab_path and os.path.normcase(tab_path) == norm:
+                self._files[tab_id] = ""   # no saved location
+                self._dirty[tab_id] = True
+                self._refresh_tab_title(tab_id)
 
     def _on_explorer_file_move(self, old_path: str, new_path: str) -> bool:
         """Called by the explorer before a drag/drop move.

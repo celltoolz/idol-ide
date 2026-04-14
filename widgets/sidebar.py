@@ -31,6 +31,7 @@ class Sidebar(ttk.Frame):
         sc_callbacks: dict | None = None,
         on_file_move: Callable[[str, str], bool] | None = None,
         on_root_change: Callable[[str], None] | None = None,
+        on_file_delete: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(parent, style="Sidebar.TFrame")
 
@@ -99,7 +100,8 @@ class Sidebar(ttk.Frame):
         self.explorer      = FileExplorer(self,
                                           on_open_file=lambda p: on_file_open(p, update_explorer=False),
                                           on_file_move=on_file_move,
-                                          on_root_change=on_root_change)
+                                          on_root_change=on_root_change,
+                                          on_file_delete=on_file_delete)
 
         self.bind("<Configure>", self._on_configure)
 

@@ -260,13 +260,24 @@ class CodeView(Text):
                 self.highlight_line(f"{start_line}.0")
             else:
                 self.highlight_area(start_line, start_line + lines)
-            self.event_generate("<<ContentChanged>>")
+            self.event_generate("<<ContentChanged>>", when="tail")
+            # event_generate is dropped by Tk when called from inside a key-press
+            # binding handler.  Schedule scroll_line_update via after() so it fires
+            # unconditionally in the next event-loop iteration.
+            self.after(0, self.scroll_line_update)
         elif command in {"replace", "delete"}:
             if start_line == end_line:
                 self.highlight_line(f"{start_line}.0")
             else:
                 self.highlight_area(start_line, end_line)
-            self.event_generate("<<ContentChanged>>")
+            self.event_generate("<<ContentChanged>>", when="tail")
+            self.after(0, self.scroll_line_update)
+        elif command == "edit" and args and args[0] in ("undo", "redo"):
+            # The Tcl undo/redo mechanism replays changes via the original widget
+            # command, bypassing this proxy.  Re-highlight and refresh scroll state
+            # once the undo/redo has completed.
+            self.after_idle(self.highlight_all)
+            self.after_idle(self.scroll_line_update)
 
         return result
 
