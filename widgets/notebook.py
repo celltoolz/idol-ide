@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tkinter import Label, Menu, PhotoImage, ttk
+from tkinter import Label, Menu, PhotoImage, Toplevel, ttk
 from typing import Callable, Optional
 
 from utils import bind_right_click
@@ -31,7 +31,10 @@ class CustomNotebook(ttk.Notebook):
         self._on_close = on_close
         self._on_split = on_split   # called with tab_id when drag/menu → split
         self._split_open_ref = None  # callable → bool, set by app to check split state
+        self._get_tab_path: Callable[[str], str | None] | None = None  # set by app
         self._hovered_tab: int | None = None
+        self._tooltip_win: Toplevel | None = None
+        self._tooltip_after: str | None = None
 
         # Hover X — placed over whichever tab is under the cursor
         self._hover_btn = Label(
@@ -186,10 +189,55 @@ class CustomNotebook(ttk.Notebook):
             if self._hovered_tab is not None:
                 self._hovered_tab = None
                 self._hide_hover_btn()
+            self._hide_tooltip()
             return
         if idx != self._hovered_tab:
             self._hovered_tab = idx
             self._show_hover_btn(idx, event.x, event.y)
+            self._schedule_tooltip(idx, event.x_root, event.y_root)
+
+    def _schedule_tooltip(self, idx: int, x_root: int, y_root: int) -> None:
+        self._hide_tooltip()
+        if not self._get_tab_path:
+            return
+        def _show():
+            try:
+                tab_id = self.tabs()[idx]
+                path = self._get_tab_path(tab_id)
+            except Exception:
+                path = None
+            if not path:
+                return
+            self._tooltip_win = Toplevel(self)
+            self._tooltip_win.overrideredirect(True)
+            self._tooltip_win.attributes("-topmost", True)
+            lbl = Label(
+                self._tooltip_win, text=path,
+                bg="#1e1e1e", fg="#cccccc",
+                font=("Segoe UI", 8),
+                padx=6, pady=3,
+                relief="flat",
+                bd=0,
+            )
+            lbl.pack()
+            self._tooltip_win.update_idletasks()
+            tw = self._tooltip_win.winfo_width()
+            self._tooltip_win.geometry(f"+{x_root - tw // 2}+{y_root + 20}")
+        self._tooltip_after = self.after(600, _show)
+
+    def _hide_tooltip(self) -> None:
+        if self._tooltip_after:
+            try:
+                self.after_cancel(self._tooltip_after)
+            except Exception:
+                pass
+            self._tooltip_after = None
+        if self._tooltip_win:
+            try:
+                self._tooltip_win.destroy()
+            except Exception:
+                pass
+            self._tooltip_win = None
 
     def _on_notebook_leave(self, event) -> None:
         # Use winfo_containing to detect if cursor moved onto the hover button.
@@ -203,6 +251,7 @@ class CustomNotebook(ttk.Notebook):
             return
         self._hovered_tab = None
         self._hide_hover_btn()
+        self._hide_tooltip()
 
     def _on_hover_btn_enter(self, _) -> None:
         self._hover_btn.config(fg="#ffffff")

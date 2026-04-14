@@ -10,6 +10,8 @@ from pathlib import Path
 from tkinter import ttk
 from typing import Callable
 
+from utils.learning_registry import LearningManager
+
 try:
     import requests as _requests
     _REQUESTS_OK = True
@@ -709,6 +711,13 @@ class _DetailPanel(tk.Frame):
         self._desc_text.configure(yscrollcommand=desc_sb.set)
         desc_sb.pack(side="right", fill="y")
         self._desc_text.pack(fill="both", expand=True)
+
+        # Register with Learning Mode
+        LearningManager.register(self._search_entry, "pkg_search")
+        LearningManager.register(self._search_btn,   "pkg_search")
+        LearningManager.register(self._tree,         "pkg_list")
+        LearningManager.register(self._install_btn,  "pkg_install")
+        LearningManager.register(self._uninstall_btn,"pkg_uninstall")
 
     def _meta_label(self, parent) -> tk.Label:
         lbl = tk.Label(parent, text="", bg=_PANEL_BG, fg=_DIM,

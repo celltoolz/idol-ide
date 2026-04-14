@@ -373,10 +373,21 @@ class IDOL(Tk):
                                          side="right", active_fn=lambda: self._split_active)
         self._nav_term_btn    = _nav_btn(_nav_bar, " >_ ",    self.view_new_terminal, side="right")
 
+        # Register nav buttons with Learning Mode
+        LearningManager.register(self._nav_split_btn,   "nav_split")
+        LearningManager.register(self._nav_map_btn,     "nav_map")
+        LearningManager.register(self._nav_sidebar_btn, "nav_sidebar")
+        LearningManager.register(self._nav_zen_btn,     "nav_zen")
+        LearningManager.register(self._nav_ai_btn,      "nav_ai")
+        LearningManager.register(self._nav_pkg_btn,     "nav_pkg")
+        LearningManager.register(self._nav_learn_btn,   "nav_learn")
+        LearningManager.register(self._nav_term_btn,    "nav_terminal")
+
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
         )
         self.notebook._split_open_ref = lambda: self._split_active
+        self.notebook._get_tab_path = lambda tab_id: self._files.get(tab_id)
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add=True)
         self.notebook.bind(

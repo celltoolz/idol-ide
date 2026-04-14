@@ -51,6 +51,7 @@ class FileExplorer(ttk.Frame):
         self._tree.bind("<<TreeviewOpen>>",    self._on_node_expand)
         self._tree.bind("<Double-Button-1>",   self._on_double_click)
         self._tree.bind("<Return>",            self._on_enter)
+        self._tree.bind("<Delete>",            lambda _: self._delete_selected())
         bind_right_click(self._tree, self._on_right_click)
 
         # Drag/drop state
@@ -305,9 +306,14 @@ class FileExplorer(ttk.Frame):
 
     def _start_inline_entry(self, parent_item: str, parent_dir: Path, is_folder: bool) -> None:
         """Show an inline Entry overlaid on a treeview placeholder item."""
-        # Insert a placeholder item so we have a row to overlay the Entry on
-        if parent_item and not self._tree.item(parent_item, "open"):
+        # Expand the parent folder first so the placeholder row is visible.
+        # If the node wasn't already open we need a short delay for the treeview
+        # to finish its geometry pass before bbox() returns valid coordinates.
+        needs_expand = bool(parent_item) and not self._tree.item(parent_item, "open")
+        if needs_expand:
             self._tree.item(parent_item, open=True)
+            self._tree.update_idletasks()
+
         tmp_id = self._tree.insert(
             parent_item, "end",
             text="  📁 " if is_folder else "  ",
@@ -316,61 +322,65 @@ class FileExplorer(ttk.Frame):
         self._tree.see(tmp_id)
         self._tree.update_idletasks()
 
-        bbox = self._tree.bbox(tmp_id, "#0")
-        if not bbox:
-            # Placeholder not visible (tree not rendered yet) — fall back
-            self._tree.delete(tmp_id)
-            kind = "Folder" if is_folder else "File"
-            name = simpledialog.askstring(f"New {kind}", "Name:", parent=self._tree)
-            if name:
-                self._commit_new_item(parent_item, parent_dir, name, is_folder)
-            return
-
-        x, y, w, h = bbox
-        # Stretch entry to the right edge of the tree
-        entry_w = max(w, self._tree.winfo_width() - x - 4)
-
-        entry = tk.Entry(
-            self._tree,
-            bg="#2d2d30", fg="#f8f8f2",
-            insertbackground="#f8f8f2",
-            relief="flat",
-            font=("Segoe UI", 9),
-            highlightthickness=1,
-            highlightcolor="#007acc",
-            highlightbackground="#007acc",
-        )
-        entry.place(x=x, y=y, width=entry_w, height=h)
-        entry.focus_set()
-
-        _done = [False]
-
-        def _commit(event=None):
-            if _done[0]:
-                return
-            _done[0] = True
-            name = entry.get().strip()
-            entry.destroy()
-            try:
+        def _place():
+            bbox = self._tree.bbox(tmp_id, "#0")
+            if not bbox:
+                # Placeholder not visible — fall back to dialog
                 self._tree.delete(tmp_id)
-            except Exception:
-                pass
-            if name:
-                self._commit_new_item(parent_item, parent_dir, name, is_folder)
-
-        def _cancel(event=None):
-            if _done[0]:
+                kind = "Folder" if is_folder else "File"
+                name = simpledialog.askstring(f"New {kind}", "Name:", parent=self._tree)
+                if name:
+                    self._commit_new_item(parent_item, parent_dir, name, is_folder)
                 return
-            _done[0] = True
-            entry.destroy()
-            try:
-                self._tree.delete(tmp_id)
-            except Exception:
-                pass
 
-        entry.bind("<Return>", _commit)
-        entry.bind("<Escape>", _cancel)
-        entry.bind("<FocusOut>", _cancel)
+            x, y, w, h = bbox
+            entry_w = max(w, self._tree.winfo_width() - x - 4)
+
+            entry = tk.Entry(
+                self._tree,
+                bg="#2d2d30", fg="#f8f8f2",
+                insertbackground="#f8f8f2",
+                relief="flat",
+                font=("Segoe UI", 9),
+                highlightthickness=1,
+                highlightcolor="#007acc",
+                highlightbackground="#007acc",
+            )
+            entry.place(x=x, y=y, width=entry_w, height=h)
+            entry.focus_set()
+
+            _done = [False]
+
+            def _commit(event=None):
+                if _done[0]:
+                    return
+                _done[0] = True
+                name = entry.get().strip()
+                entry.destroy()
+                try:
+                    self._tree.delete(tmp_id)
+                except Exception:
+                    pass
+                if name:
+                    self._commit_new_item(parent_item, parent_dir, name, is_folder)
+
+            def _cancel(event=None):
+                if _done[0]:
+                    return
+                _done[0] = True
+                entry.destroy()
+                try:
+                    self._tree.delete(tmp_id)
+                except Exception:
+                    pass
+
+            entry.bind("<Return>", _commit)
+            entry.bind("<Escape>", _cancel)
+            entry.bind("<FocusOut>", _cancel)
+
+        # Small delay when we just expanded a folder — lets tkinter finish
+        # the geometry pass so bbox() returns real coordinates.
+        self._tree.after(60 if needs_expand else 0, _place)
 
     def _commit_new_item(self, parent_item: str, parent_dir: Path, name: str, is_folder: bool) -> None:
         """Create the file/folder after inline name entry confirms."""

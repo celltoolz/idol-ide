@@ -353,6 +353,98 @@ REGISTRY: dict[str, dict[str, str]] = {
         ),
     },
 
+    # ── Nav toolbar ──────────────────────────────────────────────────────────
+    "nav_split": {
+        "title": "Split Editor (SPLIT)",
+        "what": "Opens two editors side by side so you can view and edit two files at once.",
+        "how": "Click SPLIT (or press Ctrl+\\) to open a second editor pane. Drag the sash to resize. Click again to close. Drag any tab past the midpoint to open it in the split.",
+        "example": "Open app.py on the left and utils.py on the right to cross-reference while coding.",
+    },
+    "nav_map": {
+        "title": "Minimap (MAP)",
+        "what": "A scaled-down bird's-eye view of your entire file on the right edge of the editor.",
+        "how": "Click MAP to toggle it. Hover over the minimap for a zoom preview of that section. Drag or click to scroll the editor.",
+        "example": "Your file is 500 lines. The minimap shows the whole thing at once — click near the bottom to jump there instantly.",
+    },
+    "nav_sidebar": {
+        "title": "Sidebar Toggle (☰)",
+        "what": "Hides or shows the entire left sidebar (Outline, Explorer, Source Control).",
+        "how": "Click ☰ or press Ctrl+B. Hiding the sidebar gives your editor more horizontal space when you need to focus.",
+        "example": "You're on a laptop with a small screen — hide the sidebar to get 220 more pixels of editor width.",
+    },
+    "nav_zen": {
+        "title": "Zen Mode (ZEN)",
+        "what": "Distraction-free mode — hides the sidebar, output panel, and status bar.",
+        "how": "Click ZEN or press F10. Press F10 again or Escape to exit. A small toast appears when you enter.",
+        "example": "You're writing a tricky algorithm and want zero visual noise. Hit ZEN — just you and the code.",
+    },
+    "nav_ai": {
+        "title": "AI Chat (AI)",
+        "what": "Toggles the AI Chat panel on the right side of the editor.",
+        "how": "Click AI or press F2. The panel slides in alongside your code — drag the sash to resize. Click again to close.",
+        "example": "Stuck on an error? Press F2, paste the traceback, ask 'what does this mean?' — without leaving the IDE.",
+    },
+    "nav_pkg": {
+        "title": "Package Manager (📦)",
+        "what": "Opens the Package Manager tab — browse, search, install, and uninstall Python packages.",
+        "how": "Click 📦 or press F3. Click again to close. All installed packages are shown grouped by topic.",
+        "example": "Need the 'requests' library? Open Package Manager, search 'requests', click Install.",
+    },
+    "nav_learn": {
+        "title": "Learning Mode (📖)",
+        "what": "Opens Learning Mode — hover over any IDE element to get an explanation of what it does.",
+        "how": "Click 📖 or press F1. Blue boxes appear on every element. Hover or click one to learn about it. Click 📖 again to close.",
+        "example": "Not sure what the breadcrumb bar does? Open Learning Mode and hover over it — you're reading the result right now!",
+    },
+    "nav_terminal": {
+        "title": "New Terminal (>_)",
+        "what": "Opens a new integrated terminal tab in the bottom panel.",
+        "how": "Click >_ or press Ctrl+` (backtick). Each click opens a fresh shell. You can have multiple terminal tabs.",
+        "example": "Click >_ and type 'pip install flask' to install a package right inside the IDE.",
+    },
+
+    # ── Package Manager ───────────────────────────────────────────────────────
+    "pkg_search": {
+        "title": "Package Search",
+        "what": "Search your installed packages or find new ones on PyPI.",
+        "how": (
+            "Type to instantly filter your installed packages by name or topic. "
+            "Press Enter or click PyPI ↗ to search the full Python Package Index for new packages. "
+            "Results are ranked by relevance with well-known packages at the top."
+        ),
+        "example": "Type 'web' to see all networking packages you have installed. Press Enter to search PyPI for web frameworks.",
+    },
+    "pkg_list": {
+        "title": "Installed Packages",
+        "what": "All Python packages currently installed in your environment, grouped by topic.",
+        "how": (
+            "Packages are grouped automatically by category (Web, Data Science, CLI Tools, etc.) "
+            "using PyPI classifier data. Click any package to see its details on the right. "
+            "The list updates after every install or uninstall."
+        ),
+        "example": "You see 'Data Science (4)' — click it to expand and find numpy, pandas, matplotlib, and scipy.",
+    },
+    "pkg_install": {
+        "title": "Install Button",
+        "what": "Installs the selected package into your Python environment using pip.",
+        "how": (
+            "Select a package from the list or PyPI search results, then click ⬇ Install. "
+            "pip runs in the background and output streams to the Output panel. "
+            "The installed list refreshes automatically when done."
+        ),
+        "example": "Search for 'flask', click it, click Install → pip installs Flask and all its dependencies.",
+    },
+    "pkg_uninstall": {
+        "title": "Uninstall Button",
+        "what": "Removes the selected package from your Python environment using pip.",
+        "how": (
+            "Select an installed package and click ✕ Uninstall. "
+            "pip removes it in the background with output in the Output panel. "
+            "Use carefully — other packages may depend on what you're removing."
+        ),
+        "example": "You no longer need 'colorama'. Select it, click Uninstall → pip removes it cleanly.",
+    },
+
     # ── AI Chat buttons ───────────────────────────────────────────────────────
     "ai_settings_btn": {
         "title": "AI Settings (⚙)",

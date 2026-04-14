@@ -205,12 +205,24 @@ class AiChatPanel(tk.Frame):
 
     def _on_canvas_configure(self, event) -> None:
         self._canvas.itemconfig(self._msg_win, width=event.width)
-        wl = max(80, event.width - 60)
+        self._apply_wraplength()
+
+    def _apply_wraplength(self) -> None:
+        """Update wraplength on all registered labels to match current canvas width."""
+        w = self._canvas.winfo_width()
+        if w < 10:
+            return
+        wl = max(80, w - 60)
         for lbl in self._wrap_labels:
             try:
                 lbl.config(wraplength=wl)
             except Exception:
                 pass
+
+    def _register_wrap_label(self, lbl) -> None:
+        """Register a label for dynamic wraplength and apply the current width immediately."""
+        self._register_wrap_label(lbl)
+        self._apply_wraplength()
 
     def _grab_scroll(self, event=None) -> None:
         """Bind all mousewheel events to this panel (Windows focus workaround)."""
@@ -322,7 +334,7 @@ class AiChatPanel(tk.Frame):
                        bg=_MSG_BG, fg=_WARN_FG, font=("Segoe UI", 9),
                        wraplength=400, justify="left", anchor="nw")
         lbl.pack(anchor="w")
-        self._wrap_labels.append(lbl)
+        self._register_wrap_label(lbl)
         self._bind_scroll_recursive(f)
         self._scroll_bottom()
 
@@ -354,7 +366,7 @@ class AiChatPanel(tk.Frame):
                  font=("Segoe UI", 9), wraplength=400,
                  justify="left", anchor="nw")
         lbl.pack(anchor="w")
-        self._wrap_labels.append(lbl)
+        self._register_wrap_label(lbl)
         self._bind_scroll_recursive(f)
         self._scroll_bottom()
 
@@ -740,7 +752,7 @@ class AiChatPanel(tk.Frame):
                        font=("Segoe UI", 10), wraplength=380,
                        justify="left", anchor="nw")
         lbl.pack(anchor="w")
-        self._wrap_labels.append(lbl)
+        self._register_wrap_label(lbl)
         self._scroll_bottom()
 
     def _append_ai_bubble(self) -> tk.Frame:
@@ -896,7 +908,7 @@ class AiChatPanel(tk.Frame):
                     lbl.pack(fill="x", anchor="w")
                     lbl.bind("<Button-4>", self._on_mousewheel)
                     lbl.bind("<Button-5>", self._on_mousewheel)
-                    self._wrap_labels.append(lbl)
+                    self._register_wrap_label(lbl)
 
     def _append_system(self, text: str, color: str = _DIM) -> None:
         self._add_spacer(8)
@@ -906,7 +918,7 @@ class AiChatPanel(tk.Frame):
                        font=("Segoe UI", 9), wraplength=400,
                        justify="left", anchor="nw")
         lbl.pack(anchor="w")
-        self._wrap_labels.append(lbl)
+        self._register_wrap_label(lbl)
         self._bind_scroll_recursive(f)
         self._scroll_bottom()
 
