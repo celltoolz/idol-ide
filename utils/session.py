@@ -107,14 +107,8 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         try:
             # Measure the frame directly — sashpos() is unreliable on macOS.
             w = app._ai_panel_frame.winfo_width()
-            from app import _sash_get
-            sash = _sash_get(app._h_pane, 1)
-            total = app._h_pane.winfo_width()
-            saved = max(280, w) if w > 50 else app._ai_panel_width
-            print(f"[SESSION SAVE] frame.winfo_width={w}  sashpos(1)={sash}  h_pane.winfo_width={total}  => saving={saved}")
-            layout["ai_panel_width"] = saved
-        except Exception as e:
-            print(f"[SESSION SAVE] exception: {e}")
+            layout["ai_panel_width"] = max(280, w) if w > 50 else app._ai_panel_width
+        except Exception:
             layout["ai_panel_width"] = app._ai_panel_width
     else:
         layout["ai_panel_width"] = app._ai_panel_width
@@ -255,7 +249,6 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
     if layout.get("ai_panel_visible"):
         w = layout.get("ai_panel_width", 350)
         app._ai_panel_width = max(280, w)
-        print(f"[SESSION RESTORE] ai_panel_width from file={w}  => _ai_panel_width={app._ai_panel_width}")
         if not app._ai_panel_visible:
             app.view_ai_chat()
 
