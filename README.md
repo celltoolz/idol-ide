@@ -136,8 +136,21 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Session persistence — restores open tabs, layout, and explorer root on relaunch
 - Save / Open Workspace for named sessions
 - Status bar: line/column, cursor count, lexer name, indent cycle (spaces ↔ tabs)
-- Zen mode — F11 hides the sidebar, output panel, and status bar for distraction-free editing; toast notification on entry
+- Zen mode — F10 hides the sidebar, output panel, and status bar for distraction-free editing; toast notification on entry
 - **Toggle Sidebar** — Ctrl+B (or View → Show Sidebar) hides/shows the entire left panel in one click
+
+### Nav Toolbar
+- Thin toolbar strip pinned above the editor — always visible, zero clutter
+- **‹ ›** — navigate backward/forward through edit history
+- **+** — open a new tab
+- **>_** — open a new terminal
+- **SPLIT** — toggle split editor; highlights blue when active
+- **MAP** — toggle minimap; highlights blue when active
+- **☰** — toggle sidebar (Ctrl+B); highlights blue when active
+- **ZEN** — toggle zen mode (F10); highlights blue when active
+- **AI** — toggle AI Chat panel (F2); highlights blue when active
+- **📦** — toggle Package Manager (F3); highlights blue when active
+- **📖** — toggle Learning Mode (F1); highlights blue when active
 
 ## Requirements
 
@@ -178,7 +191,7 @@ python main.py
 | AI Chat | F2 |
 | Package Manager | F3 |
 | Toggle sidebar | Ctrl+B |
-| Zen mode | F11 |
+| Zen mode | F10 |
 | Change font | Ctrl+L |
 | Add cursor | Alt+Click |
 | Clear cursors | Escape / Click |
