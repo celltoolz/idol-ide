@@ -220,6 +220,7 @@ class TerminalPanel(ttk.Frame):
         self._sel_start: str | None = None
         self._sel_end:   str | None = None
         self._session_id = 0   # incremented on each start(); guards stale sentinels
+        self._render_suppressed = False   # True during startup; suppresses _redraw_full until clear fires
 
         # Venv tracking
         self._cwd_current: str = ""        # last CWD from OSC 7 / state file
@@ -273,6 +274,7 @@ class TerminalPanel(ttk.Frame):
             self._stream = pyte.ByteStream(self._screen)
             self._session_id += 1
             sid = self._session_id
+            self._render_suppressed = True
             self._pty = _pty_spawn(cmd, dimensions=(self._rows, self._cols), env=env)
             self._running = True
             self._raw_buf  = ""
@@ -281,12 +283,15 @@ class TerminalPanel(ttk.Frame):
             self._state_file_mtime = 0.0
             threading.Thread(target=self._read_loop, args=(sid,), daemon=True).start()
             self._text.focus_set()
-            # Inject OSC 7 CWD + VENV reporting hook after shell is ready
+            # Inject OSC 7 CWD + VENV reporting hook after shell is ready.
+            # Both the cd and hook injection use _send_silently so the TTY
+            # driver never echoes the commands — nothing to clear afterward.
             self.after(400, self._inject_shell_hooks)
-            self.after(700, lambda: self.send_text("clear\r"))
+            self.after(700, self._clear_screen_direct)
+            self.after(1500, self._ensure_render_active)
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd):
-                self.after(300, lambda c=_cwd: self.send_text(f'cd "{c}"\r'))
+                self.after(300, lambda c=_cwd: self._send_silently(f'cd "{c}"\r'))
         except Exception as e:
             self._write_error(f"Failed to start shell: {e}\n")
 
@@ -326,16 +331,27 @@ class TerminalPanel(ttk.Frame):
             except Exception:
                 pass
 
-    def clear(self) -> None:
-        """Send 'clear' to the shell — lets the shell redraw the prompt naturally."""
+    def _clear_screen_direct(self) -> None:
+        """Reset pyte completely to discard startup noise, lift render suppression,
+        then nudge the shell for a fresh prompt. One clean render, no flash."""
+        self._scrollback.clear()
+        self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
+        self._stream = pyte.ByteStream(self._screen)
+        self._render_suppressed = False
+        self._redraw_full()
         if self._running and self._pty:
-            self.send("clear\r")
-        else:
-            # No active shell — just wipe the widget directly
-            self._scrollback.clear()
-            self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
-            self._stream = pyte.ByteStream(self._screen)
+            self.send_text("\r")
+
+    def _ensure_render_active(self) -> None:
+        """Fallback: if _clear_screen_direct never fired (slow system), lift
+        suppression now so the terminal doesn't stay permanently blank."""
+        if self._render_suppressed:
+            self._render_suppressed = False
             self._redraw_full()
+
+    def clear(self) -> None:
+        """Clear terminal display directly via pyte — no shell involvement, no flash."""
+        self._clear_screen_direct()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -612,8 +628,9 @@ class TerminalPanel(ttk.Frame):
         if chunks:
             for chunk in chunks:
                 self._stream.feed(chunk)
-            self._flush_scrollback()
-            self._redraw_full()
+            if not self._render_suppressed:
+                self._flush_scrollback()
+                self._redraw_full()
 
         if sentinel:
             self._running = False
@@ -730,6 +747,35 @@ class TerminalPanel(ttk.Frame):
 
     # ── Venv tracking ─────────────────────────────────────────────────────────
 
+    def _send_silently(self, text: str) -> None:
+        """Write to the shell with TTY echo disabled so the command never appears
+        in the terminal output.  Unix only — Windows falls back to plain send."""
+        if not (self._running and self._pty):
+            return
+        sent = False
+        if platform.system() != "Windows":
+            try:
+                import termios
+                fd = self._pty.fd
+                attrs = termios.tcgetattr(fd)
+                silent = list(attrs)
+                silent[3] = silent[3] & ~termios.ECHO
+                termios.tcsetattr(fd, termios.TCSANOW, silent)
+                self._pty.write(text)
+                self.after(200, lambda: self._restore_echo(fd, attrs))
+                sent = True
+            except Exception:
+                pass
+        if not sent:
+            self.send(text)
+
+    def _restore_echo(self, fd: int, attrs) -> None:
+        try:
+            import termios
+            termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        except Exception:
+            pass
+
     def _inject_shell_hooks(self) -> None:
         """Inject CWD + VENV reporting into the running shell."""
         if not self._running:
@@ -770,7 +816,7 @@ class TerminalPanel(ttk.Frame):
                 'export PROMPT_COMMAND=\'printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
                 ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}"\'\r'
             )
-        self.send(hook)
+        self._send_silently(hook)
 
     def _poll_state_file(self) -> None:
         """Windows-only: read CWD/VENV from temp file written by the PS prompt hook."""
