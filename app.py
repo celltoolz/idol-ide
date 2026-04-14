@@ -42,6 +42,22 @@ from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 
+# Cross-platform sash helpers — sashpos() is missing on some macOS Tk builds
+def _sash_get(pane: tk.PanedWindow, index: int) -> int:
+    """Return sash position for a horizontal PanedWindow."""
+    try:
+        return pane.sashpos(index)
+    except AttributeError:
+        return pane.sash_coord(index)[0]
+
+def _sash_set(pane: tk.PanedWindow, index: int, pos: int) -> None:
+    """Set sash position for a horizontal PanedWindow."""
+    try:
+        pane.sashpos(index, pos)
+    except AttributeError:
+        pane.sash_place(index, pos, 0)
+
+
 # Words that should NOT trigger word-highlight on click
 _SKIP_HIGHLIGHT = (
     set(dir(builtins))
@@ -400,8 +416,8 @@ class IDOL(Tk):
         # or when the async session restore hasn't fired yet.  Set it here while
         # we're in the Map handler so the window is definitely visible.
         try:
-            if self._h_pane.sashpos(0) < 50:
-                self._h_pane.sashpos(0, 220)
+            if _sash_get(self._h_pane, 0) < 50:
+                _sash_set(self._h_pane, 0, 220)
         except Exception:
             pass
 
@@ -2333,7 +2349,7 @@ class IDOL(Tk):
             # because sashpos() returns unreliable values on macOS.
             try:
                 w = self._ai_panel_frame.winfo_width()
-                sash = self._h_pane.sashpos(1)
+                sash = _sash_get(self._h_pane, 1)
                 total = self._h_pane.winfo_width()
                 print(f"[AI SASH SAVE] frame.winfo_width={w}  sashpos(1)={sash}  h_pane.winfo_width={total}  => saving width={max(280, w) if w > 50 else self._ai_panel_width}")
                 if w > 50:
@@ -2379,8 +2395,8 @@ class IDOL(Tk):
             except Exception:
                 pass
             try:
-                self._h_pane.sashpos(1, target)
-                actual = self._h_pane.sashpos(1)
+                _sash_set(self._h_pane, 1, target)
+                actual = _sash_get(self._h_pane, 1)
                 print(f"[AI SASH SET] sashpos set to {target}, readback={actual}")
             except Exception as e:
                 print(f"[AI SASH SET] exception: {e}")

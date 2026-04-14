@@ -107,7 +107,8 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         try:
             # Measure the frame directly — sashpos() is unreliable on macOS.
             w = app._ai_panel_frame.winfo_width()
-            sash = app._h_pane.sashpos(1)
+            from app import _sash_get
+            sash = _sash_get(app._h_pane, 1)
             total = app._h_pane.winfo_width()
             saved = max(280, w) if w > 50 else app._ai_panel_width
             print(f"[SESSION SAVE] frame.winfo_width={w}  sashpos(1)={sash}  h_pane.winfo_width={total}  => saving={saved}")
