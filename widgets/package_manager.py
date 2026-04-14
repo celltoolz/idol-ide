@@ -308,6 +308,7 @@ class PackageManagerPanel(tk.Frame):
                                     on_uninstall=self._uninstall_pkg,
                                     on_ask_ai=self._ask_ai)
         self._detail.pack(fill="both", expand=True)
+        self._register_learning()
 
     # ── Search placeholder / rotating hints ───────────────────────────────────
 
@@ -629,6 +630,14 @@ class PackageManagerPanel(tk.Frame):
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 
+    def _register_learning(self) -> None:
+        """Register package manager widgets with Learning Mode (called after _build)."""
+        LearningManager.register(self._search_entry,       "pkg_search")
+        LearningManager.register(self._search_btn,         "pkg_search")
+        LearningManager.register(self._tree,               "pkg_list")
+        LearningManager.register(self._detail._install_btn,   "pkg_install")
+        LearningManager.register(self._detail._uninstall_btn, "pkg_uninstall")
+
     def _make_btn(self, parent, text: str, cmd: Callable) -> tk.Label:
         btn = tk.Label(parent, text=text, bg=_INPUT_BG, fg=_FG,
                        font=("Segoe UI", 8), cursor="hand2", padx=8, pady=3)
@@ -711,13 +720,6 @@ class _DetailPanel(tk.Frame):
         self._desc_text.configure(yscrollcommand=desc_sb.set)
         desc_sb.pack(side="right", fill="y")
         self._desc_text.pack(fill="both", expand=True)
-
-        # Register with Learning Mode
-        LearningManager.register(self._search_entry, "pkg_search")
-        LearningManager.register(self._search_btn,   "pkg_search")
-        LearningManager.register(self._tree,         "pkg_list")
-        LearningManager.register(self._install_btn,  "pkg_install")
-        LearningManager.register(self._uninstall_btn,"pkg_uninstall")
 
     def _meta_label(self, parent) -> tk.Label:
         lbl = tk.Label(parent, text="", bg=_PANEL_BG, fg=_DIM,

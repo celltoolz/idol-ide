@@ -317,6 +317,29 @@ class AiChatPanel(tk.Frame):
                 except Exception:
                     pass
 
+    def recheck_ollama(self) -> None:
+        """Re-ping Ollama — call this when the panel is made visible again."""
+        try:
+            import requests  # noqa: F401
+            ollama_client.check_async(self._on_ollama_status_recheck)
+        except ImportError:
+            pass
+
+    def _on_ollama_status_recheck(self, available: bool) -> None:
+        """Status callback for re-checks — clears offline card if now available."""
+        prev = self._ai_available
+        self._ai_available = available
+        if available and not prev:
+            try:
+                self.after(0, self._clear_offline_cards)
+            except Exception:
+                pass
+        elif not available and prev:
+            try:
+                self.after(0, self._show_offline_card)
+            except Exception:
+                pass
+
     def _on_ollama_status(self, available: bool) -> None:
         self._ai_available = available
         if not available:

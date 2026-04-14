@@ -51,7 +51,7 @@ class FileExplorer(ttk.Frame):
         self._tree.bind("<<TreeviewOpen>>",    self._on_node_expand)
         self._tree.bind("<Double-Button-1>",   self._on_double_click)
         self._tree.bind("<Return>",            self._on_enter)
-        self._tree.bind("<Delete>",            lambda _: self._delete_selected())
+        self._tree.bind("<Delete>",            self._on_delete_key)
         bind_right_click(self._tree, self._on_right_click)
 
         # Drag/drop state
@@ -268,6 +268,13 @@ class FileExplorer(ttk.Frame):
         parent_item = self._tree.parent(self._menu_item)
         self._refresh_node(parent_item, old_path.parent)
 
+    def _on_delete_key(self, event=None) -> None:
+        """Delete key handler — sets _menu_item from tree selection first."""
+        sel = self._tree.selection()
+        if sel:
+            self._menu_item = sel[0]
+        self._delete_selected()
+
     def _delete_selected(self) -> None:
         if not self._menu_item:
             return
@@ -306,12 +313,15 @@ class FileExplorer(ttk.Frame):
 
     def _start_inline_entry(self, parent_item: str, parent_dir: Path, is_folder: bool) -> None:
         """Show an inline Entry overlaid on a treeview placeholder item."""
-        # Expand the parent folder first so the placeholder row is visible.
-        # If the node wasn't already open we need a short delay for the treeview
-        # to finish its geometry pass before bbox() returns valid coordinates.
-        needs_expand = bool(parent_item) and not self._tree.item(parent_item, "open")
-        if needs_expand:
+        # If the parent folder isn't open yet, expand it and load its children.
+        if parent_item and not self._tree.item(parent_item, "open"):
             self._tree.item(parent_item, open=True)
+            # Fire the expand handler manually to populate lazy children
+            class _FakeEvent:
+                pass
+            e = _FakeEvent()
+            e.widget = self._tree  # type: ignore[attr-defined]
+            self._on_node_expand(e)
             self._tree.update_idletasks()
 
         tmp_id = self._tree.insert(
@@ -320,17 +330,27 @@ class FileExplorer(ttk.Frame):
             tags=("_new_placeholder",),
         )
         self._tree.see(tmp_id)
-        self._tree.update_idletasks()
+
+        _attempts = [0]
 
         def _place():
+            self._tree.update_idletasks()
             bbox = self._tree.bbox(tmp_id, "#0")
             if not bbox:
-                # Placeholder not visible — fall back to dialog
-                self._tree.delete(tmp_id)
-                kind = "Folder" if is_folder else "File"
-                name = simpledialog.askstring(f"New {kind}", "Name:", parent=self._tree)
-                if name:
-                    self._commit_new_item(parent_item, parent_dir, name, is_folder)
+                _attempts[0] += 1
+                if _attempts[0] < 5:
+                    # Retry up to 5 times at 50ms intervals
+                    self._tree.after(50, _place)
+                else:
+                    # Give up and fall back to dialog
+                    try:
+                        self._tree.delete(tmp_id)
+                    except Exception:
+                        pass
+                    kind = "Folder" if is_folder else "File"
+                    name = simpledialog.askstring(f"New {kind}", "Name:", parent=self._tree)
+                    if name:
+                        self._commit_new_item(parent_item, parent_dir, name, is_folder)
                 return
 
             x, y, w, h = bbox
@@ -378,9 +398,7 @@ class FileExplorer(ttk.Frame):
             entry.bind("<Escape>", _cancel)
             entry.bind("<FocusOut>", _cancel)
 
-        # Small delay when we just expanded a folder — lets tkinter finish
-        # the geometry pass so bbox() returns real coordinates.
-        self._tree.after(60 if needs_expand else 0, _place)
+        self._tree.after(30, _place)
 
     def _commit_new_item(self, parent_item: str, parent_dir: Path, name: str, is_folder: bool) -> None:
         """Create the file/folder after inline name entry confirms."""

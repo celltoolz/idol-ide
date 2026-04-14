@@ -2384,6 +2384,8 @@ class IDOL(Tk):
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
             self.after(100, self._apply_ai_panel_sash)
+            if self._ai_chat_panel:
+                self.after(200, self._ai_chat_panel.recheck_ollama)
         self._refresh_nav_bar()
 
     def _ensure_ai_panel_open(self) -> None:
@@ -2392,6 +2394,8 @@ class IDOL(Tk):
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
             self.after(100, self._apply_ai_panel_sash)
+            if self._ai_chat_panel:
+                self.after(200, self._ai_chat_panel.recheck_ollama)
 
     def _apply_ai_panel_sash(self) -> None:
         """Position the sash so the AI panel has its saved width.
