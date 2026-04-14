@@ -222,6 +222,8 @@ class IDOL(Tk):
         self._learning_panel: LearningPanel | None = None
         self._learning_overlay_widgets: list = []
         self._learning_active_lid: str = ""
+        self._learning_selected: str | None = None
+        self._learning_restore_fns: dict[str, object] = {}
         self._learning_resize_id = None
 
         # Split editor
@@ -2518,17 +2520,7 @@ class IDOL(Tk):
 
         parts = []
 
-        # Stipple fill — simulates a semi-transparent blue tint over the widget.
-        # Hidden by default, shown on hover.
-        fill = tk.Canvas(self, bg=color, highlightthickness=0, cursor="hand2")
-        fill.place(x=rx, y=ry, width=rw, height=rh)
-        fill._rect = fill.create_rectangle(
-            0, 0, rw, rh, fill=color, stipple="gray25", outline=""
-        )
-        fill.place_forget()  # hidden until hover
-        parts.append(fill)
-
-        # Four border lines
+        # Four border lines — visible in Default state
         for bx, by, bw, bh in [
             (rx, ry, rw, t),
             (rx, ry + rh - t, rw, t),
@@ -2536,11 +2528,12 @@ class IDOL(Tk):
             (rx + rw - t, ry, t, rh),
         ]:
             f = tk.Frame(self, bg=color, cursor="hand2")
-            f.place(x=bx, y=by, width=bw, height=bh)
+            f._place_kw = dict(x=bx, y=by, width=bw, height=bh)
+            f.place(**f._place_kw)
             f.lift()
             parts.append(f)
 
-        # Small badge at top-right corner
+        # Small badge at top-right corner — visible in Default state
         badge = tk.Label(
             self,
             text="📖",
@@ -2551,37 +2544,53 @@ class IDOL(Tk):
             padx=2,
             pady=0,
         )
-        badge.place(x=rx + rw - 20, y=ry)
+        badge._place_kw = dict(x=rx + rw - 20, y=ry)
+        badge.place(**badge._place_kw)
         badge.lift()
         parts.append(badge)
 
         def _on_enter(_):
-            # Show fill, switch borders + badge to hover color
-            try:
-                fill.place(x=rx, y=ry, width=rw, height=rh)
-                fill.lift()
-                fill.itemconfig(fill._rect, fill=hover_color)
-            except Exception:
-                pass
-            for p in parts[1:]:  # skip fill canvas
+            # Hover: switch strips+badge to hover color.
+            for p in parts:
                 try:
                     p.config(bg=hover_color)
                 except Exception:
                     pass
 
         def _on_leave(_):
-            try:
-                fill.place_forget()
-            except Exception:
-                pass
-            for p in parts[1:]:
+            # Back to Default: reset strip+badge color.
+            for p in parts:
                 try:
                     p.config(bg=color)
                 except Exception:
                     pass
 
         def _on_click(_):
+            # Restore previously selected overlay to Default before selecting this one.
+            prev = self._learning_selected
+            if prev and prev != lid:
+                fn = self._learning_restore_fns.get(prev)
+                if fn:
+                    fn()
+            # Selected state: hide all parts so the widget is fully unobscured.
+            for p in parts:
+                try:
+                    p.place_forget()
+                except Exception:
+                    pass
+            self._learning_selected = lid
             self._on_overlay_click(lid)
+
+        def _restore_default():
+            """Return this overlay to Default state (strips+badge visible)."""
+            for p in parts:
+                try:
+                    p.place(**p._place_kw)
+                    p.config(bg=color)
+                except Exception:
+                    pass
+
+        self._learning_restore_fns[lid] = _restore_default
 
         for p in parts:
             p.bind("<Enter>", _on_enter)
@@ -2591,8 +2600,7 @@ class IDOL(Tk):
         self._learning_overlay_widgets.extend(parts)
 
     def _on_overlay_click(self, lid: str) -> None:
-        """Switch learning content to *lid* and update overlays."""
-        # Focus the learning tab
+        """Switch learning content to *lid*. Overlay state is managed in _on_click closures."""
         if self._learning_tab:
             try:
                 self.notebook.select(self._learning_tab)
@@ -2600,7 +2608,6 @@ class IDOL(Tk):
                 pass
         if self._learning_panel:
             self._learning_panel.show(lid)
-        self._learning_show_overlays(lid)
 
     def _learning_destroy_overlays(self) -> None:
         for w in self._learning_overlay_widgets:
@@ -2609,6 +2616,8 @@ class IDOL(Tk):
             except Exception:
                 pass
         self._learning_overlay_widgets = []
+        self._learning_selected = None
+        self._learning_restore_fns = {}
 
     def _learning_reposition(self) -> None:
         """Rebuild overlays at updated positions after window resize."""
