@@ -178,6 +178,10 @@ python main.py
 | Save | Ctrl+S |
 | Save As | Ctrl+Shift+S |
 | Close tab | Ctrl+W |
+| Exit | Ctrl+Q |
+| Undo | Ctrl+Z |
+| Redo | Ctrl+Y |
+| Select All | Ctrl+A |
 | Find & Replace | Ctrl+F |
 | Command palette | Ctrl+Shift+P |
 | Run file | F5 |
