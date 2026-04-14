@@ -2346,6 +2346,7 @@ class IDOL(Tk):
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
             print(f"[AI SASH OPEN] _ai_panel_width={self._ai_panel_width}  h_pane.winfo_width={self._h_pane.winfo_width()}")
+            print(f"[AI SASH OPEN] sash methods: {[m for m in dir(self._h_pane) if 'sash' in m.lower()]}")
             self.after(100, self._apply_ai_panel_sash)
         self._refresh_nav_bar()
 
@@ -2386,6 +2387,8 @@ class IDOL(Tk):
 
         _cbid.append(self._h_pane.bind("<Configure>", _set_sash))
         print(f"[AI SASH BIND] bound Configure id={_cbid[0] if _cbid else 'none'}")
+        # Also try after 500ms in case <Configure> never fires on this platform
+        self.after(500, lambda: _set_sash() if _cbid else None)
 
     def _ai_get_file_content(self) -> tuple[str, str]:
         """Return (filename, content) of the last active editor tab."""
