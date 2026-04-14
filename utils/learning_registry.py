@@ -19,8 +19,11 @@ REGISTRY: dict[str, dict[str, str]] = {
             "It supports multiple cursors, code folding, undo/redo, and a minimap on the right side."
         ),
         "example": (
-            "Try typing 'def greet(name):' and pressing Enter — the editor automatically "
-            "indents the next line for you. Type 'print(' and notice the closing ) appears automatically."
+            'Try it now — type this into the editor:\n\n'
+            '    print("Hello, IDOL!")\n\n'
+            "Then right-click that line → Run Line → the Output panel shows: Hello, IDOL!\n\n"
+            "Also try typing 'def greet(name):' and pressing Enter — the editor automatically "
+            "indents the next line. Type 'print(' and notice the closing ) appears automatically."
         ),
     },
 
@@ -347,6 +350,106 @@ REGISTRY: dict[str, dict[str, str]] = {
         "example": (
             "Open app.py on the left and utils.py on the right. "
             "Toggle Scroll Lock to compare functions at the same position in both files."
+        ),
+    },
+
+    # ── AI Chat buttons ───────────────────────────────────────────────────────
+    "ai_settings_btn": {
+        "title": "AI Settings (⚙)",
+        "what": "Configure which Ollama server IDOL connects to for AI responses.",
+        "how": (
+            "Click ⚙ to reveal the URL field. Change the address if Ollama is running on a "
+            "different machine or port. Click Apply to connect and verify instantly. "
+            "The default (localhost) works if Ollama is running on your own computer."
+        ),
+        "example": (
+            "Your Ollama is on a home server at 192.168.1.10. "
+            "Click ⚙ → type 'http://192.168.1.10:11434' → Apply → IDOL connects remotely."
+        ),
+    },
+
+    "ai_clear_btn": {
+        "title": "Clear Conversation (🗑)",
+        "what": "Wipes the entire chat history — messages, memory, and the saved history file.",
+        "how": (
+            "Click 🗑 Clear to erase everything and start fresh. "
+            "The AI has no memory of previous messages after a clear. "
+            "Useful when switching topics or when the token counter is nearly full."
+        ),
+        "example": (
+            "You've been debugging one file for a while and want to ask about something new. "
+            "Click Clear — the AI starts with a blank slate, no context confusion."
+        ),
+    },
+
+    "ai_load_btn": {
+        "title": "Load Conversation (📂)",
+        "what": "Loads a previously saved conversation from a JSON file.",
+        "how": (
+            "Click 📂 Load and pick a .json file you exported earlier. "
+            "The full conversation restores — the AI picks up right where you left off, "
+            "with all prior context intact."
+        ),
+        "example": (
+            "You saved a useful debugging session last week. "
+            "Load it now to continue from where you stopped, or refer back to the AI's suggestions."
+        ),
+    },
+
+    "ai_save_btn": {
+        "title": "Save Conversation (💾)",
+        "what": "Exports the full chat history to a JSON file you can reload later.",
+        "how": (
+            "Click 💾 Save and choose where to save the file. "
+            "The file stores every message in the conversation. "
+            "Conversations also auto-save on exit and restore on next launch automatically."
+        ),
+        "example": (
+            "You've had a really useful chat solving a tricky bug. "
+            "Save it so you can reload it on any machine or share it with a teammate."
+        ),
+    },
+
+    "ai_send_file_btn": {
+        "title": "Send File (📄)",
+        "what": "Attaches the code from your currently open file to your next AI message.",
+        "how": (
+            "Click 📄 Send File — a label confirms the file is attached. "
+            "Then type your question and send. The AI sees your full file contents "
+            "and can answer specifically about your code. The attachment clears after sending."
+        ),
+        "example": (
+            "You have app.py open. Click Send File, type 'What does _apply_layout do?' — "
+            "the AI reads your actual code and gives you a precise answer."
+        ),
+    },
+
+    "ai_selection_btn": {
+        "title": "Send Selection (✂)",
+        "what": "Attaches only the highlighted text from the editor to your next AI message.",
+        "how": (
+            "Select code in the editor first, then click ✂ Selection. "
+            "The snippet is attached — useful when you want to ask about a specific function "
+            "without sending the whole file. The attachment clears after sending."
+        ),
+        "example": (
+            "Select a confusing 10-line function, click Selection, "
+            "type 'Explain this to me like I'm 5.' — the AI explains just that snippet."
+        ),
+    },
+
+    "ai_token_label": {
+        "title": "Token Counter",
+        "what": "Shows how much of the AI's memory (context window) the conversation is using.",
+        "how": (
+            "Each token is roughly 3–4 characters. Most models have a limit (e.g. 32,000 tokens). "
+            "The counter turns amber when you're approaching the limit. "
+            "If the AI seems forgetful or starts ignoring earlier messages, the context is full — "
+            "click 🗑 Clear to start fresh."
+        ),
+        "example": (
+            "'~1,200 / 32,000 tokens (4%)' means you have plenty of room. "
+            "At 80%+, consider clearing the conversation before asking new questions."
         ),
     },
 }

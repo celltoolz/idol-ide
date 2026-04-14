@@ -8,6 +8,8 @@ from tkinter import ttk, messagebox, filedialog
 from typing import Callable
 
 from utils import ollama_client
+from utils import settings as idol_settings
+from utils.learning_registry import LearningManager
 
 _HISTORY_FILE = Path.home() / ".idol" / "ai_history.json"
 _HISTORY_CAP  = 20   # max messages restored from disk
@@ -44,6 +46,7 @@ class AiChatPanel(tk.Frame):
         self._generating       = False
         self._history: list[dict] = []              # [{role, content}]
         self._ai_available     = False
+        self._ai_introduced    = idol_settings.get("ai_introduced", False)
         self._current_ai_label: tk.Frame | None = None
         self._scroll_job = None
         self._render_job = None
@@ -129,10 +132,14 @@ class AiChatPanel(tk.Frame):
         self._ctx_row = ctx_row
         ctx_row.pack(fill="x", padx=8, pady=(6, 0))
 
-        self._make_ctx_btn(ctx_row, "💾 Save",  self._save_conversation).pack(side="right")
-        self._make_ctx_btn(ctx_row, "📂 Load",  self._load_conversation).pack(side="right", padx=(0, 4))
-        self._make_ctx_btn(ctx_row, "🗑 Clear", self._clear_conversation).pack(side="right", padx=(0, 4))
-        self._make_ctx_btn(ctx_row, "⚙",       self._toggle_url_row).pack(side="right", padx=(0, 4))
+        self._save_btn     = self._make_ctx_btn(ctx_row, "💾 Save",  self._save_conversation)
+        self._load_btn     = self._make_ctx_btn(ctx_row, "📂 Load",  self._load_conversation)
+        self._clear_btn    = self._make_ctx_btn(ctx_row, "🗑 Clear", self._clear_conversation)
+        self._settings_btn = self._make_ctx_btn(ctx_row, "⚙",       self._toggle_url_row)
+        self._save_btn.pack(side="right")
+        self._load_btn.pack(side="right", padx=(0, 4))
+        self._clear_btn.pack(side="right", padx=(0, 4))
+        self._settings_btn.pack(side="right", padx=(0, 4))
 
         # Text input + send button
         input_row = tk.Frame(input_outer, bg=_INPUT_BG)
@@ -177,6 +184,15 @@ class AiChatPanel(tk.Frame):
         self._token_label.pack(side="right")
 
         self._pending_ctx: str = ""   # attached code context
+
+        # Register AI panel controls with Learning Mode
+        LearningManager.register(self._settings_btn,  "ai_settings_btn")
+        LearningManager.register(self._clear_btn,     "ai_clear_btn")
+        LearningManager.register(self._load_btn,      "ai_load_btn")
+        LearningManager.register(self._save_btn,      "ai_save_btn")
+        LearningManager.register(self._file_btn,      "ai_send_file_btn")
+        LearningManager.register(self._sel_btn,       "ai_selection_btn")
+        LearningManager.register(self._token_label,   "ai_token_label")
 
         # Auto-load persisted history; fall back to welcome message
         if not self._auto_load_history():
@@ -327,7 +343,7 @@ class AiChatPanel(tk.Frame):
         f = tk.Frame(self._msg_inner, bg=_MSG_BG, padx=12, pady=8)
         f._is_offline_card = True
         f.pack(fill="x", padx=10)
-        tk.Label(f,
+        lbl = tk.Label(f,
                  text=(f"Local AI (Ollama) is not running.\n\n"
                        f"Step 1 — Install Ollama (run in {shell_note}):\n"
                        f"  {install_cmd}\n\n"
@@ -602,6 +618,12 @@ class AiChatPanel(tk.Frame):
                 ))
             except Exception:
                 pass
+            # First successful response — trigger Qwen's one-time intro after a pause
+            if not self._ai_introduced:
+                try:
+                    self.after(600, self._trigger_intro)
+                except Exception:
+                    pass
 
         def _on_error(msg: str) -> None:
             self._generating = False
@@ -632,6 +654,61 @@ class AiChatPanel(tk.Frame):
             )
         except Exception:
             pass
+
+    def _trigger_intro(self) -> None:
+        """Send a hidden one-shot intro prompt so Qwen introduces herself."""
+        if self._generating or self._ai_introduced:
+            return
+        if not self._ai_available:
+            return
+
+        self._ai_introduced = True
+        idol_settings.set("ai_introduced", True)
+
+        self._generating = True
+        self._current_ai_label = self._append_ai_bubble()
+
+        _INTRO_PROMPT = (
+            "You are Qwen, a friendly AI assistant built into IDOL "
+            "(Integrated Development and Objective Learning), a Python IDE for beginners. "
+            "Introduce yourself in 2-3 short sentences. "
+            "Mention that you can help users learn Python, understand their code, and answer questions "
+            "— all without leaving the IDE. Be warm and encouraging. "
+            "Do not use markdown headers, bullet lists, or code blocks."
+        )
+
+        accumulated: list[str] = []
+
+        def _on_chunk(token: str) -> None:
+            accumulated.append(token)
+            self._pending_render_text = "".join(accumulated)
+            try:
+                self.after(0, self._schedule_render)
+            except Exception:
+                pass
+
+        def _on_done(full: str) -> None:
+            self._generating = False
+            self._history.append({"role": "assistant", "content": full})
+            try:
+                self.after(0, lambda: (
+                    self._cancel_render_job(),
+                    self._update_ai_bubble(full),
+                    self._scroll_bottom(),
+                ))
+                self.after(0, self._update_token_label)
+            except Exception:
+                pass
+
+        def _on_error(_: str) -> None:
+            self._generating = False
+
+        ollama_client.generate(
+            _INTRO_PROMPT,
+            on_chunk=_on_chunk,
+            on_done=_on_done,
+            on_error=_on_error,
+        )
 
     def _build_prompt(self) -> str:
         """Flatten history into a single prompt string."""

@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showinfo, showerror, askyesnocancel, askyesno
@@ -176,6 +177,7 @@ class IDOL(Tk):
         self._files: dict[str, str | None] = {}
         self._titles: dict[str, str] = {}
         self._dirty: dict[str, bool] = {}
+        self._temp_files: dict[str, str] = {}  # tab_id → temp file path
         self._indent_sizes: dict[str, int] = {}
         self._codeviews: dict[str, CodeView] = {}
         self._key_handlers: dict[str, KeyHandler] = {}
@@ -741,6 +743,13 @@ class IDOL(Tk):
         self._key_handlers.pop(tab_id, None)
         self._breadcrumbs.pop(tab_id, None)
         mc = self._multi_cursors.pop(tab_id, None)
+        # Delete any temp file for this tab — user explicitly chose to close it
+        _tmp = self._temp_files.pop(tab_id, None)
+        if _tmp:
+            try:
+                Path(_tmp).unlink(missing_ok=True)
+            except Exception:
+                pass
         if mc:
             mc.clear()
         if closed_path and closed_path.endswith(".py") and self._lsp:
@@ -812,12 +821,13 @@ class IDOL(Tk):
                 self._learning_panel = None
                 self._learning_destroy_overlays()
                 self._refresh_nav_bar()
-            elif self.notebook.select() == self._learning_tab:
+            else:
+                # Always refresh overlays on tab change — winfo_viewable() inside
+                # _learning_add_overlay skips widgets not visible on this tab,
+                # so only the elements present on the active tab get highlighted.
                 self.after(
                     100, lambda: self._learning_show_overlays(self._learning_active_lid)
                 )
-            else:
-                self._learning_destroy_overlays()
 
     def _on_app_configure(self, event) -> None:
         if event.widget is not self:
@@ -2005,6 +2015,12 @@ class IDOL(Tk):
             title = os.path.basename(filepath)
             self._titles[tab_id] = title
             self._dirty[tab_id] = False
+            _tmp = self._temp_files.pop(tab_id, None)
+            if _tmp:
+                try:
+                    Path(_tmp).unlink(missing_ok=True)
+                except Exception:
+                    pass
             self._refresh_tab_title(tab_id)
             self._update_title()
             # Refresh explorer (soft — preserves expanded folders) and git
@@ -2021,10 +2037,8 @@ class IDOL(Tk):
             self._close_tab(self.notebook.index("current"))
 
     def file_exit(self, *_) -> None:
-        # Prompt for each dirty tab before exiting
-        for tab_id in list(self.notebook.tabs()):
-            if not self._confirm_close_tab(tab_id):
-                return  # user cancelled — abort exit
+        # No prompts on exit — dirty tabs are auto-saved to temp files by
+        # session.save() so nothing is lost. Prompts only happen on tab close.
         self._do_exit()
 
     def _do_exit(self) -> None:

@@ -295,46 +295,104 @@ class FileExplorer(ttk.Frame):
         parent_item, parent_dir = self._new_item_context()
         if parent_dir is None:
             return
-        name = simpledialog.askstring("New File", "File name:", parent=self._tree)
-        if not name:
-            return
-        new_path = parent_dir / name
-        if new_path.exists():
-            messagebox.showwarning(
-                "File exists", f"'{name}' already exists in this folder.",
-                parent=self._tree,
-            )
-            return
-        try:
-            new_path.touch()
-        except Exception as e:
-            messagebox.showerror("New File failed", str(e), parent=self._tree)
-            return
-        # Use soft refresh so expanded folders stay open
-        self._soft_refresh_node(parent_item, parent_dir)
-        self._on_open(str(new_path))
+        self._start_inline_entry(parent_item, parent_dir, is_folder=False)
 
     def _new_folder(self) -> None:
         parent_item, parent_dir = self._new_item_context()
         if parent_dir is None:
             return
-        name = simpledialog.askstring("New Folder", "Folder name:", parent=self._tree)
-        if not name:
+        self._start_inline_entry(parent_item, parent_dir, is_folder=True)
+
+    def _start_inline_entry(self, parent_item: str, parent_dir: Path, is_folder: bool) -> None:
+        """Show an inline Entry overlaid on a treeview placeholder item."""
+        # Insert a placeholder item so we have a row to overlay the Entry on
+        if parent_item and not self._tree.item(parent_item, "open"):
+            self._tree.item(parent_item, open=True)
+        tmp_id = self._tree.insert(
+            parent_item, "end",
+            text="  📁 " if is_folder else "  ",
+            tags=("_new_placeholder",),
+        )
+        self._tree.see(tmp_id)
+        self._tree.update_idletasks()
+
+        bbox = self._tree.bbox(tmp_id, "#0")
+        if not bbox:
+            # Placeholder not visible (tree not rendered yet) — fall back
+            self._tree.delete(tmp_id)
+            kind = "Folder" if is_folder else "File"
+            name = simpledialog.askstring(f"New {kind}", "Name:", parent=self._tree)
+            if name:
+                self._commit_new_item(parent_item, parent_dir, name, is_folder)
             return
+
+        x, y, w, h = bbox
+        # Stretch entry to the right edge of the tree
+        entry_w = max(w, self._tree.winfo_width() - x - 4)
+
+        entry = tk.Entry(
+            self._tree,
+            bg="#2d2d30", fg="#f8f8f2",
+            insertbackground="#f8f8f2",
+            relief="flat",
+            font=("Segoe UI", 9),
+            highlightthickness=1,
+            highlightcolor="#007acc",
+            highlightbackground="#007acc",
+        )
+        entry.place(x=x, y=y, width=entry_w, height=h)
+        entry.focus_set()
+
+        _done = [False]
+
+        def _commit(event=None):
+            if _done[0]:
+                return
+            _done[0] = True
+            name = entry.get().strip()
+            entry.destroy()
+            try:
+                self._tree.delete(tmp_id)
+            except Exception:
+                pass
+            if name:
+                self._commit_new_item(parent_item, parent_dir, name, is_folder)
+
+        def _cancel(event=None):
+            if _done[0]:
+                return
+            _done[0] = True
+            entry.destroy()
+            try:
+                self._tree.delete(tmp_id)
+            except Exception:
+                pass
+
+        entry.bind("<Return>", _commit)
+        entry.bind("<Escape>", _cancel)
+        entry.bind("<FocusOut>", _cancel)
+
+    def _commit_new_item(self, parent_item: str, parent_dir: Path, name: str, is_folder: bool) -> None:
+        """Create the file/folder after inline name entry confirms."""
         new_path = parent_dir / name
+        kind = "Folder" if is_folder else "File"
         if new_path.exists():
             messagebox.showwarning(
-                "Folder exists", f"'{name}' already exists in this folder.",
+                f"{kind} exists", f"'{name}' already exists in this folder.",
                 parent=self._tree,
             )
             return
         try:
-            new_path.mkdir(parents=False)
+            if is_folder:
+                new_path.mkdir(parents=False)
+            else:
+                new_path.touch()
         except Exception as e:
-            messagebox.showerror("New Folder failed", str(e), parent=self._tree)
+            messagebox.showerror(f"New {kind} failed", str(e), parent=self._tree)
             return
-        # Use soft refresh so expanded folders stay open
         self._soft_refresh_node(parent_item, parent_dir)
+        if not is_folder:
+            self._on_open(str(new_path))
 
     def _new_item_context(self) -> tuple[str, Path | None]:
         """Return (parent_tree_item, parent_dir) for a new file/folder action."""

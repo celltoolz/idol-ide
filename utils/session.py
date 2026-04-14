@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,8 @@ if TYPE_CHECKING:
 
 # Auto-session lives in ~/.idol/session.json
 SESSION_FILE = Path.home() / ".idol" / "session.json"
+# Unsaved content is written here so it survives across restarts
+TMP_DIR = Path.home() / ".idol" / "tmp"
 
 
 def save(app: "IDOL", filepath: str | Path | None = None) -> None:
@@ -34,8 +37,28 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         dirty = app._dirty.get(tab_id, False)
 
         entry: dict = {"title": title, "filepath": fp}
-        if fp is None or dirty:
+
+        if dirty:
+            # Write unsaved content to a temp file so the session JSON stays
+            # small and the content survives restarts without a save prompt.
+            content = cv.get("1.0", "end-1c")
+            existing = app._temp_files.get(tab_id)
+            if existing:
+                tmp_path = Path(existing)
+            else:
+                ext = Path(fp).suffix if fp else ".py"
+                TMP_DIR.mkdir(parents=True, exist_ok=True)
+                tmp_path = TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}{ext}"
+                app._temp_files[tab_id] = str(tmp_path)
+            try:
+                tmp_path.write_text(content, encoding="utf-8")
+                entry["temp_file"] = str(tmp_path)
+            except Exception:
+                entry["content"] = content  # fallback if write fails
+        elif fp is None:
+            # New empty tab — embed the (likely empty) content directly
             entry["content"] = cv.get("1.0", "end-1c")
+
         tabs_data.append(entry)
 
     active_index = 0
@@ -152,11 +175,23 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     for entry in tabs:
-        fp      = entry.get("filepath")
-        title   = entry.get("title", "Untitled")
-        content = entry.get("content")
+        fp       = entry.get("filepath")
+        title    = entry.get("title", "Untitled")
+        content  = entry.get("content")
+        tmp_file = entry.get("temp_file")
 
-        if fp and os.path.isfile(fp):
+        if tmp_file and os.path.isfile(tmp_file):
+            # Restore from temp file — tab was unsaved when the app last exited
+            try:
+                tmp_content = Path(tmp_file).read_text(encoding="utf-8")
+                app._new_tab(title, tmp_content, filepath=fp if fp else None)
+                tab_id = app.notebook.tabs()[-1]
+                app._dirty[tab_id] = True
+                app._temp_files[tab_id] = tmp_file
+                app._refresh_tab_title(tab_id)
+            except Exception:
+                continue
+        elif fp and os.path.isfile(fp):
             try:
                 file_content = Path(fp).read_text(encoding="utf-8")
                 app._new_tab(title, file_content, filepath=fp)
