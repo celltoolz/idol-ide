@@ -221,7 +221,7 @@ class AiChatPanel(tk.Frame):
 
     def _register_wrap_label(self, lbl) -> None:
         """Register a label for dynamic wraplength and apply the current width immediately."""
-        self._register_wrap_label(lbl)
+        self._wrap_labels.append(lbl)
         self._apply_wraplength()
 
     def _grab_scroll(self, event=None) -> None:
