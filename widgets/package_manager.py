@@ -31,7 +31,7 @@ _SEL_BG   = "#094771"
 _WARN     = "#ce9178"
 
 _CACHE_FILE   = Path.home() / ".idol" / "pkg_cache.json"
-_LOOKUP_FILE  = Path(__file__).parent / "idol_package_categories.json"
+_LOOKUP_FILE  = Path(__file__).parent.parent / "data" / "idol_package_categories.json"
 
 # Load precomputed lookup at import time — zero network cost
 def _load_builtin_lookup() -> dict[str, str]:
