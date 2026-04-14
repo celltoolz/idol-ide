@@ -12,7 +12,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 <img src="screenshots/editor.png" width="50%"><img src="screenshots/editor-osx.png" width="45%">
 <br>
-<img src="screenshots/editor-linux.png" width="45%"><img src="screenshots/ollama-ai.png" width="50%">
+<img src="screenshots/editor-linux.png" width="45%"><img src="screenshots/ollama-ai.png" width="45%">
 
 
 ## Features
