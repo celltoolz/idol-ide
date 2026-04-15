@@ -221,6 +221,7 @@ class TerminalPanel(ttk.Frame):
         self._sel_end:   str | None = None
         self._session_id = 0   # incremented on each start(); guards stale sentinels
         self._render_suppressed = False   # True during startup; suppresses _redraw_full until clear fires
+        self._clear_timer: str | None = None  # after() handle for the fallback clear
 
         # Venv tracking
         self._cwd_current: str = ""        # last CWD from OSC 7 / state file
@@ -274,7 +275,6 @@ class TerminalPanel(ttk.Frame):
             self._stream = pyte.ByteStream(self._screen)
             self._session_id += 1
             sid = self._session_id
-            self._render_suppressed = True
             self._pty = _pty_spawn(cmd, dimensions=(self._rows, self._cols), env=env)
             self._running = True
             self._raw_buf  = ""
@@ -287,8 +287,12 @@ class TerminalPanel(ttk.Frame):
             # Both the cd and hook injection use _send_silently so the TTY
             # driver never echoes the commands — nothing to clear afterward.
             self.after(400, self._inject_shell_hooks)
-            self.after(700, self._clear_screen_direct)
-            self.after(1500, self._ensure_render_active)
+            if platform.system() != "Windows":
+                self._render_suppressed = True
+                self._clear_timer = self.after(700, self._clear_screen_direct)
+                self.after(1500, self._ensure_render_active)
+            else:
+                self.after(700, self._clear_screen_direct)
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd):
                 self.after(300, lambda c=_cwd: self._send_silently(f'cd "{c}"\r'))
@@ -304,6 +308,9 @@ class TerminalPanel(ttk.Frame):
 
     def stop(self) -> None:
         self._running = False
+        if self._clear_timer:
+            self.after_cancel(self._clear_timer)
+            self._clear_timer = None
         if self._pty:
             try:
                 if self._pty.isalive():
@@ -334,12 +341,15 @@ class TerminalPanel(ttk.Frame):
     def _clear_screen_direct(self) -> None:
         """Reset pyte completely to discard startup noise, lift render suppression,
         then nudge the shell for a fresh prompt. One clean render, no flash."""
+        if self._clear_timer:
+            self.after_cancel(self._clear_timer)
+            self._clear_timer = None
         self._scrollback.clear()
         self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
         self._stream = pyte.ByteStream(self._screen)
         self._render_suppressed = False
         self._redraw_full()
-        if self._running and self._pty:
+        if self._running and self._pty and platform.system() != "Windows":
             self.send_text("\r")
 
     def _ensure_render_active(self) -> None:
@@ -516,6 +526,8 @@ class TerminalPanel(ttk.Frame):
 
     def _redraw_full(self) -> None:
         """Redraw the entire text widget from scrollback + current screen."""
+        if self._render_suppressed:
+            return
         self._text.config(state="normal")
         self._text.delete("1.0", "end")
 
@@ -799,6 +811,7 @@ class TerminalPanel(ttk.Frame):
                 ' $p = $PWD.Path;'
                 ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
                 f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v");'
+                ' if (-not $global:_idol_cleared) { $global:_idol_cleared = $true; clear };'
                 ' "PS $p> "'
                 '}\r'
             )
