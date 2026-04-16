@@ -7,9 +7,10 @@ completely content-agnostic; callers own the page data.
 from __future__ import annotations
 
 import tkinter as tk
-from dataclasses import dataclass, field
 from tkinter import Frame, Label, ttk
 from typing import Callable
+
+from utils.guide_types import GuidePage
 
 _BG = "#252526"
 _HDR_BG = "#2d2d30"
@@ -18,24 +19,6 @@ _DIM = "#919191"
 _BTN_BG = "#0e639c"
 _BTN_ACT = "#1177bb"
 _PLAIN_BG = "#1e1e1e"  # inset box background for plain-english sections
-
-
-@dataclass
-class GuidePage:
-    """One page of a GuideWindow.
-
-    sections: list of (label, body, color) tuples — label is the section
-    heading, body is the paragraph text, color is the heading foreground.
-    action_label / action_fn: optional button shown at the bottom of the page;
-    clicking it runs action_fn then closes the window.
-    """
-
-    title: str
-    subtitle: str = ""
-    sections: list[tuple[str, str, str]] = field(default_factory=list)
-    plain_english: str = ""  # optional plain-language summary shown in an inset box
-    action_label: str = ""
-    action_fn: Callable | None = field(default=None, repr=False)
 
 
 class GuideWindow(tk.Toplevel):

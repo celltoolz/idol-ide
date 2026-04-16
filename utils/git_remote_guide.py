@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from widgets.guide_window import GuidePage
+from utils.guide_types import GuidePage
 
 
 def get_pages() -> list[GuidePage]:
