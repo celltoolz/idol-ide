@@ -2004,7 +2004,7 @@ class IDOL(Tk):
         norm = os.path.normcase(path)
         for tab_id, tab_path in list(self._files.items()):
             if tab_path and os.path.normcase(tab_path) == norm:
-                self._files[tab_id] = ""  # no saved location
+                self._files[tab_id] = None  # no saved location
                 self._dirty[tab_id] = True
                 self._refresh_tab_title(tab_id)
 
@@ -2054,7 +2054,7 @@ class IDOL(Tk):
         if tab_id is None:
             return False
         filepath = self._files.get(tab_id)
-        if not filepath:
+        if filepath is None:
             return self.file_save_as()
         return self._write_file(tab_id, filepath)
 
