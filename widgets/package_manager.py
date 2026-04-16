@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 from typing import Callable
 
+from editor.pip_manager import PipManager
 from utils.learning_registry import LearningManager
 from widgets.guide_window import GuideWindow, GuidePage
 
@@ -202,6 +201,7 @@ class PackageManagerPanel(tk.Frame):
         self._pypi_cache: dict[str, dict] = {}   # per-session detail cache
         self._topic_cache: dict[str, str] = {}   # name → topic (persisted)
         self._load_topic_cache()
+        self._pip = PipManager(after_fn=self.after)
         self._build()
         self.after(100, self._load_installed)
 
@@ -352,19 +352,11 @@ class PackageManagerPanel(tk.Frame):
     def _load_installed(self) -> None:
         self._tree_label.config(text="INSTALLED  (loading…)")
         self._tree.delete(*self._tree.get_children())
-        threading.Thread(target=self._fetch_installed, daemon=True).start()
+        self._pip.fetch_installed(self._on_installed_fetched)
 
-    def _fetch_installed(self) -> None:
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "list", "--format=json"],
-                capture_output=True, text=True, timeout=15
-            )
-            pkgs = json.loads(result.stdout)
-            self._installed = {p["name"]: p["version"] for p in pkgs}
-        except Exception:
-            self._installed = {}
-        self.after(0, self._populate_grouped)
+    def _on_installed_fetched(self, pkgs: dict[str, str]) -> None:
+        self._installed = pkgs
+        self._populate_grouped()
 
     def _refresh_selected_detail(self) -> None:
         """Re-render the detail panel with updated installed status after a pip op."""
@@ -604,23 +596,16 @@ class PackageManagerPanel(tk.Frame):
                 pass
             output.write(f"\n$ pip {' '.join(args)}\n", tag="cmd")
 
-        def _run():
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, "-m", "pip"] + args,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True
-                )
-                for line in proc.stdout:
-                    if output:
-                        self.after(0, lambda l=line: output.write(l))
-                proc.wait()
-                self.after(0, self._load_installed)
-            except Exception as e:
-                if output:
-                    self.after(0, lambda: output.write(str(e) + "\n", tag="err"))
+        def _on_line(line: str) -> None:
+            if output:
+                output.write(line)
 
-        threading.Thread(target=_run, daemon=True).start()
+        self._pip.run_operation(
+            args,
+            on_line=_on_line,
+            on_done=self._load_installed,
+            on_error=(lambda e: output.write(e + "\n", tag="err")) if output else None,
+        )
 
     # ── Ask AI ─────────────────────────────────────────────────────────────────
 
