@@ -43,6 +43,7 @@ from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 
+
 # Cross-platform sash helpers — sashpos() is missing on some macOS Tk builds
 def _sash_get(pane: tk.PanedWindow, index: int) -> int:
     """Return sash position for a horizontal PanedWindow."""
@@ -50,6 +51,7 @@ def _sash_get(pane: tk.PanedWindow, index: int) -> int:
         return pane.sashpos(index)
     except AttributeError:
         return pane.sash_coord(index)[0]
+
 
 def _sash_set(pane: tk.PanedWindow, index: int, pos: int) -> None:
     """Set sash position for a horizontal PanedWindow."""
@@ -241,7 +243,7 @@ class IDOL(Tk):
         self.output_visible_var = BooleanVar(value=True)
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
-        self.zen_mode_var        = BooleanVar(value=False)
+        self.zen_mode_var = BooleanVar(value=False)
         self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
@@ -328,15 +330,27 @@ class IDOL(Tk):
 
         def _nav_btn(parent, text, cmd, side="left", padx=5, active_fn=None):
             fg0 = "#007acc" if active_fn and active_fn() else "#858585"
-            lbl = Label(parent, text=text, bg=_NAV_BG, fg=fg0,
-                        font=("Segoe UI", 9), cursor="hand2", padx=padx, pady=0)
+            lbl = Label(
+                parent,
+                text=text,
+                bg=_NAV_BG,
+                fg=fg0,
+                font=("Segoe UI", 9),
+                cursor="hand2",
+                padx=padx,
+                pady=0,
+            )
+
             def _enter(_):
                 lbl.config(fg="#1a9fd4" if active_fn and active_fn() else "#cccccc")
+
             def _leave(_):
                 lbl.config(fg="#007acc" if active_fn and active_fn() else "#858585")
+
             def _click():
                 cmd()
                 self._refresh_nav_bar()
+
             lbl.bind("<Button-1>", lambda _: _click())
             lbl.bind("<Enter>", _enter)
             lbl.bind("<Leave>", _leave)
@@ -359,32 +373,69 @@ class IDOL(Tk):
             self.view_toggle_minimap()
 
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
-        self._nav_learn_btn   = _nav_btn(_nav_bar, " 📖 ",    self.view_learning_mode,
-                                         side="right", active_fn=lambda: bool(self._learning_tab))
-        self._nav_pkg_btn     = _nav_btn(_nav_bar, " 📦 ",    self.view_package_manager,
-                                         side="right", active_fn=lambda: bool(self._pkg_tab))
-        self._nav_ai_btn      = _nav_btn(_nav_bar, " AI ",    self.view_ai_chat,
-                                         side="right", active_fn=lambda: self._ai_panel_visible)
+        self._nav_learn_btn = _nav_btn(
+            _nav_bar,
+            " 📖 ",
+            self.view_learning_mode,
+            side="right",
+            active_fn=lambda: bool(self._learning_tab),
+        )
+        self._nav_pkg_btn = _nav_btn(
+            _nav_bar,
+            " 📦 ",
+            self.view_package_manager,
+            side="right",
+            active_fn=lambda: bool(self._pkg_tab),
+        )
+        self._nav_ai_btn = _nav_btn(
+            _nav_bar,
+            " AI ",
+            self.view_ai_chat,
+            side="right",
+            active_fn=lambda: self._ai_panel_visible,
+        )
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
-        self._nav_zen_btn     = _nav_btn(_nav_bar, " ZEN ",   self.view_zen_mode,
-                                         side="right", active_fn=lambda: self._zen_mode)
-        self._nav_sidebar_btn = _nav_btn(_nav_bar, " ☰ ",     self.view_toggle_sidebar,
-                                         side="right", active_fn=lambda: self._sidebar_shown)
-        self._nav_map_btn     = _nav_btn(_nav_bar, " MAP ",   _nav_map_cmd,
-                                         side="right", active_fn=lambda: self.minimap_visible_var.get())
-        self._nav_split_btn   = _nav_btn(_nav_bar, " SPLIT ", self.view_split_editor,
-                                         side="right", active_fn=lambda: self._split_active)
-        self._nav_term_btn    = _nav_btn(_nav_bar, " >_ ",    self.view_new_terminal, side="right")
+        self._nav_zen_btn = _nav_btn(
+            _nav_bar,
+            " ZEN ",
+            self.view_zen_mode,
+            side="right",
+            active_fn=lambda: self._zen_mode,
+        )
+        self._nav_sidebar_btn = _nav_btn(
+            _nav_bar,
+            " ☰ ",
+            self.view_toggle_sidebar,
+            side="right",
+            active_fn=lambda: self._sidebar_shown,
+        )
+        self._nav_map_btn = _nav_btn(
+            _nav_bar,
+            " MAP ",
+            _nav_map_cmd,
+            side="right",
+            active_fn=lambda: self.minimap_visible_var.get(),
+        )
+        self._nav_split_btn = _nav_btn(
+            _nav_bar,
+            " SPLIT ",
+            self.view_split_editor,
+            side="right",
+            active_fn=lambda: self._split_active,
+        )
+        self._nav_term_btn = _nav_btn(
+            _nav_bar, " >_ ", self.view_new_terminal, side="right"
+        )
 
         # Register nav buttons with Learning Mode
-        LearningManager.register(self._nav_split_btn,   "nav_split")
-        LearningManager.register(self._nav_map_btn,     "nav_map")
+        LearningManager.register(self._nav_split_btn, "nav_split")
+        LearningManager.register(self._nav_map_btn, "nav_map")
         LearningManager.register(self._nav_sidebar_btn, "nav_sidebar")
-        LearningManager.register(self._nav_zen_btn,     "nav_zen")
-        LearningManager.register(self._nav_ai_btn,      "nav_ai")
-        LearningManager.register(self._nav_pkg_btn,     "nav_pkg")
-        LearningManager.register(self._nav_learn_btn,   "nav_learn")
-        LearningManager.register(self._nav_term_btn,    "nav_terminal")
+        LearningManager.register(self._nav_zen_btn, "nav_zen")
+        LearningManager.register(self._nav_ai_btn, "nav_ai")
+        LearningManager.register(self._nav_pkg_btn, "nav_pkg")
+        LearningManager.register(self._nav_learn_btn, "nav_learn")
+        LearningManager.register(self._nav_term_btn, "nav_terminal")
 
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
@@ -547,7 +598,9 @@ class IDOL(Tk):
         codeview.pack(fill="both", expand=True)
         codeview.insert("1.0", content)
         codeview.edit_reset()  # clear undo history after initial load
-        codeview.after(10, codeview._line_numbers.redraw)  # ensure numbers show after layout
+        codeview.after(
+            10, codeview._line_numbers.redraw
+        )  # ensure numbers show after layout
 
         LearningManager.register(crumb, "breadcrumb_bar")
         LearningManager.register(codeview, "editor")
@@ -1951,7 +2004,7 @@ class IDOL(Tk):
         norm = os.path.normcase(path)
         for tab_id, tab_path in list(self._files.items()):
             if tab_path and os.path.normcase(tab_path) == norm:
-                self._files[tab_id] = ""   # no saved location
+                self._files[tab_id] = ""  # no saved location
                 self._dirty[tab_id] = True
                 self._refresh_tab_title(tab_id)
 
@@ -2001,7 +2054,7 @@ class IDOL(Tk):
         if tab_id is None:
             return False
         filepath = self._files.get(tab_id)
-        if filepath is None:
+        if not filepath:
             return self.file_save_as()
         return self._write_file(tab_id, filepath)
 
@@ -2297,13 +2350,16 @@ class IDOL(Tk):
     def _refresh_nav_bar(self) -> None:
         """Sync nav bar toggle button colors with current view state."""
         pairs = [
-            (getattr(self, "_nav_split_btn",   None), lambda: self._split_active),
-            (getattr(self, "_nav_map_btn",     None), lambda: self.minimap_visible_var.get()),
+            (getattr(self, "_nav_split_btn", None), lambda: self._split_active),
+            (
+                getattr(self, "_nav_map_btn", None),
+                lambda: self.minimap_visible_var.get(),
+            ),
             (getattr(self, "_nav_sidebar_btn", None), lambda: self._sidebar_shown),
-            (getattr(self, "_nav_zen_btn",     None), lambda: self._zen_mode),
-            (getattr(self, "_nav_ai_btn",      None), lambda: self._ai_panel_visible),
-            (getattr(self, "_nav_pkg_btn",     None), lambda: bool(self._pkg_tab)),
-            (getattr(self, "_nav_learn_btn",   None), lambda: bool(self._learning_tab)),
+            (getattr(self, "_nav_zen_btn", None), lambda: self._zen_mode),
+            (getattr(self, "_nav_ai_btn", None), lambda: self._ai_panel_visible),
+            (getattr(self, "_nav_pkg_btn", None), lambda: bool(self._pkg_tab)),
+            (getattr(self, "_nav_learn_btn", None), lambda: bool(self._learning_tab)),
         ]
         for btn, active_fn in pairs:
             if btn is not None:
@@ -2372,7 +2428,8 @@ class IDOL(Tk):
                 else:
                     self.notebook.select(self._learning_tab)
                     self.after(
-                        50, lambda: self._learning_show_overlays(self._learning_active_lid)
+                        50,
+                        lambda: self._learning_show_overlays(self._learning_active_lid),
                     )
                     self._refresh_nav_bar()
                     return
@@ -2861,10 +2918,18 @@ class IDOL(Tk):
         )
         self._lock_btn.pack(side="right")
         self._lock_btn.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
-        self._lock_btn.bind("<Enter>", lambda _: self._lock_btn.config(
-            fg="#1a9fd4" if self._scroll_locked else "#cccccc"))
-        self._lock_btn.bind("<Leave>", lambda _: self._lock_btn.config(
-            fg="#007acc" if self._scroll_locked else "#555555"))
+        self._lock_btn.bind(
+            "<Enter>",
+            lambda _: self._lock_btn.config(
+                fg="#1a9fd4" if self._scroll_locked else "#cccccc"
+            ),
+        )
+        self._lock_btn.bind(
+            "<Leave>",
+            lambda _: self._lock_btn.config(
+                fg="#007acc" if self._scroll_locked else "#555555"
+            ),
+        )
 
         self._notebook_r = CustomNotebook(
             self._nb_frame_r,
