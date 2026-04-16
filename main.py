@@ -5,8 +5,8 @@ import tkinter as tk
 from pathlib import Path
 
 
-_SPLASH_MS  = 2500   # how long the splash stays up
-_LOGO_WIDTH = 520    # display width of the logo image
+_SPLASH_MS = 2500  # how long the splash stays up
+_LOGO_WIDTH = 520  # display width of the logo image
 
 
 def _show_splash(app: tk.Tk) -> None:
@@ -17,9 +17,11 @@ def _show_splash(app: tk.Tk) -> None:
     splash.overrideredirect(True)
     splash.attributes("-topmost", True)
     splash.configure(bg="#0d1117")
+    splash.withdraw()
 
     try:
         from PIL import Image, ImageTk
+
         img = Image.open(logo_path)
         ratio = _LOGO_WIDTH / img.width
         img = img.resize((_LOGO_WIDTH, int(img.height * ratio)), Image.LANCZOS)
@@ -30,9 +32,11 @@ def _show_splash(app: tk.Tk) -> None:
         lbl = tk.Label(
             splash,
             text="IDOL\nIntegrated Development and Objective Learning\n\ncreated by gitPIDE",
-            bg="#0d1117", fg="#cccccc",
+            bg="#0d1117",
+            fg="#cccccc",
             font=("Segoe UI", 18, "bold"),
-            padx=60, pady=40,
+            padx=60,
+            pady=40,
         )
     lbl.pack()
 
@@ -40,9 +44,10 @@ def _show_splash(app: tk.Tk) -> None:
     splash.update_idletasks()
     sw = splash.winfo_screenwidth()
     sh = splash.winfo_screenheight()
-    w  = splash.winfo_width()
-    h  = splash.winfo_height()
+    w = splash.winfo_reqwidth()
+    h = splash.winfo_reqheight()
     splash.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
+    splash.deiconify()
 
     def _dismiss():
         try:
@@ -60,6 +65,7 @@ if __name__ == "__main__":
     file_path = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else None
 
     from app import IDOL
+
     app = IDOL(file_path)
     # Schedule splash via after() so the event loop is running when the
     # Toplevel is created — required on macOS for the window to appear.
