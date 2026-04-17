@@ -383,6 +383,7 @@ class IDOL(Tk):
             side="right",
             active_fn=lambda: bool(self._learning_tab),
         )
+        self._nav_learn_btn.config(cursor="question_arrow")
         self._nav_pkg_btn = _nav_btn(
             _nav_bar,
             " 📦 ",
@@ -2565,6 +2566,7 @@ class IDOL(Tk):
                 widget.config(cursor="question_arrow")
             except Exception:
                 pass
+        self._nav_learn_btn.config(cursor="hand2")
         self._learning_install_bindtag()
 
     def _learning_deactivate_cursors(self) -> None:
@@ -2578,6 +2580,7 @@ class IDOL(Tk):
             except Exception:
                 pass
         self._learning_reg_map = {}
+        self._nav_learn_btn.config(cursor="question_arrow")
 
     def _iter_all_widgets(self, widget=None):
         """Yield every widget in this window recursively, skipping other Toplevels."""
