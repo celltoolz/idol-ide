@@ -4,6 +4,8 @@ from __future__ import annotations
 from tkinter import Frame, Label, ttk
 from typing import Callable, Optional
 
+from utils.learning_registry import LearningManager
+
 from .output import OutputPanel
 from .terminal import TerminalPanel
 
@@ -75,7 +77,9 @@ class BottomPanel(ttk.Frame):
             tab = self._make_tab(bar, key, label)
             self._tabs[key] = tab
         self.output_tab_btn   = self._tabs["output"]["container"]
+        self.output_tab_lbl   = self._tabs["output"]["label"]
         self.terminal_tab_btn = self._tabs["terminal"]["container"]
+        self.terminal_tab_lbl = self._tabs["terminal"]["label"]
 
     def _make_tab(self, bar: Frame, key: str, label: str) -> dict:
         """Create a single tab button and return references to its widgets."""
@@ -97,8 +101,13 @@ class BottomPanel(ttk.Frame):
         indicator = Frame(container, bg=self._INDICATOR, height=2)
         # Not packed initially
 
+        def _on_click(k=key):
+            if LearningManager.is_active():
+                LearningManager.fire_click(container)
+                return
+            self._set_active(k)
         for widget in (container, lbl):
-            widget.bind("<Button-1>", lambda _, k=key: self._set_active(k))
+            widget.bind("<Button-1>", lambda _, fn=_on_click: fn())
 
         return {"container": container, "label": lbl, "indicator": indicator}
 

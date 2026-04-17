@@ -2536,7 +2536,9 @@ class IDOL(Tk):
 
         # Output / Terminal — tab buttons get overlays, large panels don't
         LM.register(self._output.output_tab_btn, "output_panel")
+        LM.register(self._output.output_tab_lbl, "output_panel")
         LM.register(self._output.terminal_tab_btn, "terminal_panel")
+        LM.register(self._output.terminal_tab_lbl, "terminal_panel")
         LM.register(self._output.output, "output_panel", overlay=False)
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
 
