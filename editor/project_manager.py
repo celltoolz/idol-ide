@@ -70,7 +70,7 @@ def _detect_pythons() -> list[tuple[str, str]]:
     py = shutil.which("py")
     if py:
         try:
-            out = subprocess.check_output([py, "-0"], stderr=subprocess.STDOUT,
+            out = subprocess.check_output([py, "-0p"], stderr=subprocess.STDOUT,
                                           timeout=3).decode()
             for line in out.splitlines():
                 m = re.search(r"-(\d+\.\d+).*?(\S+python\S*)", line, re.IGNORECASE)
