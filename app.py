@@ -223,11 +223,7 @@ class IDOL(Tk):
         # Learning Mode
         self._learning_tab: str | None = None
         self._learning_panel: LearningPanel | None = None
-        self._learning_overlay_widgets: list = []
         self._learning_active_lid: str = ""
-        self._learning_selected: str | None = None
-        self._learning_restore_fns: dict[str, object] = {}
-        self._learning_resize_id = None
 
         # Split editor
         self._split_active: bool = False
@@ -533,8 +529,6 @@ class IDOL(Tk):
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
-        # Learning Mode — register handler (no-op until F1 tab is open)
-        LearningManager.set_handler(self._on_learning_hover)
         self._register_learning_widgets()
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
@@ -891,31 +885,8 @@ class IDOL(Tk):
                 # Tab was closed
                 self._learning_tab = None
                 self._learning_panel = None
-                self._learning_destroy_overlays()
+                self._learning_deactivate_cursors()
                 self._refresh_nav_bar()
-            else:
-                # Always refresh overlays on tab change — winfo_viewable() inside
-                # _learning_add_overlay skips widgets not visible on this tab,
-                # so only the elements present on the active tab get highlighted.
-                self.after(
-                    100, lambda: self._learning_show_overlays(self._learning_active_lid)
-                )
-
-    def _on_app_configure(self, event) -> None:
-        if event.widget is not self:
-            return
-        if self._learning_overlay_widgets:
-            if self._learning_resize_id:
-                self.after_cancel(self._learning_resize_id)
-            # Two-pass redraw: first pass catches most widgets, second pass
-            # catches slow-to-settle panels (bottom panel on maximize)
-            self._learning_resize_id = self.after(
-                150,
-                lambda: (
-                    self._learning_reposition(),
-                    self.after(350, self._learning_reposition),
-                ),
-            )
 
     def _reset_dirty_after_load(self, tab_id: str) -> None:
         """Clear the dirty flag after all deferred events from file load have fired.
@@ -2425,21 +2396,17 @@ class IDOL(Tk):
                     self.notebook.forget(idx)
                     self._learning_tab = None
                     self._learning_panel = None
-                    self._learning_destroy_overlays()
+                    self._learning_deactivate_cursors()
                     self._refresh_nav_bar()
                     return
                 else:
                     self.notebook.select(self._learning_tab)
-                    self.after(
-                        50,
-                        lambda: self._learning_show_overlays(self._learning_active_lid),
-                    )
                     self._refresh_nav_bar()
                     return
             except Exception:
                 self._learning_tab = None
                 self._learning_panel = None
-                self._learning_destroy_overlays()
+                self._learning_deactivate_cursors()
 
         frame = ttk.Frame(self.notebook)
         panel = LearningPanel(frame)
@@ -2452,8 +2419,7 @@ class IDOL(Tk):
         self._learning_panel = panel
         self._learning_active_lid = ""
 
-        # Show overlays after layout settles
-        self.after(150, lambda: self._learning_show_overlays(""))
+        self._learning_activate_cursors()
         self._refresh_nav_bar()
 
     def view_ai_chat(self) -> None:
@@ -2534,156 +2500,6 @@ class IDOL(Tk):
         except Exception:
             return ""
 
-    def _on_learning_hover(self, *_) -> None:
-        """Hover — no-op for content. Clicks via overlays drive content updates."""
-        pass
-
-    def _learning_show_overlays(self, active_lid: str) -> None:
-        """Destroy old overlays and create new ones for all widgets except active_lid."""
-        if not self._learning_tab:
-            return
-        # Check the tab still exists
-        try:
-            if self._learning_tab not in self.notebook.tabs():
-                self._learning_tab = None
-                self._learning_panel = None
-                self._learning_destroy_overlays()
-                return
-        except Exception:
-            return
-
-        self._learning_destroy_overlays()
-        self._learning_active_lid = active_lid
-
-        for widget, lid in LearningManager.overlay_registrations():
-            if lid == active_lid:
-                continue
-            self._learning_add_overlay(widget, lid)
-
-    def _learning_add_overlay(self, widget, lid: str) -> None:
-        """Place a thin colored border + badge over *widget* as a clickable overlay."""
-        try:
-            if not widget.winfo_exists() or not widget.winfo_viewable():
-                return
-            rw = widget.winfo_width()
-            rh = widget.winfo_height()
-            if rw < 4 or rh < 4:
-                return
-            rx = widget.winfo_rootx() - self.winfo_rootx()
-            ry = widget.winfo_rooty() - self.winfo_rooty()
-        except Exception:
-            return
-
-        color = "#007acc"
-        hover_color = "#1e90ff"
-        t = 2  # border thickness
-
-        parts = []
-
-        # Four border lines — visible in Default state
-        for bx, by, bw, bh in [
-            (rx, ry, rw, t),
-            (rx, ry + rh - t, rw, t),
-            (rx, ry, t, rh),
-            (rx + rw - t, ry, t, rh),
-        ]:
-            f = tk.Frame(self, bg=color, cursor="hand2")
-            f._place_kw = dict(x=bx, y=by, width=bw, height=bh)
-            f.place(**f._place_kw)
-            f.lift()
-            parts.append(f)
-
-        # Small badge at top-right corner — visible in Default state
-        badge = tk.Label(
-            self,
-            text="📖",
-            bg=color,
-            fg="white",
-            font=("Segoe UI", 7),
-            cursor="hand2",
-            padx=2,
-            pady=0,
-        )
-        badge._place_kw = dict(x=rx + rw - 20, y=ry)
-        badge.place(**badge._place_kw)
-        badge.lift()
-        parts.append(badge)
-
-        def _on_enter(_):
-            # Hover: switch strips+badge to hover color.
-            for p in parts:
-                try:
-                    p.config(bg=hover_color)
-                except Exception:
-                    pass
-
-        def _on_leave(_):
-            # Back to Default: reset strip+badge color.
-            for p in parts:
-                try:
-                    p.config(bg=color)
-                except Exception:
-                    pass
-
-        def _on_click(_):
-            # Restore previously selected overlay to Default before selecting this one.
-            prev = self._learning_selected
-            if prev and prev != lid:
-                fn = self._learning_restore_fns.get(prev)
-                if fn:
-                    fn()
-            # Selected state: hide all parts so the widget is fully unobscured.
-            for p in parts:
-                try:
-                    p.place_forget()
-                except Exception:
-                    pass
-            self._learning_selected = lid
-            self._on_overlay_click(lid)
-
-        def _restore_default():
-            """Return this overlay to Default state (strips+badge visible)."""
-            for p in parts:
-                try:
-                    p.place(**p._place_kw)
-                    p.config(bg=color)
-                except Exception:
-                    pass
-
-        self._learning_restore_fns[lid] = _restore_default
-
-        for p in parts:
-            p.bind("<Enter>", _on_enter)
-            p.bind("<Leave>", _on_leave)
-            p.bind("<Button-1>", _on_click)
-
-        self._learning_overlay_widgets.extend(parts)
-
-    def _on_overlay_click(self, lid: str) -> None:
-        """Switch learning content to *lid*. Overlay state is managed in _on_click closures."""
-        if self._learning_tab:
-            try:
-                self.notebook.select(self._learning_tab)
-            except Exception:
-                pass
-        if self._learning_panel:
-            self._learning_panel.show(lid)
-
-    def _learning_destroy_overlays(self) -> None:
-        for w in self._learning_overlay_widgets:
-            try:
-                w.destroy()
-            except Exception:
-                pass
-        self._learning_overlay_widgets = []
-        self._learning_selected = None
-        self._learning_restore_fns = {}
-
-    def _learning_reposition(self) -> None:
-        """Rebuild overlays at updated positions after window resize."""
-        if self._learning_overlay_widgets:
-            self._learning_show_overlays(self._learning_active_lid)
-
     def _register_learning_widgets(self) -> None:
         """Tag all known IDE widgets with their learning IDs."""
         LM = LearningManager
@@ -2718,11 +2534,67 @@ class IDOL(Tk):
         LM.register(self._output.output, "output_panel", overlay=False)
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
 
-        # Sidebar collapse/expand → reposition overlays
-        self._sidebar.on_relayout = self._learning_reposition
+        # Bind click handler on all registered widgets — add=True so normal
+        # bindings already set remain; "break" return prevents them from firing
+        # while learning mode is active.
+        for _widget, _lid in LearningManager.all_registrations():
+            _widget.bind(
+                "<Button-1>",
+                lambda e, w=_widget, l=_lid: (self._on_learning_click(w, l), "break")[-1],
+                add="+",
+            )
 
-        # Window resize → reposition overlays (debounced, two-pass)
-        self.bind("<Configure>", self._on_app_configure, add="+")
+    def _learning_activate_cursors(self) -> None:
+        """Set question_arrow cursor on all learning-registered widgets."""
+        for widget, _lid in LearningManager.all_registrations():
+            try:
+                widget.config(cursor="question_arrow")
+            except Exception:
+                pass
+
+    def _learning_deactivate_cursors(self) -> None:
+        """Restore original cursors on all learning-registered widgets."""
+        for widget, _lid in LearningManager.all_registrations():
+            orig = LearningManager.get_widget_originals(widget)
+            try:
+                widget.config(cursor=orig.get("cursor", ""))
+            except Exception:
+                pass
+
+    def _on_learning_click(self, widget, lid: str) -> None:
+        """Handle a click on a registered widget while learning mode is active."""
+        if not self._learning_tab:
+            return
+        self._learning_active_lid = lid
+        try:
+            self.notebook.select(self._learning_tab)
+        except Exception:
+            pass
+        if self._learning_panel:
+            self._learning_panel.show(lid)
+        self._learning_flash(widget)
+
+    def _learning_flash(self, widget) -> None:
+        """Flash *widget* with a blue highlight for 400 ms."""
+        from tkinter import ttk as _ttk
+        if isinstance(widget, _ttk.Treeview):
+            return
+        orig = LearningManager.get_widget_originals(widget)
+        try:
+            widget.config(highlightbackground="#007acc", highlightthickness=2)
+            self.after(400, lambda: self._learning_flash_restore(
+                widget,
+                orig.get("highlightbackground", ""),
+                orig.get("highlightthickness", 0),
+            ))
+        except Exception:
+            pass
+
+    def _learning_flash_restore(self, widget, hbg: str, ht: int) -> None:
+        try:
+            widget.config(highlightbackground=hbg, highlightthickness=ht)
+        except Exception:
+            pass
 
     # ── Zen mode ──────────────────────────────────────────────────────────────
 

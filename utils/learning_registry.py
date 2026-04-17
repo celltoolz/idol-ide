@@ -1,6 +1,7 @@
 """Learning Mode registry — content payloads and widget registration manager."""
 from __future__ import annotations
 
+from tkinter import ttk
 from typing import Callable
 
 
@@ -562,6 +563,7 @@ class LearningManager:
 
     _handler: Callable[[str], None] | None = None
     _registrations: list = []   # list of (widget, lid, overlay)
+    _originals: dict = {}       # widget → {"cursor", "highlightbackground", "highlightthickness"}
 
     @classmethod
     def set_handler(cls, fn: Callable[[str], None]) -> None:
@@ -569,15 +571,28 @@ class LearningManager:
 
     @classmethod
     def register(cls, widget, lid: str, overlay: bool = True) -> None:
-        """Bind <Enter> on *widget* to fire the handler.
+        """Register *widget* with a learning content ID.
 
-        overlay=True  → widget also gets a visual selection box in Learning Mode
-        overlay=False → hover still works, but no overlay box (used for large panels)
+        overlay=True  → widget gets cursor+flash treatment in Learning Mode
+        overlay=False → registered but no flash (used for large panels)
         """
         if lid not in REGISTRY:
             return
 
         cls._registrations.append((widget, lid, overlay))
+
+        orig = {"cursor": "", "highlightbackground": "", "highlightthickness": 0}
+        try:
+            orig["cursor"] = widget.cget("cursor") or ""
+        except Exception:
+            pass
+        try:
+            if not isinstance(widget, ttk.Widget):
+                orig["highlightbackground"] = widget.cget("highlightbackground") or ""
+                orig["highlightthickness"] = int(widget.cget("highlightthickness") or 0)
+        except Exception:
+            pass
+        cls._originals[widget] = orig
 
         def _fire(event=None):
             if cls._handler:
@@ -586,6 +601,18 @@ class LearningManager:
         widget.bind("<Enter>", _fire, add="+")
 
     @classmethod
+    def get_widget_originals(cls, widget) -> dict:
+        """Return stored original style values for *widget*."""
+        return cls._originals.get(
+            widget, {"cursor": "", "highlightbackground": "", "highlightthickness": 0}
+        )
+
+    @classmethod
+    def all_registrations(cls) -> list:
+        """Return [(widget, lid)] for ALL registered widgets."""
+        return [(w, l) for w, l, o in cls._registrations]
+
+    @classmethod
     def overlay_registrations(cls) -> list:
-        """Return [(widget, lid)] for widgets that should get visual overlay boxes."""
+        """Return [(widget, lid)] for widgets that had overlay=True (kept for compat)."""
         return [(w, l) for w, l, o in cls._registrations if o]
