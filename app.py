@@ -2544,6 +2544,21 @@ class IDOL(Tk):
                 add="+",
             )
 
+        # Sidebar headers are Frames whose child Labels also receive clicks —
+        # bind those children too (flash target stays the header frame).
+        for _hdr, _lid in [
+            (self._sidebar._outline_hdr,  "outline_panel"),
+            (self._sidebar._refs_hdr,     "references_panel"),
+            (self._sidebar._sc_hdr,       "source_control_panel"),
+            (self._sidebar._explorer_hdr, "explorer_panel"),
+        ]:
+            for _child in _hdr.winfo_children():
+                _child.bind(
+                    "<Button-1>",
+                    lambda e, w=_hdr, l=_lid: (self._on_learning_click(w, l), "break")[-1],
+                    add="+",
+                )
+
     def _learning_activate_cursors(self) -> None:
         """Set question_arrow cursor on all learning-registered widgets."""
         for widget, _lid in LearningManager.all_registrations():
