@@ -186,9 +186,13 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
                 tmp_content = Path(tmp_file).read_text(encoding="utf-8")
                 app._new_tab(title, tmp_content, filepath=fp if fp else None)
                 tab_id = app.notebook.tabs()[-1]
-                app._dirty[tab_id] = True
                 app._temp_files[tab_id] = tmp_file
-                app._refresh_tab_title(tab_id)
+                # Schedule dirty=True via after_idle so it fires after _new_tab's
+                # own _reset_dirty_after_load callback (after_idle is FIFO).
+                def _mark_restored(tid=tab_id):
+                    app._dirty[tid] = True
+                    app._refresh_tab_title(tid)
+                app.after_idle(_mark_restored)
             except Exception:
                 continue
         elif fp and os.path.isfile(fp):
