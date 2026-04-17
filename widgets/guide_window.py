@@ -42,9 +42,9 @@ class GuideWindow(tk.Toplevel):
         self.resizable(False, False)
         self.attributes("-topmost", True)
 
-        # Position beside the parent widget
+        # Position to the left of the parent widget, clamped to screen edge
         parent.update_idletasks()
-        px = parent.winfo_rootx() + parent.winfo_width() + 10
+        px = max(0, parent.winfo_rootx() - width - 10)
         py = parent.winfo_rooty()
         self.geometry(f"{width}x{height}+{px}+{py}")
 
