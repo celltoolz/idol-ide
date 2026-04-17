@@ -2598,6 +2598,9 @@ class IDOL(Tk):
         """Bindtag handler — fires before any widget binding on every click."""
         if not self._learning_tab:
             return "break"
+        # Let the Learning nav button toggle learning mode off as normal
+        if event.widget is getattr(self, "_nav_learn_btn", None):
+            return
         # Let clicks inside the learning panel itself fall through untouched
         try:
             lf = self.nametowidget(self._learning_tab)
