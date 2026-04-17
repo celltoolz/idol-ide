@@ -2553,7 +2553,7 @@ class IDOL(Tk):
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
 
         # AI Chat input box
-        LM.register(self._ai_panel._input, "ai_chat")
+        LM.register(self._ai_chat_panel._input, "ai_chat")
 
 
     # Tkinter bindtag used to intercept all clicks while learning mode is active
