@@ -346,6 +346,11 @@ class IDOL(Tk):
                 lbl.config(fg="#007acc" if active_fn and active_fn() else "#858585")
 
             def _click():
+                if self._learning_tab and cmd is not self.view_learning_mode:
+                    lid = self._learning_reg_map.get(lbl)
+                    if lid:
+                        self._on_learning_click(lbl, lid)
+                    return
                 cmd()
                 self._refresh_nav_bar()
 
