@@ -607,6 +607,12 @@ class IDOL(Tk):
 
         LearningManager.register(crumb, "breadcrumb_bar")
         LearningManager.register(codeview, "editor")
+        codeview.bind(
+            "<Button-1>",
+            lambda e, cv=codeview: (LearningManager.fire_click(cv), "break")[-1]
+            if LearningManager.is_active() else None,
+            add="+",
+        )
 
         self.notebook.add(frame, text=f"  {title}  ")
         self.notebook.select(frame)

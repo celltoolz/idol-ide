@@ -11,6 +11,8 @@ import os
 import tkinter as tk
 from typing import Callable
 
+from utils.learning_registry import LearningManager
+
 _BG       = "#2d2d30"
 _BG_HOVER = "#3e3e42"
 _BORDER   = "#3c3c3c"
@@ -136,7 +138,7 @@ class BreadcrumbBar(tk.Frame):
 
             if folder_path and self._on_set_root:
                 lbl.config(cursor="hand2")
-                lbl.bind("<Button-1>", lambda _, p=folder_path: self._on_set_root(p))
+                lbl.bind("<Button-1>", lambda _, p=folder_path: LearningManager.fire_click(self) if LearningManager.is_active() else self._on_set_root(p))
                 lbl.bind("<Enter>", lambda _, l=lbl: l.config(fg=_FG_FILE))
                 lbl.bind("<Leave>", lambda _, l=lbl, f=fg: l.config(fg=f))
 
@@ -163,7 +165,7 @@ class BreadcrumbBar(tk.Frame):
                 lbl.pack(side="left")
                 lbl.bind(
                     "<Button-1>",
-                    lambda _, w=lbl, s=sibs: self._show_siblings(s, w),
+                    lambda _, w=lbl, s=sibs: LearningManager.fire_click(self) if LearningManager.is_active() else self._show_siblings(s, w),
                 )
                 lbl.bind("<Enter>", lambda _, l=lbl: l.config(bg=_BG_HOVER))
                 lbl.bind("<Leave>", lambda _, l=lbl: l.config(bg=_BG))
@@ -181,7 +183,7 @@ class BreadcrumbBar(tk.Frame):
                     drill.bind(
                         "<Button-1>",
                         lambda _, w=drill, lo=locs, n=name, sc=list(scope), fp=filepath:
-                            self._show_locals(lo, n, w, sc, fp),
+                            LearningManager.fire_click(self) if LearningManager.is_active() else self._show_locals(lo, n, w, sc, fp),
                     )
                     drill.bind("<Enter>", lambda _, d=drill: d.config(fg=_FG_FILE))
                     drill.bind("<Leave>", lambda _, d=drill: d.config(fg=_FG_DIM))
