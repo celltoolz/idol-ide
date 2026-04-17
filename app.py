@@ -2624,6 +2624,9 @@ class IDOL(Tk):
         if event.widget is getattr(self, "_nav_learn_btn", None):
             self._close_learning_mode()
             return "break"
+        # Let notebook tab bar clicks (tab switching, X close) fall through
+        if event.widget is self.notebook:
+            return
         # Let clicks inside the learning panel itself fall through untouched
         try:
             lf = self.nametowidget(self._learning_tab)
