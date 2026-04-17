@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import queue
-import subprocess
 import tempfile
-import threading
 from tkinter import Text, ttk
 from typing import Callable, Optional
+
+from editor.script_runner import ScriptRunner
 
 
 class OutputPanel(ttk.Frame):
@@ -28,8 +28,8 @@ class OutputPanel(ttk.Frame):
     ) -> None:
         super().__init__(master, **kwargs)
         self._run_callback = run_callback
-        self._process: Optional[subprocess.Popen] = None
         self._queue: queue.Queue = queue.Queue()
+        self._runner = ScriptRunner(on_output=self._queue.put)
         self._is_running = False
 
         self._build_ui()
@@ -107,7 +107,7 @@ class OutputPanel(ttk.Frame):
         self._is_running = True
         self._run_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
-        threading.Thread(target=self._run_process, args=(filepath,), daemon=True).start()
+        self._runner.run(filepath)
 
     def run_code(self, code: str, label: str = "selection") -> None:
         """Write *code* to a temp file and run it, showing output as [label]."""
@@ -123,14 +123,11 @@ class OutputPanel(ttk.Frame):
         )
         tmp.write(code)
         tmp.close()
-        threading.Thread(
-            target=self._run_process, args=(tmp.name,), daemon=True
-        ).start()
+        self._runner.run(tmp.name)
 
     def terminate(self) -> None:
         """Kill the running process if one is active."""
-        if self._process and self._process.poll() is None:
-            self._process.terminate()
+        if self._runner.stop():
             self.write("\nProcess terminated by user.\n", "warning")
 
     # ── Internals ─────────────────────────────────────────────────────────────
@@ -138,38 +135,6 @@ class OutputPanel(ttk.Frame):
     def _on_run_click(self) -> None:
         if self._run_callback:
             self._run_callback()
-
-    def _run_process(self, filepath: str) -> None:
-        try:
-            self._process = subprocess.Popen(
-                ["python", filepath],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
-
-            def _drain(stream, tag: str) -> None:
-                for line in stream:
-                    self._queue.put((line, tag))
-
-            t_out = threading.Thread(target=_drain, args=(self._process.stdout, ""), daemon=True)
-            t_err = threading.Thread(target=_drain, args=(self._process.stderr, "stderr"), daemon=True)
-            t_out.start()
-            t_err.start()
-            t_out.join()
-            t_err.join()
-            self._process.wait()
-
-            rc = self._process.returncode
-            tag = "success" if rc == 0 else "stderr"
-            self._queue.put((f"\nProcess finished with exit code {rc}\n", tag))
-        except FileNotFoundError:
-            self._queue.put(("Error: Python interpreter not found on PATH.\n", "stderr"))
-        except Exception as exc:
-            self._queue.put((f"Error: {exc}\n", "stderr"))
-        finally:
-            self._queue.put(None)  # sentinel – process is done
 
     def _poll(self) -> None:
         """Drain the output queue every 50 ms on the main thread."""
