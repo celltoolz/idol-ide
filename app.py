@@ -2839,8 +2839,10 @@ class IDOL(Tk):
         title = self._titles.get(tab_id, "Untitled")
         cv = self._codeviews.get(tab_id)
         if cv is None:
-            return
-        content = cv.get("1.0", "end-1c")
+            # Non-editor tab (Learning, Package Manager, etc.) — open Untitled
+            path, title, content = None, "Untitled", ""
+        else:
+            content = cv.get("1.0", "end-1c")
 
         # Build the right pane on first use
         if not self._split_active:
