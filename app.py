@@ -224,8 +224,7 @@ class IDOL(Tk):
         self._learning_tab: str | None = None
         self._learning_panel: LearningPanel | None = None
         self._learning_active_lid: str = ""
-        self._learning_reg_map: dict = {}        # widget → lid, built on activate
-        self._learning_cursor_restore: dict = {}  # widget → original cursor string
+        self._learning_reg_map: dict = {}  # widget → lid, built on activate
 
         # Split editor
         self._split_active: bool = False
@@ -2541,28 +2540,24 @@ class IDOL(Tk):
     _LM_TAG = "LearningMode"
 
     def _learning_activate_cursors(self) -> None:
-        """Enter learning mode: override all explicit cursors + intercept all clicks."""
+        """Enter learning mode: set cursors on registered widgets + intercept all clicks."""
         self._learning_reg_map = {w: l for w, l in LearningManager.all_registrations()}
-        self._learning_cursor_restore = {}
-        for w in self._iter_all_widgets():
+        for widget in self._learning_reg_map:
             try:
-                cur = w.cget("cursor")
-                if cur:
-                    self._learning_cursor_restore[w] = cur
-                    w.config(cursor="question_arrow")
+                widget.config(cursor="question_arrow")
             except Exception:
                 pass
         self._learning_install_bindtag()
 
     def _learning_deactivate_cursors(self) -> None:
-        """Leave learning mode: remove bindtag intercept + restore all cursors."""
+        """Leave learning mode: remove bindtag intercept + restore cursors."""
         self._learning_remove_bindtag()
-        for w, cur in self._learning_cursor_restore.items():
+        for widget, _lid in LearningManager.all_registrations():
+            orig = LearningManager.get_widget_originals(widget)
             try:
-                w.config(cursor=cur)
+                widget.config(cursor=orig.get("cursor", ""))
             except Exception:
                 pass
-        self._learning_cursor_restore = {}
         self._learning_reg_map = {}
 
     def _iter_all_widgets(self, widget=None):
@@ -2593,9 +2588,6 @@ class IDOL(Tk):
         """Bindtag handler — fires before any widget binding on every click."""
         if not self._learning_tab:
             return "break"
-        # Let the Learning nav button toggle learning mode off as normal
-        if event.widget is getattr(self, "_nav_learn_btn", None):
-            return
         # Let clicks inside the learning panel itself fall through untouched
         try:
             lf = self.nametowidget(self._learning_tab)
