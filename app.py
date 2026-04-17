@@ -888,11 +888,8 @@ class IDOL(Tk):
             except Exception:
                 tabs = []
             if self._learning_tab not in tabs:
-                # Tab was closed
-                self._learning_tab = None
-                self._learning_panel = None
-                self._learning_deactivate_cursors()
-                self._refresh_nav_bar()
+                # Tab was closed via the × button
+                self._close_learning_mode()
 
     def _reset_dirty_after_load(self, tab_id: str) -> None:
         """Clear the dirty flag after all deferred events from file load have fired.
@@ -2389,30 +2386,36 @@ class IDOL(Tk):
 
     # ── Learning Mode ─────────────────────────────────────────────────────────
 
+    def _close_learning_mode(self) -> None:
+        """Unconditionally close the learning tab and restore all widget state."""
+        if not self._learning_tab:
+            return
+        try:
+            idx = list(self.notebook.tabs()).index(self._learning_tab)
+            self.notebook.forget(idx)
+        except Exception:
+            pass
+        self._learning_tab = None
+        self._learning_panel = None
+        self._learning_deactivate_cursors()
+        self._refresh_nav_bar()
+
     def view_learning_mode(self) -> None:
         """Toggle the Learning Mode tab (F1)."""
         if self._learning_tab:
             try:
-                tabs = self.notebook.tabs()
-                if self._learning_tab not in tabs:
+                if self._learning_tab not in self.notebook.tabs():
                     raise ValueError
                 if self.notebook.select() == self._learning_tab:
-                    # Already focused — close it
-                    idx = list(tabs).index(self._learning_tab)
-                    self.notebook.forget(idx)
-                    self._learning_tab = None
-                    self._learning_panel = None
-                    self._learning_deactivate_cursors()
-                    self._refresh_nav_bar()
+                    self._close_learning_mode()
                     return
                 else:
                     self.notebook.select(self._learning_tab)
                     self._refresh_nav_bar()
                     return
             except Exception:
-                self._learning_tab = None
-                self._learning_panel = None
-                self._learning_deactivate_cursors()
+                self._close_learning_mode()
+                return
 
         frame = ttk.Frame(self.notebook)
         panel = LearningPanel(frame)
@@ -2598,9 +2601,9 @@ class IDOL(Tk):
         """Bindtag handler — fires before any widget binding on every click."""
         if not self._learning_tab:
             return "break"
-        # Let the Learning nav button close learning mode
+        # Let the Learning nav button always close learning mode
         if event.widget is getattr(self, "_nav_learn_btn", None):
-            self.view_learning_mode()
+            self._close_learning_mode()
             return "break"
         # Let clicks inside the learning panel itself fall through untouched
         try:
