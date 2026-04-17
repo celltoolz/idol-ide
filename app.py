@@ -614,6 +614,7 @@ class IDOL(Tk):
             if LearningManager.is_active() else None,
             add="+",
         )
+        self._learning_adopt_widgets(crumb, codeview)
 
         self.notebook.add(frame, text=f"  {title}  ")
         self.notebook.select(frame)
@@ -2571,6 +2572,26 @@ class IDOL(Tk):
                 pass
         self._nav_learn_btn.config(cursor="hand2")
         self._learning_install_bindtag()
+
+    def _learning_adopt_widgets(self, *widgets) -> None:
+        """Add newly created widgets into an already-active learning mode session."""
+        if not self._learning_tab:
+            return
+        for w in widgets:
+            lid = LearningManager._widget_lid.get(w)
+            if lid:
+                self._learning_reg_map[w] = lid
+            try:
+                w.config(cursor="question_arrow")
+            except Exception:
+                pass
+            for child in self._iter_all_widgets(w):
+                try:
+                    tags = child.bindtags()
+                    if self._LM_TAG not in tags:
+                        child.bindtags((self._LM_TAG,) + tags)
+                except Exception:
+                    pass
 
     def _learning_deactivate_cursors(self) -> None:
         """Leave learning mode: remove bindtag intercept + restore cursors."""
