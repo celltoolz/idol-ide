@@ -2547,6 +2547,8 @@ class IDOL(Tk):
     def _learning_activate_cursors(self) -> None:
         """Enter learning mode: set cursors on registered widgets + intercept all clicks."""
         self._learning_reg_map = {w: l for w, l in LearningManager.all_registrations()}
+        LearningManager.set_active(True)
+        LearningManager.set_click_handler(self._on_learning_click)
         for widget in self._learning_reg_map:
             try:
                 widget.config(cursor="question_arrow")
@@ -2556,6 +2558,7 @@ class IDOL(Tk):
 
     def _learning_deactivate_cursors(self) -> None:
         """Leave learning mode: remove bindtag intercept + restore cursors."""
+        LearningManager.set_active(False)
         self._learning_remove_bindtag()
         for widget, _lid in LearningManager.all_registrations():
             orig = LearningManager.get_widget_originals(widget)

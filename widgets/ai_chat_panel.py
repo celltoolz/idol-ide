@@ -411,7 +411,12 @@ class AiChatPanel(tk.Frame):
         lbl = tk.Label(parent, text=text, bg="#3c3c3c", fg=_FG,
                        font=("Segoe UI", 8), cursor="hand2",
                        padx=6, pady=2)
-        lbl.bind("<Button-1>", lambda _: cmd())
+        def _click():
+            if LearningManager.is_active():
+                LearningManager.fire_click(lbl)
+                return
+            cmd()
+        lbl.bind("<Button-1>", lambda _: _click())
         lbl.bind("<Enter>",    lambda _: lbl.config(bg="#505050"))
         lbl.bind("<Leave>",    lambda _: lbl.config(bg="#3c3c3c"))
         return lbl
