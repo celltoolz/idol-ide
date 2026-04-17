@@ -2585,23 +2585,36 @@ class IDOL(Tk):
         if root is not self and isinstance(root, tk.Toplevel):
             return
         yield root
-        for child in root.winfo_children():
-            yield from self._iter_all_widgets(child)
+        try:
+            children = root.winfo_children()
+        except Exception:
+            return
+        for child in children:
+            try:
+                yield from self._iter_all_widgets(child)
+            except Exception:
+                pass
 
     def _learning_install_bindtag(self) -> None:
         """Prepend LearningMode bindtag to every widget so clicks are intercepted first."""
         self.bind_class(self._LM_TAG, "<Button-1>", self._learning_click_intercept)
         for w in self._iter_all_widgets():
-            tags = w.bindtags()
-            if self._LM_TAG not in tags:
-                w.bindtags((self._LM_TAG,) + tags)
+            try:
+                tags = w.bindtags()
+                if self._LM_TAG not in tags:
+                    w.bindtags((self._LM_TAG,) + tags)
+            except Exception:
+                pass
 
     def _learning_remove_bindtag(self) -> None:
         """Remove the LearningMode bindtag from every widget."""
         for w in self._iter_all_widgets():
-            tags = w.bindtags()
-            if self._LM_TAG in tags:
-                w.bindtags(tuple(t for t in tags if t != self._LM_TAG))
+            try:
+                tags = w.bindtags()
+                if self._LM_TAG in tags:
+                    w.bindtags(tuple(t for t in tags if t != self._LM_TAG))
+            except Exception:
+                pass
 
     def _learning_click_intercept(self, event) -> str:
         """Bindtag handler — fires before any widget binding on every click."""
