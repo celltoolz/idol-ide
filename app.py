@@ -224,6 +224,7 @@ class IDOL(Tk):
         self._learning_tab: str | None = None
         self._learning_panel: LearningPanel | None = None
         self._learning_active_lid: str = ""
+        self._learning_reg_map: dict = {}  # widget → lid, built on activate
 
         # Split editor
         self._split_active: bool = False
@@ -2534,52 +2535,86 @@ class IDOL(Tk):
         LM.register(self._output.output, "output_panel", overlay=False)
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
 
-        # Bind click handler on all registered widgets — add=True so normal
-        # bindings already set remain; "break" return prevents them from firing
-        # while learning mode is active.
-        for _widget, _lid in LearningManager.all_registrations():
-            _widget.bind(
-                "<Button-1>",
-                lambda e, w=_widget, l=_lid: (self._on_learning_click(w, l), "break")[-1],
-                add="+",
-            )
 
-        # Sidebar headers are Frames whose child Labels also receive clicks —
-        # bind those children too (flash target stays the header frame).
-        for _hdr, _lid in [
-            (self._sidebar._outline_hdr,  "outline_panel"),
-            (self._sidebar._refs_hdr,     "references_panel"),
-            (self._sidebar._sc_hdr,       "source_control_panel"),
-            (self._sidebar._explorer_hdr, "explorer_panel"),
-        ]:
-            for _child in _hdr.winfo_children():
-                _child.bind(
-                    "<Button-1>",
-                    lambda e, w=_hdr, l=_lid: (self._on_learning_click(w, l), "break")[-1],
-                    add="+",
-                )
+    # Tkinter bindtag used to intercept all clicks while learning mode is active
+    _LM_TAG = "LearningMode"
 
     def _learning_activate_cursors(self) -> None:
-        """Set question_arrow cursor on all learning-registered widgets."""
-        for widget, _lid in LearningManager.all_registrations():
+        """Enter learning mode: set cursors on registered widgets + intercept all clicks."""
+        self._learning_reg_map = {w: l for w, l in LearningManager.all_registrations()}
+        for widget in self._learning_reg_map:
             try:
                 widget.config(cursor="question_arrow")
             except Exception:
                 pass
+        self._learning_install_bindtag()
 
     def _learning_deactivate_cursors(self) -> None:
-        """Restore original cursors on all learning-registered widgets."""
+        """Leave learning mode: remove bindtag intercept + restore cursors."""
+        self._learning_remove_bindtag()
         for widget, _lid in LearningManager.all_registrations():
             orig = LearningManager.get_widget_originals(widget)
             try:
                 widget.config(cursor=orig.get("cursor", ""))
             except Exception:
                 pass
+        self._learning_reg_map = {}
+
+    def _iter_all_widgets(self, widget=None):
+        """Yield every widget in this window recursively, skipping other Toplevels."""
+        root = widget if widget is not None else self
+        if root is not self and isinstance(root, tk.Toplevel):
+            return
+        yield root
+        for child in root.winfo_children():
+            yield from self._iter_all_widgets(child)
+
+    def _learning_install_bindtag(self) -> None:
+        """Prepend LearningMode bindtag to every widget so clicks are intercepted first."""
+        self.bind_class(self._LM_TAG, "<Button-1>", self._learning_click_intercept)
+        for w in self._iter_all_widgets():
+            tags = w.bindtags()
+            if self._LM_TAG not in tags:
+                w.bindtags((self._LM_TAG,) + tags)
+
+    def _learning_remove_bindtag(self) -> None:
+        """Remove the LearningMode bindtag from every widget."""
+        for w in self._iter_all_widgets():
+            tags = w.bindtags()
+            if self._LM_TAG in tags:
+                w.bindtags(tuple(t for t in tags if t != self._LM_TAG))
+
+    def _learning_click_intercept(self, event) -> str:
+        """Bindtag handler — fires before any widget binding on every click."""
+        if not self._learning_tab:
+            return "break"
+        # Let clicks inside the learning panel itself fall through untouched
+        try:
+            lf = self.nametowidget(self._learning_tab)
+            w = event.widget
+            while w is not None:
+                if w is lf:
+                    return
+                w = getattr(w, "master", None)
+        except Exception:
+            pass
+        # Route to content if the click lands on or inside a registered widget
+        widget, lid = self._find_learning_registration(event.widget)
+        if widget is not None:
+            self._on_learning_click(widget, lid)
+        return "break"
+
+    def _find_learning_registration(self, widget):
+        """Walk up the parent chain to find the nearest registered ancestor."""
+        w = widget
+        while w is not None:
+            if w in self._learning_reg_map:
+                return w, self._learning_reg_map[w]
+            w = getattr(w, "master", None)
+        return None, None
 
     def _on_learning_click(self, widget, lid: str) -> None:
-        """Handle a click on a registered widget while learning mode is active."""
-        if not self._learning_tab:
-            return
+        """Show guide content and flash the clicked widget."""
         self._learning_active_lid = lid
         try:
             self.notebook.select(self._learning_tab)
