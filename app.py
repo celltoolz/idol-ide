@@ -2552,6 +2552,9 @@ class IDOL(Tk):
         LM.register(self._output.output, "output_panel", overlay=False)
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
 
+        # AI Chat input box
+        LM.register(self._ai_panel._input, "ai_chat")
+
 
     # Tkinter bindtag used to intercept all clicks while learning mode is active
     _LM_TAG = "LearningMode"
@@ -2627,6 +2630,13 @@ class IDOL(Tk):
         if event.widget is getattr(self, "_nav_learn_btn", None):
             self._close_learning_mode()
             return "break"
+        # Let < > + nav buttons keep working during learning mode
+        if event.widget in (
+            getattr(self, "_prev_btn", None),
+            getattr(self, "_next_btn", None),
+            getattr(self, "_plus_btn", None),
+        ):
+            return
         # Let notebook tab bar clicks (tab switching, X close) fall through
         nb_r = getattr(self, "_notebook_r", None)
         if event.widget is self.notebook or (nb_r and event.widget is nb_r):

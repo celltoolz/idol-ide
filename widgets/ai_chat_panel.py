@@ -165,6 +165,12 @@ class AiChatPanel(tk.Frame):
         self._input.pack(side="left", fill="both", expand=True)
         self._input.bind("<Return>",       self._on_return)
         self._input.bind("<Shift-Return>", self._on_shift_return)
+        self._input.bind(
+            "<Button-1>",
+            lambda e: (LearningManager.fire_click(self._input), "break")[-1]
+            if LearningManager.is_active() else None,
+            add="+",
+        )
 
         # Bottom row: Send File + Selection on left, ctx label + tokens on right
         bottom_row = tk.Frame(input_outer, bg=_INPUT_BG)
