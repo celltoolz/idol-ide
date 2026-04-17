@@ -40,6 +40,7 @@ from editor.git_manager import GitManager
 from menus.menubar import build_menubar
 from utils import session as session_utils
 from utils.learning_registry import LearningManager
+from utils.custom_cursor import get_learn_cursor
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
@@ -383,7 +384,7 @@ class IDOL(Tk):
             side="right",
             active_fn=lambda: bool(self._learning_tab),
         )
-        self._nav_learn_btn.config(cursor="question_arrow")
+        self._nav_learn_btn.config(cursor=get_learn_cursor())
         self._nav_pkg_btn = _nav_btn(
             _nav_bar,
             " 📦 ",
@@ -2567,7 +2568,7 @@ class IDOL(Tk):
         LearningManager.set_click_handler(self._on_learning_click)
         for widget in self._learning_reg_map:
             try:
-                widget.config(cursor="question_arrow")
+                widget.config(cursor=get_learn_cursor())
             except Exception:
                 pass
         self._nav_learn_btn.config(cursor="hand2")
@@ -2582,7 +2583,7 @@ class IDOL(Tk):
             if lid:
                 self._learning_reg_map[w] = lid
             try:
-                w.config(cursor="question_arrow")
+                w.config(cursor=get_learn_cursor())
             except Exception:
                 pass
             for child in self._iter_all_widgets(w):
@@ -2604,7 +2605,7 @@ class IDOL(Tk):
             except Exception:
                 pass
         self._learning_reg_map = {}
-        self._nav_learn_btn.config(cursor="question_arrow")
+        self._nav_learn_btn.config(cursor=get_learn_cursor())
 
     def _iter_all_widgets(self, widget=None):
         """Yield every widget in this window recursively, skipping other Toplevels."""
