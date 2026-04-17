@@ -326,7 +326,7 @@ class IDOL(Tk):
         _nav_bar.pack(fill="x", side="top")
         _nav_bar.pack_propagate(False)
 
-        def _nav_btn(parent, text, cmd, side="left", padx=5, active_fn=None):
+        def _nav_btn(parent, text, cmd, side="left", padx=5, active_fn=None, passthrough=False):
             fg0 = "#007acc" if active_fn and active_fn() else "#858585"
             lbl = Label(
                 parent,
@@ -346,7 +346,7 @@ class IDOL(Tk):
                 lbl.config(fg="#007acc" if active_fn and active_fn() else "#858585")
 
             def _click():
-                if self._learning_tab and cmd is not self.view_learning_mode:
+                if self._learning_tab and cmd is not self.view_learning_mode and not passthrough:
                     lid = self._learning_reg_map.get(lbl)
                     if lid:
                         self._on_learning_click(lbl, lid)
@@ -361,10 +361,10 @@ class IDOL(Tk):
             return lbl
 
         # Left cluster — lambdas defer notebook lookup until after assignment
-        self._prev_btn = _nav_btn(_nav_bar, " ‹ ", lambda: self.notebook.select_prev())
-        self._next_btn = _nav_btn(_nav_bar, " › ", lambda: self.notebook.select_next())
+        self._prev_btn = _nav_btn(_nav_bar, " ‹ ", lambda: self.notebook.select_prev(), passthrough=True)
+        self._next_btn = _nav_btn(_nav_bar, " › ", lambda: self.notebook.select_next(), passthrough=True)
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="left", fill="y", pady=4)
-        self._plus_btn = _nav_btn(_nav_bar, " + ", self.file_new)
+        self._plus_btn = _nav_btn(_nav_bar, " + ", self.file_new, passthrough=True)
         self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043"))
         self._plus_btn.bind("<Leave>", lambda _: self._plus_btn.config(fg="#858585"))
 
