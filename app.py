@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import os
 import re
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -514,6 +515,8 @@ class IDOL(Tk):
         self.bind("<Control-s>", lambda _: self.file_save())
         self.bind("<Control-S>", lambda _: self.file_save_as())
         self.bind("<Control-w>", lambda _: self.file_close())
+        if sys.platform == "darwin":
+            self.bind("<Command-w>", lambda _: self.file_close())
         self.bind("<Control-q>", lambda _: self.file_exit())
         self.bind("<Control-f>", lambda _: self.edit_find_replace())
         self.bind("<Control-l>", lambda _: self.view_change_font())
