@@ -1,18 +1,15 @@
 """ProjectWizard — multi-step new project setup wizard."""
 from __future__ import annotations
 
-import glob
 import os
 import re
-import shutil
-import subprocess
 import sys
-import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import Frame, Label, Entry, ttk, filedialog, messagebox
 from typing import Callable
 
+from editor.project_manager import ProjectManager, categorize_interpreter
 from widgets.guide_window import GuideWindow
 import utils.venv_guide as venv_guide
 import utils.git_remote_guide as git_remote_guide
@@ -25,109 +22,6 @@ _DIM     = "#858585"
 _BTN_BG  = "#0e639c"
 _BTN_ACT = "#1177bb"
 _ERR     = "#f14c4c"
-
-
-def _detect_pythons() -> list[tuple[str, str]]:
-    """Return a list of (label, executable_path) for available Python interpreters."""
-    seen_real: set[str] = set()   # realpath dedup for non-venv entries
-    seen_path: set[str] = set()   # path dedup for venv entries
-    results:   list[tuple[str, str]] = []
-
-    def _add(path: str) -> None:
-        """Add a non-venv interpreter, deduped by realpath."""
-        resolved = shutil.which(path) or (path if os.path.isfile(path) else None)
-        if not resolved:
-            return
-        norm = os.path.normcase(os.path.realpath(resolved))
-        if norm in seen_real:
-            return
-        seen_real.add(norm)
-        seen_path.add(os.path.normcase(resolved))
-        try:
-            out = subprocess.check_output(
-                [resolved, "--version"], stderr=subprocess.STDOUT, timeout=3
-            ).decode().strip()
-            version = out.split()[-1]
-        except Exception:
-            return
-        results.append((f"Python {version}  ({resolved})", resolved))
-
-    def _add_venv(path: str) -> None:
-        """Add a venv interpreter, deduped by path only (not realpath)."""
-        resolved = path if os.path.isfile(path) else None
-        if not resolved:
-            return
-        norm = os.path.normcase(resolved)
-        if norm in seen_path:
-            return
-        seen_path.add(norm)
-        try:
-            out = subprocess.check_output(
-                [resolved, "--version"], stderr=subprocess.STDOUT, timeout=3
-            ).decode().strip()
-            version = out.split()[-1]
-        except Exception:
-            return
-        results.append((f"Python {version}  ({resolved})", resolved))
-
-    # 1. Explicit absolute paths — generic names first so python3 wins the
-    #    realpath dedup over python3.14 (both symlink to the same binary).
-    for prefix in ("/usr/bin", "/usr/local/bin", "/opt/homebrew/bin",
-                   os.path.expanduser("~/.pyenv/shims")):
-        for name in ("python3", "python", "python3.14", "python3.13",
-                     "python3.12", "python3.11", "python3.10", "python3.9"):
-            _add(os.path.join(prefix, name))
-
-    # Homebrew cellar — catches installs not yet symlinked into /usr/local/bin
-    for pattern in ("/usr/local/Cellar/python*/*/bin/python3",
-                    "/opt/homebrew/Cellar/python*/*/bin/python3"):
-        for p in sorted(glob.glob(pattern), reverse=True):
-            _add(p)
-
-    # Windows py launcher
-    py = shutil.which("py")
-    if py:
-        try:
-            out = subprocess.check_output([py, "-0"], stderr=subprocess.STDOUT,
-                                          timeout=3).decode()
-            for line in out.splitlines():
-                m = re.search(r"-(\d+\.\d+).*?(\S+python\S*)", line, re.IGNORECASE)
-                if m:
-                    _add(m.group(2))
-        except Exception:
-            pass
-
-    # 2. Name-based PATH lookups — catch conda, custom installs, etc.
-    for name in ("python3", "python", "python3.14", "python3.13", "python3.12",
-                 "python3.11", "python3.10", "python3.9"):
-        _add(name)
-
-    # 3. Venv entries — use path-based dedup so they coexist with the system
-    #    Python they symlink to. sys.executable first (the IDE's own venv),
-    #    then any venv/bin/python found in home directory subdirectories.
-    exe = sys.executable
-    if any(v in exe.replace("\\", "/") for v in ("/venv/", "/.venv/")):
-        _add_venv(exe)
-    for pattern in (
-        os.path.expanduser("~/*/venv/bin/python3"),
-        os.path.expanduser("~/*/.venv/bin/python3"),
-        os.path.expanduser("~/venv/*/bin/python3"),
-    ):
-        for p in sorted(glob.glob(pattern)):
-            _add_venv(p)
-
-    return results if results else [("Python (system default)", sys.executable)]
-
-
-def _categorize(exe: str) -> str:
-    """Return 'venv', 'system', or 'user' for a given interpreter path."""
-    norm = exe.replace("\\", "/").lower()
-    if "/venv/" in norm or "/.venv/" in norm or norm.endswith("/venv") or norm.endswith("/.venv"):
-        return "venv"
-    system_prefixes = ("/usr/bin/", "/usr/local/bin/", "c:/windows/")
-    if any(norm.startswith(p) for p in system_prefixes):
-        return "system"
-    return "user"
 
 
 class ProjectWizard(tk.Toplevel):
@@ -172,6 +66,7 @@ class ProjectWizard(tk.Toplevel):
 
         self._pythons: list[tuple[str, str]] = []   # populated by background thread
         self._detecting = True
+        self._pm = ProjectManager(after_fn=self.after)
         self._show_venv_var   = tk.BooleanVar(value=False)  # hide venv by default
         self._show_system_var = tk.BooleanVar(value=True)
 
@@ -206,15 +101,10 @@ class ProjectWizard(tk.Toplevel):
 
         self._nav_btn(nav, "Cancel", self.destroy).pack(side="right", padx=8)
 
-        threading.Thread(target=self._detect_pythons_bg, daemon=True).start()
+        self._pm.discover_interpreters(self._on_pythons_ready)
         self._render()
 
     # ── Python detection (background) ─────────────────────────────────────────
-
-    def _detect_pythons_bg(self) -> None:
-        """Run interpreter detection off the main thread."""
-        results = _detect_pythons()
-        self.after(0, self._on_pythons_ready, results)
 
     def _on_pythons_ready(self, results: list[tuple[str, str]]) -> None:
         """Called on the main thread when detection finishes."""
@@ -405,7 +295,7 @@ class ProjectWizard(tk.Toplevel):
                 show_system = self._show_system_var.get()
                 out = []
                 for label, exe in self._pythons:
-                    cat = _categorize(exe)
+                    cat = categorize_interpreter(exe)
                     if cat == "venv"   and not show_venv:   continue
                     if cat == "system" and not show_system: continue
                     out.append((label, exe))
@@ -540,8 +430,15 @@ class ProjectWizard(tk.Toplevel):
             return
 
         self._show_progress()
-        threading.Thread(target=self._run_setup,
-                         args=(path, python), daemon=True).start()
+        self._pm.scaffold_project(
+            path=path,
+            python=python,
+            create_venv=self._venv_var.get(),
+            create_git=self._git_var.get(),
+            on_status=self._set_status,
+            on_done=lambda error: self._finish_setup(path, error),
+            write_files_fn=self._write_starter_files if self._files_var.get() else None,
+        )
 
     def _show_progress(self) -> None:
         """Replace wizard content with an indeterminate progress screen."""
@@ -569,33 +466,8 @@ class ProjectWizard(tk.Toplevel):
         self._status_lbl.pack()
 
     def _set_status(self, text: str) -> None:
-        """Thread-safe status label update."""
-        self.after(0, lambda: self._status_lbl.config(text=text)
-                   if self._status_lbl.winfo_exists() else None)
-
-    def _run_setup(self, path: str, python: str) -> None:
-        """Run in background thread — all UI updates go through after()."""
-        error: str | None = None
-        try:
-            if self._venv_var.get():
-                self._set_status("Creating virtual environment…")
-                subprocess.run([python, "-m", "venv", os.path.join(path, "venv")],
-                               check=True, timeout=120)
-
-            if self._files_var.get():
-                self._set_status("Writing starter files…")
-                self._write_starter_files(path)
-
-            if self._git_var.get():
-                self._set_status("Initializing git repository…")
-                subprocess.run(["git", "init", path], check=True, timeout=10)
-
-        except subprocess.CalledProcessError as e:
-            error = f"An error occurred during project setup:\n{e}"
-        except Exception as e:
-            error = str(e)
-
-        self.after(0, lambda: self._finish_setup(path, error))
+        if self._status_lbl.winfo_exists():
+            self._status_lbl.config(text=text)
 
     def _finish_setup(self, path: str, error: str | None) -> None:
         if error:
