@@ -446,6 +446,22 @@ REGISTRY: dict[str, dict[str, str]] = {
         "example": "You no longer need 'colorama'. Select it, click Uninstall → pip removes it cleanly.",
     },
 
+    # ── AI Chat ───────────────────────────────────────────────────────────────
+    "ai_chat": {
+        "title": "AI Chat Input",
+        "what": "Type a message here to talk to the AI assistant powered by Ollama running locally on your machine.",
+        "how": (
+            "Type your question or paste code, then press Enter (or Shift+Enter for a new line). "
+            "The AI keeps the full conversation in memory so you can ask follow-up questions. "
+            "Use 📄 Send File to attach your open file, or ✂ Selection to attach highlighted code."
+        ),
+        "example": (
+            "Type 'What does a decorator do in Python?' and press Enter. "
+            "Then follow up with 'Can you show me a simple example?' — "
+            "the AI remembers the context of the whole conversation."
+        ),
+    },
+
     # ── AI Chat buttons ───────────────────────────────────────────────────────
     "ai_settings_btn": {
         "title": "AI Settings (⚙)",
