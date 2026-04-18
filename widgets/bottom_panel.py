@@ -34,6 +34,7 @@ class BottomPanel(ttk.Frame):
         self._active: str = "output"
         self._cwd = cwd
         self._cwd_after_id: Optional[str] = None
+        self._terminal_first_show: bool = True
 
         self._build_tab_bar()
 
@@ -144,5 +145,8 @@ class BottomPanel(ttk.Frame):
             self.terminal.pack(fill="both", expand=True)
             if not self.terminal._running:
                 self.terminal.start(cwd=self._cwd)
+            if self._terminal_first_show:
+                self._terminal_first_show = False
+                self.terminal.after(50, lambda: self.terminal._text.yview_moveto(0))
 
         self._active = key
