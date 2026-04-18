@@ -7,6 +7,7 @@ the system question_arrow is theme-dependent and often renders poorly.
 The cursor is written once to a temp dir on first call and cached.
 The temp dir is removed automatically on process exit via atexit.
 """
+
 from __future__ import annotations
 
 import atexit
@@ -17,37 +18,39 @@ import tempfile
 
 _W, _H = 32, 32
 
-# Arrow (solid right-triangle, hotspot at 0,0) + question mark to its right.
-# Exactly 32 characters per row.  'X' = set pixel, '.' = transparent.
+# Arrow + question mark cursor, 32x32.
+# 'X' = set pixel, '.' = transparent.  Each row is exactly 32 chars.
 #
-# Arrow:  rows 0-11, width grows 1px per row (1..12)
-# ?-mark: rows 9-16, positioned clear of the arrow tip
-#   row  9: top arc    cols 15-17
-#   row 10: arc sides  cols 14, 18
-#   row 11: right side col 18
-#   row 12: bend       col 17
-#   rows 13-14: stem   col 16
-#   row 15: gap
-#   row 16: dot        col 16
+# Arrow tip at col 1, row 1 (hotspot declared as 0,0 — 1px above-left).
+# Arrow grows 1px/row up to peak width 9 at row 9, then tapers into a tail.
+# Left edge steps inward on rows 10-15 creating a natural diagonal angle.
+#
+# ?-mark: rows 10-17, positioned clear of the arrow body
+#   row 10: top arc     cols 15-17
+#   row 11: arc sides   cols 14, 18
+#   row 12: right side  col 18
+#   rows 13-15: bend→stem  col 17
+#   row 16: (gap — arrow tail only)
+#   row 17: dot         col 17
 _GRID = [
-    "X...............................",  #  0
-    "XX..............................",  #  1
-    "XXX.............................",  #  2
-    "XXXX............................",  #  3
-    "XXXXX...........................",  #  4
-    "XXXXXX..........................",  #  5
-    "XXXXXXX.........................",  #  6
-    "XXXXXXXX........................",  #  7
-    "XXXXXXXXX.......................",  #  8
-    "XXXXXXXXXX.....XXX..............",  #  9
-    "XXXXXXXXXXX...X...X.............",  # 10
-    "XXXXXXXXXXXX......X.............",  # 11
-    ".................X..............",  # 12
-    "................X...............",  # 13
-    "................X...............",  # 14
-    "................................",  # 15
-    "................X...............",  # 16
-    "................................",  # 17
+    "................................",  #  0  blank padding
+    ".X..............................",  #  1  arrow tip      col 1
+    ".XX.............................",  #  2  arrow 2px      cols 1-2
+    ".XXX............................",  #  3  arrow 3px      cols 1-3
+    ".XXXX...........................",  #  4  arrow 4px      cols 1-4
+    ".XXXXX..........................",  #  5  arrow 5px      cols 1-5
+    ".XXXXXX.........................",  #  6  arrow 6px      cols 1-6
+    ".XXXXXXX........................",  #  7  arrow 7px      cols 1-7
+    ".XXXXXXXX.......................",  #  8  arrow 8px      cols 1-8
+    ".XXXXXXXXX......................",  #  9  arrow peak 9px cols 1-9
+    ".XXXXXXX.......XXX..............",  # 10  arrow 7px cols 1-7   | ? top arc   cols 15-17
+    "....XXXX......X...X.............",  # 11  arrow 4px cols 4-7   | ? arc sides cols 14, 18
+    ".....XXX..........X.............",  # 12  arrow 3px cols 5-7   | ? right     col 18
+    "......XX.........X..............",  # 13  arrow 2px cols 6-7   | ? bend      col 17
+    "......XX.........X..............",  # 14  arrow 2px cols 6-7   | ? stem      col 17
+    ".......X.........X..............",  # 15  arrow tail col 7     | ? stem      col 17
+    ".......X........................",  # 16  arrow tail col 7       (? gap)
+    ".................X..............",  # 17  (arrow done)          | ? dot       col 17
     "................................",  # 18
     "................................",  # 19
     "................................",  # 20
