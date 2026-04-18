@@ -2530,6 +2530,9 @@ class IDOL(Tk):
         LM.register(self._sidebar._sc_hdr, "source_control_panel")
         LM.register(self._sidebar.source_control, "source_control_panel", overlay=False)
         LM.register(self._sidebar.source_control._health_hdr, "git_health_panel")
+        LM.register(self._sidebar.source_control._staged_sec._hdr, "source_control_panel")
+        LM.register(self._sidebar.source_control._unstaged_sec._hdr, "source_control_panel")
+        LM.register(self._sidebar.source_control._history_sec._hdr, "commit_history")
         LM.register(self._sidebar._explorer_hdr, "explorer_panel")
 
         # Source control action buttons

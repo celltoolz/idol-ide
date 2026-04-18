@@ -135,7 +135,7 @@ class _Section(Frame):
         self._canvas_w: int = 1
 
         # ── Header ───────────────────────────────────────────────────────────
-        hdr = Frame(self, bg=_HDR_BG, height=24, cursor="hand2")
+        hdr = self._hdr = Frame(self, bg=_HDR_BG, height=24, cursor="hand2")
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
 
@@ -351,7 +351,7 @@ class _HistorySection(Frame):
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build_header(self) -> None:
-        hdr = Frame(self, bg=_HDR_BG, height=self._HDR_H, cursor="hand2")
+        hdr = self._hdr = Frame(self, bg=_HDR_BG, height=self._HDR_H, cursor="hand2")
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
 
