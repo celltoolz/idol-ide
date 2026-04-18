@@ -94,10 +94,7 @@ def _dilate(grid: list[str]) -> list[str]:
                         nr, nc = r + dr, c + dc
                         if 0 <= nr < _H and 0 <= nc < _W:
                             out[nr][nc] = True
-    return [
-        "".join("X" if out[r][c] else "." for c in range(_W))
-        for r in range(_H)
-    ]
+    return ["".join("X" if out[r][c] else "." for c in range(_W)) for r in range(_H)]
 
 
 def _xbm(bits: list[int], name: str = "cur") -> str:
@@ -133,7 +130,7 @@ def get_learn_cursor() -> str:
     atexit.register(shutil.rmtree, _tmpdir, ignore_errors=True)
 
     cursor_path = os.path.join(_tmpdir, "cur.xbm")
-    mask_path   = os.path.join(_tmpdir, "mask.xbm")
+    mask_path = os.path.join(_tmpdir, "mask.xbm")
 
     with open(cursor_path, "w") as f:
         f.write(_xbm(_to_bits(_GRID), "cur"))
