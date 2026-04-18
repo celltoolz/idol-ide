@@ -301,8 +301,10 @@ class TerminalPanel(ttk.Frame):
                 self._render_suppressed = True
                 self._clear_timer = self.after(700, self._clear_screen_direct)
                 self.after(1500, self._ensure_render_active)
+            _cmd_name = os.path.basename(cmd[0]).lower()
+            _is_shell = any(s in _cmd_name for s in ("powershell", "pwsh", "cmd", "bash", "zsh", "sh"))
             _cwd = self._cwd
-            if _cwd and os.path.isdir(_cwd):
+            if _cwd and os.path.isdir(_cwd) and _is_shell:
                 self.after(300, lambda c=_cwd: self._send_silently(f'cd "{c}"\r'))
         except Exception as e:
             self._write_error(f"Failed to start shell: {e}\n")
@@ -826,7 +828,10 @@ class TerminalPanel(ttk.Frame):
             self._active_shell_key  = key
             self._refresh_venv_state()
             self._redraw_full()
-            if platform.system() == "Windows":
+            _rcmd = self.SHELLS.get(key) or []
+            _rname = os.path.basename(_rcmd[0]).lower() if _rcmd else ""
+            _KNOWN = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
+            if platform.system() == "Windows" and any(s in _rname for s in _KNOWN):
                 self.after(150, lambda: self.send_text("\x0c"))
             if platform.system() == "Windows" and self._state_file and self._running:
                 self.after(500, self._poll_state_file)
@@ -872,6 +877,9 @@ class TerminalPanel(ttk.Frame):
         sys = platform.system()
         shell_cmd = (self.SHELLS.get(self._shell_var.get()) or _default_shell())
         shell_name = os.path.basename(shell_cmd[0]).lower() if shell_cmd else ""
+        _KNOWN_SHELLS = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
+        if not any(s in shell_name for s in _KNOWN_SHELLS):
+            return   # REPL or unknown program — skip hook injection
 
         if sys == "Windows":
             # Write CWD/VENV to a temp file instead of stdout — avoids any PTY
