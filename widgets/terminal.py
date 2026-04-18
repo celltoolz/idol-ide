@@ -223,6 +223,11 @@ class TerminalPanel(ttk.Frame):
         self._render_suppressed = False   # True during startup; suppresses _redraw_full until clear fires
         self._clear_timer: str | None = None  # after() handle for the fallback clear
 
+        # Multi-session support: one persistent PTY per shell type
+        self._sessions:         dict[str, dict] = {}   # saved background sessions
+        self._active_shell_key: str             = "Auto"
+        self._sid_to_key:       dict[int, str]  = {}   # session_id → shell key, routes queue
+
         # Venv tracking
         self._cwd_current: str = ""        # last CWD from OSC 7 / state file
         self._venv_active:  str = ""        # $VIRTUAL_ENV from shell hook ("" = none)
@@ -242,6 +247,10 @@ class TerminalPanel(ttk.Frame):
               cwd: str | None = None) -> None:
         if cwd is not None:
             self._cwd = cwd
+        self._active_shell_key = self._shell_var.get()
+        # Remove this session's old SID mapping; leave background sessions intact
+        if self._sid_to_key.get(self._session_id) == self._active_shell_key:
+            self._sid_to_key.pop(self._session_id, None)
         self.stop()
         if not PTY_AVAILABLE:
             self._write_error("PTY library not found.\n")
@@ -281,7 +290,8 @@ class TerminalPanel(ttk.Frame):
             self._cwd_current = ""
             self._venv_active  = ""
             self._state_file_mtime = 0.0
-            threading.Thread(target=self._read_loop, args=(sid,), daemon=True).start()
+            self._sid_to_key[sid] = self._active_shell_key
+            threading.Thread(target=self._read_loop, args=(sid, self._pty), daemon=True).start()
             self._text.focus_set()
             # Inject OSC 7 CWD + VENV reporting hook after shell is ready.
             # Both the cd and hook injection use _send_silently so the TTY
@@ -333,6 +343,13 @@ class TerminalPanel(ttk.Frame):
         if self._pty and self._running:
             try:
                 self._pty.setwinsize(rows, cols)
+            except Exception:
+                pass
+        for sess in self._sessions.values():
+            try:
+                sess["screen"].resize(rows, cols)
+                if sess["running"] and sess.get("pty"):
+                    sess["pty"].setwinsize(rows, cols)
             except Exception:
                 pass
 
@@ -606,12 +623,11 @@ class TerminalPanel(ttk.Frame):
 
     # ── PTY I/O ───────────────────────────────────────────────────────────────
 
-    def _read_loop(self, sid: int) -> None:
-        while self._running and self._pty and self._pty.isalive():
+    def _read_loop(self, sid: int, pty) -> None:
+        while pty.isalive():
             try:
-                chunk = self._pty.read(4096)
+                chunk = pty.read(4096)
                 if chunk:
-                    # Process markers on string form, then encode for pyte
                     if isinstance(chunk, bytes):
                         chunk_str = chunk.decode("utf-8", errors="replace")
                     else:
@@ -625,28 +641,38 @@ class TerminalPanel(ttk.Frame):
         self._queue.put((sid, None))
 
     def _poll(self) -> None:
-        chunks = []
-        sentinel = False
+        active_chunks = []
+        active_sentinel = False
         try:
             while True:
                 sid, item = self._queue.get_nowait()
-                if sid != self._session_id:
-                    continue   # stale message from a previous session — discard
-                if item is None:
-                    sentinel = True
-                    break
-                chunks.append(item)
+                sess_key = self._sid_to_key.get(sid)
+                if sess_key is None:
+                    continue   # truly stale SID (killed session), discard
+                if sess_key == self._active_shell_key:
+                    if item is None:
+                        active_sentinel = True
+                        break
+                    active_chunks.append(item)
+                else:
+                    # Background session — buffer into its own pyte screen
+                    sess = self._sessions.get(sess_key)
+                    if sess:
+                        if item is None:
+                            sess["running"] = False
+                        else:
+                            sess["stream"].feed(item)
         except queue.Empty:
             pass
 
-        if chunks:
-            for chunk in chunks:
+        if active_chunks:
+            for chunk in active_chunks:
                 self._stream.feed(chunk)
             if not self._render_suppressed:
                 self._flush_scrollback()
                 self._redraw_full()
 
-        if sentinel:
+        if active_sentinel:
             self._running = False
             self._text.config(state="normal")
             self._text.insert("end", "\n[Process exited]\n", "plain")
@@ -756,8 +782,57 @@ class TerminalPanel(ttk.Frame):
         self.start(cmd, cwd=self._cwd)
 
     def _on_shell_change(self, _=None) -> None:
-        cmd = self.SHELLS.get(self._shell_var.get())
-        self.start(cmd, cwd=self._cwd)
+        self._switch_shell(self._shell_var.get())
+
+    def _switch_shell(self, key: str) -> None:
+        """Switch to a different shell session, persisting the current one."""
+        if key == self._active_shell_key:
+            return
+        # Snapshot current session without killing it
+        if self._clear_timer:
+            self.after_cancel(self._clear_timer)
+            self._clear_timer = None
+        self._sessions[self._active_shell_key] = {
+            "pty":              self._pty,
+            "screen":           self._screen,
+            "stream":           self._stream,
+            "scrollback":       self._scrollback,
+            "session_id":       self._session_id,
+            "running":          self._running,
+            "render_suppressed": self._render_suppressed,
+            "raw_buf":          self._raw_buf,
+            "cwd_current":      self._cwd_current,
+            "venv_active":      self._venv_active,
+            "state_file":       self._state_file,
+            "state_file_mtime": self._state_file_mtime,
+        }
+        self._pty     = None
+        self._running = False
+        # Restore existing session or start a fresh one
+        if key in self._sessions and self._sessions[key]["running"]:
+            sess = self._sessions.pop(key)
+            self._pty               = sess["pty"]
+            self._screen            = sess["screen"]
+            self._stream            = sess["stream"]
+            self._scrollback        = sess["scrollback"]
+            self._session_id        = sess["session_id"]
+            self._running           = sess["running"]
+            self._render_suppressed = sess["render_suppressed"]
+            self._raw_buf           = sess["raw_buf"]
+            self._cwd_current       = sess["cwd_current"]
+            self._venv_active       = sess["venv_active"]
+            self._state_file        = sess["state_file"]
+            self._state_file_mtime  = sess["state_file_mtime"]
+            self._active_shell_key  = key
+            self._refresh_venv_state()
+            self._redraw_full()
+            if platform.system() == "Windows":
+                self.after(150, lambda: self.send_text("\x0c"))
+            if platform.system() == "Windows" and self._state_file and self._running:
+                self.after(500, self._poll_state_file)
+        else:
+            self._active_shell_key = key
+            self.start(self.SHELLS.get(key), cwd=self._cwd)
 
     # ── Venv tracking ─────────────────────────────────────────────────────────
 
