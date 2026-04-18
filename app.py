@@ -475,6 +475,7 @@ class IDOL(Tk):
         # Start LSP and Git after the UI is fully mapped
         self.after(500, self._start_lsp)
         self.after(700, self._start_git)
+        self.after(1500, self._prewarm_terminal)
         # Reposition autocomplete popup on window move/resize
         self.bind("<Configure>", self._on_window_configure)
 
@@ -496,6 +497,12 @@ class IDOL(Tk):
         total = self._v_pane.winfo_height()
         if total > 200:
             self._v_pane.sashpos(0, total - 160)
+
+    def _prewarm_terminal(self) -> None:
+        """Start the terminal shell in the background so it's ready on first open."""
+        if not self._output.terminal._running:
+            cwd = self._output._cwd or os.getcwd()
+            self._output.terminal.start(cwd=cwd)
 
     def _on_window_configure(self, event=None) -> None:
         if event is not None and event.widget is not self:
