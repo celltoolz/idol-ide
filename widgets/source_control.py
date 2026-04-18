@@ -1156,7 +1156,7 @@ class SourceControlPanel(ttk.Frame):
         self._health_collapsed = True
         self._health_frame = Frame(self._body_frame, bg=_BG)
 
-        hdr = Frame(self._health_frame, bg=_HDR_BG, height=24, cursor="hand2")
+        hdr = self._health_hdr = Frame(self._health_frame, bg=_HDR_BG, height=24, cursor="hand2")
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
 
