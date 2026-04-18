@@ -37,6 +37,7 @@ class GuideWindow(tk.Toplevel):
         height: int = 420,
     ) -> None:
         super().__init__(parent)
+        self.withdraw()
         self.title(title)
         self.configure(bg=_BG)
         self.resizable(False, False)
@@ -107,6 +108,7 @@ class GuideWindow(tk.Toplevel):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._load(0)
+        self.deiconify()
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
