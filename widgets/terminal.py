@@ -291,8 +291,6 @@ class TerminalPanel(ttk.Frame):
                 self._render_suppressed = True
                 self._clear_timer = self.after(700, self._clear_screen_direct)
                 self.after(1500, self._ensure_render_active)
-            else:
-                self.after(700, self._clear_screen_direct)
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd):
                 self.after(300, lambda c=_cwd: self._send_silently(f'cd "{c}"\r'))
@@ -349,8 +347,11 @@ class TerminalPanel(ttk.Frame):
         self._stream = pyte.ByteStream(self._screen)
         self._render_suppressed = False
         self._redraw_full()
-        if self._running and self._pty and platform.system() != "Windows":
-            self.send_text("\r")
+        if self._running and self._pty:
+            if platform.system() == "Windows":
+                self.send_text("\x0c")   # PSReadLine ClearScreen: clears + redraws prompt
+            else:
+                self.send_text("\r")
 
     def _ensure_render_active(self) -> None:
         """Fallback: if _clear_screen_direct never fired (slow system), lift
@@ -569,7 +570,8 @@ class TerminalPanel(ttk.Frame):
                 self._text.tag_raise("sel")
             except Exception:
                 pass
-        self._text.see("end")
+        cursor_line = len(self._scrollback) + cursor_row + 1
+        self._text.see(f"{cursor_line}.0")
         self._text.xview_moveto(0)   # prevent horizontal scroll cutting off left edge
 
     def _flush_scrollback(self) -> None:

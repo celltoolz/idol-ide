@@ -1,6 +1,7 @@
 """BottomPanel — tabbed container for OUTPUT and TERMINAL panels."""
 from __future__ import annotations
 
+import platform
 from tkinter import Frame, Label, ttk
 from typing import Callable, Optional
 
@@ -147,6 +148,11 @@ class BottomPanel(ttk.Frame):
                 self.terminal.start(cwd=self._cwd)
             if self._terminal_first_show:
                 self._terminal_first_show = False
-                self.terminal.after(50, lambda: self.terminal._text.yview_moveto(0))
+                if platform.system() == "Windows":
+                    # After resize settles, Ctrl+L makes PSReadLine redraw the prompt
+                    # cleanly from (0,0) — fixes missing prompt on first keypress.
+                    self.terminal.after(200, lambda: self.terminal.send_text("\x0c"))
+                else:
+                    self.terminal.after(50, lambda: self.terminal._text.yview_moveto(0))
 
         self._active = key
