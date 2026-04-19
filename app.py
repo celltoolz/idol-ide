@@ -730,6 +730,7 @@ class IDOL(Tk):
             return result
 
         codeview.bind("<Key>", _on_key)
+        codeview.bind("<Control-slash>", lambda e, cv=codeview: self._toggle_comment(cv) or "break")
         codeview.bind("<KeyRelease>", self._bracket_matcher.match)
         codeview.bind("<ButtonRelease-1>", self._on_click_release)
         from utils import bind_right_click as _brc
@@ -1838,6 +1839,41 @@ class IDOL(Tk):
         cv = self._current_codeview
         if cv:
             self._accept_completion(cv)
+
+    # ── Comment toggle (Ctrl+/) ───────────────────────────────────────────────
+
+    def _toggle_comment(self, cv) -> None:
+        sel = cv.tag_ranges("sel")
+        if sel:
+            start_line = int(cv.index(sel[0]).split(".")[0])
+            end_idx    = cv.index(sel[1])
+            end_line   = int(end_idx.split(".")[0])
+            if end_idx.endswith(".0"):
+                end_line -= 1
+        else:
+            start_line = end_line = int(cv.index("insert").split(".")[0])
+
+        lines = [cv.get(f"{ln}.0", f"{ln}.end") for ln in range(start_line, end_line + 1)]
+        non_empty = [l for l in lines if l.strip()]
+        all_commented = bool(non_empty) and all(l.lstrip().startswith("#") for l in non_empty)
+
+        for ln in range(start_line, end_line + 1):
+            text   = cv.get(f"{ln}.0", f"{ln}.end")
+            indent = len(text) - len(text.lstrip())
+            body   = text[indent:]
+            if all_commented:
+                if body.startswith("# "):
+                    new = text[:indent] + body[2:]
+                elif body.startswith("#"):
+                    new = text[:indent] + body[1:]
+                else:
+                    continue
+            else:
+                if not body:
+                    continue  # skip blank lines
+                new = text[:indent] + "# " + body
+            cv.delete(f"{ln}.0", f"{ln}.end")
+            cv.insert(f"{ln}.0", new)
 
     # ── Go to definition ──────────────────────────────────────────────────────
 
