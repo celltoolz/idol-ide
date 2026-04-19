@@ -741,6 +741,10 @@ class IDOL(Tk):
         codeview.bind("<Control-slash>", lambda e, cv=codeview: self._toggle_comment(cv) or "break")
         codeview.bind("<KeyRelease>", self._bracket_matcher.match)
         codeview.bind("<ButtonRelease-1>", self._on_click_release)
+        for key in ("<KeyRelease-Left>", "<KeyRelease-Right>",
+                    "<KeyRelease-Up>",   "<KeyRelease-Down>",
+                    "<KeyRelease-Home>", "<KeyRelease-End>"):
+            codeview.bind(key, self._on_arrow_key)
         from utils import bind_right_click as _brc
 
         _brc(codeview, self._on_editor_right_click)
@@ -953,13 +957,9 @@ class IDOL(Tk):
                     ),
                 )
 
-    def _on_click_release(self, event) -> None:
-        self._bracket_matcher.match(event)
-        cv = self._current_codeview
-        if cv is None:
-            return
+    def _highlight_matching_words(self, cv) -> None:
+        """Highlight all occurrences of the word under the cursor."""
         cv.tag_remove("matching_word", "1.0", "end")
-
         word = cv.get("insert wordstart", "insert wordend").strip()
         if word and word not in _SKIP_HIGHLIGHT and not word[0].isdigit():
             pattern = re.compile(r"\b" + re.escape(word) + r"\b")
@@ -970,6 +970,19 @@ class IDOL(Tk):
                            _offset_to_tk(full_text, m.end()))
             cv.tag_configure("matching_word", background="#3d3f4a")
             cv.tag_raise("sel", "matching_word")
+
+    def _on_click_release(self, event) -> None:
+        self._bracket_matcher.match(event)
+        cv = self._current_codeview
+        if cv is None:
+            return
+        self._highlight_matching_words(cv)
+
+    def _on_arrow_key(self, event) -> None:
+        cv = self._current_codeview
+        if cv is None:
+            return
+        self._highlight_matching_words(cv)
 
     def _on_editor_right_click(self, event) -> None:
         cv = self._current_codeview
