@@ -319,8 +319,6 @@ class CodeView(Text):
             raise e from None
 
         if command == "insert":
-            if args[0] != "insert":
-                start_line -= 1
             lines = args[1].count("\n")
             if lines == 1:
                 self.highlight_line(f"{start_line}.0")
