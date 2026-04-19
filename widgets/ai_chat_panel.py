@@ -257,6 +257,12 @@ class AiChatPanel(tk.Frame):
             pass
 
     def _on_mousewheel(self, event) -> None:
+        # Don't hijack scroll when the cursor is over the input textbox
+        w = self.winfo_containing(*self.winfo_pointerxy())
+        while w is not None:
+            if w is self._input:
+                return
+            w = getattr(w, "master", None)
         if event.num == 4:
             self._canvas.yview_scroll(-1, "units")
         elif event.num == 5:
