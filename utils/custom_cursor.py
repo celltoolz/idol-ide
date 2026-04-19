@@ -20,39 +20,40 @@ _W, _H = 32, 32
 
 # Arrow + question mark cursor, 32x32.
 # 'X' = set pixel, '.' = transparent.  Each row is exactly 32 chars.
+# All column indices are 0-based.
 #
-# Arrow tip at col 1, row 1 (hotspot declared as 0,0 — 1px above-left).
-# Arrow grows 1px/row up to peak width 9 at row 9, then tapers into a tail.
-# Left edge steps inward on rows 10-15 creating a natural diagonal angle.
+# Arrow tip at row 2, col 2 (hotspot declared as 0,0 — 2px above-left of tip).
+# Arrow grows 1px/row from 1px at row 2 to peak 8px (cols 2-9) at row 9,
+# then the left edge tapers inward rows 10-16 forming the tail.
 #
-# ?-mark: rows 10-17, positioned clear of the arrow body
-#   row 10: top arc     cols 15-17
-#   row 11: arc sides   cols 14, 18
-#   row 12: right side  col 18
-#   rows 13-15: bend→stem  col 17
-#   row 16: (gap — arrow tail only)
-#   row 17: dot         col 17
+# ?-mark: rows 10-19, positioned clear of the arrow body
+#   row 10: top arc        cols 15-17
+#   row 11: arc sides      cols 14, 18
+#   row 12: right side     col 18
+#   row 13: bend           col 18
+#   rows 14-16: stem       cols 16-17 tapering to col 16
+#   rows 17, 19: dot       col 16  (two-pixel dot with gap at row 18)
 _GRID = [
-    "................................",  #  0  blank padding
-    ".X..............................",  #  1  arrow tip      col 1
-    ".XX.............................",  #  2  arrow 2px      cols 1-2
-    ".XXX............................",  #  3  arrow 3px      cols 1-3
-    ".XXXX...........................",  #  4  arrow 4px      cols 1-4
-    ".XXXXX..........................",  #  5  arrow 5px      cols 1-5
-    ".XXXXXX.........................",  #  6  arrow 6px      cols 1-6
-    ".XXXXXXX........................",  #  7  arrow 7px      cols 1-7
-    ".XXXXXXXX.......................",  #  8  arrow 8px      cols 1-8
-    ".XXXXXXXXX......................",  #  9  arrow peak 9px cols 1-9
-    ".XXXXXXX.......XXX..............",  # 10  arrow 7px cols 1-7   | ? top arc   cols 15-17
-    "....XXXX......X...X.............",  # 11  arrow 4px cols 4-7   | ? arc sides cols 14, 18
-    ".....XXX..........X.............",  # 12  arrow 3px cols 5-7   | ? right     col 18
-    "......XX.........X..............",  # 13  arrow 2px cols 6-7   | ? bend      col 17
-    "......XX.........X..............",  # 14  arrow 2px cols 6-7   | ? stem      col 17
-    ".......X.........X..............",  # 15  arrow tail col 7     | ? stem      col 17
-    ".......X........................",  # 16  arrow tail col 7       (? gap)
-    ".................X..............",  # 17  (arrow done)          | ? dot       col 17
-    "................................",  # 18
-    "................................",  # 19
+    "................................",  #  0  blank
+    "................................",  #  1  blank
+    "..X.............................",  #  2  arrow tip 1px       col 2
+    "..XX............................",  #  3  arrow 2px           cols 2-3
+    "..XXX...........................",  #  4  arrow 3px           cols 2-4
+    "..XXXX..........................",  #  5  arrow 4px           cols 2-5
+    "..XXXXX.........................",  #  6  arrow 5px           cols 2-6
+    "..XXXXXX........................",  #  7  arrow 6px           cols 2-7
+    "..XXXXXXX.......................",  #  8  arrow 7px           cols 2-8
+    "..XXXXXXXX......................",  #  9  arrow peak 8px      cols 2-9
+    "..XXXXX........XXX..............",  # 10  arrow 5px cols 2-6  | ? top arc   cols 15-17
+    "..XX.XX.......X...X.............",  # 11  arrow diagonal 2-3,5-6 | ? arc sides cols 14,18
+    "..X...XX..........X.............",  # 12  arrow col 2, cols 6-7  | ? right     col 18
+    "......XX..........X.............",  # 13  arrow cols 6-7      | ? bend      col 18
+    ".......XX.......XX..............",  # 14  arrow tail cols 7-8 | ? stem      cols 16-17
+    "........XX......X...............",  # 15  arrow tail cols 8-9 | ? stem      col 16
+    "........XX......X...............",  # 16  arrow tail cols 8-9 | ? bottom    col 16
+    "................X...............",  # 17  (arrow done)        | ? dot       col 16
+    "................................",  # 18  blank gap
+    "................X...............",  # 19  ? dot (second row)  col 16
     "................................",  # 20
     "................................",  # 21
     "................................",  # 22
