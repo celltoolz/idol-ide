@@ -165,6 +165,8 @@ class AiChatPanel(tk.Frame):
         self._input.pack(side="left", fill="both", expand=True)
         self._input.bind("<Return>",       self._on_return)
         self._input.bind("<Shift-Return>", self._on_shift_return)
+        self._input.bind("<<Paste>>",      lambda _: self._input.after_idle(
+            lambda: self._input.see("end")))
         self._input.bind(
             "<Button-1>",
             lambda e: (LearningManager.fire_click(self._input), "break")[-1]
