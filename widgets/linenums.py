@@ -111,8 +111,8 @@ class TkLineNumbers(Canvas):
             fold = self._get_fold_range(lineno, last_line)
             if fold:
                 _, end_line = fold
-                self._register_fold_tag(lineno, end_line)
-                is_folded = self.textwidget.tag_cget(f"fold_{lineno}", "elide") == "1"
+                marker = self._register_fold_tag(lineno, end_line)
+                is_folded = self.textwidget.tag_cget(marker, "elide") == "1"
                 size = self.font_size if self.font_size % 2 == 0 else self.font_size - 1
                 self._draw_fold_marker(
                     int(self.winfo_reqwidth()) - (size + 5),
@@ -183,12 +183,49 @@ class TkLineNumbers(Canvas):
     def _line_text(self, lineno: int) -> str:
         return self.textwidget.get(f"{lineno}.0", f"{lineno}.0 lineend")
 
-    def _register_fold_tag(self, lineno: int, end_lineno: int) -> None:
+    def _fold_tag_at_line(self, lineno: int) -> str | None:
+        """Return the fold_* mark whose position is at this line's end, or None.
+
+        Handles the case where a mark has drifted from its named line number
+        due to content being inserted or deleted above the fold.
+        """
+        target = self.textwidget.index(f"{lineno}.0 lineend")
+        # Fast path: check the expected name first
+        expected = f"fold_{lineno}"
+        if expected in self.textwidget.mark_names():
+            if self.textwidget.index(expected) == target:
+                return expected
+        # Slow path: scan all fold marks for one that drifted here
+        for name in self.textwidget.mark_names():
+            if name.startswith("fold_") and name != expected:
+                try:
+                    if self.textwidget.index(name) == target:
+                        return name
+                except Exception:
+                    pass
+        return None
+
+    def _register_fold_tag(self, lineno: int, end_lineno: int) -> str:
+        """Ensure a fold tag covers lineno+1 … end_lineno and return its name.
+
+        Reuses a drifted tag if one already sits at this line's end position,
+        rather than creating a duplicate with a different name.
+        """
+        existing = self._fold_tag_at_line(lineno)
+        if existing:
+            # Update the covered range (block size may have changed)
+            self.textwidget.tag_remove(existing, "1.0", "end")
+            self.textwidget.tag_add(
+                existing, f"{lineno}.0 lineend", f"{end_lineno}.0 lineend"
+            )
+            return existing
         marker = f"fold_{lineno}"
         self.textwidget.mark_set(marker, f"{lineno}.0 lineend")
+        self.textwidget.tag_remove(marker, "1.0", "end")
         self.textwidget.tag_add(
             marker, f"{lineno}.0 lineend", f"{end_lineno}.0 lineend"
         )
+        return marker
 
     def set_git_hunks(self, hunks: list[tuple[int, int, str]]) -> None:
         """Update gutter indicators from a list of (start, count, kind) tuples."""
@@ -281,39 +318,38 @@ class TkLineNumbers(Canvas):
         line = self.textwidget.index(f"@{event.x},{event.y}").split(".")[0]
         click_pos = f"{line}.0"
 
-        marker = f"fold_{line}"
+        actual_marker = self._fold_tag_at_line(int(line))
         in_fold_zone = (
-            marker in self.textwidget.mark_names()
+            actual_marker is not None
             and event.x > self.winfo_reqwidth() - (self.font_size + 5)
         )
         if in_fold_zone:
-            if self.textwidget.tag_cget(marker, "elide") in ("0", ""):
+            if self.textwidget.tag_cget(actual_marker, "elide") in ("0", ""):
                 # Fold: hide the block and show ··· inline
-                self.textwidget.tag_config(marker, elide=True)
-                self._show_dots(line)
+                self.textwidget.tag_config(actual_marker, elide=True)
+                self._show_dots(actual_marker, line)
             else:
-                # Unfold: remove elide tag and destroy the dots label
-                self._hide_dots(line)
-                self.textwidget.tag_delete(marker)
+                # Unfold: remove elide and destroy the dots label
+                self._hide_dots(actual_marker)
+                self.textwidget.tag_delete(actual_marker)
+                self.textwidget.mark_unset(actual_marker)
 
         self.textwidget.mark_set("insert", click_pos)
         self.textwidget.see("insert")
         self.click_pos = click_pos
         self.redraw()
 
-    def _show_dots(self, line: str) -> None:
+    def _show_dots(self, marker: str, line: str) -> None:
         """Embed a ··· label at the end of *line* to indicate a folded block."""
-        self._hide_dots(line)  # destroy any stale widget first
+        self._hide_dots(marker)
         bg   = self.textwidget["bg"]
         font = self.textwidget.cget("font")
 
         # For bracket-opened folds show the closing bracket: ( ··· )
-        open_line  = self.textwidget.get(f"{line}.0", f"{line}.0 lineend").rstrip()
+        open_line = self.textwidget.get(f"{line}.0", f"{line}.0 lineend").rstrip()
         _PAIRS = {"(": ")", "[": "]", "{": "}"}
         closing = _PAIRS.get(open_line[-1]) if open_line else None
         if closing:
-            # Use the tag's last position (not the mark) to find the closing bracket
-            marker = f"fold_{line}"
             try:
                 end_idx = self.textwidget.index(f"{marker}.last")
                 end_line_text = self.textwidget.get(
@@ -336,24 +372,24 @@ class TkLineNumbers(Canvas):
             padx=0,
             pady=0,
         )
-        lbl.bind("<Button-1>", lambda e, l=line: self._unfold_from_dots(l))
+        lbl.bind("<Button-1>", lambda e, m=marker: self._unfold_from_dots(m))
         self.textwidget.window_create(f"{line}.0 lineend", window=lbl)
-        self._dots[line] = lbl
+        self._dots[marker] = lbl
 
-    def _hide_dots(self, line: str) -> None:
-        """Destroy the dots label for *line* if it exists."""
-        lbl = self._dots.pop(line, None)
+    def _hide_dots(self, marker: str) -> None:
+        """Destroy the dots label for *marker* if it exists."""
+        lbl = self._dots.pop(marker, None)
         if lbl is not None:
             try:
                 lbl.destroy()
             except Exception:
                 pass
 
-    def _unfold_from_dots(self, line: str) -> None:
+    def _unfold_from_dots(self, marker: str) -> None:
         """Clicking the ··· label unfolds the block."""
-        marker = f"fold_{line}"
-        self._hide_dots(line)
+        self._hide_dots(marker)
         self.textwidget.tag_delete(marker)
+        self.textwidget.mark_unset(marker)
         self.redraw()
 
     def unclick(self, _: Event) -> None:
