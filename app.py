@@ -691,7 +691,7 @@ class IDOL(Tk):
                     self._accept_completion(codeview)
                     return "break"
                 if e.keysym == "Escape":
-                    self._completion.hide()
+                    self._dismiss_completion()
                     return "break"
 
             prev_ovr = handler.overwrite
@@ -769,13 +769,16 @@ class IDOL(Tk):
             self._set_active_pane(pane)
 
         codeview.bind("<ButtonPress-1>", _on_click)
-        # Escape — also clears secondary cursors
-        codeview.bind(
-            "<Escape>",
-            lambda _, m=mc: (
-                (m.clear(), self._update_cursor_status()) if m.active else None
-            ),
-        )
+        # Escape — dismiss completion first, then clear secondary cursors
+        def _on_esc(_, m=mc):
+            if self._completion.visible:
+                self._dismiss_completion()
+                return "break"
+            if m.active:
+                m.clear()
+                self._update_cursor_status()
+
+        codeview.bind("<Escape>", _on_esc)
 
         # LSP — diagnostics tags + hover + go-to-definition
         self._setup_lsp_tags(codeview)
@@ -1727,6 +1730,14 @@ class IDOL(Tk):
 
     # ── Completion ────────────────────────────────────────────────────────────
 
+    def _dismiss_completion(self) -> None:
+        """Hide the completion popup and cancel any pending request."""
+        if self._completion_after_id:
+            self.after_cancel(self._completion_after_id)
+            self._completion_after_id = None
+        self._completion_seq += 1
+        self._completion.hide()
+
     def _schedule_completion(self, cv) -> None:
         if self._completion_after_id:
             self.after_cancel(self._completion_after_id)
@@ -1747,11 +1758,14 @@ class IDOL(Tk):
             return
         idx = cv.index("insert")
         line, col = idx.split(".")
+        char_before = cv.get("insert-1c", "insert")
+        trigger_char = char_before if char_before == "." else None
         self._lsp.completion(
             path,
             int(line) - 1,
             int(col),
             lambda items, s=seq: self._show_completion(items, cv, s),
+            trigger_char=trigger_char,
         )
 
     def _show_completion(self, items: list, cv, seq: int) -> None:
@@ -1773,14 +1787,18 @@ class IDOL(Tk):
                     break
         except Exception:
             prefix = ""
+            line_text = ""
         if prefix:
-            items = sorted(
-                items,
-                key=lambda it: (
-                    not it.get("label", "").lower().startswith(prefix.lower()),
-                    it.get("label", "").lower(),
-                ),
-            )
+            items = [it for it in items
+                     if it.get("label", "").lower().startswith(prefix.lower())]
+            if not items:
+                self._completion.hide()
+                return
+            items = sorted(items, key=lambda it: it.get("label", "").lower())
+        elif line_text[-1:] != ".":
+            # No prefix and not a member-access dot — word was erased, hide
+            self._completion.hide()
+            return
         items = items[:20]
         bbox = cv.bbox("insert")
         if not bbox:

@@ -161,20 +161,25 @@ class LspManager:
         }, lambda result, _err: callback(result))
 
     def completion(self, path: str, line: int, col: int,
-                   callback: Callable[[list], None]) -> None:
+                   callback: Callable[[list], None],
+                   trigger_char: str | None = None) -> None:
         if not self.ready:
             return
         def _cb(result, _err):
             if result is None:
                 callback([])
                 return
-            # result may be a list or a CompletionList object
             items = result if isinstance(result, list) else result.get("items", [])
             callback(items)
+        context = (
+            {"triggerKind": 2, "triggerCharacter": trigger_char}
+            if trigger_char
+            else {"triggerKind": 1}
+        )
         self._client.request("textDocument/completion", {
             "textDocument": {"uri": path_to_uri(path)},
             "position":     {"line": line, "character": col},
-            "context":      {"triggerKind": 1},   # Invoked
+            "context":      context,
         }, _cb)
 
     # ── Internal ──────────────────────────────────────────────────────────────
