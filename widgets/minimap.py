@@ -79,6 +79,7 @@ class Minimap(tk.Frame):
         self._last_preview_line: int = -1
         self._last_mouse_x: int = 0
         self._last_mouse_y_root: int = 0
+        self._last_top_line: int = -1
 
         self._refresh_loop()
 
@@ -121,11 +122,17 @@ class Minimap(tk.Frame):
 
     def _refresh_loop(self) -> None:
         try:
-            top_frac, bot_frac = self._cv.yview()
-            mid      = (top_frac + bot_frac) / 2
-            vp_span  = bot_frac - top_frac
-            peer_top = max(0.0, min(1.0, mid - vp_span * 0.5))
-            self._peer.yview_moveto(peer_top)
+            cv = self._cv
+            # Use the actual top visible line number rather than cv.yview() fractions.
+            # cv.yview() fractions are relative to display height (elided lines = 0px),
+            # but the peer shows all lines, so those fractions map to the wrong position
+            # when a fold is active — causing oscillating snaps (flicker).
+            top_line = int(cv.index("@0,0").split(".")[0])
+            if top_line != self._last_top_line:
+                self._last_top_line = top_line
+                total    = max(int(cv.index("end").split(".")[0]) - 1, 1)
+                peer_top = max(0.0, min(1.0, (top_line - 1) / total))
+                self._peer.yview_moveto(peer_top)
         except Exception:
             pass
         self.after(80, self._refresh_loop)
