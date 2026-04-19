@@ -63,6 +63,14 @@ def _sash_set(pane: tk.PanedWindow, index: int, pos: int) -> None:
         pane.sash_place(index, pos, 0)
 
 
+def _offset_to_tk(text: str, offset: int) -> str:
+    """Convert a flat character offset into a Tk 'line.col' index string."""
+    before = text[:offset]
+    line = before.count("\n") + 1
+    col  = len(before) - before.rfind("\n") - 1
+    return f"{line}.{col}"
+
+
 # Words that should NOT trigger word-highlight on click
 _SKIP_HIGHLIGHT = (
     set(dir(builtins))
@@ -955,10 +963,11 @@ class IDOL(Tk):
         word = cv.get("insert wordstart", "insert wordend").strip()
         if word and word not in _SKIP_HIGHLIGHT and not word[0].isdigit():
             pattern = re.compile(r"\b" + re.escape(word) + r"\b")
-            for m in pattern.finditer(cv.get("1.0", "end-1c")):
-                s = f"1.0 + {m.start()} chars"
-                e = f"1.0 + {m.end()} chars"
-                cv.tag_add("matching_word", s, e)
+            full_text = cv.get("1.0", "end-1c")
+            for m in pattern.finditer(full_text):
+                cv.tag_add("matching_word",
+                           _offset_to_tk(full_text, m.start()),
+                           _offset_to_tk(full_text, m.end()))
             cv.tag_configure("matching_word", background="#3d3f4a")
             cv.tag_raise("sel", "matching_word")
 
