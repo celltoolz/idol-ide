@@ -211,7 +211,9 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
 
     # ── Explorer root ─────────────────────────────────────────────────────────
     root = data.get("explorer_root")
-    if root and os.path.isdir(root):
+    if root and not os.path.isdir(root):
+        root = str(Path.home())
+    if root:
         app._set_explorer_root(root)
 
     # ── Appearance ────────────────────────────────────────────────────────────
