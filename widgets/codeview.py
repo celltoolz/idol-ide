@@ -487,6 +487,8 @@ class CodeView(Text):
         self._vs.set(first, last)
         self._line_numbers.redraw()
         self._sticky.refresh()
+        if hasattr(self, "_minimap"):
+            self._minimap.on_scroll()
 
     def scroll_line_update(self, event: Event | None = None) -> None:
         self.horizontal_scroll(*self.xview())

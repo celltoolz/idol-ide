@@ -81,8 +81,6 @@ class Minimap(tk.Frame):
         self._last_mouse_y_root: int = 0
         self._last_top_line: int = -1
 
-        self._refresh_loop()
-
     # ── Grid helpers — border in col 3, minimap frame in col 4 ───────────────
 
     def grid(self, **kwargs) -> None:
@@ -120,22 +118,23 @@ class Minimap(tk.Frame):
 
     # ── Scroll tracking ───────────────────────────────────────────────────────
 
-    def _refresh_loop(self) -> None:
+    def on_scroll(self) -> None:
+        """Sync peer position — called directly by CodeView.vertical_scroll.
+
+        Driven by the editor's own scroll events rather than a polling loop,
+        so the minimap updates in lockstep with no lag or flicker.
+        """
         try:
             cv = self._cv
-            # Use the actual top visible line number rather than cv.yview() fractions.
-            # cv.yview() fractions are relative to display height (elided lines = 0px),
-            # but the peer shows all lines, so those fractions map to the wrong position
-            # when a fold is active — causing oscillating snaps (flicker).
             top_line = int(cv.index("@0,0").split(".")[0])
-            if top_line != self._last_top_line:
-                self._last_top_line = top_line
-                total    = max(int(cv.index("end").split(".")[0]) - 1, 1)
-                peer_top = max(0.0, min(1.0, (top_line - 1) / total))
-                self._peer.yview_moveto(peer_top)
+            if top_line == self._last_top_line:
+                return
+            self._last_top_line = top_line
+            total    = max(int(cv.index("end").split(".")[0]) - 1, 1)
+            peer_top = max(0.0, min(1.0, (top_line - 1) / total))
+            self._peer.yview_moveto(peer_top)
         except Exception:
             pass
-        self.after(80, self._refresh_loop)
 
     # ── Hover preview ─────────────────────────────────────────────────────────
 
