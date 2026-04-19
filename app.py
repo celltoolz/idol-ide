@@ -1178,6 +1178,22 @@ class IDOL(Tk):
             end = d["range"]["end"]
             s_idx = f"{start['line'] + 1}.{start['character']}"
             e_idx = f"{end['line'] + 1}.{end['character']}"
+            # Snap to full word boundaries — pylsp often reports inclusive ends
+            # or points into the middle of an identifier
+            try:
+                char_at_end = codeview.get(e_idx, f"{e_idx}+1c")
+                if char_at_end and (char_at_end.isalnum() or char_at_end == "_"):
+                    e_idx = codeview.index(f"{e_idx} wordend")
+            except Exception:
+                pass
+            try:
+                char_at_start = codeview.get(s_idx, f"{s_idx}+1c")
+                char_before = codeview.get(f"{s_idx}-1c", s_idx)
+                if (char_at_start and (char_at_start.isalnum() or char_at_start == "_")
+                        and char_before and (char_before.isalnum() or char_before == "_")):
+                    s_idx = codeview.index(f"{s_idx} wordstart")
+            except Exception:
+                pass
             codeview.tag_add(tag, s_idx, e_idx)
         for tag in ("lsp_info", "lsp_warning", "lsp_error"):
             codeview.tag_raise(tag)
