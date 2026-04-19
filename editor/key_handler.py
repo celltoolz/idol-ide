@@ -78,6 +78,9 @@ class KeyHandler:
                     # Wrap selection if text is selected
                     if codeview.tag_ranges("sel"):
                         return self._wrap_selection(codeview, open_char, self._PAIRS[open_char])
+                    next_ch = codeview.get("insert", "insert+1c")
+                    if next_ch and (next_ch.isalnum() or next_ch == "_"):
+                        return None  # let widget insert just the open char
                     codeview.insert("insert", open_char + self._PAIRS[open_char])
                     codeview.mark_set("insert", "insert - 1c")
                     return "break"
@@ -158,8 +161,9 @@ class KeyHandler:
     def _handle_return(self, codeview) -> str:
         line_txt = codeview.get("insert linestart", "insert lineend")
         indent = len(line_txt) - len(line_txt.lstrip())
-        ends_colon = codeview.get("insert-1c", "insert") == ":"
-        extra = "    " if ends_colon else ""
+        before_cursor = codeview.get("insert linestart", "insert").rstrip()
+        last_char = before_cursor[-1] if before_cursor else ""
+        extra = "    " if last_char in (":", "(", "[", "{") else ""
         codeview.insert("insert", f"\n{' ' * indent}{extra}")
         codeview.see("insert")
         return "break"
@@ -173,10 +177,13 @@ class KeyHandler:
         codeview.see(f"{target}.0")
         codeview.mark_set("insert", f"{target}.0")
 
-    def _handle_quote(self, codeview, char: str) -> str:
-        if codeview.get("insert", "insert+1c") == char:
+    def _handle_quote(self, codeview, char: str) -> str | None:
+        next_ch = codeview.get("insert", "insert+1c")
+        if next_ch == char:
             codeview.mark_set("insert", "insert+1c")
             return "break"
+        if next_ch and (next_ch.isalnum() or next_ch == "_"):
+            return None  # let widget insert just the typed quote
         codeview.insert("insert", char + char)
         codeview.mark_set("insert", "insert-1c")
         return "break"
