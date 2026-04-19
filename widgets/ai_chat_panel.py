@@ -927,11 +927,14 @@ class AiChatPanel(tk.Frame):
                               highlightthickness=0,
                               state="normal", cursor="arrow",
                               height=code_lines + 1)  # +1 = empty line at bottom
-                txt.pack(fill="x", padx=6, pady=(2, 4))
+                xscroll = ttk.Scrollbar(code_frame, orient="horizontal", command=txt.xview)
+                txt.config(xscrollcommand=xscroll.set)
+                txt.pack(fill="x", padx=6, pady=(2, 0))
                 txt.insert("1.0", code + "\n")        # trailing newline = bottom padding
                 txt.config(state="disabled")
                 txt.bind("<Button-4>", self._on_mousewheel)
                 txt.bind("<Button-5>", self._on_mousewheel)
+                xscroll.pack(fill="x", padx=6, pady=(0, 4))
 
             else:
                 # ── Plain text ────────────────────────────────────────────────
