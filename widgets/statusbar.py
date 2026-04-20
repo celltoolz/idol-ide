@@ -89,6 +89,24 @@ class StatusBar(ttk.Frame):
         self._indent_size = size
         self._refresh_indent_label()
 
+    def set_diagnostics(self, errors: int, warnings: int) -> None:
+        """Show or hide the error/warning counts on the left of the status bar."""
+        if not hasattr(self, "_diag_lbl"):
+            self._diag_sep = ttk.Separator(self, orient="vertical")
+            self._diag_lbl = ttk.Label(self, style="SB.TLabel", cursor="hand2")
+        if errors or warnings:
+            parts = []
+            if errors:
+                parts.append(f"✕ {errors}")
+            if warnings:
+                parts.append(f"⚠ {warnings}")
+            self._diag_lbl.config(text="  ".join(parts))
+            self._diag_sep.pack(side="left", fill="y", padx=4, pady=3)
+            self._diag_lbl.pack(side="left", padx=(0, 4), pady=2)
+        else:
+            self._diag_sep.pack_forget()
+            self._diag_lbl.pack_forget()
+
     def set_overwrite(self, active: bool) -> None:
         """Show OVR indicator when Insert/overwrite mode is on."""
         if active:

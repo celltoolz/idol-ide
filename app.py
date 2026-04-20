@@ -465,7 +465,10 @@ class IDOL(Tk):
         self._find_replace = FindReplaceBar(nb_frame)
 
         self._output = BottomPanel(
-            self._v_pane, run_callback=self.run_file, cwd=os.getcwd()
+            self._v_pane,
+            run_callback=self.run_file,
+            cwd=os.getcwd(),
+            on_navigate=self._open_file_at,
         )
         self._v_pane.add(self._output, weight=1)
 
@@ -1173,7 +1176,7 @@ class IDOL(Tk):
     def _on_lsp_diagnostics(self, uri: str, diags: list) -> None:
         """Called by LspManager when diagnostics arrive for a file."""
         self._lsp_diagnostics[uri] = diags
-        # Find the codeview for this URI
+        # Paint underlines on the relevant codeview
         norm_path = uri_to_path(uri).replace("/", os.sep).replace("\\", os.sep)
         for tab_id, path in self._files.items():
             if path and os.path.normcase(path) == os.path.normcase(norm_path):
@@ -1181,6 +1184,31 @@ class IDOL(Tk):
                 if cv:
                     self._apply_diagnostics(cv, diags)
                 break
+        # Rebuild the full problems list and push to the panel
+        entries = self._build_problem_entries()
+        self._output.update_problems(entries)
+        errors   = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
+        warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
+        self._statusbar.set_diagnostics(errors, warnings)
+
+    def _build_problem_entries(self) -> list[dict]:
+        """Flatten _lsp_diagnostics into a list of dicts for ProblemsPanel."""
+        entries = []
+        for uri, diags in self._lsp_diagnostics.items():
+            filepath = uri_to_path(uri).replace("/", os.sep)
+            if os.name == "nt" and filepath.startswith("\\"):
+                filepath = filepath[1:]
+            filename = os.path.basename(filepath)
+            for d in diags:
+                entries.append({
+                    "filepath": filepath,
+                    "filename": filename,
+                    "line": d["range"]["start"]["line"] + 1,
+                    "col":  d["range"]["start"]["character"],
+                    "severity": d.get("severity", SEV_WARNING),
+                    "message":  d.get("message", ""),
+                })
+        return entries
 
     def _apply_diagnostics(self, codeview: CodeView, diags: list) -> None:
         """Paint diagnostic underlines onto *codeview*."""

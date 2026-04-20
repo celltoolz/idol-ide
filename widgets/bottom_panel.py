@@ -1,4 +1,4 @@
-"""BottomPanel — tabbed container for OUTPUT and TERMINAL panels."""
+"""BottomPanel — tabbed container for OUTPUT, TERMINAL, and PROBLEMS panels."""
 from __future__ import annotations
 
 import platform
@@ -8,11 +8,12 @@ from typing import Callable, Optional
 from utils.learning_registry import LearningManager
 
 from .output import OutputPanel
+from .problems_panel import ProblemsPanel
 from .terminal import TerminalPanel
 
 
 class BottomPanel(ttk.Frame):
-    """Tabbed bottom panel with OUTPUT and TERMINAL tabs.
+    """Tabbed bottom panel with OUTPUT, TERMINAL, and PROBLEMS tabs.
 
     Exposes the same public API as OutputPanel (run / terminate / clear)
     so the rest of the app doesn't need to know about the internal split.
@@ -29,6 +30,7 @@ class BottomPanel(ttk.Frame):
         master,
         run_callback: Optional[Callable[[], None]] = None,
         cwd: Optional[str] = None,
+        on_navigate: Optional[Callable[[str, int, int], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -36,15 +38,17 @@ class BottomPanel(ttk.Frame):
         self._cwd = cwd
         self._cwd_after_id: Optional[str] = None
         self._terminal_first_show: bool = True
+        self._on_navigate = on_navigate or (lambda *_: None)
 
         self._build_tab_bar()
 
         # ── Panels ────────────────────────────────────────────────────────────
-        self.output   = OutputPanel(self,  run_callback=run_callback)
+        self.output   = OutputPanel(self, run_callback=run_callback)
         self.terminal = TerminalPanel(self)
+        self.problems = ProblemsPanel(self, on_navigate=self._on_navigate)
 
         self.output.pack(fill="both", expand=True)
-        # terminal starts hidden
+        # terminal and problems start hidden
 
         self._set_active("output")
 
@@ -64,7 +68,7 @@ class BottomPanel(ttk.Frame):
     def clear(self) -> None:
         if self._active == "output":
             self.output.clear()
-        else:
+        elif self._active == "terminal":
             self.terminal.clear()
 
     # ── Internal ──────────────────────────────────────────────────────────────
@@ -75,9 +79,12 @@ class BottomPanel(ttk.Frame):
         bar.pack_propagate(False)
 
         self._tabs: dict[str, dict] = {}
-        for key, label in (("output", "OUTPUT"), ("terminal", "TERMINAL")):
-            tab = self._make_tab(bar, key, label)
-            self._tabs[key] = tab
+        for key, label in (
+            ("output", "OUTPUT"),
+            ("terminal", "TERMINAL"),
+            ("problems", "PROBLEMS"),
+        ):
+            self._tabs[key] = self._make_tab(bar, key, label)
         self.output_tab_btn   = self._tabs["output"]["container"]
         self.output_tab_lbl   = self._tabs["output"]["label"]
         self.terminal_tab_btn = self._tabs["terminal"]["container"]
@@ -127,6 +134,19 @@ class BottomPanel(ttk.Frame):
         if self._active == "terminal" and self.terminal._running and self._cwd:
             self.terminal.send_text(f'cd "{self._cwd}"\r')
 
+    def update_problems(self, entries: list[dict]) -> None:
+        """Push fresh diagnostics to the Problems panel and update the tab badge."""
+        self.problems.update(entries)
+        errors   = sum(1 for e in entries if e.get("severity") == 1)
+        warnings = sum(1 for e in entries if e.get("severity") == 2)
+        parts = []
+        if errors:
+            parts.append(f"✕{errors}")
+        if warnings:
+            parts.append(f"⚠{warnings}")
+        badge = "  " + "  ".join(parts) if parts else ""
+        self._tabs["problems"]["label"].config(text=f"PROBLEMS{badge}")
+
     def _set_active(self, key: str) -> None:
         # Update tab styling
         for k, tab in self._tabs.items():
@@ -137,12 +157,13 @@ class BottomPanel(ttk.Frame):
             else:
                 tab["indicator"].pack_forget()
 
-        # Swap visible panel — start terminal with cwd on first show
+        # Hide all panels then show the selected one
+        for panel in (self.output, self.terminal, self.problems):
+            panel.pack_forget()
+
         if key == "output":
-            self.terminal.pack_forget()
             self.output.pack(fill="both", expand=True)
-        else:
-            self.output.pack_forget()
+        elif key == "terminal":
             self.terminal.pack(fill="both", expand=True)
             if not self.terminal._running:
                 self.terminal.start(cwd=self._cwd)
@@ -154,5 +175,7 @@ class BottomPanel(ttk.Frame):
                     self.terminal.after(200, lambda: self.terminal.send_text("\x0c"))
                 else:
                     self.terminal.after(50, lambda: self.terminal._text.yview_moveto(0))
+        else:  # problems
+            self.problems.pack(fill="both", expand=True)
 
         self._active = key
