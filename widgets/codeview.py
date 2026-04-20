@@ -367,6 +367,21 @@ class CodeView(Text):
             if tag.startswith("Token"):
                 self.tag_remove(tag, "1.0", "end")
         lines = self.get("1.0", "end")
+        # get() omits embedded windows entirely (fold ··· labels etc.).
+        # The widget still counts each window as 1 char in "+ N chars" index
+        # arithmetic, so without correction start_index races ahead by 1 per
+        # window, shifting all highlights left.  Insert a space placeholder at
+        # each window's position so pygments char counts stay in sync.
+        # count -chars already counts preceding windows, so sorted offsets
+        # map directly into the progressively-grown string — no extra adjustment.
+        win_offsets = []
+        for wname in self.window_names():
+            with suppress(TclError):
+                win_offsets.append(
+                    int(self.tk.call(self._orig, "count", "-chars", "1.0", wname))
+                )
+        for offset in sorted(win_offsets):
+            lines = lines[:offset] + " " + lines[offset:]
         line_offset = lines.count("\n") - lines.lstrip().count("\n")
         start_index = str(
             self.tk.call(self._orig, "index", f"1.0 + {line_offset} lines")
