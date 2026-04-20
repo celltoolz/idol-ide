@@ -17,10 +17,12 @@ class StatusBar(ttk.Frame):
         self,
         master,
         on_indent_change: Optional[Callable[[int], None]] = None,
+        on_diagnostics_click: Optional[Callable[[], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
         self._on_indent_change = on_indent_change
+        self._on_diagnostics_click = on_diagnostics_click
         self._indent_size = 4
         self._build_ui()
 
@@ -101,6 +103,11 @@ class StatusBar(ttk.Frame):
             if warnings:
                 parts.append(f"⚠ {warnings}")
             self._diag_lbl.config(text="  ".join(parts))
+            if self._on_diagnostics_click:
+                self._diag_lbl.bind(
+                    "<Button-1>",
+                    lambda _: self._on_diagnostics_click(),
+                )
             self._diag_sep.pack(side="left", fill="y", padx=4, pady=3)
             self._diag_lbl.pack(side="left", padx=(0, 4), pady=2)
         else:

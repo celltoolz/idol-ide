@@ -276,7 +276,11 @@ class IDOL(Tk):
 
     def _build_layout(self) -> None:
         # Status bar at the very bottom
-        self._statusbar = StatusBar(self, on_indent_change=self._on_indent_change)
+        self._statusbar = StatusBar(
+            self,
+            on_indent_change=self._on_indent_change,
+            on_diagnostics_click=lambda: self._output._set_active("problems"),
+        )
         self._statusbar.pack(side="bottom", fill="x")
 
         # Horizontal split: outline (left) | editor+output (right)
