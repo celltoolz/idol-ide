@@ -122,8 +122,9 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     layout["sc_visible"]          = sb._sc_visible
     layout["explorer_collapsed"]  = sb._explorer_collapsed
 
-    # Run target preference (output vs terminal)
+    # Run preferences (target: output/terminal; action: run/debug)
     layout["run_target"] = app._run_target_var.get()
+    layout["run_action"] = app._run_action_var.get()
 
     # AI panel
     from utils import ollama_client
@@ -297,10 +298,14 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
         except Exception:
             pass
 
-    # Restore run target preference
+    # Restore run preferences
     run_target = layout.get("run_target")
     if run_target in ("output", "terminal"):
         app._run_target_var.set(run_target)
+    run_action = layout.get("run_action")
+    if run_action in ("run", "debug"):
+        app._run_action_var.set(run_action)
+        app.after_idle(app._refresh_run_buttons)
 
     # Restore Ollama URL if customized
     if layout.get("ollama_url"):

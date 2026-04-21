@@ -292,7 +292,8 @@ class IDOL(Tk):
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
         self.zen_mode_var = BooleanVar(value=False)
-        self._run_target_var = tk.StringVar(value="output")
+        self._run_target_var  = tk.StringVar(value="output")
+        self._run_action_var  = tk.StringVar(value="run")
         self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
@@ -474,11 +475,18 @@ class IDOL(Tk):
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
 
         # ── Run / Stop cluster (rightmost) ────────────────────────────────────
+        # Layout (left→right): [ ▶/⬡ action ][ ▾ chevron ]  [ ■ stop ]
+        # Packed side="right" so rightmost item is packed first.
         self._nav_stop_btn = Label(
             _nav_bar, text=" ■ ", bg=_NAV_BG, fg="#555555",
             font=("Segoe UI", 9), cursor="hand2", padx=3, pady=0,
         )
         self._nav_stop_btn.pack(side="right")
+        self._nav_chevron_btn = Label(
+            _nav_bar, text="▾", bg=_NAV_BG, fg="#858585",
+            font=("Segoe UI", 8), cursor="hand2", padx=1, pady=0,
+        )
+        self._nav_chevron_btn.pack(side="right")
         self._nav_run_btn = Label(
             _nav_bar, text=" ▶ ", bg=_NAV_BG, fg="#4ec94e",
             font=("Segoe UI", 9), cursor="hand2", padx=3, pady=0,
@@ -487,33 +495,49 @@ class IDOL(Tk):
 
         def _run_btn_enter(_):
             if not self._is_anything_running():
-                self._nav_run_btn.config(fg="#6fe06f")
+                is_dbg = self._run_action_var.get() == "debug"
+                self._nav_run_btn.config(fg="#f0d880" if is_dbg else "#6fe06f")
         def _run_btn_leave(_):
-            self._nav_run_btn.config(fg="#555555" if self._is_anything_running() else "#4ec94e")
+            self._refresh_run_buttons()
+        def _chevron_enter(_):
+            if not self._is_anything_running():
+                self._nav_chevron_btn.config(fg="#cccccc")
+        def _chevron_leave(_):
+            self._nav_chevron_btn.config(fg="#555555" if self._is_anything_running() else "#858585")
         def _stop_btn_enter(_):
             if self._is_anything_running():
                 self._nav_stop_btn.config(fg="#ff6b6b")
         def _stop_btn_leave(_):
             self._nav_stop_btn.config(fg="#f44747" if self._is_anything_running() else "#555555")
 
-        self._nav_run_btn.bind("<Button-1>",  lambda _: self._show_run_menu())
+        self._nav_run_btn.bind("<Button-1>",     lambda _: self._nav_execute())
         self._nav_run_btn.bind("<Enter>", _run_btn_enter)
         self._nav_run_btn.bind("<Leave>", _run_btn_leave)
-        self._nav_stop_btn.bind("<Button-1>", lambda _: self.run_stop())
+        self._nav_chevron_btn.bind("<Button-1>", lambda _: self._show_run_menu())
+        self._nav_chevron_btn.bind("<Enter>", _chevron_enter)
+        self._nav_chevron_btn.bind("<Leave>", _chevron_leave)
+        self._nav_stop_btn.bind("<Button-1>",    lambda _: self.run_stop())
         self._nav_stop_btn.bind("<Enter>", _stop_btn_enter)
         self._nav_stop_btn.bind("<Leave>", _stop_btn_leave)
 
-        _add_tooltip(self._nav_run_btn,  "Run / Debug")
-        _add_tooltip(self._nav_stop_btn, "Stop (Shift+F5)")
+        _add_tooltip(self._nav_run_btn,     "Run or Debug")
+        _add_tooltip(self._nav_chevron_btn, "Select run mode")
+        _add_tooltip(self._nav_stop_btn,    "Stop (Shift+F5)")
 
-        # Build the run dropdown menu (posted on ▶ click)
+        # Build the run dropdown menu (posted on ▾ click)
         self._run_menu = tk.Menu(
             _nav_bar, tearoff=0, bg="#252526", fg="#cccccc",
             activebackground="#094771", activeforeground="#ffffff",
             font=("Segoe UI", 9),
         )
-        self._run_menu.add_command(label="Debug", accelerator="F5",       command=self.debug_file)
-        self._run_menu.add_command(label="Run",   accelerator="Ctrl+F5",  command=self._nav_run)
+        self._run_menu.add_radiobutton(
+            label="\u25b6  Run", variable=self._run_action_var, value="run",
+            command=lambda: (self._refresh_run_buttons(), self._nav_execute()),
+        )
+        self._run_menu.add_radiobutton(
+            label="\u2b21  Debug", variable=self._run_action_var, value="debug",
+            command=lambda: (self._refresh_run_buttons(), self._nav_execute()),
+        )
         self._run_menu.add_separator()
         self._run_menu.add_radiobutton(label="  \u2192 Output",   variable=self._run_target_var, value="output")
         self._run_menu.add_radiobutton(label="  \u2192 Terminal", variable=self._run_target_var, value="terminal")
@@ -3552,13 +3576,25 @@ class IDOL(Tk):
         )
 
     def _refresh_run_buttons(self) -> None:
-        """Sync ▶ / ■ nav button colours with current run state."""
-        running = self._is_anything_running()
-        run_btn  = getattr(self, "_nav_run_btn",  None)
-        stop_btn = getattr(self, "_nav_stop_btn", None)
+        """Sync ▶/⬡ action button icon+colour and ■ stop button with run state."""
+        running  = self._is_anything_running()
+        is_debug = getattr(self, "_run_action_var", None) \
+                   and self._run_action_var.get() == "debug"
+
+        run_btn     = getattr(self, "_nav_run_btn",     None)
+        chevron_btn = getattr(self, "_nav_chevron_btn", None)
+        stop_btn    = getattr(self, "_nav_stop_btn",    None)
+
         if run_btn:
             try:
-                run_btn.config(fg="#555555" if running else "#4ec94e")
+                icon  = " \u2b21 " if is_debug else " \u25b6 "
+                color = "#555555" if running else ("#e5c07b" if is_debug else "#4ec94e")
+                run_btn.config(text=icon, fg=color)
+            except Exception:
+                pass
+        if chevron_btn:
+            try:
+                chevron_btn.config(fg="#555555" if running else "#858585")
             except Exception:
                 pass
         if stop_btn:
@@ -3568,13 +3604,20 @@ class IDOL(Tk):
                 pass
 
     def _show_run_menu(self) -> None:
-        """Post the run dropdown menu below the ▶ nav button."""
+        """Post the run dropdown menu below the ▶▾ nav button pair."""
         if self._is_anything_running():
             return
         btn = self._nav_run_btn
         x = btn.winfo_rootx()
         y = btn.winfo_rooty() + btn.winfo_height()
         self._run_menu.tk_popup(x, y)
+
+    def _nav_execute(self) -> None:
+        """One-click execute using the mode selected in the run menu."""
+        if self._run_action_var.get() == "debug":
+            self.debug_file()
+        else:
+            self._nav_run()
 
     def _nav_run(self) -> None:
         """Run the current file in the panel selected by _run_target_var."""
