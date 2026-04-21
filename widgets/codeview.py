@@ -133,6 +133,9 @@ class CodeView(Text):
         self._undo_restoring: bool = False
         self._undo_pending_save: bool = False
         self.tk.call(self._orig, "configure", "-undo", False)
+        # Optional callback: on_lines_changed(from_line: int, delta: int)
+        # Called whenever newlines are inserted (delta > 0) or removed (delta < 0)
+        self.on_lines_changed = None
 
         self._sticky = StickyScroll(self._frame, self, self._line_numbers)
         # Minimap.grid() also places its border widget in column 3;
@@ -283,6 +286,7 @@ class CodeView(Text):
 
     def _cmd_proxy(self, command: str, *args) -> Any:
         try:
+            _deleted_newlines = 0
             if command in {"insert", "delete", "replace"}:
                 start_line = int(
                     str(self.tk.call(self._orig, "index", args[0])).split(".")[0]
@@ -307,6 +311,15 @@ class CodeView(Text):
                             self._undo_stack.pop(0)
                         self._undo_pending_save = True
                         self.after_idle(self._clear_undo_pending)
+                # Count newlines being removed BEFORE the edit executes
+                if command in {"delete", "replace"} and self.on_lines_changed:
+                    try:
+                        end_idx = args[1] if len(args) >= 2 else f"{args[0]}+1c"
+                        _deleted_newlines = self.tk.call(
+                            self._orig, "get", args[0], end_idx
+                        ).count("\n")
+                    except Exception:
+                        pass
             result = self.tk.call(self._orig, command, *args)
         except TclError as e:
             error = str(e)
@@ -329,6 +342,8 @@ class CodeView(Text):
             # binding handler.  Schedule scroll_line_update via after() so it fires
             # unconditionally in the next event-loop iteration.
             self.after(0, self.scroll_line_update)
+            if lines and self.on_lines_changed:
+                self.on_lines_changed(start_line, lines)
         elif command in {"replace", "delete"}:
             if start_line == end_line:
                 self.highlight_line(f"{start_line}.0")
@@ -336,6 +351,13 @@ class CodeView(Text):
                 self.highlight_area(start_line, end_line)
             self.event_generate("<<ContentChanged>>", when="tail")
             self.after(0, self.scroll_line_update)
+            if command == "replace":
+                inserted = args[2].count("\n") if len(args) >= 3 else 0
+                net = inserted - _deleted_newlines
+                if net and self.on_lines_changed:
+                    self.on_lines_changed(start_line, net)
+            elif _deleted_newlines and self.on_lines_changed:
+                self.on_lines_changed(start_line, -_deleted_newlines)
 
         return result
 

@@ -699,12 +699,36 @@ class IDOL(Tk):
                 fp = self._files.get(tid) or ""
                 if fp:
                     self._on_breakpoint_toggle(fp, lineno)
-                    # Keep gutter in sync with the app's set for this file
                     codeview._line_numbers.set_breakpoints(
                         self._breakpoints.get(fp, set())
                     )
             return _toggle
         codeview._line_numbers.on_breakpoint_toggle = _make_bp_toggle(tab_id)
+
+        # Shift breakpoints when lines are inserted/removed above them
+        def _make_lines_changed(tid, cv):
+            def _on_lines_changed(from_line: int, delta: int) -> None:
+                fp = self._files.get(tid)
+                if not fp or fp not in self._breakpoints:
+                    return
+                bp_set = self._breakpoints[fp]
+                new_bp: set[int] = set()
+                for ln in bp_set:
+                    if delta > 0:
+                        new_bp.add(ln + delta if ln > from_line else ln)
+                    else:
+                        deleted_end = from_line - delta  # -delta is positive
+                        if ln <= from_line:
+                            new_bp.add(ln)
+                        elif ln <= deleted_end:
+                            pass  # line was deleted — drop the breakpoint
+                        else:
+                            new_bp.add(ln + delta)
+                self._breakpoints[fp] = new_bp
+                cv._line_numbers.set_breakpoints(new_bp)
+                self._refresh_debug_breakpoints()
+            return _on_lines_changed
+        codeview.on_lines_changed = _make_lines_changed(tab_id, codeview)
 
         is_code = not isinstance(lexer, (pygments.lexers.TextLexer,))
         handler = KeyHandler(tab_size=4, smart_pairs=is_code)
