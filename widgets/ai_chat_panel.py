@@ -486,6 +486,7 @@ class AiChatPanel(tk.Frame):
             self._update_token_label()
             n = len(data)
             self._append_system(f"Last {n} message{'s' if n != 1 else ''} restored from previous session.")
+            self.after_idle(lambda: self._canvas.yview_moveto(1.0))
             return True
         except Exception:
             return False
