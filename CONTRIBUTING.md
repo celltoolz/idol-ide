@@ -154,24 +154,29 @@ Implemented and stable:
 - Multi-tab editing with session persistence
 - Pygments syntax highlighting
 - pylsp LSP integration (hover, diagnostics, definition, completion)
-- Sticky scroll, minimap, breadcrumb navigation
+- **Problems panel** — PROBLEMS tab in bottom bar with colored severity dots; click to jump to line/column
+- **Diagnostic statusbar badge** — live ✕N ⚠N count; click to open Problems panel
+- Sticky scroll, minimap
+- **Breadcrumb bar** — path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
 - Multi-cursor editing
 - Split editor with scroll sync
-- Git integration: staging, unstaging, commit, push, diff view, health panel, fix wizard
-- Integrated PTY terminal
-- AI chat panel (Ollama, session history, token counter)
-- Learning Mode panel (three-section explanations)
-- Pip package manager
-- Command palette
-- Project setup wizard
+- Git integration: staging, unstaging, commit, push, diff view, health panel, inline file explanations, fix wizard
+- **Commit History panel** — last 50 commits, file diff on click, filter bar, load more
+- Integrated PTY terminal with venv detection (activate/deactivate/switch toolbar)
+- **Run Line / Run Selection** — right-click to execute in output panel
+- AI chat panel (Ollama, session history, token counter, remote host config)
+- Learning Mode (F1) — hover any IDE element for three-section explanations with AI Ask button
+- Pip package manager with topic grouping, PyPI search, and AI examples
+- Command palette (Ctrl+Shift+P) with fuzzy search and `@` symbol search
+- Project setup wizard (4-step: name/location, interpreter/venv, git/starter files, summary)
+- **Integrated Python debugger** — debugpy over DAP; breakpoints, step controls, LOCALS + BREAKPOINTS panel, smart venv detection, one-click install
+- Nav toolbar (back/forward, split, minimap, sidebar, zen, AI, packages, learning toggles)
+- Zen mode (F10), Toggle Sidebar (Ctrl+B)
 - Colorscheme system (`.toml` files)
 
 ## Planned / In Progress
 
-- **F1 Learning Mode tab** — hover explanations with real-world examples
-- **"Activate VENV" terminal button** — one-click venv activation in the PTY
 - **Command Palette `!` shell mode** — visual shift + pre-populated commands + context-aware suggestions
-- **AI-powered package examples** in the pip manager
 
 ---
 
