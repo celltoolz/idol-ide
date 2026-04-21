@@ -486,7 +486,11 @@ class AiChatPanel(tk.Frame):
             self._update_token_label()
             n = len(data)
             self._append_system(f"Last {n} message{'s' if n != 1 else ''} restored from previous session.")
-            self.after(150, lambda: self._canvas.yview_moveto(1.0))
+            def _scroll_to_bottom():
+                self._on_inner_configure()
+                self._canvas.update_idletasks()
+                self._canvas.yview_moveto(1.0)
+            self.after(150, _scroll_to_bottom)
             return True
         except Exception:
             return False
