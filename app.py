@@ -730,6 +730,26 @@ class IDOL(Tk):
             return _on_lines_changed
         codeview.on_lines_changed = _make_lines_changed(tab_id, codeview)
 
+        # Snapshot/restore breakpoints alongside undo/redo
+        def _make_bp_snapshot(tid):
+            def _snapshot():
+                fp = self._files.get(tid)
+                return set(self._breakpoints.get(fp, set())) if fp else None
+            return _snapshot
+
+        def _make_bp_restore(tid, cv):
+            def _restore(saved: set) -> None:
+                fp = self._files.get(tid)
+                if not fp:
+                    return
+                self._breakpoints[fp] = saved
+                cv._line_numbers.set_breakpoints(saved)
+                self._refresh_debug_breakpoints()
+            return _restore
+
+        codeview.on_snapshot     = _make_bp_snapshot(tab_id)
+        codeview.on_undo_restore = _make_bp_restore(tab_id, codeview)
+
         is_code = not isinstance(lexer, (pygments.lexers.TextLexer,))
         handler = KeyHandler(tab_size=4, smart_pairs=is_code)
         mc = MultiCursor(codeview, tab_size=4)
