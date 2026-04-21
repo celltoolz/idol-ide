@@ -510,7 +510,7 @@ class IDOL(Tk):
             run_callback=self.debug_file,
             cwd=os.getcwd(),
             on_navigate=self._open_file_at,
-            on_bp_click=self._open_file_at,
+            on_bp_click=lambda fp, ln: self._open_file_at(fp, ln, 0),
         )
         self._v_pane.add(self._output, weight=1)
 

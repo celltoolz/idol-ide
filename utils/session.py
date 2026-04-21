@@ -138,6 +138,12 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
 
     explorer_root = str(app._sidebar.explorer._root or os.getcwd())
 
+    breakpoints = {
+        fp: sorted(lines)
+        for fp, lines in app._breakpoints.items()
+        if lines
+    }
+
     try:
         target.write_text(
             json.dumps(
@@ -147,6 +153,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
                     "explorer_root": explorer_root,
                     "layout":        layout,
                     "appearance":    appearance,
+                    "breakpoints":   breakpoints,
                 },
                 indent=2,
             ),
@@ -172,6 +179,12 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     tabs = data.get("tabs", [])
     if not tabs:
         return False
+
+    # ── Breakpoints — restore before tabs so _new_tab() applies them ─────────
+    saved_bp = data.get("breakpoints", {})
+    for fp, lines in saved_bp.items():
+        if lines:
+            app._breakpoints[fp] = set(lines)
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     for entry in tabs:
