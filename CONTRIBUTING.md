@@ -72,6 +72,10 @@ These modules have no Tkinter widget imports.
 | `completion.py` | Completion logic |
 | `key_handler.py` | Keybinding dispatch logic |
 | `multi_cursor.py` | Multi-cursor state and operations |
+| `pip_manager.py` | Subprocess backend for pip install/uninstall/list — runs on daemon threads, delivers results via `after_fn`. |
+| `project_manager.py` | Interpreter discovery and project scaffolding — finds installed Python versions, creates venvs, scaffolds starter files. Daemon-threaded. |
+| `script_runner.py` | Runs Python scripts as subprocesses — pushes `(line, tag)` tuples to a thread-safe queue; sends `None` sentinel on completion. |
+| `debug_manager.py` | DAP client for debugpy — launches debugpy subprocess, connects via TCP, drives the debug session. All callbacks dispatched via `after_fn`. |
 
 ### `utils/` — stateless logic, content, config
 Pure functions, dataclasses, config parsing, content generators. No subprocess calls,
@@ -87,16 +91,18 @@ no widget imports, no stateful objects.
 | `git_diagnostics.py` | Pure classification logic for Git health panel — regex pattern sets, `FileInfo`/`Issue`/`HealthCheck` dataclasses, stateless analysis functions. Called by `source_control.py`. |
 | `venv_guide.py` | Content module — exports `get_pages()` returning `GuidePage` dataclasses for the venv guide. No UI code. |
 | `git_remote_guide.py` | Content module — same pattern as `venv_guide.py` for git remote guide. |
+| `guide_types.py` | Shared `GuidePage` dataclass used by all guide content modules. |
+| `custom_cursor.py` | Cross-platform learning-mode cursor (arrow + question mark). Uses system cursor on Windows/macOS; generates XBM bitmap on Linux where system cursor is unreliable. |
 
 ### `widgets/` — UI only
 Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for data,
 never runs subprocesses or owns protocol logic itself.
 
 Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `codeview.py`,
-`command_palette.py`, `explorer.py`, `find_replace.py`, `guide_window.py`,
+`command_palette.py`, `debug_panel.py`, `explorer.py`, `find_replace.py`, `guide_window.py`,
 `learning_panel.py`, `linenums.py`, `minimap.py`, `notebook.py`, `outline.py`,
-`output.py`, `package_manager.py`, `project_wizard.py`, `references.py`, `sidebar.py`,
-`source_control.py`, `statusbar.py`, `sticky_scroll.py`, `terminal.py`
+`output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
+`sidebar.py`, `source_control.py`, `statusbar.py`, `sticky_scroll.py`, `terminal.py`
 
 #### `guide_window.py` — reusable paginated guide UI
 `GuideWindow` is a content-agnostic `Toplevel` — you hand it any list of `GuidePage`
