@@ -3574,7 +3574,7 @@ class IDOL(Tk):
         btn = self._nav_run_btn
         x = btn.winfo_rootx()
         y = btn.winfo_rooty() + btn.winfo_height()
-        self._run_menu.post(x, y)
+        self._run_menu.tk_popup(x, y)
 
     def _nav_run(self) -> None:
         """Run the current file in the panel selected by _run_target_var."""
