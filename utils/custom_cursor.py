@@ -49,8 +49,8 @@ _GRID = [
     "..X...XX..........X.............",  # 12  arrow col 2, cols 6-7  | ? right     col 18
     "......XX..........X.............",  # 13  arrow cols 6-7      | ? bend      col 18
     ".......XX.......XX..............",  # 14  arrow tail cols 7-8 | ? stem      cols 16-17
-    "........XX......X...............",  # 15  arrow tail cols 8-9 | ? stem      col 16
-    "........XX......X...............",  # 16  arrow tail cols 8-9 | ? bottom    col 16
+    ".......XX.......X...............",  # 15  arrow tail cols 8-9 | ? stem      col 16
+    "................X...............",  # 16  arrow tail cols 8-9 | ? bottom    col 16
     "................X...............",  # 17  (arrow done)        | ? dot       col 16
     "................................",  # 18  blank gap
     "................X...............",  # 19  ? dot (second row)  col 16
