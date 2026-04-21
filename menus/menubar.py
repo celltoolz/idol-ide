@@ -14,9 +14,9 @@ def build_menubar(app) -> Menu:
       edit_find_replace
       view_change_theme, view_change_font, view_toggle_highlight,
       view_active_line_color, view_toggle_output, view_new_terminal
-      run_file, run_stop, run_clear
+      debug_file, _nav_run, run_line, run_selection, run_stop, run_clear
       help_about
-      theme_var, highlight_line_var, output_visible_var
+      theme_var, highlight_line_var, output_visible_var, _run_target_var
     """
     menubar = Menu(app)
 
@@ -128,10 +128,17 @@ def build_menubar(app) -> Menu:
 
     # ── Run ──────────────────────────────────────────────────────────────────
     run_menu = Menu(menubar, tearoff=0)
-    run_menu.add_command(label="Run File", command=app.run_file, accelerator="F5")
-    run_menu.add_command(label="Stop", command=app.run_stop)
+    run_menu.add_command(label="Debug",         command=app.debug_file,    accelerator="F5")
+    run_menu.add_command(label="Run",           command=app._nav_run,      accelerator="Ctrl+F5")
     run_menu.add_separator()
-    run_menu.add_command(label="Clear Output", command=app.run_clear)
+    run_menu.add_radiobutton(label="  \u2192 Output",   variable=app._run_target_var, value="output")
+    run_menu.add_radiobutton(label="  \u2192 Terminal", variable=app._run_target_var, value="terminal")
+    run_menu.add_separator()
+    run_menu.add_command(label="Run Line",      command=app.run_line)
+    run_menu.add_command(label="Run Selection", command=app.run_selection)
+    run_menu.add_separator()
+    run_menu.add_command(label="Stop",          command=app.run_stop,      accelerator="Shift+F5")
+    run_menu.add_command(label="Clear Output",  command=app.run_clear)
     menubar.add_cascade(label="Run", menu=run_menu)
 
     # ── Help ─────────────────────────────────────────────────────────────────

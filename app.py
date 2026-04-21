@@ -47,6 +47,41 @@ from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 
 
+def _add_tooltip(widget, text: str, delay: int = 500) -> None:
+    """Attach a hover tooltip that appears *delay* ms after entering *widget*."""
+    _after = [None]
+    _win   = [None]
+
+    def _show():
+        if _win[0]:
+            return
+        x = widget.winfo_rootx() + widget.winfo_width() // 2
+        y = widget.winfo_rooty() + widget.winfo_height() + 4
+        win = tk.Toplevel(widget)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        tk.Label(win, text=text, bg="#252526", fg="#cccccc",
+                 font=("Segoe UI", 8), padx=6, pady=3, relief="flat").pack()
+        win.update_idletasks()
+        w = win.winfo_width()
+        win.geometry(f"+{x - w // 2}+{y}")
+        _win[0] = win
+
+    def _enter(_):
+        _after[0] = widget.after(delay, _show)
+
+    def _leave(_):
+        if _after[0]:
+            widget.after_cancel(_after[0])
+            _after[0] = None
+        if _win[0]:
+            _win[0].destroy()
+            _win[0] = None
+
+    widget.bind("<Enter>", _enter, add=True)
+    widget.bind("<Leave>", _leave, add=True)
+
+
 # Cross-platform sash helpers — sashpos() is missing on some macOS Tk builds
 def _sash_get(pane: tk.PanedWindow, index: int) -> int:
     """Return sash position for a horizontal PanedWindow."""
@@ -257,6 +292,7 @@ class IDOL(Tk):
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
         self.zen_mode_var = BooleanVar(value=False)
+        self._run_target_var = tk.StringVar(value="output")
         self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
@@ -397,23 +433,33 @@ class IDOL(Tk):
             cursor="hand2", padx=6, pady=2,
             activebackground="#2a2d2e", activeforeground="#ffffff",
         )
-        self._dbg_continue_btn = tk.Label(self._debug_bar, text="▶", **_DBG_BTN_STYLE)
+        self._dbg_continue_btn = tk.Label(self._debug_bar, text="▶", **{**_DBG_BTN_STYLE, "fg": "#4ec94e"})
         self._dbg_over_btn     = tk.Label(self._debug_bar, text="↷", **_DBG_BTN_STYLE)
         self._dbg_in_btn       = tk.Label(self._debug_bar, text="↓", **_DBG_BTN_STYLE)
         self._dbg_out_btn      = tk.Label(self._debug_bar, text="↑", **_DBG_BTN_STYLE)
         self._dbg_stop_btn     = tk.Label(self._debug_bar, text="■", **{**_DBG_BTN_STYLE, "fg": "#f44747"})
-        for btn, cmd, tip in (
-            (self._dbg_continue_btn, self._debug_continue, "Continue (F5)"),
-            (self._dbg_over_btn,     self._debug_step_over, "Step Over (F10)"),
-            (self._dbg_in_btn,       self._debug_step_in,   "Step In (F11)"),
-            (self._dbg_out_btn,      self._debug_step_out,  "Step Out (Shift+F11)"),
-            (self._dbg_stop_btn,     self._debug_stop,      "Stop (Shift+F5)"),
+        for btn, cmd in (
+            (self._dbg_continue_btn, self._debug_continue),
+            (self._dbg_over_btn,     self._debug_step_over),
+            (self._dbg_in_btn,       self._debug_step_in),
+            (self._dbg_out_btn,      self._debug_step_out),
+            (self._dbg_stop_btn,     self._debug_stop),
         ):
             btn.pack(side="left")
             btn.bind("<Button-1>", lambda _, fn=cmd: fn())
             btn.bind("<Enter>", lambda e, b=btn: b.config(fg="#ffffff"))
-            btn.bind("<Leave>", lambda e, b=btn, orig=btn.cget("fg"):
-                     b.config(fg="#f44747" if b is self._dbg_stop_btn else "#858585"))
+            btn.bind("<Leave>", lambda e, b=btn: b.config(
+                fg="#4ec94e" if b is self._dbg_continue_btn else
+                "#f44747"   if b is self._dbg_stop_btn      else "#858585"
+            ))
+        for btn, tip in (
+            (self._dbg_continue_btn, "Continue (F5)"),
+            (self._dbg_over_btn,     "Step Over (F10)"),
+            (self._dbg_in_btn,       "Step Into (F11)"),
+            (self._dbg_out_btn,      "Step Out (Shift+F11)"),
+            (self._dbg_stop_btn,     "Stop (Shift+F5)"),
+        ):
+            _add_tooltip(btn, tip)
         tk.Frame(self._debug_bar, bg="#555555", width=1).pack(
             side="left", fill="y", pady=4, padx=2
         )
@@ -426,6 +472,57 @@ class IDOL(Tk):
             self.view_toggle_minimap()
 
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
+
+        # ── Run / Stop cluster (rightmost) ────────────────────────────────────
+        self._nav_stop_btn = Label(
+            _nav_bar, text=" ■ ", bg=_NAV_BG, fg="#555555",
+            font=("Segoe UI", 9), cursor="hand2", padx=3, pady=0,
+        )
+        self._nav_stop_btn.pack(side="right")
+        self._nav_run_btn = Label(
+            _nav_bar, text=" ▶ ", bg=_NAV_BG, fg="#4ec94e",
+            font=("Segoe UI", 9), cursor="hand2", padx=3, pady=0,
+        )
+        self._nav_run_btn.pack(side="right")
+
+        def _run_btn_enter(_):
+            if not self._is_anything_running():
+                self._nav_run_btn.config(fg="#6fe06f")
+        def _run_btn_leave(_):
+            self._nav_run_btn.config(fg="#555555" if self._is_anything_running() else "#4ec94e")
+        def _stop_btn_enter(_):
+            if self._is_anything_running():
+                self._nav_stop_btn.config(fg="#ff6b6b")
+        def _stop_btn_leave(_):
+            self._nav_stop_btn.config(fg="#f44747" if self._is_anything_running() else "#555555")
+
+        self._nav_run_btn.bind("<Button-1>",  lambda _: self._show_run_menu())
+        self._nav_run_btn.bind("<Enter>", _run_btn_enter)
+        self._nav_run_btn.bind("<Leave>", _run_btn_leave)
+        self._nav_stop_btn.bind("<Button-1>", lambda _: self.run_stop())
+        self._nav_stop_btn.bind("<Enter>", _stop_btn_enter)
+        self._nav_stop_btn.bind("<Leave>", _stop_btn_leave)
+
+        _add_tooltip(self._nav_run_btn,  "Run / Debug")
+        _add_tooltip(self._nav_stop_btn, "Stop (Shift+F5)")
+
+        # Build the run dropdown menu (posted on ▶ click)
+        self._run_menu = tk.Menu(
+            _nav_bar, tearoff=0, bg="#252526", fg="#cccccc",
+            activebackground="#094771", activeforeground="#ffffff",
+            font=("Segoe UI", 9),
+        )
+        self._run_menu.add_command(label="Debug", accelerator="F5",       command=self.debug_file)
+        self._run_menu.add_command(label="Run",   accelerator="Ctrl+F5",  command=self._nav_run)
+        self._run_menu.add_separator()
+        self._run_menu.add_radiobutton(label="  \u2192 Output",   variable=self._run_target_var, value="output")
+        self._run_menu.add_radiobutton(label="  \u2192 Terminal", variable=self._run_target_var, value="terminal")
+        self._run_menu.add_separator()
+        self._run_menu.add_command(label="Run Line",      command=self._run_current_line)
+        self._run_menu.add_command(label="Run Selection", command=self._run_selection)
+
+        tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
+
         self._nav_learn_btn = _nav_btn(
             _nav_bar,
             " 📖 ",
@@ -507,7 +604,8 @@ class IDOL(Tk):
 
         self._output = BottomPanel(
             self._v_pane,
-            run_callback=self.debug_file,
+            on_run_start=self._refresh_run_buttons,
+            on_run_done=self._refresh_run_buttons,
             cwd=os.getcwd(),
             on_navigate=self._open_file_at,
             on_bp_click=lambda fp, ln: self._open_file_at(fp, ln, 0),
@@ -585,11 +683,11 @@ class IDOL(Tk):
         self.bind("<Control-f>", lambda _: self.edit_find_replace())
         self.bind("<Control-l>", lambda _: self.view_change_font())
         self.bind("<F5>",         lambda _: self.debug_file())
-        self.bind("<Control-F5>", lambda _: self.run_file_in_terminal())
+        self.bind("<Control-F5>", lambda _: self._nav_run())
         self.bind("<F10>",        lambda _: self._debug_step_over())
         self.bind("<F11>",        lambda _: self._debug_step_in())
         self.bind("<Shift-F11>",  lambda _: self._debug_step_out())
-        self.bind("<Shift-F5>",   lambda _: self._debug_stop())
+        self.bind("<Shift-F5>",   lambda _: self.run_stop())
         self.bind("<Control-grave>", lambda _: self.view_new_terminal())
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
@@ -602,7 +700,33 @@ class IDOL(Tk):
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
+        # Dismiss floating popups when the application loses OS-level focus.
+        # bind_all fires on every widget's FocusOut; the deferred check via
+        # focus_displayof() distinguishes internal focus changes (ignored) from
+        # the whole app losing focus (dismiss).
+        self.bind_all("<FocusOut>", self._on_any_focus_out, add=True)
+
         self._register_learning_widgets()
+
+    def _on_any_focus_out(self, _event) -> None:
+        self.after(50, self._dismiss_on_focus_loss)
+
+    def _dismiss_on_focus_loss(self) -> None:
+        """Hide floating popups if the whole application has lost OS focus."""
+        try:
+            focused = self.focus_displayof()
+        except KeyError:
+            return  # focus is on a transient tkinter surface (dialog, menu) — keep popups
+        if focused is not None:
+            return
+        try:
+            self._run_menu.unpost()
+        except Exception:
+            pass
+        try:
+            self._completion.hide()
+        except Exception:
+            pass
 
     # ── Tab helpers ───────────────────────────────────────────────────────────
 
@@ -3421,8 +3545,59 @@ class IDOL(Tk):
 
     # ── Run operations ────────────────────────────────────────────────────────
 
+    def _is_anything_running(self) -> bool:
+        """True while a debug session or output-panel run is active."""
+        return (self._debugger is not None) or getattr(
+            self._output.output, "_is_running", False
+        )
+
+    def _refresh_run_buttons(self) -> None:
+        """Sync ▶ / ■ nav button colours with current run state."""
+        running = self._is_anything_running()
+        run_btn  = getattr(self, "_nav_run_btn",  None)
+        stop_btn = getattr(self, "_nav_stop_btn", None)
+        if run_btn:
+            try:
+                run_btn.config(fg="#555555" if running else "#4ec94e")
+            except Exception:
+                pass
+        if stop_btn:
+            try:
+                stop_btn.config(fg="#f44747" if running else "#555555")
+            except Exception:
+                pass
+
+    def _show_run_menu(self) -> None:
+        """Post the run dropdown menu below the ▶ nav button."""
+        if self._is_anything_running():
+            return
+        btn = self._nav_run_btn
+        x = btn.winfo_rootx()
+        y = btn.winfo_rooty() + btn.winfo_height()
+        self._run_menu.post(x, y)
+
+    def _nav_run(self) -> None:
+        """Run the current file in the panel selected by _run_target_var."""
+        if self._run_target_var.get() == "terminal":
+            self.run_file_in_terminal()
+        else:
+            self.run_file()
+
+    def run_stop(self) -> None:
+        """Stop the active debug session or output run (Shift+F5)."""
+        if self._debugger:
+            self._debug_stop()
+        else:
+            self._output.terminate()
+
+    def run_line(self) -> None:
+        self._run_current_line()
+
+    def run_selection(self) -> None:
+        self._run_selection()
+
     def run_file(self) -> None:
-        """Legacy run — kept for internal use (output panel run button)."""
+        """Run the current file in the output panel."""
         if not self.file_save():
             return
         filepath = self._files.get(self._current_tab_id)
@@ -3554,6 +3729,7 @@ class IDOL(Tk):
     def _show_debug_bar(self) -> None:
         self._debug_bar.pack(side="left", padx=(4, 0))
         self._refresh_nav_bar()
+        self._refresh_run_buttons()
 
     def _hide_debug_bar(self) -> None:
         self._debug_bar.pack_forget()
@@ -3621,6 +3797,7 @@ class IDOL(Tk):
         self._debugger = None
         self._debug_current_tab = None
         self._output.output.write("\nProcess finished.\n", "info")
+        self._refresh_run_buttons()
 
     def _on_debug_output(self, category: str, text: str) -> None:
         tag = "stderr" if category == "stderr" else ""
@@ -3699,9 +3876,6 @@ class IDOL(Tk):
 
         self._run_snippet(textwrap.dedent(code), "selection")
 
-    def run_stop(self) -> None:
-        self._output.terminate()
-
     def run_clear(self) -> None:
         self._output.clear()
 
@@ -3755,11 +3929,12 @@ class IDOL(Tk):
                 ]
             ],
             # Run
-            ("Debug File", "F5", self.debug_file),
-            ("Run in Terminal", "Ctrl+F5", self.run_file_in_terminal),
-            ("Stop Debugger", "Shift+F5", self._debug_stop),
-            ("Stop", "", self.run_stop),
-            ("Clear Output", "", self.run_clear),
+            ("Debug",         "F5",       self.debug_file),
+            ("Run",           "Ctrl+F5",  self._nav_run),
+            ("Run Line",      "",         self.run_line),
+            ("Run Selection", "",         self.run_selection),
+            ("Stop",          "Shift+F5", self.run_stop),
+            ("Clear Output",  "",         self.run_clear),
             # Help
             ("About", "", self.help_about),
         ]

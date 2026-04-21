@@ -14,7 +14,7 @@ from .terminal import TerminalPanel
 
 
 class BottomPanel(ttk.Frame):
-    """Tabbed bottom panel with OUTPUT, TERMINAL, and PROBLEMS tabs.
+    """Tabbed bottom panel with OUTPUT, TERMINAL, PROBLEMS, and DEBUG tabs.
 
     Exposes the same public API as OutputPanel (run / terminate / clear)
     so the rest of the app doesn't need to know about the internal split.
@@ -29,7 +29,8 @@ class BottomPanel(ttk.Frame):
     def __init__(
         self,
         master,
-        run_callback: Optional[Callable[[], None]] = None,
+        on_run_start: Optional[Callable[[], None]] = None,
+        on_run_done: Optional[Callable[[], None]] = None,
         cwd: Optional[str] = None,
         on_navigate: Optional[Callable[[str, int, int], None]] = None,
         on_bp_click: Optional[Callable[[str, int], None]] = None,
@@ -45,7 +46,7 @@ class BottomPanel(ttk.Frame):
         self._build_tab_bar()
 
         # ── Panels ────────────────────────────────────────────────────────────
-        self.output   = OutputPanel(self, run_callback=run_callback)
+        self.output   = OutputPanel(self, on_run_start=on_run_start, on_run_done=on_run_done)
         self.terminal = TerminalPanel(self)
         self.problems = ProblemsPanel(self, on_navigate=self._on_navigate)
         self.debug    = DebugPanel(

@@ -23,11 +23,13 @@ class OutputPanel(ttk.Frame):
     def __init__(
         self,
         master,
-        run_callback: Optional[Callable[[], None]] = None,
+        on_run_start: Optional[Callable[[], None]] = None,
+        on_run_done: Optional[Callable[[], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
-        self._run_callback = run_callback
+        self._on_run_start = on_run_start
+        self._on_run_done = on_run_done
         self._queue: queue.Queue = queue.Queue()
         self._runner = ScriptRunner(on_output=self._queue.put)
         self._is_running = False
@@ -36,24 +38,10 @@ class OutputPanel(ttk.Frame):
         self._poll()
 
     def _build_ui(self) -> None:
-        # ── Toolbar ──────────────────────────────────────────────────────────
+        # ── Header label ──────────────────────────────────────────────────────
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", side="top", pady=(2, 0), padx=4)
-
-        ttk.Label(toolbar, text="OUTPUT", font=("TkDefaultFont", 8, "bold")).pack(
-            side="left", padx=(0, 8)
-        )
-
-        self._run_btn = ttk.Button(toolbar, text="▶  Run", width=8, command=self._on_run_click)
-        self._run_btn.pack(side="left", padx=2)
-
-        self._stop_btn = ttk.Button(
-            toolbar, text="■  Stop", width=8, command=self.terminate, state="disabled"
-        )
-        self._stop_btn.pack(side="left", padx=2)
-
-        ttk.Button(toolbar, text="✕  Clear", width=8, command=self.clear).pack(side="left", padx=2)
-
+        ttk.Label(toolbar, text="OUTPUT", font=("TkDefaultFont", 8, "bold")).pack(side="left")
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
         # ── Text area ─────────────────────────────────────────────────────────
@@ -105,8 +93,8 @@ class OutputPanel(ttk.Frame):
         self.clear()
         self.write(f"$ python {filepath}\n\n", "info")
         self._is_running = True
-        self._run_btn.configure(state="disabled")
-        self._stop_btn.configure(state="normal")
+        if self._on_run_start:
+            self._on_run_start()
         self._runner.run(filepath)
 
     def run_code(self, code: str, label: str = "selection") -> None:
@@ -116,8 +104,8 @@ class OutputPanel(ttk.Frame):
         self.clear()
         self.write(f"$ python [{label}]\n\n", "info")
         self._is_running = True
-        self._run_btn.configure(state="disabled")
-        self._stop_btn.configure(state="normal")
+        if self._on_run_start:
+            self._on_run_start()
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", delete=False, encoding="utf-8"
         )
@@ -132,10 +120,6 @@ class OutputPanel(ttk.Frame):
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
-    def _on_run_click(self) -> None:
-        if self._run_callback:
-            self._run_callback()
-
     def _poll(self) -> None:
         """Drain the output queue every 50 ms on the main thread."""
         try:
@@ -143,8 +127,8 @@ class OutputPanel(ttk.Frame):
                 item = self._queue.get_nowait()
                 if item is None:
                     self._is_running = False
-                    self._run_btn.configure(state="normal")
-                    self._stop_btn.configure(state="disabled")
+                    if self._on_run_done:
+                        self._on_run_done()
                     break
                 text, tag = item
                 self.write(text, tag)
