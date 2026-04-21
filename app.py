@@ -36,6 +36,7 @@ from editor.lsp_manager import (
     SEV_ERROR,
     SEV_WARNING,
 )
+from editor.debug_manager import DebugManager
 from editor.git_manager import GitManager
 from menus.menubar import build_menubar
 from utils import session as session_utils
@@ -205,6 +206,11 @@ class IDOL(Tk):
         self._hover_after_id: str | None = None
         self._hover_popup = None
         self._lsp_change_after_id: str | None = None
+
+        # Debugger
+        self._debugger: DebugManager | None = None
+        self._breakpoints: dict[str, set[int]] = {}   # filepath → line numbers
+        self._debug_current_tab: str | None = None    # tab_id with debug highlight
 
         # Completion
         self._completion = CompletionPopup(
@@ -381,6 +387,37 @@ class IDOL(Tk):
         self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043"))
         self._plus_btn.bind("<Leave>", lambda _: self._plus_btn.config(fg="#858585"))
 
+        # Debug controls — hidden until a session is active
+        self._debug_bar = tk.Frame(_nav_bar, bg="#1e1e1e")
+        # (packed dynamically by _show_debug_bar / _hide_debug_bar)
+        _DBG_BTN_STYLE = dict(
+            bg="#1e1e1e", fg="#858585",
+            font=("Segoe UI", 10),
+            relief="flat", bd=0,
+            cursor="hand2", padx=6, pady=2,
+            activebackground="#2a2d2e", activeforeground="#ffffff",
+        )
+        self._dbg_continue_btn = tk.Label(self._debug_bar, text="▶", **_DBG_BTN_STYLE)
+        self._dbg_over_btn     = tk.Label(self._debug_bar, text="↷", **_DBG_BTN_STYLE)
+        self._dbg_in_btn       = tk.Label(self._debug_bar, text="↓", **_DBG_BTN_STYLE)
+        self._dbg_out_btn      = tk.Label(self._debug_bar, text="↑", **_DBG_BTN_STYLE)
+        self._dbg_stop_btn     = tk.Label(self._debug_bar, text="■", **{**_DBG_BTN_STYLE, "fg": "#f44747"})
+        for btn, cmd, tip in (
+            (self._dbg_continue_btn, self._debug_continue, "Continue (F5)"),
+            (self._dbg_over_btn,     self._debug_step_over, "Step Over (F10)"),
+            (self._dbg_in_btn,       self._debug_step_in,   "Step In (F11)"),
+            (self._dbg_out_btn,      self._debug_step_out,  "Step Out (Shift+F11)"),
+            (self._dbg_stop_btn,     self._debug_stop,      "Stop (Shift+F5)"),
+        ):
+            btn.pack(side="left")
+            btn.bind("<Button-1>", lambda _, fn=cmd: fn())
+            btn.bind("<Enter>", lambda e, b=btn: b.config(fg="#ffffff"))
+            btn.bind("<Leave>", lambda e, b=btn, orig=btn.cget("fg"):
+                     b.config(fg="#f44747" if b is self._dbg_stop_btn else "#858585"))
+        tk.Frame(self._debug_bar, bg="#555555", width=1).pack(
+            side="left", fill="y", pady=4, padx=2
+        )
+
         # Right cluster — packed side="right" so leftmost button is packed last.
         # MAP needs to pre-toggle minimap_visible_var since view_toggle_minimap
         # reads it expecting the checkbutton to have already flipped it.
@@ -470,9 +507,10 @@ class IDOL(Tk):
 
         self._output = BottomPanel(
             self._v_pane,
-            run_callback=self.run_file,
+            run_callback=self.debug_file,
             cwd=os.getcwd(),
             on_navigate=self._open_file_at,
+            on_bp_click=self._open_file_at,
         )
         self._v_pane.add(self._output, weight=1)
 
@@ -546,7 +584,12 @@ class IDOL(Tk):
         self.bind("<Control-q>", lambda _: self.file_exit())
         self.bind("<Control-f>", lambda _: self.edit_find_replace())
         self.bind("<Control-l>", lambda _: self.view_change_font())
-        self.bind("<F5>", lambda _: self.run_file())
+        self.bind("<F5>",         lambda _: self.debug_file())
+        self.bind("<Control-F5>", lambda _: self.run_file_in_terminal())
+        self.bind("<F10>",        lambda _: self._debug_step_over())
+        self.bind("<F11>",        lambda _: self._debug_step_in())
+        self.bind("<Shift-F11>",  lambda _: self._debug_step_out())
+        self.bind("<Shift-F5>",   lambda _: self._debug_stop())
         self.bind("<Control-grave>", lambda _: self.view_new_terminal())
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
@@ -649,6 +692,19 @@ class IDOL(Tk):
         self._indent_sizes[tab_id] = 4
         self._codeviews[tab_id] = codeview
         self._breadcrumbs[tab_id] = crumb
+
+        # Wire breakpoint toggle: gutter click → app callback with filepath
+        def _make_bp_toggle(tid):
+            def _toggle(lineno: int):
+                fp = self._files.get(tid) or ""
+                if fp:
+                    self._on_breakpoint_toggle(fp, lineno)
+                    # Keep gutter in sync with the app's set for this file
+                    codeview._line_numbers.set_breakpoints(
+                        self._breakpoints.get(fp, set())
+                    )
+            return _toggle
+        codeview._line_numbers.on_breakpoint_toggle = _make_bp_toggle(tab_id)
 
         is_code = not isinstance(lexer, (pygments.lexers.TextLexer,))
         handler = KeyHandler(tab_size=4, smart_pairs=is_code)
@@ -899,6 +955,9 @@ class IDOL(Tk):
             # Apply cached git hunks for this tab; fetch fresh ones
             cv._line_numbers.set_git_hunks(self._git_hunks.get(tab_id, []))
             self._refresh_git_hunks()
+            # Sync breakpoint dots for this tab's file
+            fp = self._files.get(tab_id) or ""
+            cv._line_numbers.set_breakpoints(self._breakpoints.get(fp, set()))
             # Sync cursor shape to this tab's overwrite state
             cv.config(
                 blockcursor=ovr,
@@ -3319,15 +3378,198 @@ class IDOL(Tk):
     # ── Run operations ────────────────────────────────────────────────────────
 
     def run_file(self) -> None:
+        """Legacy run — kept for internal use (output panel run button)."""
         if not self.file_save():
             return
         filepath = self._files.get(self._current_tab_id)
         if filepath:
-            # Make output panel visible if hidden
             if not self.output_visible_var.get():
                 self.output_visible_var.set(True)
                 self.view_toggle_output()
             self._output.run(filepath)
+
+    def run_file_in_terminal(self) -> None:
+        """Ctrl+F5 — save and run the current file in the terminal panel."""
+        if not self.file_save():
+            return
+        filepath = self._files.get(self._current_tab_id)
+        if not filepath:
+            return
+        if not self.output_visible_var.get():
+            self.output_visible_var.set(True)
+            self.view_toggle_output()
+        self._output._set_active("terminal")
+        # Start terminal if not already running
+        if not self._output.terminal._running:
+            self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
+        self._output.terminal.send_text(f'python "{filepath}"\r')
+
+    # ── Debugger ──────────────────────────────────────────────────────────────
+
+    def debug_file(self) -> None:
+        """F5 — save and launch a debug session for the current file."""
+        if self._debugger and self._debugger.active:
+            # Already paused — treat F5 as Continue
+            self._debug_continue()
+            return
+        if not self.file_save():
+            return
+        filepath = self._files.get(self._current_tab_id)
+        if not filepath or not filepath.endswith(".py"):
+            return
+
+        # Check debugpy is available
+        import subprocess as _sp
+        try:
+            _sp.run(
+                [sys.executable, "-c", "import debugpy"],
+                check=True, capture_output=True,
+            )
+        except _sp.CalledProcessError:
+            showerror(
+                "debugpy not found",
+                "Install debugpy to use the debugger:\n\npip install debugpy",
+            )
+            return
+
+        self._debugger = DebugManager(after_fn=self.after)
+        self._debugger.on_stopped    = self._on_debug_stopped
+        self._debugger.on_continued  = self._on_debug_continued
+        self._debugger.on_terminated = self._on_debug_terminated
+        self._debugger.on_output     = self._on_debug_output
+
+        # Collect breakpoints for all files
+        bp_dict = {fp: sorted(lines) for fp, lines in self._breakpoints.items() if lines}
+
+        if not self.output_visible_var.get():
+            self.output_visible_var.set(True)
+            self.view_toggle_output()
+        self._output._set_active("debug")
+        self._output.output.clear()
+        self._output.output.write(f"$ Debugging {os.path.basename(filepath)}\n\n", "info")
+
+        self._debugger.launch(filepath, sys.executable, bp_dict)
+        self._show_debug_bar()
+
+    def _show_debug_bar(self) -> None:
+        self._debug_bar.pack(side="left", padx=(4, 0))
+        self._refresh_nav_bar()
+
+    def _hide_debug_bar(self) -> None:
+        self._debug_bar.pack_forget()
+        self._refresh_nav_bar()
+
+    def _debug_continue(self) -> None:
+        if self._debugger:
+            self._debugger.continue_()
+
+    def _debug_step_over(self) -> None:
+        if self._debugger:
+            self._debugger.next_()
+
+    def _debug_step_in(self) -> None:
+        if self._debugger:
+            self._debugger.step_in()
+
+    def _debug_step_out(self) -> None:
+        if self._debugger:
+            self._debugger.step_out()
+
+    def _debug_stop(self) -> None:
+        if self._debugger:
+            self._debugger.disconnect()
+            self._on_debug_terminated()
+
+    def _on_debug_stopped(
+        self, frame_id: int, filepath: str, line: int, reason: str
+    ) -> None:
+        """Called when the debugger pauses (breakpoint hit, step complete, etc.)."""
+        # Clear old highlight
+        self._clear_debug_highlight()
+        # Navigate to the paused location
+        if filepath and line:
+            self._open_file_at(filepath, line, 0)
+            # Highlight the current line in the editor
+            cv = self._current_codeview
+            if cv:
+                cv.tag_configure("debug_current", background="#2d2d00")
+                cv.tag_remove("debug_current", "1.0", "end")
+                cv.tag_add("debug_current", f"{line}.0", f"{line}.end+1c")
+                cv.tag_raise("debug_current")
+                self._debug_current_tab = self._current_tab_id
+            # Arrow in gutter
+            ln = self._get_line_numbers(self._current_tab_id)
+            if ln:
+                ln.set_debug_line(line)
+        # Fetch locals and update debug panel
+        self._output._set_active("debug")
+        if frame_id:
+            self._debugger.get_locals(
+                frame_id,
+                lambda variables: self._output.debug.update_locals(variables),
+            )
+        # Update breakpoints list
+        self._refresh_debug_breakpoints()
+
+    def _on_debug_continued(self) -> None:
+        self._clear_debug_highlight()
+
+    def _on_debug_terminated(self) -> None:
+        self._clear_debug_highlight()
+        self._output.debug.clear_session()
+        self._hide_debug_bar()
+        self._debugger = None
+        self._debug_current_tab = None
+        self._output.output.write("\nProcess finished.\n", "info")
+
+    def _on_debug_output(self, category: str, text: str) -> None:
+        tag = "stderr" if category == "stderr" else ""
+        self._output.output.write(text, tag)
+
+    def _clear_debug_highlight(self) -> None:
+        """Remove current-line highlight and gutter arrow."""
+        if self._debug_current_tab:
+            cv = self._codeviews.get(self._debug_current_tab)
+            if cv:
+                cv.tag_remove("debug_current", "1.0", "end")
+            ln = self._get_line_numbers(self._debug_current_tab)
+            if ln:
+                ln.set_debug_line(None)
+
+    def _get_line_numbers(self, tab_id: str | None):
+        """Return the TkLineNumbers widget for *tab_id*, or None."""
+        if not tab_id:
+            return None
+        cv = self._codeviews.get(tab_id)
+        if cv is None:
+            return None
+        # LineNumbers is stored on the codeview's frame as _line_numbers
+        return getattr(cv, "_line_numbers", None)
+
+    def _on_breakpoint_toggle(self, filepath: str, lineno: int) -> None:
+        """Toggle a breakpoint for *filepath*:*lineno* and sync panels."""
+        if filepath not in self._breakpoints:
+            self._breakpoints[filepath] = set()
+        bp_set = self._breakpoints[filepath]
+        if lineno in bp_set:
+            bp_set.discard(lineno)
+        else:
+            bp_set.add(lineno)
+        self._refresh_debug_breakpoints()
+        # Live-update breakpoints in an active session
+        if self._debugger and self._debugger.active:
+            self._debugger._pending_breakpoints = {
+                fp: sorted(lines) for fp, lines in self._breakpoints.items() if lines
+            }
+
+    def _refresh_debug_breakpoints(self) -> None:
+        """Push the current breakpoint list to the debug panel."""
+        entries = []
+        for fp, lines in self._breakpoints.items():
+            fname = os.path.basename(fp)
+            for ln in sorted(lines):
+                entries.append({"filepath": fp, "filename": fname, "line": ln})
+        self._output.debug.update_breakpoints(entries)
 
     def _run_snippet(self, code: str, label: str) -> None:
         """Send *code* to the output panel for execution."""
@@ -3413,7 +3655,9 @@ class IDOL(Tk):
                 ]
             ],
             # Run
-            ("Run File", "F5", self.run_file),
+            ("Debug File", "F5", self.debug_file),
+            ("Run in Terminal", "Ctrl+F5", self.run_file_in_terminal),
+            ("Stop Debugger", "Shift+F5", self._debug_stop),
             ("Stop", "", self.run_stop),
             ("Clear Output", "", self.run_clear),
             # Help

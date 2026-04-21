@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 from utils.learning_registry import LearningManager
 
+from .debug_panel import DebugPanel
 from .output import OutputPanel
 from .problems_panel import ProblemsPanel
 from .terminal import TerminalPanel
@@ -31,6 +32,7 @@ class BottomPanel(ttk.Frame):
         run_callback: Optional[Callable[[], None]] = None,
         cwd: Optional[str] = None,
         on_navigate: Optional[Callable[[str, int, int], None]] = None,
+        on_bp_click: Optional[Callable[[str, int], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -46,9 +48,13 @@ class BottomPanel(ttk.Frame):
         self.output   = OutputPanel(self, run_callback=run_callback)
         self.terminal = TerminalPanel(self)
         self.problems = ProblemsPanel(self, on_navigate=self._on_navigate)
+        self.debug    = DebugPanel(
+            self,
+            on_breakpoint_click=on_bp_click or (lambda *_: None),
+        )
 
         self.output.pack(fill="both", expand=True)
-        # terminal and problems start hidden
+        # terminal, problems, and debug start hidden
 
         self._set_active("output")
 
@@ -83,6 +89,7 @@ class BottomPanel(ttk.Frame):
             ("output", "OUTPUT"),
             ("terminal", "TERMINAL"),
             ("problems", "PROBLEMS"),
+            ("debug", "DEBUG"),
         ):
             self._tabs[key] = self._make_tab(bar, key, label)
         self.output_tab_btn   = self._tabs["output"]["container"]
@@ -158,7 +165,7 @@ class BottomPanel(ttk.Frame):
                 tab["indicator"].pack_forget()
 
         # Hide all panels then show the selected one
-        for panel in (self.output, self.terminal, self.problems):
+        for panel in (self.output, self.terminal, self.problems, self.debug):
             panel.pack_forget()
 
         if key == "output":
@@ -175,7 +182,9 @@ class BottomPanel(ttk.Frame):
                     self.terminal.after(200, lambda: self.terminal.send_text("\x0c"))
                 else:
                     self.terminal.after(50, lambda: self.terminal._text.yview_moveto(0))
-        else:  # problems
+        elif key == "problems":
             self.problems.pack(fill="both", expand=True)
+        else:  # debug
+            self.debug.pack(fill="both", expand=True)
 
         self._active = key

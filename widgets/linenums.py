@@ -61,6 +61,11 @@ class TkLineNumbers(Canvas):
         # Git gutter: maps line_number → 'added' | 'modified' | 'deleted'
         self._hunk_map: dict[int, str] = {}
 
+        # Debugger gutter
+        self._breakpoints: set[int] = set()
+        self._debug_line: Optional[int] = None          # currently-paused line
+        self.on_breakpoint_toggle: Optional[Callable[[int], None]] = None
+
         self.config(cursor="right_ptr")
         self.set_colors()
 
@@ -108,6 +113,7 @@ class TkLineNumbers(Canvas):
             if dlineinfo is None:
                 continue
             self._draw_line_number(lineno, dlineinfo)
+            self._draw_debug_gutter(lineno, dlineinfo)
             fold = self._get_fold_range(lineno, last_line)
             if fold:
                 _, end_line = fold
@@ -227,6 +233,37 @@ class TkLineNumbers(Canvas):
         )
         return marker
 
+    def set_breakpoints(self, lines: set[int]) -> None:
+        """Replace the current breakpoint set and redraw."""
+        self._breakpoints = set(lines)
+        self.redraw()
+
+    def set_debug_line(self, lineno: Optional[int]) -> None:
+        """Highlight *lineno* as the currently-paused execution line (None to clear)."""
+        self._debug_line = lineno
+        self.redraw()
+
+    def _draw_debug_gutter(self, lineno: int, dlineinfo: tuple) -> None:
+        """Draw a red breakpoint dot and/or yellow execution arrow for *lineno*."""
+        y = dlineinfo[1]
+        h = dlineinfo[3]
+        r = max(4, h // 3)          # dot radius scales with line height
+        cx = 7                       # horizontal centre of the dot column
+
+        if lineno == self._debug_line:
+            # Yellow ▶ arrow indicating the paused line
+            cy = y + h // 2
+            pts = [cx - 3, cy - r, cx + r, cy, cx - 3, cy + r]
+            self.create_polygon(pts, fill="#e5c07b", outline="")
+
+        if lineno in self._breakpoints:
+            # Red filled circle
+            cy = y + h // 2
+            self.create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                fill="#e51400", outline="",
+            )
+
     def set_git_hunks(self, hunks: list[tuple[int, int, str]]) -> None:
         """Update gutter indicators from a list of (start, count, kind) tuples."""
         self._hunk_map = {}
@@ -317,6 +354,17 @@ class TkLineNumbers(Canvas):
         self.textwidget.tag_remove("sel", "1.0", "end")
         line = self.textwidget.index(f"@{event.x},{event.y}").split(".")[0]
         click_pos = f"{line}.0"
+
+        # Breakpoint zone: leftmost 14 px
+        if event.x <= 14 and self.on_breakpoint_toggle:
+            lineno = int(line)
+            if lineno in self._breakpoints:
+                self._breakpoints.discard(lineno)
+            else:
+                self._breakpoints.add(lineno)
+            self.on_breakpoint_toggle(lineno)
+            self.redraw()
+            return
 
         actual_marker = self._fold_tag_at_line(int(line))
         in_fold_zone = (
