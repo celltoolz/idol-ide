@@ -980,19 +980,23 @@ class TerminalPanel(ttk.Frame):
         cwd    = self._cwd_current
         active = self._venv_active
 
-        # Check for .venv in CWD
+        # Check for a venv in CWD — try all common names
         venv_activate_path = ""
+        cwd_venv = ""
         if cwd:
             try:
-                candidate = Path(cwd) / ".venv"
-                if (candidate / "bin" / "activate").exists():
-                    venv_activate_path = str(candidate / "bin" / "activate")
-                elif (candidate / "Scripts" / "Activate.ps1").exists():
-                    venv_activate_path = str(candidate / "Scripts" / "Activate.ps1")
+                for _name in (".venv", "venv", "env", ".env"):
+                    candidate = Path(cwd) / _name
+                    if (candidate / "bin" / "activate").exists():
+                        venv_activate_path = str(candidate / "bin" / "activate")
+                        cwd_venv = str(candidate)
+                        break
+                    elif (candidate / "Scripts" / "Activate.ps1").exists():
+                        venv_activate_path = str(candidate / "Scripts" / "Activate.ps1")
+                        cwd_venv = str(candidate)
+                        break
             except Exception:
                 pass
-
-        cwd_venv = str(Path(cwd) / ".venv") if cwd else ""
 
         def _norm(p: str) -> str:
             """Normalize path for comparison — lowercase on Windows, forward slashes."""
@@ -1005,7 +1009,7 @@ class TerminalPanel(ttk.Frame):
         # is explicitly user-activated — no need to filter _idol_venv here.
         if active:
             na = _norm(active)
-            nv = _norm(cwd_venv)
+            nv = _norm(cwd_venv) if cwd_venv else ""
             if nv and (na == nv or na.startswith(nv + "/")):
                 self._venv_btn_state = "active_match"
             else:

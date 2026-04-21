@@ -42,6 +42,8 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Hover documentation — rest the mouse over any symbol for inline docs
 - Go to Definition — F12 or right-click menu
 - Autocomplete — dropdown with kind labels, keyboard navigation (↑↓ to move, Tab/Enter to accept, Escape to dismiss)
+- **Problems panel** — PROBLEMS tab in the bottom bar lists every diagnostic with colored severity dots (✕ error, ⚠ warning); click any entry to jump directly to that line and column
+- **Diagnostic statusbar badge** — live ✕N ⚠N count on the left of the status bar; click it to open the Problems panel instantly
 
 ### Navigation & Search
 - Command palette — Ctrl+Shift+P; fuzzy search all commands, type @ to search symbols by name
@@ -78,11 +80,24 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Integrated terminal — full VT100 PTY shell (PowerShell/bash/zsh) with accurate ANSI color rendering via [pyte](https://github.com/selectel/pyte), direct keyboard input, and scrollback history
 - Mouse wheel scrolling — passes SGR scroll sequences to TUI apps (vim, htop) when mouse mode is active, otherwise scrolls the history buffer
 - **Text selection** — click and drag to select; **Copy** via right-click or Ctrl+Shift+C; **Paste** via right-click or Ctrl+Shift+V
-- **Virtual environment detection** — toolbar shows the active venv name and a Deactivate button when a venv is active; shows Activate when a `.venv` exists in the current directory; Switch button when a different venv is active
+- **Virtual environment detection** — toolbar shows the active venv name and a Deactivate button when a venv is active; shows Activate when a `.venv` or `venv` folder exists in the current directory; Switch button when a different venv is active
 - Run / Output panel with stdout/stderr coloring
 - **Run Line** — right-click any line to execute it instantly in the output panel
 - **Run Selection** — right-click a highlighted block to run just that snippet (auto-dedents indented blocks)
 - OUTPUT and TERMINAL tabs share the bottom panel
+
+### Debugger
+- **Integrated Python debugger** — press **F5** to launch a full debug session powered by [debugpy](https://github.com/microsoft/debugpy) over the Debug Adapter Protocol (DAP)
+- **Breakpoints** — click the left edge of the gutter to set/clear breakpoints; red dots appear on active lines and persist across sessions
+- **Step controls** in the nav toolbar: **Continue** (F5), **Step Over** (F10), **Step Into** (F11), **Step Out** (Shift+F11), **Stop** (Shift+F5)
+- **DEBUG panel** — dedicated bottom tab with two panes:
+  - **BREAKPOINTS** — lists all set breakpoints by file and line; click any entry to navigate there
+  - **LOCALS** — shows every local variable in the current frame with name, value, and type, updated each time execution pauses
+- **Current-line arrow** — yellow arrow in the gutter marks the line where execution is paused; highlighted row in the editor
+- **Smart venv detection** — automatically uses the project's virtual environment Python (`.venv`, `venv`, `env`) so the debugger sees the same packages as your code
+- **One-click debugpy install** — if debugpy is missing from the project's Python, IDOL offers to install it automatically and retries the debug session on success
+- **Ctrl+F5** — run the current file directly in the integrated terminal (no debugger attached)
+- Unhandled exceptions pause execution and navigate to the crashing line automatically
 
 ### AI Chat (F2)
 - Press **F2** (or **Help → Ask AI**) to toggle a persistent right-side chat panel — stays open alongside your code
@@ -185,7 +200,12 @@ python main.py
 | Select All | Ctrl+A |
 | Find & Replace | Ctrl+F |
 | Command palette | Ctrl+Shift+P |
-| Run file | F5 |
+| Debug file / Continue | F5 |
+| Run file in terminal | Ctrl+F5 |
+| Step over | F10 (during debug) |
+| Step into | F11 |
+| Step out | Shift+F11 |
+| Stop debugger | Shift+F5 |
 | Go to Definition | F12 |
 | Split editor | Ctrl+\\ |
 | Source control | Ctrl+Shift+G |

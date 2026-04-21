@@ -10,3 +10,4 @@ tkfontchooser>=2.0
 toml>=0.10
 python-lsp-server>=1.12  # LSP backend (pylsp)
 pyflakes>=3.0
+debugpy>=1.8       # Python debugger (DAP backend)

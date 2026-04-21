@@ -72,11 +72,13 @@ class DebugManager:
         ]
         self._proc = subprocess.Popen(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd=os.path.dirname(filepath) or None,
         )
         self._running = True
+        threading.Thread(target=self._pipe_reader, args=(self._proc.stderr,), daemon=True).start()
+        threading.Thread(target=self._pipe_reader, args=(self._proc.stdout,), daemon=True).start()
         # Give debugpy ~300 ms to start listening, then connect
         self._after_fn(300, self._connect)
 
@@ -108,8 +110,8 @@ class DebugManager:
                     obj.close() if hasattr(obj, "close") else obj.terminate()
             except Exception:
                 pass
-        self._sock    = None
-        self._proc    = None
+        self._sock      = None
+        self._proc      = None
         self._thread_id = None
 
     def get_locals(
@@ -144,8 +146,18 @@ class DebugManager:
 
     # ── Transport ─────────────────────────────────────────────────────────────
 
+    def _pipe_reader(self, pipe) -> None:
+        """Forward subprocess stdout/stderr through on_output."""
+        try:
+            for raw in pipe:
+                text = raw.decode("utf-8", errors="replace")
+                if text and self.on_output:
+                    self._after_fn(0, lambda t=text: self.on_output("stdout", t))
+        except Exception:
+            pass
+
     def _connect(self) -> None:
-        """Connect TCP socket to debugpy; retry up to 10 times."""
+        """Connect TCP socket to debugpy; retry up to 15 times."""
         for attempt in range(15):
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -154,14 +166,14 @@ class DebugManager:
                 sock.settimeout(None)
                 self._sock = sock
                 threading.Thread(target=self._reader, daemon=True).start()
-                self._send_request("initialize", {
+                self._request("initialize", {
                     "adapterID":            "python",
                     "clientName":           "IDOL",
                     "pathFormat":           "path",
                     "linesStartAt1":        True,
                     "columnsStartAt1":      True,
                     "supportsVariableType": True,
-                })
+                }, self._on_initialize_response)
                 return
             except (ConnectionRefusedError, OSError):
                 time.sleep(0.2)
@@ -184,9 +196,6 @@ class DebugManager:
         self._send_msg({"seq": seq, "type": "request",
                         "command": command, "arguments": args})
         return seq
-
-    # Alias used during the connect phase before self._request is available
-    _send_request = _request
 
     def _send_msg(self, msg: dict) -> None:
         body   = json.dumps(msg).encode("utf-8")
@@ -249,6 +258,10 @@ class DebugManager:
         elif event == "stopped":
             self._thread_id = body.get("threadId", 1)
             reason = body.get("reason", "")
+            if reason == "entry":
+                # debugpy pauses at script entry before our breakpoints — skip it
+                self.continue_()
+                return
             self._request(
                 "stackTrace",
                 {"threadId": self._thread_id, "startFrame": 0, "levels": 1},
@@ -262,24 +275,23 @@ class DebugManager:
             if self.on_terminated:
                 self.on_terminated()
         elif event == "output":
-            if self.on_output:
-                self.on_output(
-                    body.get("category", "stdout"),
-                    body.get("output", ""),
-                )
+            category = body.get("category", "stdout")
+            text     = body.get("output", "")
+            if text and self.on_output and category not in ("telemetry",):
+                self.on_output(category, text)
+
+    def _on_initialize_response(self, _result, _error) -> None:
+        """initialize responded — attach to the waiting debugpy process."""
+        self._request("attach", {"justMyCode": True})
 
     def _on_initialized(self) -> None:
-        """Send all breakpoints then configurationDone."""
+        """debugpy sent initialized event — set breakpoints and release the script."""
+        self._request("setExceptionBreakpoints", {"filters": ["uncaught"]})
         for filepath, lines in self._pending_breakpoints.items():
             self._request("setBreakpoints", {
                 "source":      {"path": filepath},
                 "breakpoints": [{"line": ln} for ln in sorted(lines)],
             })
-        self._request("launch", {
-            "program":  self._filepath,
-            "console":  "internalConsole",
-            "justMyCode": True,
-        })
         self._request("configurationDone", {})
 
     def _on_stack(self, result: Optional[dict], reason: str) -> None:
