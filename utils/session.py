@@ -180,11 +180,13 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     if not tabs:
         return False
 
-    # ── Breakpoints — restore before tabs so _new_tab() applies them ─────────
+    # ── Breakpoints — restore before tabs so _new_tab() applies gutter dots ──
     saved_bp = data.get("breakpoints", {})
     for fp, lines in saved_bp.items():
         if lines:
             app._breakpoints[fp] = set(lines)
+    if saved_bp:
+        app.after_idle(app._refresh_debug_breakpoints)
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     for entry in tabs:
