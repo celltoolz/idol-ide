@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import queue
 import tempfile
-from tkinter import Text, ttk
+from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
 
 from editor.script_runner import ScriptRunner
@@ -14,11 +14,20 @@ class OutputPanel(ttk.Frame):
     Runs the subprocess in a background thread and pumps output into a queue
     that is drained every 50 ms on the main thread (safe for tkinter).
 
+    An inline stdin bar appears at the bottom while a process is running,
+    allowing input() calls to be answered without switching to the terminal.
+
     Usage:
         panel.run(filepath)   – run a file
         panel.terminate()     – kill the running process
         panel.clear()         – clear the text area
     """
+
+    _BG       = "#1e1e1e"
+    _FG       = "#f8f8f2"
+    _BAR_BG   = "#252526"
+    _INPUT_BG = "#3c3c3c"
+    _STDIN_FG = "#9cdcfe"   # light-blue echo for typed input
 
     def __init__(
         self,
@@ -38,39 +47,70 @@ class OutputPanel(ttk.Frame):
         self._poll()
 
     def _build_ui(self) -> None:
-        # ── Header label ──────────────────────────────────────────────────────
+        # Grid layout: row 0 = header, row 1 = separator, row 2 = text (expands),
+        # row 3 = stdin bar. grid_remove() / grid() used to show/hide row 3.
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # ── Header ────────────────────────────────────────────────────────────
         toolbar = ttk.Frame(self)
-        toolbar.pack(fill="x", side="top", pady=(2, 0), padx=4)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(2, 0), padx=4)
         ttk.Label(toolbar, text="OUTPUT", font=("TkDefaultFont", 8, "bold")).pack(side="left")
-        ttk.Separator(self, orient="horizontal").pack(fill="x")
+
+        ttk.Separator(self, orient="horizontal").grid(row=1, column=0, sticky="ew")
 
         # ── Text area ─────────────────────────────────────────────────────────
         text_frame = ttk.Frame(self)
-        text_frame.pack(fill="both", expand=True)
+        text_frame.grid(row=2, column=0, sticky="nsew")
         text_frame.grid_rowconfigure(0, weight=1)
         text_frame.grid_columnconfigure(0, weight=1)
 
         self._text = Text(
             text_frame,
-            bg="#1e1e1e", fg="#f8f8f2",
+            bg=self._BG, fg=self._FG,
             font=("Consolas", 10),
             state="disabled",
             wrap="word",
             relief="flat",
             borderwidth=0,
-            insertbackground="#f8f8f2",
+            insertbackground=self._FG,
         )
         vs = ttk.Scrollbar(text_frame, orient="vertical", command=self._text.yview)
         self._text.configure(yscrollcommand=vs.set)
-
-        self._text.grid(row=0, column=0, sticky="nswe")
+        self._text.grid(row=0, column=0, sticky="nsew")
         vs.grid(row=0, column=1, sticky="ns")
 
-        # Output tags
         self._text.tag_configure("stderr",  foreground="#ff5555")
         self._text.tag_configure("info",    foreground="#6272a4")
         self._text.tag_configure("success", foreground="#50fa7b")
         self._text.tag_configure("warning", foreground="#f1fa8c")
+        self._text.tag_configure("stdin",   foreground=self._STDIN_FG)
+
+        # ── Stdin input bar ────────────────────────────────────────────────
+        self._stdin_bar = Frame(self, bg=self._BAR_BG)
+        self._stdin_bar.grid(row=3, column=0, sticky="ew")
+        self._stdin_bar.grid_remove()   # hidden until a process runs
+
+        Label(
+            self._stdin_bar,
+            text=" > ",
+            bg=self._BAR_BG,
+            fg=self._STDIN_FG,
+            font=("Consolas", 10, "bold"),
+        ).pack(side="left")
+
+        self._stdin_entry = Entry(
+            self._stdin_bar,
+            bg=self._INPUT_BG,
+            fg=self._FG,
+            insertbackground=self._FG,
+            relief="flat",
+            font=("Consolas", 10),
+            bd=4,
+        )
+        self._stdin_entry.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=4)
+        self._stdin_entry.bind("<Return>",   self._on_stdin_submit)
+        self._stdin_entry.bind("<KP_Enter>", self._on_stdin_submit)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -92,9 +132,7 @@ class OutputPanel(ttk.Frame):
             return
         self.clear()
         self.write(f"$ python {filepath}\n\n", "info")
-        self._is_running = True
-        if self._on_run_start:
-            self._on_run_start()
+        self._start_run()
         self._runner.run(filepath)
 
     def run_code(self, code: str, label: str = "selection") -> None:
@@ -103,9 +141,7 @@ class OutputPanel(ttk.Frame):
             return
         self.clear()
         self.write(f"$ python [{label}]\n\n", "info")
-        self._is_running = True
-        if self._on_run_start:
-            self._on_run_start()
+        self._start_run()
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", delete=False, encoding="utf-8"
         )
@@ -120,15 +156,33 @@ class OutputPanel(ttk.Frame):
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
+    def _start_run(self) -> None:
+        self._is_running = True
+        self._stdin_bar.grid()          # restore to row 3
+        self._stdin_entry.delete(0, "end")
+        self._stdin_entry.focus_set()
+        if self._on_run_start:
+            self._on_run_start()
+
+    def _finish_run(self) -> None:
+        self._is_running = False
+        self._stdin_bar.grid_remove()   # hide without losing grid config
+        if self._on_run_done:
+            self._on_run_done()
+
+    def _on_stdin_submit(self, _=None) -> None:
+        text = self._stdin_entry.get()
+        self._stdin_entry.delete(0, "end")
+        self.write(text + "\n", "stdin")
+        self._runner.send_input(text + "\n")
+
     def _poll(self) -> None:
         """Drain the output queue every 50 ms on the main thread."""
         try:
             while True:
                 item = self._queue.get_nowait()
                 if item is None:
-                    self._is_running = False
-                    if self._on_run_done:
-                        self._on_run_done()
+                    self._finish_run()
                     break
                 text, tag = item
                 self.write(text, tag)
