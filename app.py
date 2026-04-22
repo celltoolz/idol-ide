@@ -2866,6 +2866,9 @@ class IDOL(Tk):
                 _sash_set(self._h_pane, 1, max(200, w - self._ai_panel_width))
             except Exception:
                 pass
+            # Notify AI chat so it can re-snap to bottom after this resize
+            if self._ai_chat_panel:
+                self.after(50, self._ai_chat_panel._on_ai_panel_sash_done)
 
         _cbid.append(self._h_pane.bind("<Configure>", _set_sash))
         # Fallback: also fire after 500ms in case <Configure> doesn't trigger

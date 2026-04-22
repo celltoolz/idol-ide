@@ -51,6 +51,9 @@ class AiChatPanel(tk.Frame):
         self._scroll_job = None
         self._render_job = None
         self._pending_render_text: str = ""
+        self._pin_to_bottom: bool = False
+        self._pin_release_job = None
+        self._session_restore_active: bool = False
 
         self._build()
         try:
@@ -210,9 +213,36 @@ class AiChatPanel(tk.Frame):
 
     def _on_inner_configure(self, _=None) -> None:
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        if self._pin_to_bottom:
+            self._canvas.yview_moveto(1.0)
+
+    def _on_ai_panel_sash_done(self) -> None:
+        """Called after _apply_ai_panel_sash sets the sash.
+
+        Re-snaps to bottom during session restore even if the debounce already
+        released the pin — the sash settling is always the last layout event.
+        """
+        if not self._session_restore_active:
+            return
+        self._session_restore_active = False
+        self._pin_to_bottom = True
+        if self._pin_release_job:
+            self.after_cancel(self._pin_release_job)
+        self._on_inner_configure()
+        self._canvas.update_idletasks()
+        self._canvas.yview_moveto(1.0)
+        self._pin_release_job = self.after(700, self._release_bottom_pin)
+
+    def _release_bottom_pin(self) -> None:
+        self._pin_to_bottom = False
+        self._pin_release_job = None
 
     def _on_canvas_configure(self, event) -> None:
         self._canvas.itemconfig(self._msg_win, width=event.width)
+        if self._pin_to_bottom:
+            if self._pin_release_job:
+                self.after_cancel(self._pin_release_job)
+            self._pin_release_job = self.after(700, self._release_bottom_pin)
         self._apply_wraplength()
 
     def _apply_wraplength(self) -> None:
@@ -486,11 +516,18 @@ class AiChatPanel(tk.Frame):
             self._update_token_label()
             n = len(data)
             self._append_system(f"Last {n} message{'s' if n != 1 else ''} restored from previous session.")
+            self._pin_to_bottom = True
+            self._session_restore_active = True
+            # Fallback: clear restore flag after 3s even if sash callback never fires
+            self.after(3000, lambda: setattr(self, "_session_restore_active", False))
             def _scroll_to_bottom():
                 self._on_inner_configure()
                 self._canvas.update_idletasks()
                 self._canvas.yview_moveto(1.0)
             self.after(150, _scroll_to_bottom)
+            # Pin release is debounced via _on_canvas_configure; seed a fallback
+            # in case no canvas resize ever fires (e.g. panel already at final size).
+            self._pin_release_job = self.after(900, self._release_bottom_pin)
             return True
         except Exception:
             return False
