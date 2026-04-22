@@ -512,10 +512,12 @@ class TkLineNumbers(Canvas):
     def _on_gutter_motion(self, event: Event) -> None:
         """Track which line the cursor is on within the breakpoint zone."""
         if event.x > 16:
+            self.config(cursor="right_ptr")
             if self._hover_line is not None:
                 self._hover_line = None
                 self.redraw()
             return
+        self.config(cursor="hand2")
         try:
             lineno = int(self.textwidget.index(f"@0,{event.y}").split(".")[0])
         except (ValueError, Exception):
@@ -525,6 +527,7 @@ class TkLineNumbers(Canvas):
             self.redraw()
 
     def _on_gutter_leave(self, _: Event) -> None:
+        self.config(cursor="right_ptr")
         if self._hover_line is not None:
             self._hover_line = None
             self.redraw()
