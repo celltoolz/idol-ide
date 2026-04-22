@@ -300,12 +300,13 @@ REGISTRY: dict[str, dict[str, str]] = {
         "title": "Output Panel",
         "what": "Shows the result of running your Python file — print statements, errors, and program output.",
         "how": (
-            "Press F5 to run the current file. Output appears here in real time. "
+            "Use the ▶ button (or Ctrl+F5) to run the current file. Output appears here in real time. "
             "Errors print in red, normal output in white, info messages in blue. "
-            "Click Stop to kill a running program. Right-click any line in the editor to run just that line."
+            "Press Shift+F5 or click ■ to stop a running program. "
+            "Right-click any line in the editor to run just that line."
         ),
         "example": (
-            "Write 'print(\"Hello World\")' and press F5. "
+            "Write 'print(\"Hello World\")' and press Ctrl+F5. "
             "The output panel shows '$ python yourfile.py' then 'Hello World' beneath it."
         ),
     },
@@ -321,6 +322,33 @@ REGISTRY: dict[str, dict[str, str]] = {
         "example": (
             "Ctrl+` → type 'pip install requests' → the package installs right inside the IDE. "
             "No need to switch to a separate terminal window."
+        ),
+    },
+
+    "problems_panel": {
+        "title": "Problems Panel",
+        "what": "Lists all syntax errors, warnings, and type issues in your open files, detected by the language server in real time.",
+        "how": (
+            "Click the PROBLEMS tab to open it. Errors show a ✕ count and warnings a ⚠ count on the tab badge. "
+            "Click any entry to jump directly to that line in the editor. "
+            "Errors are shown in red, warnings in yellow."
+        ),
+        "example": (
+            "You forget a closing parenthesis — a red ✕1 badge appears on PROBLEMS immediately. "
+            "Click the entry to jump straight to the offending line."
+        ),
+    },
+    "debug_panel": {
+        "title": "Debug Panel",
+        "what": "Shows the active debug session — current breakpoints, variable state, and call stack.",
+        "how": (
+            "Click the DEBUG tab or press F5 to start a debug session. "
+            "Set breakpoints by clicking the gutter (line number area) in the editor. "
+            "Use the debug toolbar buttons to Continue, Step Over (F10), and Step Into (F11)."
+        ),
+        "example": (
+            "Set a breakpoint on line 10, press F5 — execution pauses there. "
+            "The Debug panel shows all local variables and the call stack at that moment."
         ),
     },
 
@@ -355,6 +383,33 @@ REGISTRY: dict[str, dict[str, str]] = {
     },
 
     # ── Nav toolbar ──────────────────────────────────────────────────────────
+    "nav_run": {
+        "title": "Run / Debug Button (▶ / ⬡)",
+        "what": "Executes the current file in whichever mode was last selected — Run (▶) or Debug (⬡).",
+        "how": (
+            "Click ▶ to run, or click ▾ next to it to pick a mode from the dropdown. "
+            "The button icon and color change to show the active mode: green ▶ for Run, yellow ⬡ for Debug. "
+            "Keyboard: Ctrl+F5 to run, F5 to debug."
+        ),
+        "example": "Click ▾, choose Debug — the button turns yellow ⬡. Now every click or F5 launches the debugger until you switch back.",
+    },
+    "nav_chevron": {
+        "title": "Run Mode Selector (▾)",
+        "what": "Opens a dropdown to choose what happens when you click the run button.",
+        "how": (
+            "Click ▾ to open the menu. Choose Run (Ctrl+F5) to execute normally, "
+            "or Debug (F5) to launch with the debugger. "
+            "You can also choose Run Line, Run Selection, or switch output to Terminal. "
+            "The choice is remembered until you change it."
+        ),
+        "example": "Click ▾ → select 'Run Selection' to execute only the highlighted code block.",
+    },
+    "nav_stop": {
+        "title": "Stop Button (■)",
+        "what": "Terminates whatever is currently running — a script, debug session, or long-running process.",
+        "how": "Click ■ or press Shift+F5. The button is dim when nothing is running and turns red when something is active.",
+        "example": "Your script is stuck in an infinite loop — click ■ to kill it instantly.",
+    },
     "nav_split": {
         "title": "Split Editor (SPLIT)",
         "what": "Opens two editors side by side so you can view and edit two files at once.",

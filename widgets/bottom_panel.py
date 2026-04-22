@@ -97,6 +97,10 @@ class BottomPanel(ttk.Frame):
         self.output_tab_lbl   = self._tabs["output"]["label"]
         self.terminal_tab_btn = self._tabs["terminal"]["container"]
         self.terminal_tab_lbl = self._tabs["terminal"]["label"]
+        self.problems_tab_btn = self._tabs["problems"]["container"]
+        self.problems_tab_lbl = self._tabs["problems"]["label"]
+        self.debug_tab_btn    = self._tabs["debug"]["container"]
+        self.debug_tab_lbl    = self._tabs["debug"]["label"]
 
     def _make_tab(self, bar: Frame, key: str, label: str) -> dict:
         """Create a single tab button and return references to its widgets."""

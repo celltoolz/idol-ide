@@ -603,6 +603,9 @@ class IDOL(Tk):
         )
 
         # Register nav buttons with Learning Mode
+        LearningManager.register(self._nav_run_btn,     "nav_run")
+        LearningManager.register(self._nav_chevron_btn, "nav_chevron")
+        LearningManager.register(self._nav_stop_btn,    "nav_stop")
         LearningManager.register(self._nav_split_btn, "nav_split")
         LearningManager.register(self._nav_map_btn, "nav_map")
         LearningManager.register(self._nav_sidebar_btn, "nav_sidebar")
@@ -2927,13 +2930,19 @@ class IDOL(Tk):
         # Find & Replace bar
         LM.register(self._find_replace, "find_replace_bar")
 
-        # Output / Terminal — tab buttons get overlays, large panels don't
-        LM.register(self._output.output_tab_btn, "output_panel")
-        LM.register(self._output.output_tab_lbl, "output_panel")
+        # Output / Terminal / Problems / Debug — tab buttons get overlays, large panels don't
+        LM.register(self._output.output_tab_btn,   "output_panel")
+        LM.register(self._output.output_tab_lbl,   "output_panel")
         LM.register(self._output.terminal_tab_btn, "terminal_panel")
         LM.register(self._output.terminal_tab_lbl, "terminal_panel")
-        LM.register(self._output.output, "output_panel", overlay=False)
+        LM.register(self._output.problems_tab_btn, "problems_panel")
+        LM.register(self._output.problems_tab_lbl, "problems_panel")
+        LM.register(self._output.debug_tab_btn,    "debug_panel")
+        LM.register(self._output.debug_tab_lbl,    "debug_panel")
+        LM.register(self._output.output,   "output_panel",   overlay=False)
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
+        LM.register(self._output.problems, "problems_panel", overlay=False)
+        LM.register(self._output.debug,    "debug_panel",    overlay=False)
 
         # AI Chat input box
         LM.register(self._ai_chat_panel._input, "ai_chat")
