@@ -64,6 +64,7 @@ class TkLineNumbers(Canvas):
         # Debugger gutter
         self._breakpoints: set[int] = set()
         self._debug_line: Optional[int] = None          # currently-paused line
+        self._hover_line: Optional[int] = None          # line under cursor in BP zone
         self.on_breakpoint_toggle: Optional[Callable[[int], None]] = None
 
         self.config(cursor="right_ptr")
@@ -79,6 +80,8 @@ class TkLineNumbers(Canvas):
         self.bind("<Button1-Motion>", self.in_widget_select_mouse_drag, add=True)
         self.bind("<Button1-Leave>", self.mouse_off_screen_scroll, add=True)
         self.bind("<Button1-Enter>", self.stop_mouse_off_screen_scroll, add=True)
+        self.bind("<Motion>", self._on_gutter_motion, add=True)
+        self.bind("<Leave>",  self._on_gutter_leave,  add=True)
         # Redraw once the widget is actually mapped (has a real height).
         # This fires when a hidden tab becomes visible or on first display.
         self.bind("<Map>", lambda e: self.after_idle(self.redraw), add=True)
@@ -248,7 +251,7 @@ class TkLineNumbers(Canvas):
         y = dlineinfo[1]
         h = dlineinfo[3]
         r = max(4, h // 3)          # dot radius scales with line height
-        cx = 7                       # horizontal centre of the dot column
+        cx = 8                       # horizontal centre of the dot column
 
         if lineno == self._debug_line:
             # Yellow ▶ arrow indicating the paused line
@@ -257,11 +260,18 @@ class TkLineNumbers(Canvas):
             self.create_polygon(pts, fill="#e5c07b", outline="")
 
         if lineno in self._breakpoints:
-            # Red filled circle
+            # Bright red filled circle — active breakpoint
             cy = y + h // 2
             self.create_oval(
                 cx - r, cy - r, cx + r, cy + r,
-                fill="#e51400", outline="",
+                fill="#f14c4c", outline="",
+            )
+        elif lineno == self._hover_line:
+            # Dim ghost dot — shows the gutter is clickable
+            cy = y + h // 2
+            self.create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                fill="#6b2020", outline="",
             )
 
     def set_git_hunks(self, hunks: list[tuple[int, int, str]]) -> None:
@@ -273,7 +283,13 @@ class TkLineNumbers(Canvas):
         self.redraw()
 
     def _draw_line_number(self, lineno: int, dlineinfo: tuple) -> None:
-        x = {"left": 0, "right": int(self["width"]), "center": int(self["width"]) / 2}[
+        # Subtle separator between the breakpoint dot column and the line numbers
+        sep_x = 16
+        self.create_line(
+            sep_x, dlineinfo[1], sep_x, dlineinfo[1] + dlineinfo[3],
+            fill=self.foreground_color, stipple="gray25",
+        )
+        x = {"left": sep_x, "right": int(self["width"]), "center": int(self["width"]) / 2}[
             self.justify
         ]
         anchor = {"left": "nw", "right": "ne", "center": "n"}[self.justify]
@@ -492,6 +508,26 @@ class TkLineNumbers(Canvas):
         self.textwidget.tag_remove("sel", "1.0", "end")
         self.textwidget.tag_add("sel", start, end)
         self.textwidget.mark_set("insert", drag_pos)
+
+    def _on_gutter_motion(self, event: Event) -> None:
+        """Track which line the cursor is on within the breakpoint zone."""
+        if event.x > 16:
+            if self._hover_line is not None:
+                self._hover_line = None
+                self.redraw()
+            return
+        try:
+            lineno = int(self.textwidget.index(f"@0,{event.y}").split(".")[0])
+        except (ValueError, Exception):
+            return
+        if lineno != self._hover_line:
+            self._hover_line = lineno
+            self.redraw()
+
+    def _on_gutter_leave(self, _: Event) -> None:
+        if self._hover_line is not None:
+            self._hover_line = None
+            self.redraw()
 
     def shift_click(self, event: Event) -> None:
         start = self.textwidget.index("insert")
