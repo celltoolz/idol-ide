@@ -47,21 +47,13 @@ class OutputPanel(ttk.Frame):
         self._poll()
 
     def _build_ui(self) -> None:
-        # Grid layout: row 0 = header, row 1 = separator, row 2 = text (expands),
-        # row 3 = stdin bar. grid_remove() / grid() used to show/hide row 3.
-        self.grid_rowconfigure(2, weight=1)
+        # Grid layout: row 0 = text (expands), row 1 = stdin bar.
+        self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
-
-        # ── Header ────────────────────────────────────────────────────────────
-        toolbar = ttk.Frame(self)
-        toolbar.grid(row=0, column=0, sticky="ew", pady=(2, 0), padx=4)
-        ttk.Label(toolbar, text="OUTPUT", font=("TkDefaultFont", 8, "bold")).pack(side="left")
-
-        ttk.Separator(self, orient="horizontal").grid(row=1, column=0, sticky="ew")
 
         # ── Text area ─────────────────────────────────────────────────────────
         text_frame = ttk.Frame(self)
-        text_frame.grid(row=2, column=0, sticky="nsew")
+        text_frame.grid(row=0, column=0, sticky="nsew")
         text_frame.grid_rowconfigure(0, weight=1)
         text_frame.grid_columnconfigure(0, weight=1)
 
@@ -88,7 +80,7 @@ class OutputPanel(ttk.Frame):
 
         # ── Stdin input bar ────────────────────────────────────────────────
         self._stdin_bar = Frame(self, bg=self._BAR_BG)
-        self._stdin_bar.grid(row=3, column=0, sticky="ew")
+        self._stdin_bar.grid(row=1, column=0, sticky="ew")
         self._stdin_bar.grid_remove()   # hidden until a process runs
 
         Label(
@@ -111,6 +103,18 @@ class OutputPanel(ttk.Frame):
         self._stdin_entry.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=4)
         self._stdin_entry.bind("<Return>",   self._on_stdin_submit)
         self._stdin_entry.bind("<KP_Enter>", self._on_stdin_submit)
+
+    def build_tab_controls(self, parent) -> None:
+        """Populate *parent* (the tab bar slot) with output-specific controls."""
+        self._clear_btn = Label(
+            parent, text="✕ Clear",
+            bg="#252526", fg="#8a8a8a",
+            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+        )
+        self._clear_btn.pack(side="left")
+        self._clear_btn.bind("<Button-1>", lambda _: self.clear())
+        self._clear_btn.bind("<Enter>", lambda _: self._clear_btn.config(fg="#ffffff"))
+        self._clear_btn.bind("<Leave>", lambda _: self._clear_btn.config(fg="#8a8a8a"))
 
     # ── Public API ────────────────────────────────────────────────────────────
 

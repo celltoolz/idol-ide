@@ -159,6 +159,7 @@ class BottomPanel(ttk.Frame):
         self._on_navigate  = on_navigate or (lambda *_: None)
         self._on_bp_click  = on_bp_click or (lambda *_: None)
         self._debug_float_win: Optional[DebugFloatWindow] = None
+        self._active_ctrls: Optional[Frame] = None
 
         self._build_tab_bar()
 
@@ -170,6 +171,8 @@ class BottomPanel(ttk.Frame):
             self,
             on_breakpoint_click=self._on_bp_click,
         )
+
+        self._build_panel_controls()
 
         self.output.pack(fill="both", expand=True)
 
@@ -209,16 +212,9 @@ class BottomPanel(ttk.Frame):
         bar.pack(fill="x", side="top")
         bar.pack_propagate(False)
 
-        # ── Pop-out button (right-aligned, debug panel only) ──────────────────
-        self._popout_lbl = Label(
-            bar, text="⊡",
-            bg=self._TAB_BG, fg=self._TAB_FG,
-            cursor="hand2", font=("Segoe UI", 11), pady=4,
-            padx=8,
-        )
-        # Not packed initially — shown only when DEBUG tab is active
-        self._popout_lbl.bind("<Button-1>", lambda _: self._toggle_debug_float())
-        _Tooltip(self._popout_lbl, "Float debug panel")
+        # ── Right-side control slot — filled per-panel in _build_panel_controls ──
+        self._ctrl_slot = Frame(bar, bg=self._TAB_BG)
+        self._ctrl_slot.pack(side="right", fill="y")
 
         self._tabs: dict[str, dict] = {}
         for key, label in (
@@ -269,6 +265,37 @@ class BottomPanel(ttk.Frame):
 
         return {"container": container, "label": lbl, "indicator": indicator}
 
+    def _build_panel_controls(self) -> None:
+        """Create per-panel control frames inside the tab bar slot."""
+        # ── Output ────────────────────────────────────────────────────────────
+        self._output_ctrls = Frame(self._ctrl_slot, bg=self._TAB_BG)
+        self.output.build_tab_controls(self._output_ctrls)
+
+        # ── Terminal ──────────────────────────────────────────────────────────
+        self._terminal_ctrls = Frame(self._ctrl_slot, bg=self._TAB_BG)
+        self.terminal.build_tab_controls(self._terminal_ctrls)
+
+        # ── Problems (no controls yet) ────────────────────────────────────────
+        self._problems_ctrls = Frame(self._ctrl_slot, bg=self._TAB_BG)
+
+        # ── Debug — pop-out button ────────────────────────────────────────────
+        self._debug_ctrls = Frame(self._ctrl_slot, bg=self._TAB_BG)
+        self._popout_lbl = Label(
+            self._debug_ctrls, text="⊡",
+            bg=self._TAB_BG, fg=self._TAB_FG,
+            cursor="hand2", font=("Segoe UI", 11), pady=4, padx=8,
+        )
+        self._popout_lbl.pack(side="left")
+        self._popout_lbl.bind("<Button-1>", lambda _: self._toggle_debug_float())
+        _Tooltip(self._popout_lbl, "Float debug panel")
+
+        self._panel_ctrls = {
+            "output":   self._output_ctrls,
+            "terminal": self._terminal_ctrls,
+            "problems": self._problems_ctrls,
+            "debug":    self._debug_ctrls,
+        }
+
     # ── Debug float / dock ────────────────────────────────────────────────────
 
     def _toggle_debug_float(self) -> None:
@@ -280,7 +307,7 @@ class BottomPanel(ttk.Frame):
     def _pop_debug_out(self) -> None:
         if self._debug_float_win is not None:
             return
-        # Switch away from debug tab before hiding it
+        # Switch away from debug tab before hiding it (hides debug ctrls too)
         if self._active == "debug":
             self._set_active("output")
 
@@ -291,10 +318,8 @@ class BottomPanel(ttk.Frame):
         )
         self._debug_float_win.panel.sync_from(self._docked_debug)
 
-        # Hide the DEBUG tab from the bar while it's floating
+        # Hide the DEBUG tab from the bar while floating
         self._tabs["debug"]["container"].pack_forget()
-        # Hide the pop-out button (no debug tab to act on)
-        self._popout_lbl.pack_forget()
 
     def _dock_debug_back(self) -> None:
         if self._debug_float_win is None:
@@ -307,7 +332,7 @@ class BottomPanel(ttk.Frame):
             pass
         self._debug_float_win = None
 
-        # Restore the DEBUG tab
+        # Restore the DEBUG tab and switch to it (restores debug ctrls too)
         self._tabs["debug"]["container"].pack(side="left")
         self._set_active("debug")
 
@@ -341,11 +366,12 @@ class BottomPanel(ttk.Frame):
         if key == "debug" and self._debug_float_win is not None:
             return
 
-        # Pop-out button only visible on the DEBUG tab
-        if key == "debug":
-            self._popout_lbl.pack(side="right")
-        else:
-            self._popout_lbl.pack_forget()
+        # Swap per-panel control frame in the right-side slot
+        if self._active_ctrls is not None:
+            self._active_ctrls.pack_forget()
+        self._active_ctrls = self._panel_ctrls.get(key)
+        if self._active_ctrls is not None:
+            self._active_ctrls.pack(side="right", fill="y")
 
         for k, tab in self._tabs.items():
             active = k == key

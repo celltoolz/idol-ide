@@ -241,6 +241,52 @@ class TerminalPanel(ttk.Frame):
         self._build_ui()
         self._poll()
 
+    def build_tab_controls(self, parent) -> None:
+        """Populate *parent* (the tab bar slot) with terminal-specific controls."""
+        _BG = "#252526"
+        _FG = "#8a8a8a"
+
+        self._shell_cb = ttk.Combobox(
+            parent, textvariable=self._shell_var,
+            values=list(self.SHELLS.keys()), width=10, state="readonly",
+        )
+        self._shell_cb.pack(side="left", padx=(6, 2), pady=4)
+        self._shell_cb.bind("<<ComboboxSelected>>", self._on_shell_change)
+
+        for text, cmd in (("⟳ Restart", self._on_restart), ("✕ Clear", self.clear)):
+            btn = tk.Label(
+                parent, text=text,
+                bg=_BG, fg=_FG,
+                font=("Segoe UI", 8), cursor="hand2", pady=6, padx=4,
+            )
+            btn.pack(side="left", padx=2)
+            btn.bind("<Button-1>", lambda _, c=cmd: c())
+            btn.bind("<Enter>", lambda _, b=btn: b.config(fg="#ffffff"))
+            btn.bind("<Leave>", lambda _, b=btn: b.config(fg=_FG))
+            if text == "⟳ Restart":
+                self._restart_btn = btn
+            else:
+                self._term_clear_btn = btn
+
+        # Venv controls — right-aligned
+        self._venv_btn = tk.Label(
+            parent, text="▶ Activate venv",
+            bg="#0e639c", fg="white",
+            font=("Segoe UI", 8), cursor="hand2",
+            padx=6, pady=1,
+        )
+        self._venv_btn.pack(side="right", padx=(4, 6))
+        self._venv_btn.bind("<Button-1>", lambda _: self._venv_btn_click())
+        self._venv_btn.bind("<Enter>",    lambda _: self._venv_btn_hover(True))
+        self._venv_btn.bind("<Leave>",    lambda _: self._venv_btn_hover(False))
+
+        self._venv_label = tk.Label(
+            parent, text="",
+            bg="#2d2d30", fg="#50fa7b",
+            font=("Segoe UI", 8),
+        )
+        self._update_venv_ui()
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def start(self, shell: list[str] | None = None,
@@ -386,45 +432,7 @@ class TerminalPanel(ttk.Frame):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        toolbar = ttk.Frame(self)
-        toolbar.pack(fill="x", side="top", pady=(2, 0), padx=4)
-
-        ttk.Label(toolbar, text="TERMINAL",
-                  font=("TkDefaultFont", 8, "bold")).pack(side="left", padx=(0, 8))
-
-        self._shell_cb = ttk.Combobox(
-            toolbar, textvariable=self._shell_var,
-            values=list(self.SHELLS.keys()), width=12, state="readonly",
-        )
-        self._shell_cb.pack(side="left", padx=2)
-        self._shell_cb.bind("<<ComboboxSelected>>", self._on_shell_change)
-
-        ttk.Button(toolbar, text="⟳ Restart", width=9,
-                   command=self._on_restart).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="✕ Clear", width=8,
-                   command=self.clear).pack(side="left", padx=2)
-
-        # Venv controls — right-aligned in toolbar
-        self._venv_btn = tk.Label(
-            toolbar, text="▶ Activate venv",
-            bg="#0e639c", fg="white",
-            font=("Segoe UI", 8), cursor="hand2",
-            padx=6, pady=1,
-        )
-        self._venv_btn.pack(side="right", padx=(4, 2))
-        self._venv_btn.bind("<Button-1>", lambda _: self._venv_btn_click())
-        self._venv_btn.bind("<Enter>",    lambda _: self._venv_btn_hover(True))
-        self._venv_btn.bind("<Leave>",    lambda _: self._venv_btn_hover(False))
-
-        self._venv_label = tk.Label(
-            toolbar, text="",
-            bg="#2d2d30", fg="#50fa7b",
-            font=("Segoe UI", 8),
-        )
-        # Packed dynamically in _update_venv_ui when there's content to show
-
         self._venv_btn_state = "none"   # none | activate | active_match | active_other
-        self._update_venv_ui()
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 

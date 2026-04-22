@@ -2944,6 +2944,14 @@ class IDOL(Tk):
         LM.register(self._output.problems, "problems_panel", overlay=False)
         LM.register(self._output.debug,    "debug_panel",    overlay=False)
 
+        # Tab bar slot controls
+        LM.register(self._output.output._clear_btn,          "output_panel")
+        LM.register(self._output.terminal._shell_cb,         "terminal_panel")
+        LM.register(self._output.terminal._restart_btn,      "terminal_panel")
+        LM.register(self._output.terminal._term_clear_btn,   "terminal_panel")
+        LM.register(self._output.terminal._venv_btn,         "terminal_panel")
+        LM.register(self._output._popout_lbl,                "debug_panel")
+
         # Debug toolbar buttons
         LM.register(self._dbg_continue_btn, "dbg_continue")
         LM.register(self._dbg_over_btn,     "dbg_step_over")
