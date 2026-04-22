@@ -82,17 +82,23 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **Text selection** — click and drag to select; **Copy** via right-click or Ctrl+Shift+C; **Paste** via right-click or Ctrl+Shift+V
 - **Virtual environment detection** — toolbar shows the active venv name and a Deactivate button when a venv is active; shows Activate when a `.venv` or `venv` folder exists in the current directory; Switch button when a different venv is active
 - Run / Output panel with stdout/stderr coloring
+- **Inline stdin bar** — when a script calls `input()`, a `>` input field appears at the bottom of the Output panel; type your response and hit Enter — the prompt appears immediately (unbuffered binary stdout), your input echoes in light blue, and the script continues. No terminal switch needed for simple scripts
 - **Run Line** — right-click any line to execute it instantly in the output panel
 - **Run Selection** — right-click a highlighted block to run just that snippet (auto-dedents indented blocks)
-- OUTPUT and TERMINAL tabs share the bottom panel
+- **Dynamic tab bar controls** — the right side of the bottom panel tab bar shows context-sensitive controls for the active tab: Clear for OUTPUT, shell selector + Restart + Clear + venv for TERMINAL, float button for DEBUG
 
 ### Debugger
 - **Integrated Python debugger** — press **F5** to launch a full debug session powered by [debugpy](https://github.com/microsoft/debugpy) over the Debug Adapter Protocol (DAP)
 - **Breakpoints** — click the left edge of the gutter to set/clear breakpoints; red dots appear on active lines and persist across sessions
+  - **VS Code-style gutter** — dim ghost dot appears on hover to show the gutter is clickable; cursor switches to a hand in the breakpoint zone; bright red dot on active breakpoints; subtle separator between the dot column and line numbers
+- **Two debug targets** — choose Output or Terminal from the run menu chevron:
+  - **Output mode** — debugpy spawns as a subprocess; stdout/stderr stream to the Output panel
+  - **Terminal mode** — debugpy launches inside the integrated terminal PTY; `input()` works natively, ANSI colors render correctly, full interactive session
 - **Step controls** in the nav toolbar: **Continue** (F5), **Step Over** (F10), **Step Into** (F11), **Step Out** (Shift+F11), **Stop** (Shift+F5)
 - **DEBUG panel** — dedicated bottom tab with two panes:
   - **BREAKPOINTS** — lists all set breakpoints by file and line; click any entry to navigate there
   - **LOCALS** — shows every local variable in the current frame with name, value, and type, updated each time execution pauses
+- **Floating debug panel** — click **⊡** in the DEBUG tab bar to pop the panel into its own resizable window; keeps breakpoints and locals visible while working in Output or Terminal. **⬅ Dock** returns it to the bottom panel; **📌** pins it always on top. Float geometry persists across sessions
 - **Current-line arrow** — yellow arrow in the gutter marks the line where execution is paused; highlighted row in the editor
 - **Smart venv detection** — automatically uses the project's virtual environment Python (`.venv`, `venv`, `env`) so the debugger sees the same packages as your code
 - **One-click debugpy install** — if debugpy is missing from the project's Python, IDOL offers to install it automatically and retries the debug session on success
