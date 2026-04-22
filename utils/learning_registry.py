@@ -382,6 +382,38 @@ REGISTRY: dict[str, dict[str, str]] = {
         ),
     },
 
+    # ── Debug toolbar (shown in nav bar during a session or learning mode) ────
+    "dbg_continue": {
+        "title": "Continue (▶)",
+        "what": "Resumes execution after the debugger has paused at a breakpoint.",
+        "how": "Click ▶ or press F5. The program runs until it hits the next breakpoint or finishes.",
+        "example": "Paused at line 12 inspecting a variable — click ▶ to continue to the next breakpoint.",
+    },
+    "dbg_step_over": {
+        "title": "Step Over (↷)",
+        "what": "Executes the current line and moves to the next, without stepping into any function calls.",
+        "how": "Click ↷ or press F10. Use this to advance line by line while skipping over the internals of called functions.",
+        "example": "Line 15 calls 'process_data()'. Step Over runs that whole function and lands on line 16.",
+    },
+    "dbg_step_in": {
+        "title": "Step Into (↓)",
+        "what": "Steps inside the function being called on the current line so you can debug it directly.",
+        "how": "Click ↓ or press F11. The debugger jumps into the first line of the called function.",
+        "example": "Line 15 calls 'process_data()'. Step Into takes you inside 'process_data' to debug it line by line.",
+    },
+    "dbg_step_out": {
+        "title": "Step Out (↑)",
+        "what": "Finishes executing the current function and pauses back at the caller.",
+        "how": "Click ↑ when you're inside a function you've stepped into and want to return to the calling code.",
+        "example": "You stepped into 'process_data()' and inspected what you needed — click ↑ to return to the caller.",
+    },
+    "dbg_stop": {
+        "title": "Stop Debug (■)",
+        "what": "Terminates the active debug session immediately.",
+        "how": "Click the red ■ to kill the debugger and return to normal editing. Shift+F5 does the same.",
+        "example": "You've found the bug and don't need to keep the session running — click ■ to stop cleanly.",
+    },
+
     # ── Nav toolbar ──────────────────────────────────────────────────────────
     "nav_run": {
         "title": "Run / Debug Button (▶ / ⬡)",

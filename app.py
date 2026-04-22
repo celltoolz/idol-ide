@@ -2944,6 +2944,13 @@ class IDOL(Tk):
         LM.register(self._output.problems, "problems_panel", overlay=False)
         LM.register(self._output.debug,    "debug_panel",    overlay=False)
 
+        # Debug toolbar buttons
+        LM.register(self._dbg_continue_btn, "dbg_continue")
+        LM.register(self._dbg_over_btn,     "dbg_step_over")
+        LM.register(self._dbg_in_btn,       "dbg_step_in")
+        LM.register(self._dbg_out_btn,      "dbg_step_out")
+        LM.register(self._dbg_stop_btn,     "dbg_stop")
+
         # AI Chat input box
         LM.register(self._ai_chat_panel._input, "ai_chat")
 
@@ -2953,6 +2960,8 @@ class IDOL(Tk):
 
     def _learning_activate_cursors(self) -> None:
         """Enter learning mode: set cursors on registered widgets + intercept all clicks."""
+        # Show debug bar so users can learn the controls even without a live session
+        self._show_debug_bar()
         self._learning_reg_map = {w: l for w, l in LearningManager.all_registrations()}
         LearningManager.set_active(True)
         LearningManager.set_click_handler(self._on_learning_click)
@@ -2986,6 +2995,9 @@ class IDOL(Tk):
 
     def _learning_deactivate_cursors(self) -> None:
         """Leave learning mode: remove bindtag intercept + restore cursors."""
+        # Hide debug bar again unless a real session is active
+        if not self._debugger:
+            self._hide_debug_bar()
         LearningManager.set_active(False)
         self._learning_remove_bindtag()
         for widget, _lid in LearningManager.all_registrations():
@@ -3633,6 +3645,8 @@ class IDOL(Tk):
 
     def _nav_run(self) -> None:
         """Run the current file in the panel selected by _run_target_var."""
+        if self._learning_tab:
+            self.view_learning_mode()
         if self._run_target_var.get() == "terminal":
             self.run_file_in_terminal()
         else:
@@ -3732,6 +3746,8 @@ class IDOL(Tk):
 
     def debug_file(self) -> None:
         """F5 — save and launch a debug session for the current file."""
+        if self._learning_tab:
+            self.view_learning_mode()
         if self._debugger and self._debugger.active:
             # Already paused — treat F5 as Continue
             self._debug_continue()
