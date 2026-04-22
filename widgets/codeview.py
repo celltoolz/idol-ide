@@ -286,7 +286,10 @@ class CodeView(Text):
         with suppress(TclError):
             self.delete("sel.first", "sel.last")
             self.tag_remove("sel", "1.0", "end")
-            self.insert("insert", self.clipboard_get())
+            text = self.clipboard_get()
+            # Strip null bytes that X11 clipboard can inject on Linux
+            text = text.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+            self.insert("insert", text)
         self.see(insert)
         return "break"
 
