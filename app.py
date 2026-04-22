@@ -3790,11 +3790,33 @@ class IDOL(Tk):
         if not self.output_visible_var.get():
             self.output_visible_var.set(True)
             self.view_toggle_output()
-        self._output._set_active("debug")
-        self._output.output.clear()
-        self._output.output.write(f"$ Debugging {os.path.basename(filepath)}\n\n", "info")
 
-        self._debugger.launch(filepath, python_exe, bp_dict)
+        if self._run_target_var.get() == "terminal":
+            self._debug_in_terminal(filepath, python_exe, bp_dict)
+        else:
+            self._output._set_active("debug")
+            self._output.output.clear()
+            self._output.output.write(f"$ Debugging {os.path.basename(filepath)}\n\n", "info")
+            self._debugger.launch(filepath, python_exe, bp_dict)
+            self._show_debug_bar()
+
+    def _debug_in_terminal(self, filepath: str, python_exe: str, bp_dict: dict) -> None:
+        """Launch debugpy in the terminal and attach our DAP client to it."""
+        from editor.debug_manager import _find_free_port
+        port = _find_free_port()
+
+        self._output._set_active("terminal")
+        if not self._output.terminal._running:
+            self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
+
+        # PowerShell requires & before a quoted executable path; bash does not
+        import platform as _pl
+        prefix = "& " if _pl.system() == "Windows" else ""
+        cmd = f'{prefix}"{python_exe}" -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"\r'
+        # Small delay so the terminal tab finishes switching before we send
+        self._output.terminal.after(150, lambda: self._output.terminal.send_text(cmd))
+
+        self._debugger.attach_to_port(port, filepath, bp_dict)
         self._show_debug_bar()
 
     def _show_debug_bar(self) -> None:

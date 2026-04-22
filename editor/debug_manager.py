@@ -82,6 +82,25 @@ class DebugManager:
         # Give debugpy ~300 ms to start listening, then connect
         self._after_fn(300, self._connect)
 
+    def attach_to_port(
+        self,
+        port: int,
+        filepath: str,
+        breakpoints: dict[str, list[int]],
+    ) -> None:
+        """Attach to a debugpy server already running externally (e.g. terminal).
+
+        No subprocess is spawned — the caller is responsible for starting
+        `python -m debugpy --listen PORT --wait-for-client filepath` before
+        (or shortly after) calling this method.
+        """
+        self._filepath            = filepath
+        self._pending_breakpoints = breakpoints
+        self._port                = port
+        self._running             = True
+        # _connect() contains blocking sleeps — run it off the main thread
+        threading.Thread(target=self._connect, daemon=True).start()
+
     def continue_(self) -> None:
         if self._thread_id is not None:
             self._request("continue", {"threadId": self._thread_id})
