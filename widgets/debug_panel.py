@@ -25,6 +25,7 @@ class DebugPanel(Frame):
         super().__init__(master, bg=self._BG, **kwargs)
         self._on_bp_click   = on_breakpoint_click
         self._bp_entries: list[dict] = []
+        self._last_locals:  list[dict] = []
         self._build_ui()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -148,6 +149,7 @@ class DebugPanel(Frame):
 
     def update_locals(self, variables: list[dict]) -> None:
         """Refresh the locals pane with *variables* from the DAP response."""
+        self._last_locals = variables
         self._loc_text.config(state="normal")
         self._loc_text.delete("1.0", "end")
         visible = [v for v in variables if not v.get("name", "").startswith("__")]
@@ -170,10 +172,19 @@ class DebugPanel(Frame):
 
     def clear_session(self) -> None:
         """Reset both panes to their idle state."""
+        self._last_locals = []
         self._loc_text.config(state="normal")
         self._loc_text.delete("1.0", "end")
         self._loc_text.insert("end", "  Start a debug session (F5) to inspect locals", "empty")
         self._loc_text.config(state="disabled")
+
+    def sync_from(self, other: "DebugPanel") -> None:
+        """Copy displayed state from *other* into this panel (used on dock/undock)."""
+        self.update_breakpoints(list(other._bp_entries))
+        if other._last_locals:
+            self.update_locals(list(other._last_locals))
+        else:
+            self.clear_session()
 
     # ── Breakpoint list interaction ───────────────────────────────────────────
 

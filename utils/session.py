@@ -126,6 +126,16 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     layout["run_target"] = app._run_target_var.get()
     layout["run_action"] = app._run_action_var.get()
 
+    # Debug float window
+    fw = app._output._debug_float_win
+    layout["debug_floating"] = fw is not None
+    if fw is not None:
+        try:
+            layout["debug_float_geom"]    = fw.geometry()
+            layout["debug_float_topmost"] = fw._topmost
+        except Exception:
+            pass
+
     # AI panel
     from utils import ollama_client
     layout["ollama_url"] = ollama_client.get_base_url()
@@ -313,6 +323,20 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
         ollama_client.set_base_url(layout["ollama_url"])
         if hasattr(app, "_ai_chat_panel"):
             app._ai_chat_panel._url_var.set(ollama_client.get_base_url())
+
+    # Debug float window
+    if layout.get("debug_floating"):
+        try:
+            app._output._pop_debug_out()
+            fw = app._output._debug_float_win
+            if fw:
+                geom = layout.get("debug_float_geom")
+                if geom:
+                    fw.geometry(geom)
+                if layout.get("debug_float_topmost"):
+                    fw._toggle_topmost()
+        except Exception:
+            pass
 
     # AI panel — show it if it was visible; sash follows via _apply_ai_panel_sash
     if layout.get("ai_panel_visible"):

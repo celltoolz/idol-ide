@@ -1,7 +1,8 @@
-"""BottomPanel — tabbed container for OUTPUT, TERMINAL, and PROBLEMS panels."""
+"""BottomPanel — tabbed container for OUTPUT, TERMINAL, PROBLEMS, and DEBUG panels."""
 from __future__ import annotations
 
 import platform
+import tkinter as tk
 from tkinter import Frame, Label, ttk
 from typing import Callable, Optional
 
@@ -13,18 +14,132 @@ from .problems_panel import ProblemsPanel
 from .terminal import TerminalPanel
 
 
+class _Tooltip:
+    """Lightweight hover tooltip — appears after 500 ms, destroyed on leave."""
+
+    def __init__(self, widget, text: str) -> None:
+        self._widget  = widget
+        self._text    = text
+        self._win     = None
+        self._job     = None
+        widget.bind("<Enter>", self._schedule, add=True)
+        widget.bind("<Leave>", self._hide,     add=True)
+
+    def _schedule(self, _=None) -> None:
+        self._job = self._widget.after(500, self._show)
+
+    def _show(self, _=None) -> None:
+        if self._win:
+            return
+        x = self._widget.winfo_rootx() + 10
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+        self._win = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        Label(
+            tw, text=self._text,
+            bg="#252526", fg="#cccccc",
+            font=("Segoe UI", 8), relief="solid", bd=1,
+            padx=6, pady=3,
+        ).pack()
+
+    def _hide(self, _=None) -> None:
+        if self._job:
+            try:
+                self._widget.after_cancel(self._job)
+            except Exception:
+                pass
+            self._job = None
+        if self._win:
+            self._win.destroy()
+            self._win = None
+
+
+class DebugFloatWindow(tk.Toplevel):
+    """Floating debug panel that can be docked back into the editor."""
+
+    _BG         = "#1e1e1e"
+    _BAR_BG     = "#252526"
+    _TAB_FG     = "#8a8a8a"
+    _TAB_FG_ACT = "#ffffff"
+    _BLUE       = "#007acc"
+
+    def __init__(
+        self,
+        master,
+        on_dock: Callable,
+        on_bp_click: Callable,
+        **kwargs,
+    ) -> None:
+        super().__init__(master, bg=self._BG, **kwargs)
+        self.title("Debug — IDOL")
+        self.geometry("700x350")
+        self.minsize(400, 200)
+        self._on_dock = on_dock
+        self._topmost = False
+
+        self._build_toolbar()
+        self.panel = DebugPanel(self, on_breakpoint_click=on_bp_click)
+        self.panel.pack(fill="both", expand=True)
+
+        self.protocol("WM_DELETE_WINDOW", on_dock)
+
+    def _build_toolbar(self) -> None:
+        bar = Frame(self, bg=self._BAR_BG, height=28)
+        bar.pack(fill="x", side="top")
+        bar.pack_propagate(False)
+
+        Label(
+            bar, text="DEBUG",
+            bg=self._BAR_BG, fg=self._TAB_FG_ACT,
+            font=("Segoe UI", 8, "bold"), pady=6,
+        ).pack(side="left", padx=10)
+
+        # ── Right-side controls ───────────────────────────────────────────────
+        self._pin_lbl = Label(
+            bar, text="📌",
+            bg=self._BAR_BG, fg=self._TAB_FG,
+            cursor="hand2", font=("Segoe UI", 10), pady=6,
+        )
+        self._pin_lbl.pack(side="right", padx=(0, 8))
+        self._pin_lbl.bind("<Button-1>", lambda _: self._toggle_topmost())
+        _Tooltip(self._pin_lbl, "Toggle always on top")
+
+        Label(bar, text="|", bg=self._BAR_BG, fg="#3c3c3c", pady=6).pack(side="right")
+
+        dock_lbl = Label(
+            bar, text="⬅ Dock",
+            bg=self._BAR_BG, fg=self._TAB_FG,
+            cursor="hand2", font=("Segoe UI", 8), pady=6,
+        )
+        dock_lbl.pack(side="right", padx=(0, 8))
+        dock_lbl.bind("<Button-1>", lambda _: self._on_dock())
+        dock_lbl.bind("<Enter>", lambda _: dock_lbl.config(fg=self._TAB_FG_ACT))
+        dock_lbl.bind("<Leave>", lambda _: dock_lbl.config(fg=self._TAB_FG))
+        _Tooltip(dock_lbl, "Dock back into editor")
+
+    def _toggle_topmost(self) -> None:
+        self._topmost = not self._topmost
+        self.attributes("-topmost", self._topmost)
+        self._pin_lbl.config(fg=self._BLUE if self._topmost else self._TAB_FG)
+
+
 class BottomPanel(ttk.Frame):
     """Tabbed bottom panel with OUTPUT, TERMINAL, PROBLEMS, and DEBUG tabs.
 
     Exposes the same public API as OutputPanel (run / terminate / clear)
     so the rest of the app doesn't need to know about the internal split.
+
+    The DEBUG panel can be floated into its own window via the ⊡ button in
+    the tab bar and docked back with the ⬅ Dock button on the float window.
     """
 
     _BG         = "#1e1e1e"
     _TAB_BG     = "#252526"
     _TAB_FG     = "#8a8a8a"
     _TAB_FG_ACT = "#ffffff"
-    _INDICATOR  = "#007acc"   # blue underline on active tab
+    _INDICATOR  = "#007acc"
+    _BLUE       = "#007acc"
 
     def __init__(
         self,
@@ -41,25 +156,34 @@ class BottomPanel(ttk.Frame):
         self._cwd = cwd
         self._cwd_after_id: Optional[str] = None
         self._terminal_first_show: bool = True
-        self._on_navigate = on_navigate or (lambda *_: None)
+        self._on_navigate  = on_navigate or (lambda *_: None)
+        self._on_bp_click  = on_bp_click or (lambda *_: None)
+        self._debug_float_win: Optional[DebugFloatWindow] = None
 
         self._build_tab_bar()
 
         # ── Panels ────────────────────────────────────────────────────────────
-        self.output   = OutputPanel(self, on_run_start=on_run_start, on_run_done=on_run_done)
-        self.terminal = TerminalPanel(self)
-        self.problems = ProblemsPanel(self, on_navigate=self._on_navigate)
-        self.debug    = DebugPanel(
+        self.output      = OutputPanel(self, on_run_start=on_run_start, on_run_done=on_run_done)
+        self.terminal    = TerminalPanel(self)
+        self.problems    = ProblemsPanel(self, on_navigate=self._on_navigate)
+        self._docked_debug = DebugPanel(
             self,
-            on_breakpoint_click=on_bp_click or (lambda *_: None),
+            on_breakpoint_click=self._on_bp_click,
         )
 
         self.output.pack(fill="both", expand=True)
-        # terminal, problems, and debug start hidden
 
         self._set_active("output")
 
-    # ── Public API (mirrors OutputPanel) ──────────────────────────────────────
+    # ── debug property — always returns the currently active debug panel ──────
+
+    @property
+    def debug(self) -> DebugPanel:
+        if self._debug_float_win is not None:
+            return self._debug_float_win.panel
+        return self._docked_debug
+
+    # ── Public API (mirrors OutputPanel) ─────────────────────────────────────
 
     def run(self, filepath: str) -> None:
         self._set_active("output")
@@ -78,21 +202,33 @@ class BottomPanel(ttk.Frame):
         elif self._active == "terminal":
             self.terminal.clear()
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    # ── Internal ─────────────────────────────────────────────────────────────
 
     def _build_tab_bar(self) -> None:
         bar = Frame(self, bg=self._TAB_BG, height=28)
         bar.pack(fill="x", side="top")
         bar.pack_propagate(False)
 
+        # ── Pop-out button (right-aligned, debug panel only) ──────────────────
+        self._popout_lbl = Label(
+            bar, text="⊡",
+            bg=self._TAB_BG, fg=self._TAB_FG,
+            cursor="hand2", font=("Segoe UI", 11), pady=4,
+            padx=8,
+        )
+        # Not packed initially — shown only when DEBUG tab is active
+        self._popout_lbl.bind("<Button-1>", lambda _: self._toggle_debug_float())
+        _Tooltip(self._popout_lbl, "Float debug panel")
+
         self._tabs: dict[str, dict] = {}
         for key, label in (
-            ("output", "OUTPUT"),
+            ("output",   "OUTPUT"),
             ("terminal", "TERMINAL"),
             ("problems", "PROBLEMS"),
-            ("debug", "DEBUG"),
+            ("debug",    "DEBUG"),
         ):
             self._tabs[key] = self._make_tab(bar, key, label)
+
         self.output_tab_btn   = self._tabs["output"]["container"]
         self.output_tab_lbl   = self._tabs["output"]["label"]
         self.terminal_tab_btn = self._tabs["terminal"]["container"]
@@ -103,7 +239,6 @@ class BottomPanel(ttk.Frame):
         self.debug_tab_lbl    = self._tabs["debug"]["label"]
 
     def _make_tab(self, bar: Frame, key: str, label: str) -> dict:
-        """Create a single tab button and return references to its widgets."""
         container = Frame(bar, bg=self._TAB_BG, padx=12, pady=0)
         container.pack(side="left")
 
@@ -118,13 +253,15 @@ class BottomPanel(ttk.Frame):
         )
         lbl.pack(side="top")
 
-        # Active indicator line (shown only for active tab)
         indicator = Frame(container, bg=self._INDICATOR, height=2)
-        # Not packed initially
 
         def _on_click(k=key):
             if LearningManager.is_active():
                 LearningManager.fire_click(container)
+                return
+            # Clicking DEBUG tab while panel is floating docks it back
+            if k == "debug" and self._debug_float_win is not None:
+                self._dock_debug_back()
                 return
             self._set_active(k)
         for widget in (container, lbl):
@@ -132,11 +269,51 @@ class BottomPanel(ttk.Frame):
 
         return {"container": container, "label": lbl, "indicator": indicator}
 
+    # ── Debug float / dock ────────────────────────────────────────────────────
+
+    def _toggle_debug_float(self) -> None:
+        if self._debug_float_win is not None:
+            self._dock_debug_back()
+        else:
+            self._pop_debug_out()
+
+    def _pop_debug_out(self) -> None:
+        if self._debug_float_win is not None:
+            return
+        # Switch away from debug tab before hiding it
+        if self._active == "debug":
+            self._set_active("output")
+
+        self._debug_float_win = DebugFloatWindow(
+            self,
+            on_dock=self._dock_debug_back,
+            on_bp_click=self._on_bp_click,
+        )
+        self._debug_float_win.panel.sync_from(self._docked_debug)
+
+        # Hide the DEBUG tab from the bar while it's floating
+        self._tabs["debug"]["container"].pack_forget()
+        # Hide the pop-out button (no debug tab to act on)
+        self._popout_lbl.pack_forget()
+
+    def _dock_debug_back(self) -> None:
+        if self._debug_float_win is None:
+            return
+        self._docked_debug.sync_from(self._debug_float_win.panel)
+
+        try:
+            self._debug_float_win.destroy()
+        except Exception:
+            pass
+        self._debug_float_win = None
+
+        # Restore the DEBUG tab
+        self._tabs["debug"]["container"].pack(side="left")
+        self._set_active("debug")
+
     def set_cwd(self, cwd: str) -> None:
-        """Update the working directory; debounced cd to a running terminal."""
         self._cwd = cwd
-        self.terminal._cwd = cwd  # keep terminal in sync for restarts
-        # Debounce: cancel any pending cd and schedule a new one
+        self.terminal._cwd = cwd
         if self._cwd_after_id is not None:
             self.after_cancel(self._cwd_after_id)
         self._cwd_after_id = self.after(250, self._apply_cwd)
@@ -147,7 +324,6 @@ class BottomPanel(ttk.Frame):
             self.terminal.send_text(f'cd "{self._cwd}"\r')
 
     def update_problems(self, entries: list[dict]) -> None:
-        """Push fresh diagnostics to the Problems panel and update the tab badge."""
         self.problems.update(entries)
         errors   = sum(1 for e in entries if e.get("severity") == 1)
         warnings = sum(1 for e in entries if e.get("severity") == 2)
@@ -160,7 +336,17 @@ class BottomPanel(ttk.Frame):
         self._tabs["problems"]["label"].config(text=f"PROBLEMS{badge}")
 
     def _set_active(self, key: str) -> None:
-        # Update tab styling
+        # If debug is floating and we're asked to switch to it, skip — it's
+        # already visible in its own window
+        if key == "debug" and self._debug_float_win is not None:
+            return
+
+        # Pop-out button only visible on the DEBUG tab
+        if key == "debug":
+            self._popout_lbl.pack(side="right")
+        else:
+            self._popout_lbl.pack_forget()
+
         for k, tab in self._tabs.items():
             active = k == key
             tab["label"].config(fg=self._TAB_FG_ACT if active else self._TAB_FG)
@@ -169,8 +355,7 @@ class BottomPanel(ttk.Frame):
             else:
                 tab["indicator"].pack_forget()
 
-        # Hide all panels then show the selected one
-        for panel in (self.output, self.terminal, self.problems, self.debug):
+        for panel in (self.output, self.terminal, self.problems, self._docked_debug):
             panel.pack_forget()
 
         if key == "output":
@@ -182,14 +367,12 @@ class BottomPanel(ttk.Frame):
             if self._terminal_first_show:
                 self._terminal_first_show = False
                 if platform.system() == "Windows":
-                    # After resize settles, Ctrl+L makes PSReadLine redraw the prompt
-                    # cleanly from (0,0) — fixes missing prompt on first keypress.
                     self.terminal.after(200, lambda: self.terminal.send_text("\x0c"))
                 else:
                     self.terminal.after(50, lambda: self.terminal._text.yview_moveto(0))
         elif key == "problems":
             self.problems.pack(fill="both", expand=True)
         else:  # debug
-            self.debug.pack(fill="both", expand=True)
+            self._docked_debug.pack(fill="both", expand=True)
 
         self._active = key
