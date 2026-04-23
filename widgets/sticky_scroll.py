@@ -83,11 +83,17 @@ class StickyScroll(Frame):
         gutter_w = self._ln.winfo_width()
         self._gutter.config(width=gutter_w)
 
+        bp_w = getattr(self._ln, "BP_COL_WIDTH", 0)
         for i, (lineno, line_text) in enumerate(scope_lines):
             # pady=0 makes each Label exactly font-height pixels, matching the
             # Text widget's line height (which also uses pady=0).
+            # Use a row Frame so we can push the number past the BP dot column.
+            row = Frame(self._gutter, bg=self._bg)
+            row.pack(fill="x")
+            if bp_w:
+                Frame(row, bg=self._bg, width=bp_w).pack(side="left")
             Label(
-                self._gutter,
+                row,
                 text=f" {lineno} ",
                 bg=self._bg,
                 fg=self._fg,
@@ -97,7 +103,7 @@ class StickyScroll(Frame):
                 pady=0,
                 bd=0,
                 relief="flat",
-            ).pack(fill="x")
+            ).pack(side="left", fill="x", expand=True)
 
             # Syntax-highlighted code in the text area
             if i > 0:

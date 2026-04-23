@@ -347,6 +347,10 @@ class TkLineNumbers(Canvas):
 
     # ── Sizing & Colors ───────────────────────────────────────────────────────
 
+    # Width of the breakpoint dot column that sits left of the line numbers.
+    # Sticky scroll reads this to align its line number labels.
+    BP_COL_WIDTH: int = 16
+
     def resize(self) -> None:
         end = self.textwidget.index("end").split(".")[0]
         font = Font(font=self.textwidget.cget("font"))
