@@ -130,6 +130,15 @@ def _resolve_color(color, default: str, bright: bool = False) -> str:
         return default
     if isinstance(color, str) and color.startswith("#"):
         return color
+    # pyte stores 24-bit truecolor as a bare 6-char hex string e.g. "ff0000"
+    # (no leading #). ConPTY on Windows converts 256-colour to 24-bit, so this
+    # path is hit for all PowerShell colour output.
+    if isinstance(color, str) and len(color) == 6:
+        try:
+            int(color, 16)
+            return f"#{color}"
+        except ValueError:
+            pass
     if isinstance(color, int):
         # 256-colour palette — approximate with 6x6x6 cube for > 15
         if color < 8:
