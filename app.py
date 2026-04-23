@@ -2945,6 +2945,7 @@ class IDOL(Tk):
         LM.register(self._output.debug,    "debug_panel",    overlay=False)
 
         # Tab bar slot controls
+        LM.register(self._output.output._guide_btn,           "output_panel")
         LM.register(self._output.output._clear_btn,          "output_panel")
         LM.register(self._output.terminal._shell_cb,         "terminal_panel")
         LM.register(self._output.terminal._restart_btn,      "terminal_panel")
@@ -3807,6 +3808,8 @@ class IDOL(Tk):
             self._output.output.write(f"$ Debugging {os.path.basename(filepath)}\n\n", "info")
             self._debugger.launch(filepath, python_exe, bp_dict)
             self._show_debug_bar()
+            if self._file_uses_input(filepath):
+                self._output.output.show_debug_input_guide_btn(self._switch_to_terminal_debug)
 
     def _debug_in_terminal(self, filepath: str, python_exe: str, bp_dict: dict) -> None:
         """Launch debugpy in the terminal and attach our DAP client to it."""
@@ -3898,7 +3901,20 @@ class IDOL(Tk):
         self._debugger = None
         self._debug_current_tab = None
         self._output.output.write("\nProcess finished.\n", "info")
+        self._output.output.hide_debug_input_guide_btn()
         self._refresh_run_buttons()
+
+    def _file_uses_input(self, filepath: str) -> bool:
+        try:
+            with open(filepath, encoding="utf-8", errors="ignore") as f:
+                return "input(" in f.read()
+        except OSError:
+            return False
+
+    def _switch_to_terminal_debug(self) -> None:
+        self._debug_stop()
+        self._run_target_var.set("terminal")
+        self.after(150, self.debug_file)
 
     def _on_debug_output(self, category: str, text: str) -> None:
         tag = "stderr" if category == "stderr" else ""

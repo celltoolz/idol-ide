@@ -5,6 +5,9 @@ import tempfile
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
 
+_GUIDE_FG     = "#f1fa8c"   # amber — stands out from the dim Clear button
+_GUIDE_FG_HOV = "#ffffff"
+
 from editor.script_runner import ScriptRunner
 
 
@@ -106,6 +109,17 @@ class OutputPanel(ttk.Frame):
 
     def build_tab_controls(self, parent) -> None:
         """Populate *parent* (the tab bar slot) with output-specific controls."""
+        # Guide button — surfaced only when input() is detected in a debug session
+        self._guide_btn = Label(
+            parent, text="? input() & Debug",
+            bg="#252526", fg=_GUIDE_FG,
+            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+        )
+        self._guide_btn.bind("<Button-1>", lambda _: self._open_debug_guide())
+        self._guide_btn.bind("<Enter>", lambda _: self._guide_btn.config(fg=_GUIDE_FG_HOV))
+        self._guide_btn.bind("<Leave>", lambda _: self._guide_btn.config(fg=_GUIDE_FG))
+        # Not packed yet — shown via show_debug_input_guide_btn()
+
         self._clear_btn = Label(
             parent, text="✕ Clear",
             bg="#252526", fg="#8a8a8a",
@@ -115,6 +129,33 @@ class OutputPanel(ttk.Frame):
         self._clear_btn.bind("<Button-1>", lambda _: self.clear())
         self._clear_btn.bind("<Enter>", lambda _: self._clear_btn.config(fg="#ffffff"))
         self._clear_btn.bind("<Leave>", lambda _: self._clear_btn.config(fg="#8a8a8a"))
+
+    def show_debug_input_guide_btn(self, switch_fn: Callable) -> None:
+        """Show the input() guide button to the left of Clear."""
+        self._guide_switch_fn = switch_fn
+        if hasattr(self, "_guide_btn"):
+            self._guide_btn.pack(side="left", before=self._clear_btn)
+
+    def hide_debug_input_guide_btn(self) -> None:
+        """Hide the input() guide button (called on session end)."""
+        if hasattr(self, "_guide_btn"):
+            self._guide_btn.pack_forget()
+
+    def _open_debug_guide(self) -> None:
+        from utils.debug_input_guide import make_pages
+        from widgets.guide_window import GuideWindow
+        self.update_idletasks()
+        w, h = 400, 440
+        x = self.winfo_rootx()
+        y = max(0, self.winfo_rooty() - h - 10)
+        win = GuideWindow(
+            self.winfo_toplevel(),
+            "input() & Debug",
+            make_pages(getattr(self, "_guide_switch_fn", None) or (lambda: None)),
+            width=w,
+            height=h,
+        )
+        win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
