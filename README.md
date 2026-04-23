@@ -45,6 +45,10 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Go to Definition — F12 or right-click menu
 - Autocomplete — dropdown with kind labels, keyboard navigation (↑↓ to move, Tab/Enter to accept, Escape to dismiss)
 - **Problems panel** — PROBLEMS tab lists every diagnostic with colored severity dots (✕ error, ⚠ warning, · info); click any entry to jump directly to that line and column
+  - **Hover tooltips** — rest the mouse over any problem for 600ms to see the rule code, a beginner-friendly plain-English description (covers ~40 common ruff/pyflakes rules), and a hint to double-click for AI help
+  - **Double-click → Ask AI** — double-clicking any problem opens the AI Chat panel and asks for a plain-English explanation of that specific issue, a minimal broken example, and the fixed version
+  - **✦ Ask AI button** — appears in the tab bar controls whenever there are errors or warnings; sends the full file with all problems to the AI Chat panel asking for explanations, exact lines to change, and a complete corrected file
+  - **Flashing tab** — when a script crashes and the Problems panel isn't open, the PROBLEMS tab pulses amber until you click it or start typing
 - **Diagnostic statusbar badge** — live ✕N ⚠N count on the left of the status bar; click it to open the Problems panel instantly
 
 ### Navigation & Search
