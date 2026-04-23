@@ -677,6 +677,7 @@ class IDOL(Tk):
         )
         self._output.output.on_runtime_error = self._on_runtime_error
         self._output.on_ask_ai_problems = self._ask_ai_about_problems
+        self._output.problems.on_ask_ai_entry = self._ask_ai_about_entry
         self._v_pane.add(self._output, weight=1)
 
         # AI Chat right panel — created here but not added to _h_pane until F2
@@ -3011,6 +3012,26 @@ class IDOL(Tk):
         self._ensure_ai_panel_open()
         if self._ai_chat_panel:
             self._ai_chat_panel.ask_with_context(user_text, ctx)
+
+    def _ask_ai_about_entry(self, entry: dict) -> None:
+        """Double-click on a single problem — ask AI for explanation + example + fix."""
+        sev_label = {SEV_ERROR: "error", SEV_WARNING: "warning"}.get(
+            entry.get("severity"), "issue"
+        )
+        msg      = entry.get("message", "")
+        filename = entry.get("filename", "")
+        line     = entry.get("line", 0)
+        user_text = (
+            f"I have a Python {sev_label} on line {line} of '{filename}':\n\n"
+            f"  {msg}\n\n"
+            f"Please:\n"
+            f"1. Explain what this {sev_label} means in plain English\n"
+            f"2. Show a simple example of code that causes this same problem\n"
+            f"3. Show the fixed version of that example"
+        )
+        self._ensure_ai_panel_open()
+        if self._ai_chat_panel:
+            self._ai_chat_panel.ask_with_context(user_text, "")
 
     def _register_learning_widgets(self) -> None:
         """Tag all known IDE widgets with their learning IDs."""

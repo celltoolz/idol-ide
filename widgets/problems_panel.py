@@ -29,6 +29,7 @@ class ProblemsPanel(Frame):
         super().__init__(master, bg=self._BG, **kwargs)
         self._on_navigate = on_navigate
         self._entries: list[dict] = []
+        self.on_ask_ai_entry: Callable[[dict], None] | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -70,9 +71,10 @@ class ProblemsPanel(Frame):
             font=("Segoe UI", 9),
         )
 
-        self._text.bind("<Motion>",   self._on_motion)
-        self._text.bind("<Leave>",    self._on_leave)
-        self._text.bind("<Button-1>", self._on_click)
+        self._text.bind("<Motion>",        self._on_motion)
+        self._text.bind("<Leave>",         self._on_leave)
+        self._text.bind("<Button-1>",      self._on_click)
+        self._text.bind("<Double-Button-1>", self._on_double_click)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -118,6 +120,11 @@ class ProblemsPanel(Frame):
         if row is not None:
             e = self._entries[row]
             self._on_navigate(e["filepath"], e["line"], e.get("col", 0))
+
+    def _on_double_click(self, event) -> None:
+        row = self._row_at(event)
+        if row is not None and self.on_ask_ai_entry:
+            self.on_ask_ai_entry(self._entries[row])
 
     def _on_motion(self, event) -> None:
         self._text.tag_remove("hover", "1.0", "end")
