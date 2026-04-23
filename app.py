@@ -1227,6 +1227,9 @@ class IDOL(Tk):
                 # Tab was closed via the × button
                 self._close_learning_mode()
 
+        if self._split_active:
+            self._patch_scroll_callbacks()
+
     def _reset_dirty_after_load(self, tab_id: str) -> None:
         """Clear the dirty flag after all deferred events from file load have fired.
 
@@ -3503,6 +3506,8 @@ class IDOL(Tk):
         """Tab changed in the right notebook — set it active and refresh outline."""
         self._active_pane = "right"
         self._on_tab_changed()
+        if self._split_active:
+            self._patch_scroll_callbacks()
 
     @staticmethod
     def _get_system_scroll_lock() -> bool:
@@ -3564,7 +3569,10 @@ class IDOL(Tk):
             left_cv.yview_moveto(fraction)
 
     def _patch_scroll_callbacks(self) -> None:
-        """Wrap the yscrollcommand on both codeviews so scroll lock can sync them."""
+        """Wrap the yscrollcommand on both codeviews so scroll lock can sync them.
+
+        Safe to call repeatedly — skips if the same pair is already patched.
+        """
         import tkinter as tk
 
         left_cv = self._get_left_cv()
@@ -3572,8 +3580,23 @@ class IDOL(Tk):
         if not left_cv or not right_cv:
             return
 
-        orig_left_vs = left_cv.vertical_scroll
+        # Skip if this exact pair is already patched (avoid chaining wrappers)
+        if getattr(self, "_patched_scroll_pair", None) == (id(left_cv), id(right_cv)):
+            return
+        self._patched_scroll_pair = (id(left_cv), id(right_cv))
+
+        # Restore originals before re-patching (covers codeviews that were patched
+        # in a previous split configuration)
+        for cv in (left_cv, right_cv):
+            orig = getattr(cv, "_orig_vertical_scroll", None)
+            if orig:
+                tk.Text.configure(cv, yscrollcommand=orig)
+
+        orig_left_vs  = left_cv.vertical_scroll
         orig_right_vs = right_cv.vertical_scroll
+        # Stash originals so we can restore them if the pair changes
+        left_cv._orig_vertical_scroll  = orig_left_vs
+        right_cv._orig_vertical_scroll = orig_right_vs
 
         def left_scroll(first, last):
             orig_left_vs(first, last)
