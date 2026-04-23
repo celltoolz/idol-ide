@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import queue
+import re
 import tempfile
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
+
+_TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
 
 _GUIDE_FG     = "#f1fa8c"   # amber — stands out from the dim Clear button
 _GUIDE_FG_HOV = "#ffffff"
@@ -45,6 +48,7 @@ class OutputPanel(ttk.Frame):
         self._queue: queue.Queue = queue.Queue()
         self._runner = ScriptRunner(on_output=self._queue.put)
         self._is_running = False
+        self.on_runtime_error: Optional[Callable[[str, int], None]] = None
 
         self._build_ui()
         self._poll()
@@ -214,6 +218,22 @@ class OutputPanel(ttk.Frame):
         self._stdin_bar.grid_remove()   # hide without losing grid config
         if self._on_run_done:
             self._on_run_done()
+        if self.on_runtime_error:
+            self._try_fire_runtime_error()
+
+    def _try_fire_runtime_error(self) -> None:
+        """Parse the output for a Python traceback and fire on_runtime_error."""
+        text = self._text.get("1.0", "end")
+        if "exit code 0" in text:
+            return
+        matches = _TRACEBACK_RE.findall(text)
+        if not matches:
+            return
+        filepath, lineno_str = matches[-1]
+        try:
+            self.on_runtime_error(filepath, int(lineno_str))
+        except Exception:
+            pass
 
     def _on_stdin_submit(self, _=None) -> None:
         text = self._stdin_entry.get()

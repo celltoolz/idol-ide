@@ -64,6 +64,7 @@ class TkLineNumbers(Canvas):
         # Debugger gutter
         self._breakpoints: set[int] = set()
         self._debug_line: Optional[int] = None          # currently-paused line
+        self._runtime_error_line: Optional[int] = None  # crashed here last run
         self._hover_line: Optional[int] = None          # line under cursor in BP zone
         self.on_breakpoint_toggle: Optional[Callable[[int], None]] = None
 
@@ -246,12 +247,23 @@ class TkLineNumbers(Canvas):
         self._debug_line = lineno
         self.redraw()
 
+    def set_runtime_error_line(self, lineno: Optional[int]) -> None:
+        """Show an amber crash indicator on *lineno* (None to clear)."""
+        self._runtime_error_line = lineno
+        self.redraw()
+
     def _draw_debug_gutter(self, lineno: int, dlineinfo: tuple) -> None:
         """Draw a red breakpoint dot and/or yellow execution arrow for *lineno*."""
         y = dlineinfo[1]
         h = dlineinfo[3]
         r = max(4, h // 3)          # dot radius scales with line height
         cx = 8                       # horizontal centre of the dot column
+
+        if lineno == self._runtime_error_line and lineno != self._debug_line:
+            # Amber ▶ arrow — where the script crashed last run
+            cy = y + h // 2
+            pts = [cx - 3, cy - r, cx + r, cy, cx - 3, cy + r]
+            self.create_polygon(pts, fill="#f59e0b", outline="")
 
         if lineno == self._debug_line:
             # Yellow ▶ arrow indicating the paused line

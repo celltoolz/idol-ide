@@ -156,6 +156,8 @@ class BottomPanel(ttk.Frame):
         self._cwd = cwd
         self._cwd_after_id: Optional[str] = None
         self._terminal_first_show: bool = True
+        self._flash_job: Optional[str] = None
+        self._flash_state: bool = False
         self._on_navigate  = on_navigate or (lambda *_: None)
         self._on_bp_click  = on_bp_click or (lambda *_: None)
         self._debug_float_win: Optional[DebugFloatWindow] = None
@@ -360,11 +362,45 @@ class BottomPanel(ttk.Frame):
         badge = "  " + "  ".join(parts) if parts else ""
         self._tabs["problems"]["label"].config(text=f"PROBLEMS{badge}")
 
+    # ── Problems tab flash ────────────────────────────────────────────────────
+
+    _FLASH_AMBER = "#f59e0b"
+    _FLASH_MS    = 600
+
+    def flash_problems_tab(self) -> None:
+        """Flash the PROBLEMS tab amber until it's clicked or flash is stopped."""
+        if self._active == "problems":
+            return
+        if self._flash_job is not None:
+            return
+        self._flash_state = False
+        self._tick_flash()
+
+    def stop_flash_problems_tab(self) -> None:
+        """Stop flashing and restore the normal tab colour."""
+        if self._flash_job is not None:
+            try:
+                self.after_cancel(self._flash_job)
+            except Exception:
+                pass
+            self._flash_job = None
+        lbl = self._tabs["problems"]["label"]
+        normal = self._TAB_FG_ACT if self._active == "problems" else self._TAB_FG
+        lbl.config(fg=normal)
+
+    def _tick_flash(self) -> None:
+        self._flash_state = not self._flash_state
+        lbl = self._tabs["problems"]["label"]
+        lbl.config(fg=self._FLASH_AMBER if self._flash_state else self._TAB_FG)
+        self._flash_job = self.after(self._FLASH_MS, self._tick_flash)
+
     def _set_active(self, key: str) -> None:
         # If debug is floating and we're asked to switch to it, skip — it's
         # already visible in its own window
         if key == "debug" and self._debug_float_win is not None:
             return
+        if key == "problems":
+            self.stop_flash_problems_tab()
 
         # Swap per-panel control frame in the right-side slot
         if self._active_ctrls is not None:

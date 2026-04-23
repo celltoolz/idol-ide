@@ -274,6 +274,7 @@ class IDOL(Tk):
         # LSP
         self._lsp: LspManager | None = None        # intelligence (hover/completion/definition)
         self._lsp_diag: PyflakesLinter | None = None  # diagnostics (ruff/pyflakes subprocess)
+        self._runtime_error_tab_id: str | None = None  # tab showing last crash indicator
         self._lsp_diagnostics: dict[str, list] = {}  # uri → diag list
         self._hover_after_id: str | None = None
         self._hover_popup = None
@@ -674,6 +675,7 @@ class IDOL(Tk):
             on_navigate=self._open_file_at,
             on_bp_click=lambda fp, ln: self._open_file_at(fp, ln, 0),
         )
+        self._output.output.on_runtime_error = self._on_runtime_error
         self._v_pane.add(self._output, weight=1)
 
         # AI Chat right panel — created here but not added to _h_pane until F2
@@ -1235,6 +1237,7 @@ class IDOL(Tk):
             self._refresh_tab_title(tab_id)
 
     def _on_content_changed(self) -> None:
+        self._clear_runtime_error()
         tab_id = self._current_tab_id
         if tab_id and not self._dirty.get(tab_id):
             self._dirty[tab_id] = True
@@ -1479,9 +1482,10 @@ class IDOL(Tk):
 
     def _setup_lsp_tags(self, codeview: CodeView) -> None:
         """Configure diagnostic highlight tags on a new codeview."""
-        codeview.tag_configure("lsp_error", background="#3d0000", underline=True)
-        codeview.tag_configure("lsp_warning", background="#2e2a00", underline=True)
-        codeview.tag_configure("lsp_info", background="#002040")
+        codeview.tag_configure("lsp_error",     background="#3d0000", underline=True)
+        codeview.tag_configure("lsp_warning",   background="#2e2a00", underline=True)
+        codeview.tag_configure("lsp_info",      background="#002040")
+        codeview.tag_configure("runtime_error", background="#3d2500")
 
     def _on_lsp_diagnostics(self, uri: str, diags: list) -> None:
         """Called by LspManager when diagnostics arrive for a file."""
@@ -1542,6 +1546,40 @@ class IDOL(Tk):
             codeview.tag_add(tag, s_idx, e_idx)
         for tag in ("lsp_info", "lsp_warning", "lsp_error"):
             codeview.tag_raise(tag)
+
+    # ── Runtime error indicator ───────────────────────────────────────────────
+
+    def _on_runtime_error(self, filepath: str, lineno: int) -> None:
+        """Jump to crashed line, apply amber highlight and gutter triangle."""
+        self._clear_runtime_error()
+        self._open_file_at(filepath, lineno, 0)
+        norm = os.path.normcase(filepath)
+        for tab_id, fp in self._files.items():
+            if fp and os.path.normcase(fp) == norm:
+                self._runtime_error_tab_id = tab_id
+                cv = self._codeviews.get(tab_id)
+                if cv:
+                    cv.tag_add("runtime_error", f"{lineno}.0", f"{lineno}.0 lineend+1c")
+                    cv.tag_raise("runtime_error")
+                ln = self._get_line_numbers(tab_id)
+                if ln:
+                    ln.set_runtime_error_line(lineno)
+                break
+        if self._output._active != "problems":
+            self._output.flash_problems_tab()
+
+    def _clear_runtime_error(self) -> None:
+        """Remove the amber line highlight and gutter triangle."""
+        self._output.stop_flash_problems_tab()
+        if self._runtime_error_tab_id is None:
+            return
+        cv = self._codeviews.get(self._runtime_error_tab_id)
+        if cv:
+            cv.tag_remove("runtime_error", "1.0", "end")
+        ln = self._get_line_numbers(self._runtime_error_tab_id)
+        if ln:
+            ln.set_runtime_error_line(None)
+        self._runtime_error_tab_id = None
 
     # ── LSP hover popup ───────────────────────────────────────────────────────
 
