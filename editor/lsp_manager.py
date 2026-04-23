@@ -54,6 +54,19 @@ def detect_server() -> list[str] | None:
     return None
 
 
+def detect_ruff() -> list[str] | None:
+    """Return a command to launch ruff as an LSP diagnostics server, or None."""
+    scripts = os.path.dirname(sys.executable)
+    for exe in ("ruff", "ruff.exe"):
+        candidate = os.path.join(scripts, exe)
+        if os.path.isfile(candidate):
+            return [candidate, "server", "--stdio"]
+    found = shutil.which("ruff")
+    if found:
+        return [found, "server", "--stdio"]
+    return None
+
+
 # ── Severity constants ────────────────────────────────────────────────────────
 
 SEV_ERROR   = 1
@@ -74,6 +87,7 @@ class LspManager:
 
         # Callbacks set by the app
         self.on_diagnostics: Optional[Callable[[str, list], None]] = None
+        self.on_ready: Optional[Callable[[], None]] = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -214,6 +228,8 @@ class LspManager:
             return
         self._client.notify("initialized", {})
         self._ready = True
+        if self.on_ready:
+            self.on_ready()
 
     def _handle_notification(self, method: str, params: dict) -> None:
         if method == "textDocument/publishDiagnostics":

@@ -36,6 +36,7 @@ from editor.lsp_manager import (
     SEV_ERROR,
     SEV_WARNING,
 )
+from editor.pyflakes_linter import PyflakesLinter
 from editor.debug_manager import DebugManager
 from editor.git_manager import GitManager
 from menus.menubar import build_menubar
@@ -193,6 +194,41 @@ class _HoverPopup:
             pass
 
 
+def _diags_to_entries(diags: list, filepath: str, filename: str) -> list[dict]:
+    """Convert LSP diagnostic dicts to ProblemsPanel entries.
+
+    Suppresses cascade errors: when a syntax error exists on line N, errors on
+    immediately following lines that are likely parser fallout are dropped so the
+    Problems panel highlights only the root cause.
+    """
+    # Collect 1-based line numbers of syntax errors in this file
+    syntax_error_lines: set[int] = {
+        d["range"]["start"]["line"] + 1
+        for d in diags
+        if d.get("severity") == 1  # SEV_ERROR
+    }
+
+    entries = []
+    for d in diags:
+        line = d["range"]["start"]["line"] + 1
+        col  = d["range"]["start"]["character"]
+        sev  = d.get("severity", 2)
+        # Suppress errors on lines N+1..N+3 after a syntax error root
+        if sev == 1 and any(
+            0 < line - root <= 3 for root in syntax_error_lines if root != line
+        ):
+            continue
+        entries.append({
+            "filepath": filepath,
+            "filename": filename,
+            "line":     line,
+            "col":      col,
+            "severity": sev,
+            "message":  d.get("message", ""),
+        })
+    return entries
+
+
 def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
     """Tokenize *text* with the codeview's active lexer and return (token_text, color) pairs."""
     cv = cv_ref[0]
@@ -236,7 +272,8 @@ class IDOL(Tk):
         self._find_replace: FindReplaceBar | None = None
 
         # LSP
-        self._lsp: LspManager | None = None
+        self._lsp: LspManager | None = None        # intelligence (hover/completion/definition)
+        self._lsp_diag: PyflakesLinter | None = None  # diagnostics (ruff/pyflakes subprocess)
         self._lsp_diagnostics: dict[str, list] = {}  # uri → diag list
         self._hover_after_id: str | None = None
         self._hover_popup = None
@@ -923,8 +960,9 @@ class IDOL(Tk):
             lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)
         ):
             self._outline.schedule_refresh(content)
-            if filepath and self._lsp:
-                self._lsp.open_file(filepath, content)
+            if filepath:
+                for srv in self._each_lsp():
+                    srv.open_file(filepath, content)
         else:
             self._outline.clear()
 
@@ -1114,8 +1152,9 @@ class IDOL(Tk):
                 pass
         if mc:
             mc.clear()
-        if closed_path and closed_path.endswith(".py") and self._lsp:
-            self._lsp.close_file(closed_path)
+        if closed_path and closed_path.endswith(".py"):
+            for srv in self._each_lsp():
+                srv.close_file(closed_path)
         nb.forget(index)
         if nb is self._notebook_r and not nb.tabs():
             self._close_split()
@@ -1208,14 +1247,14 @@ class IDOL(Tk):
             self._outline.schedule_refresh(text)
             # LSP: debounced change notification
             path = self._files.get(tab_id)
-            if path and self._lsp:
+            if path and (self._lsp or self._lsp_diag):
                 if self._lsp_change_after_id:
                     self.after_cancel(self._lsp_change_after_id)
                 self._lsp_change_after_id = self.after(
                     300,
-                    lambda p=path, t=text: (
-                        self._lsp.change_file(p, t) if self._lsp else None
-                    ),
+                    lambda p=path, t=text: [
+                        srv.change_file(p, t) for srv in self._each_lsp()
+                    ],
                 )
 
     def _highlight_matching_words(self, cv) -> None:
@@ -1407,23 +1446,36 @@ class IDOL(Tk):
     # ── LSP ───────────────────────────────────────────────────────────────────
 
     def _start_lsp(self) -> None:
-        cmd = detect_server()
-        if not cmd:
-            return
         root = self._sidebar.explorer._root or os.getcwd()
-        self._lsp = LspManager(root, after_fn=self.after)
-        self._lsp.on_diagnostics = self._on_lsp_diagnostics
-        self._lsp.start(cmd)
-        # Notify LSP of any already-open Python files
-        self.after(800, self._lsp_open_all_tabs)
 
-    def _lsp_open_all_tabs(self) -> None:
+        # Intelligence server (hover, completion, go-to-definition)
+        cmd = detect_server()
+        if cmd:
+            self._lsp = LspManager(root, after_fn=self.after)
+            self._lsp.on_ready = lambda srv=self._lsp: self._lsp_open_tabs_for(srv)
+            self._lsp.start(cmd)
+
+        # Diagnostics — always PyflakesLinter (uses ruff subprocess internally)
+        self._lsp_diag = PyflakesLinter(after_fn=self.after)
+        self._lsp_diag.on_diagnostics = self._on_lsp_diagnostics
+        self._lsp_open_tabs_for(self._lsp_diag)
+
+    def _each_lsp(self):
+        """Yield each distinct active LSP/linter instance (deduped)."""
+        seen: set[int] = set()
+        for srv in (self._lsp, self._lsp_diag):
+            if srv is not None and id(srv) not in seen:
+                seen.add(id(srv))
+                yield srv
+
+    def _lsp_open_tabs_for(self, srv) -> None:
+        """Open all currently loaded Python tabs in a specific LSP server."""
         for tab_id, cv in self._codeviews.items():
             if cv is None:
                 continue
             path = self._files.get(tab_id)
             if path and path.endswith(".py"):
-                self._lsp.open_file(path, cv.get("1.0", "end-1c"))
+                srv.open_file(path, cv.get("1.0", "end-1c"))
 
     def _setup_lsp_tags(self, codeview: CodeView) -> None:
         """Configure diagnostic highlight tags on a new codeview."""
@@ -1457,15 +1509,9 @@ class IDOL(Tk):
             if os.name == "nt" and filepath.startswith("\\"):
                 filepath = filepath[1:]
             filename = os.path.basename(filepath)
-            for d in diags:
-                entries.append({
-                    "filepath": filepath,
-                    "filename": filename,
-                    "line": d["range"]["start"]["line"] + 1,
-                    "col":  d["range"]["start"]["character"],
-                    "severity": d.get("severity", SEV_WARNING),
-                    "message":  d.get("message", ""),
-                })
+            entries.extend(
+                _diags_to_entries(diags, filepath, filename)
+            )
         return entries
 
     def _apply_diagnostics(self, codeview: CodeView, diags: list) -> None:
@@ -2460,13 +2506,14 @@ class IDOL(Tk):
                 except pygments.util.ClassNotFound:
                     pass
                 # LSP: close old file, open new one (Save As changed the path)
-                if self._lsp:
+                for srv in self._each_lsp():
                     if old_path and old_path.endswith(".py"):
-                        self._lsp.close_file(old_path)
+                        srv.close_file(old_path)
                     if filepath.endswith(".py"):
-                        self._lsp.open_file(filepath, text)
-            elif filepath.endswith(".py") and self._lsp:
-                self._lsp.save_file(filepath)
+                        srv.open_file(filepath, text)
+            elif filepath.endswith(".py"):
+                for srv in self._each_lsp():
+                    srv.save_file(filepath)
             self._files[tab_id] = filepath
             title = os.path.basename(filepath)
             self._titles[tab_id] = title
@@ -3480,8 +3527,9 @@ class IDOL(Tk):
             mc = self._multi_cursors.pop(tab_id, None)
             if mc:
                 mc.clear()
-            if closed_path and closed_path.endswith(".py") and self._lsp:
-                self._lsp.close_file(closed_path)
+            if closed_path and closed_path.endswith(".py"):
+                for srv in self._each_lsp():
+                    srv.close_file(closed_path)
         self._split_pane.forget(self._nb_frame_r)
         self._nb_frame_r.destroy()
         self._nb_frame_r = None
@@ -3565,8 +3613,9 @@ class IDOL(Tk):
         if isinstance(
             lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)
         ):
-            if filepath and self._lsp:
-                self._lsp.open_file(filepath, content)
+            if filepath:
+                for srv in self._each_lsp():
+                    srv.open_file(filepath, content)
 
     def view_toggle_sidebar(self) -> None:
         """Show or hide the entire left sidebar (Ctrl+B)."""
