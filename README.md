@@ -38,11 +38,13 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Keyboard navigation (↑↓ Enter Escape) in both pickers; scrollable for large symbol lists
 
 ### Intelligence (LSP)
-- Diagnostics — error and warning squiggles powered by [pylsp](https://github.com/python-lsp/python-lsp-server)
-- Hover documentation — rest the mouse over any symbol for inline docs
+- **Multi-error diagnostics** — [ruff](https://github.com/astral-sh/ruff) runs on every keystroke (debounced) reading from stdin so unsaved buffers work; falls back to `compile()` + pyflakes when ruff isn't installed
+- **Three-tier severity** — red squiggles for crashes (syntax errors, undefined names), yellow for likely bugs, blue for style/unused imports
+- **Cascade suppression** — diagnostics within 3 lines of a root syntax error are hidden so one bad line doesn't flood the list
+- Hover documentation — rest the mouse over any symbol for inline docs (powered by [pylsp](https://github.com/python-lsp/python-lsp-server))
 - Go to Definition — F12 or right-click menu
 - Autocomplete — dropdown with kind labels, keyboard navigation (↑↓ to move, Tab/Enter to accept, Escape to dismiss)
-- **Problems panel** — PROBLEMS tab in the bottom bar lists every diagnostic with colored severity dots (✕ error, ⚠ warning); click any entry to jump directly to that line and column
+- **Problems panel** — PROBLEMS tab lists every diagnostic with colored severity dots (✕ error, ⚠ warning, · info); click any entry to jump directly to that line and column
 - **Diagnostic statusbar badge** — live ✕N ⚠N count on the left of the status bar; click it to open the Problems panel instantly
 
 ### Navigation & Search
@@ -86,6 +88,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **Run Line** — right-click any line to execute it instantly in the output panel
 - **Run Selection** — right-click a highlighted block to run just that snippet (auto-dedents indented blocks)
 - **Dynamic tab bar controls** — the right side of the bottom panel tab bar shows context-sensitive controls for the active tab: Clear for OUTPUT, shell selector + Restart + Clear + venv for TERMINAL, float button for DEBUG
+- **Runtime error indicators** — when a script crashes, IDOL jumps to the offending line, applies an amber highlight, draws a right-pointing amber triangle (▶) in the gutter, and flashes the PROBLEMS tab until you click it or start typing; all indicators clear on the next keystroke
 
 ### Debugger
 - **Integrated Python debugger** — press **F5** to launch a full debug session powered by [debugpy](https://github.com/microsoft/debugpy) over the Debug Adapter Protocol (DAP)
@@ -180,9 +183,14 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 pip install -r requirements.txt
 ```
 
-For LSP features (diagnostics, hover, go-to-definition, autocomplete):
+For LSP features (hover, go-to-definition, autocomplete):
 ```
-pip install python-lsp-server pyflakes
+pip install python-lsp-server
+```
+
+For diagnostics (multi-error, three-tier severity):
+```
+pip install ruff pyflakes
 ```
 
 ## Usage
