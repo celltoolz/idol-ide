@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import subprocess
 import threading
 from typing import Callable, Optional
@@ -27,6 +28,7 @@ class LspClient:
         self._lock    = threading.Lock()
         self._next_id = 1
         self._running = False
+        self._write_q: queue.Queue = queue.Queue()
 
         env = os.environ.copy()
         self._proc = subprocess.Popen(
@@ -38,6 +40,7 @@ class LspClient:
             env=env,
         )
         self._running = True
+        threading.Thread(target=self._writer, daemon=True).start()
         threading.Thread(target=self._reader, daemon=True).start()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -71,13 +74,25 @@ class LspClient:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _send(self, msg: dict) -> None:
-        body   = json.dumps(msg).encode("utf-8")
+        """Enqueue a message — never blocks the main thread on pipe I/O."""
+        body = json.dumps(msg).encode("utf-8")
         header = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
-        try:
-            self._proc.stdin.write(header + body)
-            self._proc.stdin.flush()
-        except Exception:
-            pass
+        self._write_q.put(header + body)
+
+    def _writer(self) -> None:
+        """Background thread — drains the write queue into the server's stdin."""
+        while True:
+            try:
+                data = self._write_q.get(timeout=0.5)
+            except queue.Empty:
+                if not self._running:
+                    break
+                continue
+            try:
+                self._proc.stdin.write(data)
+                self._proc.stdin.flush()
+            except Exception:
+                break
 
     def _reader(self) -> None:
         while self._running and self.is_alive():
