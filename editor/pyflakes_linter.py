@@ -21,6 +21,63 @@ from .lsp_manager import path_to_uri
 
 SEV_ERROR   = 1
 SEV_WARNING = 2
+SEV_INFO    = 3
+
+# Ruff uses both numeric (E999, F821) and descriptive (invalid-syntax,
+# undefined-name) codes depending on version — handle both forms.
+
+# Will not run or will definitely crash at runtime
+_CRASH_CODES = frozenset({
+    "E999", "invalid-syntax",           # parse/syntax failures
+    "F821", "F822", "undefined-name",   # certain NameError at runtime
+})
+
+# Pure style/cleanup — no effect on program correctness
+_STYLE_CODES = frozenset({
+    "F401", "unused-import",
+    "F841", "unused-variable", "unused-local",
+})
+
+# Single-char numeric prefixes that are purely stylistic
+_INFO_PREFIXES = frozenset("INDQ")
+
+# Two-char numeric prefixes that are purely stylistic
+_INFO_PREFIXES_2 = frozenset({"UP", "TC", "CO", "YT"})
+
+
+def _ruff_severity(code: str) -> int:
+    """Map a ruff error code to SEV_ERROR / SEV_WARNING / SEV_INFO.
+
+    Red   (ERROR) — program will not run or will definitely crash.
+    Yellow (WARN) — likely bugs: undefined names, unused bindings, etc.
+    Blue   (INFO) — pure style/convention, no effect on correctness.
+    """
+    if not code:
+        return SEV_WARNING
+    # Definite crashes — covers both numeric E999 and descriptive invalid-syntax
+    if code in _CRASH_CODES or code.startswith("E9"):
+        return SEV_ERROR
+    # Pure style — both numeric F401 and descriptive unused-import etc.
+    if code in _STYLE_CODES:
+        return SEV_INFO
+    first = code[0]
+    # pycodestyle style rules (E1xx-E8xx)
+    if first == "E":
+        return SEV_INFO
+    # isort / naming / docstrings / quotes
+    if first in _INFO_PREFIXES:
+        return SEV_INFO
+    # pycodestyle whitespace warnings, except W605 (invalid escape = real bug)
+    if first == "W" and code != "W605":
+        return SEV_INFO
+    # pyupgrade / type-checking imports / trailing commas / flake8-2020
+    if code[:2] in _INFO_PREFIXES_2:
+        return SEV_INFO
+    if code.startswith("ANN"):
+        return SEV_INFO
+    # Everything else: pyflakes findings, bugbear, ruff-specific, security…
+    return SEV_WARNING
+
 
 # Resolved once at import time — same Scripts dir as the running Python
 _SCRIPTS = os.path.dirname(sys.executable)
@@ -164,7 +221,7 @@ def _run_ruff(source: str, filename: str) -> list[dict] | None:
             end_col = max((end_loc.get("column", 1) or 1) - 1, 0)
             code    = item.get("code") or ""
             msg     = item.get("message") or ""
-            sev     = SEV_ERROR if code == "E999" else SEV_WARNING
+            sev     = _ruff_severity(code)
             label   = f"{msg} ({code})" if code else msg
             diags.append({
                 "range": {
