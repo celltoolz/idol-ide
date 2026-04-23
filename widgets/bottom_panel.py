@@ -160,6 +160,7 @@ class BottomPanel(ttk.Frame):
         self._flash_state: bool = False
         self._on_navigate  = on_navigate or (lambda *_: None)
         self._on_bp_click  = on_bp_click or (lambda *_: None)
+        self.on_ask_ai_problems: Optional[Callable] = None
         self._debug_float_win: Optional[DebugFloatWindow] = None
         self._active_ctrls: Optional[Frame] = None
 
@@ -277,8 +278,16 @@ class BottomPanel(ttk.Frame):
         self._terminal_ctrls = Frame(self._ctrl_slot, bg=self._TAB_BG)
         self.terminal.build_tab_controls(self._terminal_ctrls)
 
-        # ── Problems (no controls yet) ────────────────────────────────────────
+        # ── Problems ──────────────────────────────────────────────────────────
         self._problems_ctrls = Frame(self._ctrl_slot, bg=self._TAB_BG)
+        self._ask_ai_btn = Label(
+            self._problems_ctrls, text="✦ Ask AI",
+            bg=self._TAB_BG, fg="#c586c0",
+            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+        )
+        self._ask_ai_btn.bind("<Button-1>", lambda _: self._fire_ask_ai())
+        self._ask_ai_btn.bind("<Enter>", lambda _: self._ask_ai_btn.config(fg="#e0a0f0"))
+        self._ask_ai_btn.bind("<Leave>", lambda _: self._ask_ai_btn.config(fg="#c586c0"))
 
         # ── Debug — pop-out button ────────────────────────────────────────────
         self._debug_ctrls = Frame(self._ctrl_slot, bg=self._TAB_BG)
@@ -361,6 +370,15 @@ class BottomPanel(ttk.Frame):
             parts.append(f"⚠{warnings}")
         badge = "  " + "  ".join(parts) if parts else ""
         self._tabs["problems"]["label"].config(text=f"PROBLEMS{badge}")
+        # Show Ask AI button only when there are actionable problems
+        if errors or warnings:
+            self._ask_ai_btn.pack(side="left")
+        else:
+            self._ask_ai_btn.pack_forget()
+
+    def _fire_ask_ai(self) -> None:
+        if self.on_ask_ai_problems:
+            self.on_ask_ai_problems()
 
     # ── Problems tab flash ────────────────────────────────────────────────────
 

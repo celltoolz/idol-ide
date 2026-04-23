@@ -806,6 +806,15 @@ class AiChatPanel(tk.Frame):
             on_error=_on_error,
         )
 
+    def ask_with_context(self, user_text: str, ctx: str) -> None:
+        """Programmatically send a message with pre-built context (e.g. from Problems panel)."""
+        if self._generating:
+            return
+        self._pending_ctx = ctx
+        self._input.delete("1.0", "end")
+        self._input.insert("1.0", user_text)
+        self._send()
+
     def _build_prompt(self) -> str:
         """Flatten history into a single prompt string."""
         parts = [

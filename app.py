@@ -676,6 +676,7 @@ class IDOL(Tk):
             on_bp_click=lambda fp, ln: self._open_file_at(fp, ln, 0),
         )
         self._output.output.on_runtime_error = self._on_runtime_error
+        self._output.on_ask_ai_problems = self._ask_ai_about_problems
         self._v_pane.add(self._output, weight=1)
 
         # AI Chat right panel — created here but not added to _h_pane until F2
@@ -2981,6 +2982,35 @@ class IDOL(Tk):
             return cv.get("sel.first", "sel.last")
         except Exception:
             return ""
+
+    def _ask_ai_about_problems(self) -> None:
+        """Build a beginner-friendly prompt from current diagnostics and send to AI Chat."""
+        filename, source = self._ai_get_file_content()
+        if not source:
+            return
+        entries = self._build_problem_entries()
+        # Only errors and warnings — skip pure style info
+        actionable = [e for e in entries if e.get("severity") in (SEV_ERROR, SEV_WARNING)]
+        if not actionable:
+            return
+
+        sev_label = {SEV_ERROR: "Error", SEV_WARNING: "Warning"}
+        error_lines = "\n".join(
+            f"  • Line {e['line']} — {sev_label.get(e['severity'], 'Issue')}: {e['message']}"
+            for e in actionable
+        )
+        ctx = f"# File: {filename}\n\n{source}"
+        user_text = (
+            f"I have some problems in my Python file '{filename}'.\n\n"
+            f"Problems found:\n{error_lines}\n\n"
+            f"Please help me fix them:\n"
+            f"1. Explain each problem in plain English (one sentence each)\n"
+            f"2. Show exactly what lines need to change\n"
+            f"3. Show the complete corrected file"
+        )
+        self._ensure_ai_panel_open()
+        if self._ai_chat_panel:
+            self._ai_chat_panel.ask_with_context(user_text, ctx)
 
     def _register_learning_widgets(self) -> None:
         """Tag all known IDE widgets with their learning IDs."""
