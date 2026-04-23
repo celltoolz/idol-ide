@@ -3603,7 +3603,8 @@ class IDOL(Tk):
             if self._scroll_locked and not self._syncing_scroll:
                 self._syncing_scroll = True
                 try:
-                    right_cv.yview_moveto(float(first))
+                    if right_cv.winfo_exists():
+                        right_cv.yview_moveto(float(first))
                 finally:
                     self._syncing_scroll = False
 
@@ -3612,7 +3613,8 @@ class IDOL(Tk):
             if self._scroll_locked and not self._syncing_scroll:
                 self._syncing_scroll = True
                 try:
-                    left_cv.yview_moveto(float(first))
+                    if left_cv.winfo_exists():
+                        left_cv.yview_moveto(float(first))
                 finally:
                     self._syncing_scroll = False
 
@@ -3623,6 +3625,7 @@ class IDOL(Tk):
         """Close the right split pane after checking for unsaved changes."""
         if not self._split_active or self._notebook_r is None:
             return
+        self._patched_scroll_pair = None
         # Check each right-pane tab for unsaved changes
         for tab_id in list(self._notebook_r.tabs()):
             if not self._confirm_close_tab(tab_id):
