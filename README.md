@@ -10,14 +10,17 @@ IDOL is what IDLE should have been — a full Python IDE with professional-grade
 
 Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
-<img src="screenshots/editor.png" width="50%"><img src="screenshots/editor-osx.png" width="45%">
-<br>
-<img src="screenshots/editor-linux.png" width="45%"><img src="screenshots/ollama-ai.png" width="45%">
+<p align="center">
+  <img src="screenshots/editor-main.png" width="100%">
+</p>
 
 
 ## Features
 
 ### Editor
+
+<img src="screenshots/editor-stickyscroll-tabs-syntax_highlighting-line_numbers_folding-minimap.png" width="100%">
+
 - Multi-tab editor with drag reorder, hover close button, and right-click tab menu; hover any tab to see its full file path as a tooltip
 - Syntax highlighting via [Pygments](https://pygments.org/) with multiple color schemes (Dracula, Monokai, Ayu, Material, and more)
 - Line numbers with code folding (click ⊟/⊞ markers to collapse/expand blocks)
@@ -28,6 +31,11 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes
 
 ### Breadcrumb Bar
+
+<p align="center">
+  <img src="screenshots/breadcrumbbar-path_symbol_scope-locals_drilldown-footer_preview.gif" width="75%">
+</p>
+
 - Thin bar between the tab row and editor showing the full file path and current symbol scope
 - Path crumbs — each folder segment is clickable to set it as the explorer root
 - Symbol crumbs — updates live as the cursor moves; shows class › method hierarchy in the active file's color scheme
@@ -38,6 +46,9 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Keyboard navigation (↑↓ Enter Escape) in both pickers; scrollable for large symbol lists
 
 ### Intelligence (LSP)
+
+<img src="screenshots/intelligence-multi_error-hover_tooltip-autocomplete-problems_hover.gif" width="100%">
+
 - **Multi-error diagnostics** — [ruff](https://github.com/astral-sh/ruff) runs on every keystroke (debounced) reading from stdin so unsaved buffers work; falls back to `compile()` + pyflakes when ruff isn't installed
 - **Three-tier severity** — red squiggles for crashes (syntax errors, undefined names), yellow for likely bugs, blue for style/unused imports
 - **Cascade suppression** — diagnostics within 3 lines of a root syntax error are hidden so one bad line doesn't flood the list
@@ -52,6 +63,9 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **Diagnostic statusbar badge** — live ✕N ⚠N count on the left of the status bar; click it to open the Problems panel instantly
 
 ### Navigation & Search
+
+<img src="screenshots/navigation_search-outline-explorer-references.gif" width="100%">
+
 - Command palette — Ctrl+Shift+P; fuzzy search all commands, type @ to search symbols by name
 - AST-based Outline panel — classes, functions, methods, parameters, instance attributes, local variables, and nested definitions; all shown in a collapsible tree
 - File Explorer with lazy loading, directory navigation, and drag-to-resize sash
@@ -61,11 +75,18 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - VS Code-style inline Find & Replace bar (case, whole word, and regex toggles)
 
 ### Split Editor
+
+<img src="screenshots/split_editor-scroll_lock.png" width="100%">
+
 - Side-by-side editing — drag a tab past the midpoint or use Ctrl+\\ / right-click menu
 - Scroll lock — ⇕ button syncs both panes to the same scroll position; keyboard Scroll Lock key toggles it
 - Unsaved changes check when closing the split pane
 
 ### Git Integration
+
+<img src="screenshots/git_integration-statusbar-badge-gutter_diff-health-history-staging-changes.png" width="100%">
+<img src="screenshots/git_integration-changes-diff_view.png" width="100%">
+
 - Branch name in status bar with live 30s polling
 - M/A/U/D badges on tabs and file explorer entries
 - Gutter diff strips showing added/modified/deleted lines
@@ -83,6 +104,11 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - "Load 50 more" button for repos with deep history
 
 ### Terminal & Output
+
+<img src="screenshots/terminal-powershell-activate_venv-colors-tui.gif" width="100%">
+<img src="screenshots/terminal-linux-color-zsh.png" width="100%">
+<img src="screenshots/output_panel-recv_input-show_output.gif" width="100%">
+
 - Integrated terminal — full VT100 PTY shell (PowerShell/bash/zsh) with accurate ANSI color rendering via [pyte](https://github.com/selectel/pyte), direct keyboard input, and scrollback history
 - Mouse wheel scrolling — passes SGR scroll sequences to TUI apps (vim, htop) when mouse mode is active, otherwise scrolls the history buffer
 - **Text selection** — click and drag to select; **Copy** via right-click or Ctrl+Shift+C; **Paste** via right-click or Ctrl+Shift+V
@@ -95,6 +121,9 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **Runtime error indicators** — when a script crashes, IDOL jumps to the offending line, applies an amber highlight, draws a right-pointing amber triangle (▶) in the gutter, and flashes the PROBLEMS tab until you click it or start typing; all indicators clear on the next keystroke
 
 ### Debugger
+
+<img src="screenshots/debugger-step_controls-breakpoints-locals-current_line.png" width="100%">
+
 - **Integrated Python debugger** — press **F5** to launch a full debug session powered by [debugpy](https://github.com/microsoft/debugpy) over the Debug Adapter Protocol (DAP)
 - **Breakpoints** — click the left edge of the gutter to set/clear breakpoints; red dots appear on active lines and persist across sessions
   - **VS Code-style gutter** — dim ghost dot appears on hover to show the gutter is clickable; cursor switches to a hand in the breakpoint zone; bright red dot on active breakpoints; subtle separator between the dot column and line numbers
@@ -113,6 +142,11 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Unhandled exceptions pause execution and navigate to the crashing line automatically
 
 ### AI Chat (F2)
+
+<p align="center">
+  <img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="50%">
+</p>
+
 - Press **F2** (or **Help → Ask AI**) to toggle a persistent right-side chat panel — stays open alongside your code
 - Draggable sash lets you size the panel; width and visibility are saved across sessions
 - Conversational interface to a local Ollama LLM — fully offline, no API key needed
@@ -128,6 +162,9 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Same offline install card as Learning Mode when Ollama isn't running
 
 ### Package Manager (F3)
+
+<img src="screenshots/package_manager-topics-details-install-uninstall.png" width="100%">
+
 - Press **F3** (or **Help → Package Manager**) to open the package manager panel
 - All installed packages are shown **grouped by topic** instantly — no network needed, powered by a precomputed 362K-package lookup covering 46% of PyPI
 - **Live filter** — type in the search bar to instantly filter installed packages by name or topic category (e.g. type "web" to see all networking packages)
@@ -138,6 +175,12 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **? Learn about Package Manager** — paginated guide covering what packages are, installing/uninstalling, managing dependencies, and finding the right package on PyPI
 
 ### Learning Mode (F1)
+
+<p align="center">
+  <img src="screenshots/learning-outline-debug-click_controls.gif" width="60%" align="top">
+  <img src="screenshots/learning-guide_window.png" width="35%" align="top">
+</p>
+
 - Press **F1** (or **Help → Learning Mode**) to open a dedicated Learning tab in the editor
 - Hover over any IDE element — panels, buttons, the editor, status bar, breadcrumb — and the Learning tab populates instantly with:
   - **What it is** — plain-English description
@@ -151,6 +194,11 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - Recommended model: `qwen2.5-coder` (~4GB) — install with `ollama pull qwen2.5-coder`
 
 ### Project Wizard
+
+<p align="center">
+  <img src="screenshots/project_wizard-details-envirornment-options-summary.gif" width="50%">
+</p>
+
 - **File → New Project…** launches a guided 4-step project setup wizard
   - Step 1: Project name and location (with live path preview)
   - Step 2: Python interpreter selection (auto-detects all installed versions, with venv/system filters) + virtual environment creation
@@ -162,6 +210,9 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - Git remotes: repositories, remotes, creating a repo on GitHub, connecting and pushing, authentication
 
 ### Workspace
+
+<img src="screenshots/workspace-zen_mode.png" width="100%">
+
 - Session persistence — restores open tabs, layout, and explorer root on relaunch; unsaved changes are auto-saved to temp files on exit and restored automatically
 - Save / Open Workspace for named sessions
 - Status bar: line/column, cursor count, lexer name, indent cycle (spaces ↔ tabs)
@@ -169,6 +220,12 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **Toggle Sidebar** — Ctrl+B (or View → Show Sidebar) hides/shows the entire left panel in one click
 
 ### Nav Toolbar
+
+<img src="screenshots/nav_toolbar.png" width="100%">
+<p align="center">
+  <img src="screenshots/nav_toolbar-run-output-menu.png" width="25%">
+</p>
+
 - Thin toolbar strip pinned above the editor — always visible, zero clutter
 - **‹ ›** — navigate backward/forward through edit history
 - **+** — open a new tab
