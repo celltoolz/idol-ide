@@ -1,8 +1,14 @@
 """ProblemsPanel — scrollable list of LSP diagnostics with click-to-navigate."""
 from __future__ import annotations
 
+import re
+import tkinter as tk
 from tkinter import Frame, Text, ttk
 from typing import Callable
+
+from utils.ruff_rules import lookup as _rule_lookup
+
+_CODE_RE = re.compile(r'\(([A-Z]\d+|[a-z][a-z0-9\-]+)\)$')
 
 _SEV_ERROR   = 1
 _SEV_WARNING = 2
@@ -30,6 +36,9 @@ class ProblemsPanel(Frame):
         self._on_navigate = on_navigate
         self._entries: list[dict] = []
         self.on_ask_ai_entry: Callable[[dict], None] | None = None
+        self._tooltip_win: tk.Toplevel | None = None
+        self._tooltip_job: str | None = None
+        self._tooltip_row: int | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -131,6 +140,109 @@ class ProblemsPanel(Frame):
         row = self._row_at(event)
         if row is not None:
             self._text.tag_add("hover", f"{row + 1}.0", f"{row + 1}.end+1c")
+        if row != self._tooltip_row:
+            self._cancel_tooltip()
+            self._tooltip_row = row
+            if row is not None:
+                rx, ry = event.x_root, event.y_root
+                self._tooltip_job = self._text.after(
+                    600, lambda: self._show_tooltip(row, rx, ry)
+                )
 
     def _on_leave(self, _) -> None:
         self._text.tag_remove("hover", "1.0", "end")
+        self._cancel_tooltip()
+
+    # ── Tooltip ───────────────────────────────────────────────────────────────
+
+    def _cancel_tooltip(self) -> None:
+        if self._tooltip_job:
+            try:
+                self._text.after_cancel(self._tooltip_job)
+            except Exception:
+                pass
+            self._tooltip_job = None
+        if self._tooltip_win:
+            try:
+                self._tooltip_win.destroy()
+            except Exception:
+                pass
+            self._tooltip_win = None
+        self._tooltip_row = None
+
+    def _show_tooltip(self, row: int, rx: int, ry: int) -> None:
+        self._tooltip_job = None
+        if row >= len(self._entries):
+            return
+        entry = self._entries[row]
+        msg   = entry.get("message", "")
+        sev   = entry.get("severity", _SEV_WARNING)
+
+        # Extract the code from the end of the message, e.g. "Some message (F821)"
+        code = ""
+        m = _CODE_RE.search(msg)
+        if m:
+            code = m.group(1)
+
+        rule = _rule_lookup(code) if code else None
+        short_name  = rule[0] if rule else ""
+        description = rule[1] if rule else msg
+
+        sev_color = _COLORS.get(sev, "#cccccc")
+        sep_color = "#3c3c3c"
+        dim_color = "#858585"
+        bg        = "#252526"
+
+        win = tk.Toplevel(self._text)
+        win.wm_overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg=sep_color)          # 1px border via bg bleed
+
+        inner = tk.Frame(win, bg=bg, padx=12, pady=8)
+        inner.pack(padx=1, pady=1)
+
+        # Header: code + short name
+        header = f"{code} — {short_name}" if code and short_name else (code or short_name or "Issue")
+        tk.Label(
+            inner, text=header,
+            bg=bg, fg=sev_color,
+            font=("Segoe UI", 9, "bold"), anchor="w", justify="left",
+        ).pack(fill="x")
+
+        # Separator
+        tk.Frame(inner, bg=sep_color, height=1).pack(fill="x", pady=(4, 0))
+
+        # Description — wrap at ~320px
+        tk.Label(
+            inner, text=description,
+            bg=bg, fg="#cccccc",
+            font=("Segoe UI", 9), wraplength=320,
+            anchor="w", justify="left",
+        ).pack(fill="x", pady=(4, 0))
+
+        # Separator
+        tk.Frame(inner, bg=sep_color, height=1).pack(fill="x", pady=(6, 0))
+
+        # Footer hint
+        tk.Label(
+            inner, text="Double-click to Ask AI about this problem.",
+            bg=bg, fg=dim_color,
+            font=("Segoe UI", 8, "italic"), anchor="w", justify="left",
+        ).pack(fill="x", pady=(4, 0))
+
+        win.update_idletasks()
+        tw = win.winfo_width()
+        th = win.winfo_height()
+        # Position just below and to the right of the cursor
+        x = rx + 12
+        y = ry + 16
+        # Keep on screen
+        sw = win.winfo_screenwidth()
+        sh = win.winfo_screenheight()
+        if x + tw > sw:
+            x = sw - tw - 8
+        if y + th > sh:
+            y = ry - th - 8
+        win.wm_geometry(f"+{x}+{y}")
+
+        self._tooltip_win = win
