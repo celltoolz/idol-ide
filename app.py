@@ -1071,14 +1071,19 @@ class IDOL(Tk):
 
         # Alt+Click — add a secondary cursor; returns "break" so plain-click
         # handler below doesn't also fire and clear the new cursor.
-        codeview.bind(
-            "<Alt-ButtonPress-1>",
-            lambda e, m=mc: (
-                m.toggle(f"@{e.x},{e.y}"),
-                self._update_cursor_status(),
-                "break",
-            )[2],
-        )
+        def _alt_click(e, m=mc, cv=codeview):
+            raw = cv.index(f"@{e.x},{e.y}")
+            # Snap to nearest boundary: if click is past midpoint of char, advance 1c
+            bbox = cv.bbox(raw)
+            if bbox and e.x >= bbox[0] + bbox[2] / 2:
+                nudged = cv.index(f"{raw} + 1c")
+                if cv.index(f"{nudged} linestart") == cv.index(f"{raw} linestart"):
+                    raw = nudged
+            m.toggle(raw)
+            self._update_cursor_status()
+            return "break"
+
+        codeview.bind("<Alt-ButtonPress-1>", _alt_click)
 
         # Plain click — clear secondary cursors, dismiss completion, activate pane
         def _on_click(_, m=mc, cv=codeview):
