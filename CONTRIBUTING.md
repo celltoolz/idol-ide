@@ -76,6 +76,7 @@ These modules have no Tkinter widget imports.
 | `project_manager.py` | Interpreter discovery and project scaffolding — finds installed Python versions, creates venvs, scaffolds starter files. Daemon-threaded. |
 | `script_runner.py` | Runs Python scripts as subprocesses — pushes `(line, tag)` tuples to a thread-safe queue; sends `None` sentinel on completion. |
 | `debug_manager.py` | DAP client for debugpy — launches debugpy subprocess, connects via TCP, drives the debug session. All callbacks dispatched via `after_fn`. |
+| `pyflakes_linter.py` | Local diagnostics engine — runs ruff then compile() then pyflakes on a debounced background thread; fires `on_diagnostics(uri, diags)` via `after_fn`. No LSP dependency. |
 
 ### `utils/` — stateless logic, content, config
 Pure functions, dataclasses, config parsing, content generators. No subprocess calls,
@@ -94,6 +95,8 @@ no widget imports, no stateful objects.
 | `guide_types.py` | Shared `GuidePage` dataclass used by all guide content modules. |
 | `custom_cursor.py` | Cross-platform learning-mode cursor (arrow + question mark). Uses system cursor on Windows/macOS; generates XBM bitmap on Linux where system cursor is unreliable. |
 | `thread_safe_after.py` | `make_thread_safe_after(widget)` — returns an `after_fn` safe to call from daemon threads. Use this instead of `self.after` when constructing any manager that runs on background threads. |
+| `ruff_rules.py` | Beginner-friendly descriptions for ruff/pyflakes diagnostic codes — maps rule IDs to plain-English explanations used in the Problems panel. |
+| `debug_input_guide.py` | Content module — `get_pages()` returning `GuidePage` dataclasses for the input()/debugger guide. Same pattern as `venv_guide.py`. |
 
 ### `widgets/` — UI only
 Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for data,
@@ -183,7 +186,16 @@ Implemented and stable:
 
 ## Planned / In Progress
 
-- **Command Palette `!` shell mode** — visual shift + pre-populated commands + context-aware suggestions
+- *(nothing currently tracked)*
+
+---
+
+## Keeping This File Current
+
+This file is the project brief for Claude Code (`CLAUDE.md` points here). Keep it accurate:
+- When you add a file to `editor/`, `utils/`, or `widgets/`, add a row to the relevant table
+- When a planned feature ships, move it from **Planned / In Progress** to **Current Feature State**
+- When a key technical decision changes (threading model, import rules, etc.), update the relevant section
 
 ---
 
