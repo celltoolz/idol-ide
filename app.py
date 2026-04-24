@@ -3990,8 +3990,17 @@ class IDOL(Tk):
         import platform as _pl
         prefix = "& " if _pl.system() == "Windows" else ""
         cmd = f'{prefix}"{python_exe}" -Xfrozen_modules=off -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"\r'
-        # Small delay so the terminal tab finishes switching before we send
-        self._output.terminal.after(150, lambda: self._output.terminal.send_text(cmd))
+
+        # Poll until the terminal widget is mapped (first-time display needs the
+        # PTY to finish drawing its initial prompt before we send our command).
+        # On subsequent runs it's already mapped so this fires on the first check.
+        term = self._output.terminal
+        def _send_when_ready(retries: int = 30) -> None:
+            if term.winfo_ismapped():
+                term.after(100, lambda: term.send_text(cmd))
+            elif retries > 0:
+                term.after(50, lambda: _send_when_ready(retries - 1))
+        _send_when_ready()
 
         self._debugger.attach_to_port(port, filepath, bp_dict)
         self._show_debug_bar()
