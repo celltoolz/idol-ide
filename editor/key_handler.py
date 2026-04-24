@@ -178,13 +178,13 @@ class KeyHandler:
         codeview.mark_set("insert", f"{target}.0")
 
     def _handle_quote(self, codeview, char: str) -> str | None:
-        before = codeview.get("insert linestart", "insert")
-        if before.count(char) % 2 == 1:
-            return None  # odd count → inside a string → let default insert one
         next_ch = codeview.get("insert", "insert+1c")
         if next_ch == char:
             codeview.mark_set("insert", "insert+1c")
             return "break"
+        before = codeview.get("insert linestart", "insert")
+        if before.count(char) % 2 == 1:
+            return None  # odd count → inside a string → let default insert one
         if next_ch and (next_ch.isalnum() or next_ch == "_"):
             return None  # let widget insert just the typed quote
         codeview.insert("insert", char + char)

@@ -149,16 +149,17 @@ class MultiCursor:
                     else:
                         self._text.insert(idx, char)
                 elif char in self._QUOTES:
-                    before = self._text.get(f"{idx} linestart", idx)
-                    if before.count(char) % 2 == 1:
-                        self._text.insert(idx, char)  # inside string → close it
-                    elif next_ch == char:
+                    if next_ch == char:
                         self._text.mark_set(mark, f"{idx} + 1c")
-                    elif next_ch and (next_ch.isalnum() or next_ch == "_"):
-                        self._text.insert(idx, char)
                     else:
-                        self._text.insert(idx, char + char)
-                        self._text.mark_set(mark, self._text.index(f"{mark} - 1c"))
+                        before = self._text.get(f"{idx} linestart", idx)
+                        if before.count(char) % 2 == 1:
+                            self._text.insert(idx, char)  # inside string → close it
+                        elif next_ch and (next_ch.isalnum() or next_ch == "_"):
+                            self._text.insert(idx, char)
+                        else:
+                            self._text.insert(idx, char + char)
+                            self._text.mark_set(mark, self._text.index(f"{mark} - 1c"))
                 elif char in self._OPEN:
                     if next_ch and (next_ch.isalnum() or next_ch == "_"):
                         self._text.insert(idx, char)
