@@ -6,6 +6,17 @@
   <img src="images/gitPIDE.png" width="65%">
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11%2B-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blueviolet?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/UI-Tkinter-blue?style=flat-square" alt="Tkinter">
+  <img src="https://img.shields.io/badge/LSP-pylsp%20%2B%20ruff-orange?style=flat-square" alt="LSP">
+  <img src="https://img.shields.io/badge/Debugger-debugpy-red?style=flat-square" alt="Debugger">
+  <img src="https://img.shields.io/badge/AI-Ollama%20powered-8b5cf6?style=flat-square" alt="Ollama AI">
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/badge/Status-Active%20Development-brightgreen?style=flat-square" alt="Active Development">
+</p>
+
 IDOL is what IDLE should have been — a full Python IDE with professional-grade tools (LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
 
 Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
