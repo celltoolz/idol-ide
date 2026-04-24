@@ -355,7 +355,7 @@ class TkLineNumbers(Canvas):
         end = self.textwidget.index("end").split(".")[0]
         font = Font(font=self.textwidget.cget("font"))
         measure_str = " 1234 ⊞" if int(end) <= 1000 else f" {end}  ⊞"
-        self.config(width=font.measure(measure_str))
+        self.config(width=self.BP_COL_WIDTH + font.measure(measure_str))
 
     def set_colors(self, _: Event | None = None) -> None:
         self.font_size = int(re.findall(r"\d+", self.textwidget.cget("font"))[-1])
