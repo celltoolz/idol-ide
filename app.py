@@ -2395,7 +2395,10 @@ class IDOL(Tk):
     # ── File operations ───────────────────────────────────────────────────────
 
     def file_new(self) -> None:
-        self._new_tab("Untitled", "")
+        if self._split_active and self._active_pane == "right" and self._notebook_r:
+            self._new_tab_in(self._notebook_r, "Untitled", "")
+        else:
+            self._new_tab("Untitled", "")
 
     def file_new_project(self) -> None:
         from widgets.project_wizard import ProjectWizard
