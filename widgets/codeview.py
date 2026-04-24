@@ -400,6 +400,8 @@ class CodeView(Text):
             if token not in {"Token.Text.Whitespace", "Token.Text", "active_line"}:
                 self.tag_add(token, f"{line_num}.{start_col}", f"{line_num}.{end_col}")
             start_col = end_col
+        if "mc_cursor" in self.tag_names():
+            self.tag_raise("mc_cursor")
 
     def highlight_all(self) -> None:
         for tag in self.tag_names(index=None):
@@ -431,6 +433,8 @@ class CodeView(Text):
             if token not in {"Token.Text.Whitespace", "Token.Text"}:
                 self.tag_add(token, start_index, end_index)
             start_index = end_index
+        if "mc_cursor" in self.tag_names():
+            self.tag_raise("mc_cursor")
 
     def highlight_area(
         self, start_line: int | None = None, end_line: int | None = None
@@ -449,6 +453,8 @@ class CodeView(Text):
             if token not in {"Token.Text.Whitespace", "Token.Text"}:
                 self.tag_add(token, start_index, end_index)
             start_index = end_index
+        if "mc_cursor" in self.tag_names():
+            self.tag_raise("mc_cursor")
 
     def set_color_scheme(
         self, color_scheme: dict[str, dict[str, str | int]] | str | None

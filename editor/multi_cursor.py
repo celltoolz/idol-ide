@@ -13,6 +13,11 @@ class MultiCursor:
 
     TAG = "mc_cursor"
 
+    _PAIRS  = {"(": ")", "[": "]", "{": "}", "'": "'", '"': '"'}
+    _OPEN   = set("([{")
+    _CLOSE  = set(")]}")
+    _QUOTES = set("'\"")
+
     def __init__(self, text_widget, tab_size: int = 4) -> None:
         self._text     = text_widget
         self.tab_size  = tab_size
@@ -22,6 +27,7 @@ class MultiCursor:
             self.TAG,
             background="#569cd6",
             foreground="#1e1e1e",
+            underline=True,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -63,10 +69,15 @@ class MultiCursor:
 
             if keysym == "BackSpace":
                 if self._text.compare(idx, ">", "1.0"):
-                    self._text.delete(f"{idx}-1c", idx)
+                    before = self._text.get(f"{idx} - 1c", idx)
+                    after  = self._text.get(idx, f"{idx} + 1c")
+                    if before in self._PAIRS and after == self._PAIRS[before]:
+                        self._text.delete(f"{idx} - 1c", f"{idx} + 1c")
+                    else:
+                        self._text.delete(f"{idx} - 1c", idx)
 
             elif keysym == "Delete":
-                if self._text.compare(idx, "<", "end-1c"):
+                if self._text.compare(idx, "<", "end - 1c"):
                     self._text.delete(idx)
 
             elif keysym == "Return":
@@ -78,9 +89,32 @@ class MultiCursor:
                 self._text.insert(idx, " " * self.tab_size)
 
             elif char and char.isprintable():
-                self._text.insert(idx, char)
+                next_ch = self._text.get(idx, f"{idx} + 1c")
+                if char in self._CLOSE:
+                    if next_ch == char:
+                        self._text.mark_set(mark, f"{idx} + 1c")
+                    else:
+                        self._text.insert(idx, char)
+                elif char in self._QUOTES:
+                    if next_ch == char:
+                        self._text.mark_set(mark, f"{idx} + 1c")
+                    elif next_ch and (next_ch.isalnum() or next_ch == "_"):
+                        self._text.insert(idx, char)
+                    else:
+                        self._text.insert(idx, char + char)
+                        self._text.mark_set(mark, self._text.index(f"{mark} - 1c"))
+                elif char in self._OPEN:
+                    if next_ch and (next_ch.isalnum() or next_ch == "_"):
+                        self._text.insert(idx, char)
+                    else:
+                        self._text.insert(idx, char + self._PAIRS[char])
+                        self._text.mark_set(mark, self._text.index(f"{mark} - 1c"))
+                else:
+                    self._text.insert(idx, char)
 
-        self._redraw()
+        # Schedule _redraw after idle so tkinter has moved the primary INSERT
+        # cursor before we read its position (avoids one-position lag on backspace)
+        self._text.after_idle(self._redraw)
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -99,8 +133,12 @@ class MultiCursor:
             self._text.index(m) for m in self._marks
         ]
         for idx in all_positions:
-            if self._text.compare(idx, ">=", f"{idx} lineend"):
-                if self._text.compare(idx, ">", f"{idx} linestart"):
-                    self._text.tag_add(self.TAG, f"{idx}-1c", idx)
+            if (self._text.compare(idx, ">=", f"{idx} lineend")
+                    and self._text.compare(idx, ">", f"{idx} linestart")):
+                # Non-empty line with cursor at end: highlight the char to the left
+                self._text.tag_add(self.TAG, f"{idx} - 1c", idx)
             else:
-                self._text.tag_add(self.TAG, idx, f"{idx}+1c")
+                # Normal position OR blank line: highlight char at cursor
+                # (blank line tags the \n, showing a visible block at col 0)
+                self._text.tag_add(self.TAG, idx, f"{idx} + 1c")
+        self._text.tag_raise(self.TAG)
