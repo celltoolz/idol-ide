@@ -65,6 +65,7 @@ class DebugManager:
 
         cmd = [
             python_path,
+            "-Xfrozen_modules=off",
             "-m", "debugpy",
             "--listen", f"127.0.0.1:{self._port}",
             "--wait-for-client",
