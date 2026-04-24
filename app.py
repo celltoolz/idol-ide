@@ -3989,7 +3989,7 @@ class IDOL(Tk):
         # PowerShell requires & before a quoted executable path; bash does not
         import platform as _pl
         prefix = "& " if _pl.system() == "Windows" else ""
-        cmd = f'{prefix}"{python_exe}" -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"\r'
+        cmd = f'{prefix}"{python_exe}" -Xfrozen_modules=off -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"\r'
         # Small delay so the terminal tab finishes switching before we send
         self._output.terminal.after(150, lambda: self._output.terminal.send_text(cmd))
 
