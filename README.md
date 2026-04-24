@@ -153,9 +153,8 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 ### AI Chat (F2)
 
-<p align="center">
-  <img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="50%">
-</p>
+<table><tr>
+<td valign="top">
 
 - Press **F2** (or **Help → Ask AI**) to toggle a persistent right-side chat panel — stays open alongside your code
 - Draggable sash lets you size the panel; width and visibility are saved across sessions
@@ -170,6 +169,10 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Live token counter shows approximate context usage (e.g. `~1,200 / 32,000 tokens`) — turns amber near the limit
 - **⚙** — toggles a URL field to point IDOL at a different Ollama host (e.g. a remote machine on your network); hit **Apply** to connect and verify instantly
 - Same offline install card as Learning Mode when Ollama isn't running
+
+</td>
+<td width="50%"><img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="100%"></td>
+</tr></table>
 
 ### Package Manager (F3)
 
