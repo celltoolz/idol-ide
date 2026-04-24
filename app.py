@@ -3862,10 +3862,16 @@ class IDOL(Tk):
             self.output_visible_var.set(True)
             self.view_toggle_output()
         self._output._set_active("terminal")
-        # Start terminal if not already running
         if not self._output.terminal._running:
             self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
-        self._output.terminal.send_text(f'python "{filepath}"\r')
+        term = self._output.terminal
+        cmd = f'python "{filepath}"\r'
+        def _send_when_ready(retries: int = 40) -> None:
+            if term.winfo_ismapped() and not term._resize_job:
+                term.after(200, lambda: term.send_text(cmd))
+            elif retries > 0:
+                term.after(50, lambda: _send_when_ready(retries - 1))
+        _send_when_ready()
 
     # ── Debugger ──────────────────────────────────────────────────────────────
 
@@ -3997,19 +4003,11 @@ class IDOL(Tk):
         # that repaint finishes wipes the output. On subsequent runs the widget
         # is already the right size so _resize_job is None and this fires immediately.
         term = self._output.terminal
-        _attempt = [0]
         def _send_when_ready(retries: int = 40) -> None:
-            mapped = term.winfo_ismapped()
-            resize = term._resize_job
-            print(f"[dbg] attempt={_attempt[0]} mapped={mapped} resize_job={resize}")
-            _attempt[0] += 1
-            if mapped and not resize:
-                print(f"[dbg] ready — sending in 200ms")
-                term.after(200, lambda: (print("[dbg] send_text fired"), term.send_text(cmd)))
+            if term.winfo_ismapped() and not term._resize_job:
+                term.after(200, lambda: term.send_text(cmd))
             elif retries > 0:
                 term.after(50, lambda: _send_when_ready(retries - 1))
-            else:
-                print("[dbg] gave up waiting")
         _send_when_ready()
 
         self._debugger.attach_to_port(port, filepath, bp_dict)
