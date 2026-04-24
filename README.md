@@ -242,6 +242,11 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Thin toolbar strip pinned above the editor — always visible, zero clutter
 - **‹ ›** — navigate backward/forward through edit history
 - **+** — open a new tab
+- **▶** — run button; click to execute, **▾** chevron opens a dropdown to switch:
+  - **Run** / **Debug** mode (persisted across runs)
+  - **→ Output** / **→ Terminal** destination
+  - **Run Line** / **Run Selection** for quick one-off execution
+- **■** — stop the running script or debug session
 - **>_** — open a new terminal
 - **SPLIT** — toggle split editor; highlights blue when active
 - **MAP** — toggle minimap; highlights blue when active
@@ -250,6 +255,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - **AI** — toggle AI Chat panel (F2); highlights blue when active
 - **📦** — toggle Package Manager (F3); highlights blue when active
 - **📖** — toggle Learning Mode (F1); highlights blue when active
+- **Debug session controls** — appear only while a debug session is active: **▶** continue, **↷** step over, **↓** step into, **↑** step out, **■** stop (see [Debugger](#debugger) for full details)
 
 ## Requirements
 
