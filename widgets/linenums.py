@@ -9,6 +9,7 @@ from tkinter.font import Font
 from typing import Callable, Optional
 
 SYSTEM = system()
+_ARM_PAD = 0 if SYSTEM == "Darwin" else 1
 
 
 def scroll_fix(delta: int, num: bool = False) -> int:
@@ -339,11 +340,11 @@ class TkLineNumbers(Canvas):
         self.create_rectangle(x, y, x + size, y + size, fill=bg, outline=fg, width=1)
 
         # Horizontal bar (always — the minus part)
-        self.create_line(cx - arm, cy, cx + arm + 1, cy, fill=fg, width=1)
+        self.create_line(cx - arm, cy, cx + arm + _ARM_PAD, cy, fill=fg, width=1)
 
         # Vertical bar only when folded (turns - into +)
         if is_folded:
-            self.create_line(cx, cy - arm, cx, cy + arm + 1, fill=fg, width=1)
+            self.create_line(cx, cy - arm, cx, cy + arm + _ARM_PAD, fill=fg, width=1)
 
     # ── Sizing & Colors ───────────────────────────────────────────────────────
 
