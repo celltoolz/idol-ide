@@ -122,7 +122,7 @@ class TkLineNumbers(Canvas):
             if fold:
                 _, end_line = fold
                 marker = self._register_fold_tag(lineno, end_line)
-                is_folded = self.textwidget.tag_cget(marker, "elide") == "1"
+                is_folded = getboolean(self.textwidget.tag_cget(marker, "elide") or "false")
                 size = self.font_size if self.font_size % 2 == 0 else self.font_size - 1
                 self._draw_fold_marker(
                     int(self.winfo_reqwidth()) - (size + 5),
@@ -404,7 +404,7 @@ class TkLineNumbers(Canvas):
             and event.x > self.winfo_reqwidth() - (self.font_size + 5)
         )
         if in_fold_zone:
-            if self.textwidget.tag_cget(actual_marker, "elide") in ("0", ""):
+            if not getboolean(self.textwidget.tag_cget(actual_marker, "elide") or "false"):
                 # Fold: hide the block and show ··· inline
                 self.textwidget.tag_config(actual_marker, elide=True)
                 self._show_dots(actual_marker, line)
