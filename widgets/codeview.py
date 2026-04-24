@@ -294,9 +294,20 @@ class CodeView(Text):
         return "break"
 
     def _copy(self, *_):
-        text = self.get("sel.first", "sel.last")
-        if not text:
-            text = self.get("insert linestart", "insert lineend")
+        mc_ranges = self.tag_ranges("mc_sel")
+        if mc_ranges:
+            all_ranges = []
+            sel = self.tag_ranges("sel")
+            if sel:
+                all_ranges.append((str(sel[0]), str(sel[1])))
+            for i in range(0, len(mc_ranges), 2):
+                all_ranges.append((str(mc_ranges[i]), str(mc_ranges[i + 1])))
+            all_ranges.sort(key=lambda p: tuple(map(int, p[0].split("."))))
+            text = "\n".join(self.get(s, e) for s, e in all_ranges)
+        else:
+            text = self.get("sel.first", "sel.last")
+            if not text:
+                text = self.get("insert linestart", "insert lineend")
         copy(text)
         return "break"
 
