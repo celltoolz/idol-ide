@@ -88,6 +88,12 @@ class MultiCursor:
             elif keysym == "Tab":
                 self._text.insert(idx, " " * self.tab_size)
 
+            elif keysym in ("Left", "KP_Left", "Right", "KP_Right",
+                            "Up", "KP_Up", "Down", "KP_Down",
+                            "Home", "KP_Home", "End", "KP_End"):
+                if not (event.state & 0x1):  # skip if Shift held
+                    self._nav_mark(mark, idx, keysym, bool(event.state & 0x4))
+
             elif char and char.isprintable():
                 next_ch = self._text.get(idx, f"{idx} + 1c")
                 if char in self._CLOSE:
@@ -117,6 +123,27 @@ class MultiCursor:
         self._text.after_idle(self._redraw)
 
     # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _nav_mark(self, mark: str, idx: str, keysym: str, ctrl: bool) -> None:
+        """Move a secondary cursor mark one step in the given direction."""
+        row, col = map(int, idx.split("."))
+        if keysym in ("Left", "KP_Left"):
+            new = f"{idx} - 1c wordstart" if ctrl else f"{idx} - 1c"
+        elif keysym in ("Right", "KP_Right"):
+            new = f"{idx} wordend" if ctrl else f"{idx} + 1c"
+        elif keysym in ("Up", "KP_Up"):
+            new = f"{max(1, row - 1)}.{col}"
+        elif keysym in ("Down", "KP_Down"):
+            new = f"{row + 1}.{col}"
+        elif keysym in ("Home", "KP_Home"):
+            line_txt = self._text.get(f"{idx} linestart", f"{idx} lineend")
+            indent   = len(line_txt) - len(line_txt.lstrip())
+            new = f"{row}.0" if col == indent else f"{row}.{indent}"
+        elif keysym in ("End", "KP_End"):
+            new = f"{idx} lineend"
+        else:
+            return
+        self._text.mark_set(mark, self._text.index(new))
 
     def _sorted_bottom_first(self) -> list[str]:
         """Return marks sorted from the last line to the first."""
