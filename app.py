@@ -41,6 +41,7 @@ from editor.debug_manager import DebugManager
 from editor.git_manager import GitManager
 from menus.menubar import build_menubar
 from utils import session as session_utils
+from utils.thread_safe_after import make_thread_safe_after
 from utils.learning_registry import LearningManager
 from utils.custom_cursor import get_learn_cursor
 from widgets.learning_panel import LearningPanel
@@ -256,6 +257,8 @@ class IDOL(Tk):
         super().__init__()
         self.title("IDOL")
         self.geometry("1280x800")
+
+        self._safe_after = make_thread_safe_after(self)
 
         # Per-tab state  {tab_id -> value}
         self._files: dict[str, str | None] = {}
@@ -1459,12 +1462,12 @@ class IDOL(Tk):
         # Intelligence server (hover, completion, go-to-definition)
         cmd = detect_server()
         if cmd:
-            self._lsp = LspManager(root, after_fn=self.after)
+            self._lsp = LspManager(root, after_fn=self._safe_after)
             self._lsp.on_ready = lambda srv=self._lsp: self._lsp_open_tabs_for(srv)
             self._lsp.start(cmd)
 
         # Diagnostics — always PyflakesLinter (uses ruff subprocess internally)
-        self._lsp_diag = PyflakesLinter(after_fn=self.after)
+        self._lsp_diag = PyflakesLinter(after_fn=self._safe_after)
         self._lsp_diag.on_diagnostics = self._on_lsp_diagnostics
         self._lsp_open_tabs_for(self._lsp_diag)
 
@@ -1650,7 +1653,7 @@ class IDOL(Tk):
 
     def _start_git(self) -> None:
         root = str(self._sidebar.explorer._root or os.getcwd())
-        git = GitManager(root, after_fn=self.after)
+        git = GitManager(root, after_fn=self._safe_after)
         self._git = git
 
         def _on_is_repo(ok: bool) -> None:
@@ -3950,7 +3953,7 @@ class IDOL(Tk):
             self._install_debugpy_then_debug(python_exe, filepath)
             return
 
-        self._debugger = DebugManager(after_fn=self.after)
+        self._debugger = DebugManager(after_fn=self._safe_after)
         self._debugger.on_stopped    = self._on_debug_stopped
         self._debugger.on_continued  = self._on_debug_continued
         self._debugger.on_terminated = self._on_debug_terminated

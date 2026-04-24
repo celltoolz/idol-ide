@@ -10,6 +10,7 @@ from tkinter import Frame, Label, Entry, ttk, filedialog, messagebox
 from typing import Callable
 
 from editor.project_manager import ProjectManager, categorize_interpreter
+from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow
 import utils.venv_guide as venv_guide
 import utils.git_remote_guide as git_remote_guide
@@ -66,7 +67,7 @@ class ProjectWizard(tk.Toplevel):
 
         self._pythons: list[tuple[str, str]] = []   # populated by background thread
         self._detecting = True
-        self._pm = ProjectManager(after_fn=self.after)
+        self._pm = ProjectManager(after_fn=make_thread_safe_after(self))
         self._show_venv_var   = tk.BooleanVar(value=False)  # hide venv by default
         self._show_system_var = tk.BooleanVar(value=True)
 

@@ -10,6 +10,7 @@ from typing import Callable
 
 from editor.pip_manager import PipManager
 from utils.learning_registry import LearningManager
+from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow, GuidePage
 
 try:
@@ -201,7 +202,7 @@ class PackageManagerPanel(tk.Frame):
         self._pypi_cache: dict[str, dict] = {}   # per-session detail cache
         self._topic_cache: dict[str, str] = {}   # name → topic (persisted)
         self._load_topic_cache()
-        self._pip = PipManager(after_fn=self.after)
+        self._pip = PipManager(after_fn=make_thread_safe_after(self))
         self._build()
         self.after(100, self._load_installed)
 
