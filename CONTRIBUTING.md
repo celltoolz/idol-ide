@@ -93,6 +93,7 @@ no widget imports, no stateful objects.
 | `git_remote_guide.py` | Content module — same pattern as `venv_guide.py` for git remote guide. |
 | `guide_types.py` | Shared `GuidePage` dataclass used by all guide content modules. |
 | `custom_cursor.py` | Cross-platform learning-mode cursor (arrow + question mark). Uses system cursor on Windows/macOS; generates XBM bitmap on Linux where system cursor is unreliable. |
+| `thread_safe_after.py` | `make_thread_safe_after(widget)` — returns an `after_fn` safe to call from daemon threads. Use this instead of `self.after` when constructing any manager that runs on background threads. |
 
 ### `widgets/` — UI only
 Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for data,
@@ -148,9 +149,9 @@ Any future static data files belong here, not inside package directories.
 
 - All git and LSP subprocess calls happen on **daemon threads**
 - Results are delivered to the main thread via `after_fn` (passed in at construction)
-- This is always `self.after` from a `tk.Tk` or `tk.Frame` context
-- **Never call Tkinter widget methods from a background thread**
-- The pattern is: do work on thread → `after_fn(0, callback, result)`
+- **Never pass `self.after` directly as `after_fn`** — on macOS Python 3.14+, `tkinter.after()` calls `tk.createcommand()` internally and must only be called from the main thread
+- Always use `make_thread_safe_after(self)` from `utils/thread_safe_after.py` instead: it queues callbacks from any thread and drains them on the main thread via a 16ms poll loop
+- The pattern is: do work on thread → `after_fn(0, callback, *args)`
 
 ---
 
