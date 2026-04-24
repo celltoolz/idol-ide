@@ -61,6 +61,18 @@ class MultiCursor:
         self._marks.append(name)
         self._redraw()
 
+    def toggle(self, index: str) -> None:
+        """Add a secondary cursor at *index*, or remove it if one already exists there."""
+        target = self._text.index(index)
+        for mark in self._marks:
+            if self._text.index(mark) == target:
+                self._clear_anchor(mark)
+                self._text.mark_unset(mark)
+                self._marks.remove(mark)
+                self._redraw()
+                return
+        self.add(index)
+
     def clear(self) -> None:
         """Remove all secondary cursors and selections."""
         self._clear_all_anchors()

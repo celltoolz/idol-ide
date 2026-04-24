@@ -1074,7 +1074,7 @@ class IDOL(Tk):
         codeview.bind(
             "<Alt-ButtonPress-1>",
             lambda e, m=mc: (
-                m.add(f"@{e.x},{e.y}"),
+                m.toggle(f"@{e.x},{e.y}"),
                 self._update_cursor_status(),
                 "break",
             )[2],
