@@ -43,7 +43,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 ### Breadcrumb Bar
 
 <p align="center">
-  <img src="screenshots/breadcrumbbar-path_symbol_scope-locals_drilldown-footer_preview.gif" width="75%">
+  <img src="screenshots/breadcrumbbar-path_symbol_scope-locals_drilldown-footer_preview.gif" width="50%">
 </p>
 
 - Thin bar between the tab row and editor showing the full file path and current symbol scope
