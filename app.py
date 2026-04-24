@@ -892,11 +892,27 @@ class IDOL(Tk):
         def _make_bp_toggle(tid):
             def _toggle(lineno: int):
                 fp = self._files.get(tid) or ""
-                if fp:
-                    self._on_breakpoint_toggle(fp, lineno)
-                    codeview._line_numbers.set_breakpoints(
-                        self._breakpoints.get(fp, set())
-                    )
+                if not fp:
+                    # Unsaved tab — create a temp file eagerly so breakpoints
+                    # have a stable path. Transfer to real path on file save.
+                    import uuid
+                    from utils.session import TMP_DIR
+                    tmp = self._temp_files.get(tid)
+                    if not tmp:
+                        TMP_DIR.mkdir(parents=True, exist_ok=True)
+                        tmp = str(TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}.py")
+                        self._temp_files[tid] = tmp
+                    cv = self._codeviews.get(tid)
+                    if cv:
+                        try:
+                            Path(tmp).write_text(cv.get("1.0", "end-1c"), encoding="utf-8")
+                        except Exception:
+                            pass
+                    fp = tmp
+                self._on_breakpoint_toggle(fp, lineno)
+                codeview._line_numbers.set_breakpoints(
+                    self._breakpoints.get(fp, set())
+                )
             return _toggle
         codeview._line_numbers.on_breakpoint_toggle = _make_bp_toggle(tab_id)
 
@@ -2565,6 +2581,14 @@ class IDOL(Tk):
             self._dirty[tab_id] = False
             _tmp = self._temp_files.pop(tab_id, None)
             if _tmp:
+                # Transfer any breakpoints registered against the temp path
+                # to the real saved path, then clean up the temp file.
+                if _tmp in self._breakpoints:
+                    self._breakpoints[filepath] = self._breakpoints.pop(_tmp)
+                    self._refresh_debug_breakpoints()
+                    cv = self._codeviews.get(tab_id)
+                    if cv:
+                        cv._line_numbers.set_breakpoints(self._breakpoints.get(filepath, set()))
                 try:
                     Path(_tmp).unlink(missing_ok=True)
                 except Exception:
@@ -4141,12 +4165,23 @@ class IDOL(Tk):
 
     def _refresh_debug_breakpoints(self) -> None:
         """Push the current breakpoint list to the debug panel."""
+        from utils.session import TMP_DIR
+        tmp_root = str(TMP_DIR)
         entries = []
+        has_unsaved = False
         for fp, lines in self._breakpoints.items():
+            if not lines:
+                continue
+            if fp.startswith(tmp_root):
+                has_unsaved = True
             fname = os.path.basename(fp)
             for ln in sorted(lines):
                 entries.append({"filepath": fp, "filename": fname, "line": ln})
         self._output.debug.update_breakpoints(entries)
+        if has_unsaved:
+            self._output.debug.show_unsaved_warning()
+        else:
+            self._output.debug.hide_unsaved_warning()
 
     def _run_snippet(self, code: str, label: str) -> None:
         """Send *code* to the output panel for execution."""

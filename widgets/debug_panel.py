@@ -76,6 +76,16 @@ class DebugPanel(Frame):
         self._bp_text.pack(fill="both", expand=True)
         bp_sb.config(command=self._bp_text.yview)
 
+        self._unsaved_warn = Label(
+            left,
+            text="  ⚠ Save file to make breakpoints permanent",
+            bg=self._BG,
+            fg="#e2c08d",
+            font=("Segoe UI", 8),
+            anchor="w",
+            pady=3,
+        )
+
         self._bp_text.tag_configure("dot",   foreground=self._DOT_BP, font=("Segoe UI", 9, "bold"))
         self._bp_text.tag_configure("file",  foreground=self._FG)
         self._bp_text.tag_configure("line",  foreground=self._FG_DIM)
@@ -177,6 +187,12 @@ class DebugPanel(Frame):
         self._loc_text.delete("1.0", "end")
         self._loc_text.insert("end", "  Start a debug session (F5) to inspect locals", "empty")
         self._loc_text.config(state="disabled")
+
+    def show_unsaved_warning(self) -> None:
+        self._unsaved_warn.pack(fill="x", before=self._bp_text)
+
+    def hide_unsaved_warning(self) -> None:
+        self._unsaved_warn.pack_forget()
 
     def sync_from(self, other: "DebugPanel") -> None:
         """Copy displayed state from *other* into this panel (used on dock/undock)."""
