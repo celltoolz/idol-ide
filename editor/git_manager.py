@@ -64,6 +64,16 @@ def _run_git_output(args: list[str], cwd: str, timeout: int = 30) -> str:
         return str(exc)
 
 
+def get_global_identity(after_fn: Callable, callback: Callable[[str, str], None]) -> None:
+    """Check git user.name/email from global config — no repo required."""
+    def _run() -> None:
+        cwd = os.path.expanduser("~")
+        name  = _run_git(["config", "user.name"],  cwd).strip()
+        email = _run_git(["config", "user.email"], cwd).strip()
+        after_fn(0, lambda n=name, e=email: callback(n, e))
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def _parse_staged_unstaged(output: str, root: str) -> tuple[dict[str, str], dict[str, str]]:
     """Parse `git status --porcelain` → (staged_map, unstaged_map).
 

@@ -38,7 +38,7 @@ from editor.lsp_manager import (
 )
 from editor.pyflakes_linter import PyflakesLinter
 from editor.debug_manager import DebugManager
-from editor.git_manager import GitManager
+from editor.git_manager import GitManager, get_global_identity
 from menus.menubar import build_menubar
 from utils import session as session_utils
 from utils.thread_safe_after import make_thread_safe_after
@@ -402,6 +402,9 @@ class IDOL(Tk):
         self._sidebar.configure(width=220)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
         self._outline = self._sidebar.outline  # keep existing references working
+
+        # Check git identity immediately — no repo needed, reads global config
+        get_global_identity(self._safe_after, self._on_sc_identity)
 
         # Right panel – vertical split: notebook (top) | output (bottom)
         self._v_pane = ttk.PanedWindow(self._h_pane, orient="vertical")
