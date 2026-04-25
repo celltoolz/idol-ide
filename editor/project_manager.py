@@ -73,11 +73,25 @@ def _detect_pythons() -> list[tuple[str, str]]:
             out = subprocess.check_output([py, "-0p"], stderr=subprocess.STDOUT,
                                           timeout=3).decode()
             for line in out.splitlines():
-                m = re.search(r"-(\d+\.\d+).*?(\S+python\S*)", line, re.IGNORECASE)
+                # Handles both old style "-3.12-64  path" and new "-V:3.14  path"
+                m = re.search(r"-(?:V:)?(\d+\.\d+)[^\s]*\s+(.*python[^\s]*)",
+                              line, re.IGNORECASE)
                 if m:
-                    _add(m.group(2))
+                    _add(m.group(2).strip())
         except Exception:
             pass
+
+    # Windows: scan user-level and system-level Python install directories
+    if sys.platform == "win32":
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        for base in (
+            os.path.join(local_app, "Programs", "Python"),
+            os.path.join(os.environ.get("ProgramFiles", ""), "Python"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Python"),
+        ):
+            if os.path.isdir(base):
+                for entry in sorted(os.listdir(base), reverse=True):
+                    _add(os.path.join(base, entry, "python.exe"))
 
     for name in ("python3", "python", "python3.14", "python3.13", "python3.12",
                  "python3.11", "python3.10", "python3.9"):
