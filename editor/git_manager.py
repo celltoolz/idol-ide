@@ -200,8 +200,10 @@ class GitManager:
     def get_identity(self, callback: Callable[[str, str], None]) -> None:
         """Fire callback(name, email) — empty strings if not configured."""
         def _run() -> None:
-            name  = _run_git(["config", "user.name"],  self._root).strip()
-            email = _run_git(["config", "user.email"], self._root).strip()
+            cwd = self._root if (self._root and os.path.isdir(self._root)) \
+                  else os.path.expanduser("~")
+            name  = _run_git(["config", "user.name"],  cwd).strip()
+            email = _run_git(["config", "user.email"], cwd).strip()
             self._after(0, lambda n=name, e=email: callback(n, e))
         threading.Thread(target=_run, daemon=True).start()
 
