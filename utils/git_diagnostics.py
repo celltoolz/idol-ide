@@ -3,9 +3,15 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+
+
+def git_installed() -> bool:
+    """Return True if git is available on PATH."""
+    return shutil.which("git") is not None
 
 
 # ── File classification ───────────────────────────────────────────────────────

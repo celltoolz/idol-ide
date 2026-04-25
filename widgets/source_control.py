@@ -8,7 +8,8 @@ from typing import Callable
 
 from utils import bind_right_click
 from utils.git_diagnostics import (
-    classify_file, analyze_files, health_checks, FileInfo, Issue, HealthCheck
+    classify_file, analyze_files, health_checks, git_installed,
+    FileInfo, Issue, HealthCheck
 )
 from utils.learning_registry import LearningManager
 from widgets.guide_window import GuideWindow, GuidePage
@@ -1194,6 +1195,11 @@ class SourceControlPanel(ttk.Frame):
         for w in self._health_body.winfo_children():
             w.destroy()
 
+        if not git_installed():
+            self._health_status_lbl.config(text="!", fg="#f14c4c", bg=_HDR_BG)
+            self._render_git_missing_row()
+            return
+
         fix_fns = {"create_gitignore": self._ctx_create_gitignore}
         # Pass repo root via gitignore_check_fn closure if available
         checks = self._get_health_checks(staged, unstaged, fix_fns)
@@ -1230,6 +1236,29 @@ class SourceControlPanel(ttk.Frame):
                 w.bind("<MouseWheel>", self._on_body_wheel)
                 w.bind("<Button-4>",   self._on_body_wheel)
                 w.bind("<Button-5>",   self._on_body_wheel)
+
+    def _render_git_missing_row(self) -> None:
+        from utils.git_install_guide import get_pages
+        row = Frame(self._health_body, bg=_BG, cursor="hand2")
+        row.pack(fill="x", padx=6, pady=1)
+        Label(row, text="✗", bg=_BG, fg="#f14c4c",
+              font=("Segoe UI", 9, "bold"), width=2).pack(side="left")
+        lbl = Label(row, text="Git is not installed", bg=_BG, fg=_FG,
+                    font=("Segoe UI", 8), anchor="w")
+        lbl.pack(side="left", fill="x", expand=True)
+        btn = Label(row, text="How to Install →", bg=_BTN_BG, fg="white",
+                    font=("Segoe UI", 7, "bold"), padx=4, pady=1, cursor="hand2")
+        btn.pack(side="right", padx=(0, 2))
+
+        def _open(_=None):
+            GuideWindow(self, "Install Git", get_pages())
+
+        for w in (row, lbl, btn):
+            w.bind("<Button-1>", _open)
+            w.bind("<MouseWheel>", self._on_body_wheel)
+            w.bind("<Button-4>",   self._on_body_wheel)
+            w.bind("<Button-5>",   self._on_body_wheel)
+        _Tooltip(row, "Git was not found on PATH — click 'How to Install →' for setup instructions.")
 
     def _get_health_checks(self, staged, unstaged, fix_fns) -> list[HealthCheck]:
         """Get health checks using repo root from app."""
