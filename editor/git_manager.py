@@ -197,6 +197,14 @@ class GitManager:
             self._after(0, lambda m=_parse_status(out, self._root): callback(m))
         threading.Thread(target=_run, daemon=True).start()
 
+    def get_identity(self, callback: Callable[[str, str], None]) -> None:
+        """Fire callback(name, email) — empty strings if not configured."""
+        def _run() -> None:
+            name  = _run_git(["config", "user.name"],  self._root).strip()
+            email = _run_git(["config", "user.email"], self._root).strip()
+            self._after(0, lambda n=name, e=email: callback(n, e))
+        threading.Thread(target=_run, daemon=True).start()
+
     def get_diff_hunks(self, path: str,
                        callback: Callable[[list[tuple[int, int, str]]], None]) -> None:
         def _run() -> None:

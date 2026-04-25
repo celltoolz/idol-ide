@@ -1814,10 +1814,14 @@ class IDOL(Tk):
         if not self._git:
             return
         self._git.get_full_status(self._on_sc_status)
+        self._git.get_identity(self._on_sc_identity)
         self._refresh_history()
 
     def _on_sc_status(self, staged: dict, unstaged: dict) -> None:
         self._sidebar.source_control.refresh(staged, unstaged)
+
+    def _on_sc_identity(self, name: str, email: str) -> None:
+        self._sidebar.source_control.set_git_identity(name, email)
 
     # ── Source Control actions ─────────────────────────────────────────────────
 

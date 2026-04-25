@@ -14,6 +14,11 @@ def git_installed() -> bool:
     return shutil.which("git") is not None
 
 
+def git_identity_ok(name: str, email: str) -> bool:
+    """Return True if both git user.name and user.email are set."""
+    return bool(name and email)
+
+
 # ── File classification ───────────────────────────────────────────────────────
 
 @dataclass

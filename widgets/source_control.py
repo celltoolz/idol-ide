@@ -8,7 +8,7 @@ from typing import Callable
 
 from utils import bind_right_click
 from utils.git_diagnostics import (
-    classify_file, analyze_files, health_checks, git_installed,
+    classify_file, analyze_files, health_checks, git_installed, git_identity_ok,
     FileInfo, Issue, HealthCheck
 )
 from utils.learning_registry import LearningManager
@@ -744,6 +744,7 @@ class SourceControlPanel(ttk.Frame):
         repo_root_fn:         Callable[[], str] | None = None,
         on_history_diff:      Callable[[str, str], None] | None = None,
         on_expand_commit:     Callable[[str], None] | None = None,
+        git_identity_fn:      Callable[[], tuple[str, str]] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
@@ -761,6 +762,8 @@ class SourceControlPanel(ttk.Frame):
         self._repo_root_fn          = repo_root_fn
         self._on_history_diff       = on_history_diff
         self._on_expand_commit      = on_expand_commit
+        self._git_identity_fn       = git_identity_fn
+        self._git_identity: tuple[str, str] = ("", "")
         self._ctx_path            = ""
         self._warn_visible        = False
         self._last_staged:  dict[str, str] = {}
@@ -854,6 +857,11 @@ class SourceControlPanel(ttk.Frame):
         self._update_body_layout()
 
     # ── Public API ────────────────────────────────────────────────────────────
+
+    def set_git_identity(self, name: str, email: str) -> None:
+        """Called by app when git_manager returns the identity check result."""
+        self._git_identity = (name, email)
+        self._refresh_health(self._last_staged, self._last_unstaged)
 
     def refresh(self, staged: dict[str, str], unstaged: dict[str, str]) -> None:
         """Re-populate both file lists and update diagnostics."""
@@ -1207,6 +1215,16 @@ class SourceControlPanel(ttk.Frame):
         # Pass repo root via gitignore_check_fn closure if available
         checks = self._get_health_checks(staged, unstaged, fix_fns)
 
+        name, email = self._git_identity
+        identity_ok = git_identity_ok(name, email)
+        checks.append(HealthCheck(
+            key="git_identity",
+            label="Git identity configured",
+            passed=identity_ok,
+            detail="user.name and user.email are set" if identity_ok
+                   else "user.name / user.email not set — commits may fail",
+        ))
+
         passed = sum(1 for c in checks if c.passed)
         total  = len(checks)
         all_ok = passed == total
@@ -1227,7 +1245,15 @@ class SourceControlPanel(ttk.Frame):
             Label(row, text=check.label, bg=_BG, fg=_FG,
                   font=("Segoe UI", 8), anchor="w").pack(side="left", fill="x", expand=True)
 
-            if check.fix_fn:
+            if check.key == "git_identity" and not check.passed:
+                from utils.git_identity_guide import get_pages as _id_pages
+                btn = Label(row, text="How to Set Up →", bg=_BTN_BG, fg="white",
+                            font=("Segoe UI", 7, "bold"), padx=4, pady=1,
+                            cursor="hand2")
+                btn.pack(side="right", padx=(0, 2))
+                btn.bind("<Button-1>", lambda _: GuideWindow(self, "Git Identity & GitHub Login",
+                                                             _id_pages()))
+            elif check.fix_fn:
                 btn = Label(row, text=check.fix_label, bg=_BTN_BG, fg="white",
                             font=("Segoe UI", 7, "bold"), padx=4, pady=1,
                             cursor="hand2")

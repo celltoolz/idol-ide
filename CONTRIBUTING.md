@@ -97,6 +97,8 @@ no widget imports, no stateful objects.
 | `thread_safe_after.py` | `make_thread_safe_after(widget)` — returns an `after_fn` safe to call from daemon threads. Use this instead of `self.after` when constructing any manager that runs on background threads. |
 | `ruff_rules.py` | Beginner-friendly descriptions for ruff/pyflakes diagnostic codes — maps rule IDs to plain-English explanations used in the Problems panel. |
 | `debug_input_guide.py` | Content module — `get_pages()` returning `GuidePage` dataclasses for the input()/debugger guide. Same pattern as `venv_guide.py`. |
+| `git_install_guide.py` | Content module — 3-page guide for installing git on Windows, macOS, and Linux. Opened from the Git Health panel when git is not found on PATH. |
+| `git_identity_guide.py` | Content module — 4-page guide for setting git user.name/email, creating a GitHub account, and authenticating via GitHub CLI (`gh auth login`). |
 
 ### `widgets/` — UI only
 Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for data,
