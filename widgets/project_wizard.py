@@ -14,6 +14,7 @@ from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow
 import utils.venv_guide as venv_guide
 import utils.git_remote_guide as git_remote_guide
+import utils.first_commit_guide as first_commit_guide
 
 _BG      = "#252526"
 _HDR_BG  = "#2d2d30"
@@ -256,7 +257,7 @@ class ProjectWizard(tk.Toplevel):
     def _browse_location(self) -> None:
         d = filedialog.askdirectory(initialdir=self._loc_var.get(), parent=self)
         if d:
-            self._loc_var.set(d)
+            self._loc_var.set(os.path.normpath(d))
 
     def _update_preview(self) -> None:
         name = self._name_var.get().strip()
@@ -473,6 +474,59 @@ class ProjectWizard(tk.Toplevel):
     def _finish_setup(self, path: str, error: str | None) -> None:
         if error:
             messagebox.showerror("Setup Error", error, parent=self)
+            self.destroy()
+            self._on_complete(path)
+            return
+        self._show_success(path)
+
+    def _show_success(self, path: str) -> None:
+        """Replace progress screen with a success + first-commit-guide screen."""
+        if hasattr(self, "_progress_bar"):
+            self._progress_bar.stop()
+        for w in self._content.winfo_children():
+            w.destroy()
+
+        self._step_lbl.config(text="Project Created!")
+        self._prog_lbl.config(text=os.path.normpath(path))
+
+        Label(self._content,
+              text=f"✓  {os.path.basename(path)} is ready.",
+              bg=_BG, fg="#73c991",
+              font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(16, 4))
+
+        Label(self._content,
+              text="Your project folder, virtual environment, and git repository\n"
+                   "have all been set up. You're ready to start coding.",
+              bg=_BG, fg=_DIM, font=("Segoe UI", 9),
+              justify="left").pack(anchor="w", pady=(0, 16))
+
+        if self._git_var.get():
+            sep = Frame(self._content, bg=_HDR_BG, height=1)
+            sep.pack(fill="x", pady=(0, 12))
+            Label(self._content,
+                  text="Ready to make your first commit?",
+                  bg=_BG, fg=_FG, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+            Label(self._content,
+                  text="Open the Source Control panel, stage your files, write a\n"
+                       "commit message, and push to GitHub.",
+                  bg=_BG, fg=_DIM, font=("Segoe UI", 9),
+                  justify="left").pack(anchor="w", pady=(2, 8))
+            guide_btn = Label(self._content, text="? First Commit Guide",
+                              bg=_BG, fg="#569cd6",
+                              font=("Segoe UI", 8), cursor="hand2")
+            guide_btn.pack(anchor="w")
+            guide_btn.bind("<Button-1>", lambda _: GuideWindow(
+                self, "Your First Commit", first_commit_guide.get_pages()
+            ))
+
+        # Swap nav: hide Back, rename Next to "Open Project →"
+        self._set_nav_enabled(self._prev_btn, False)
+        self._next_btn.config(text="Open Project →")
+        # Re-bind next to just close + open
+        self._next_btn.unbind("<Button-1>")
+        self._next_btn.bind("<Button-1>", lambda _: self._open_project(path))
+
+    def _open_project(self, path: str) -> None:
         self.destroy()
         self._on_complete(path)
 
