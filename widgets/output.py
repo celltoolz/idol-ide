@@ -3,7 +3,8 @@ from __future__ import annotations
 import queue
 import re
 import tempfile
-from tkinter import Entry, Frame, Label, Text, ttk
+import tkinter as tk
+from tkinter import Entry, Frame, Label, Menu, Text, ttk
 from typing import Callable, Optional
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
@@ -85,6 +86,13 @@ class OutputPanel(ttk.Frame):
         self._text.tag_configure("warning", foreground="#f1fa8c")
         self._text.tag_configure("stdin",   foreground=self._STDIN_FG)
 
+        # Right-click context menu
+        self._ctx_menu = Menu(self._text, tearoff=0)
+        self._ctx_menu.add_command(label="Copy Selection", command=self._copy_selection)
+        self._ctx_menu.add_command(label="Copy All",       command=self._copy_all)
+        self._text.bind("<Button-3>",        self._show_ctx)
+        self._text.bind("<Button-2>",        self._show_ctx)  # macOS two-finger tap
+
         # ── Stdin input bar ────────────────────────────────────────────────
         self._stdin_bar = Frame(self, bg=self._BAR_BG)
         self._stdin_bar.grid(row=1, column=0, sticky="ew")
@@ -124,6 +132,16 @@ class OutputPanel(ttk.Frame):
         self._guide_btn.bind("<Leave>", lambda _: self._guide_btn.config(fg=_GUIDE_FG))
         # Not packed yet — shown via show_debug_input_guide_btn()
 
+        self._copy_btn = Label(
+            parent, text="⎘ Copy",
+            bg="#252526", fg="#8a8a8a",
+            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+        )
+        self._copy_btn.pack(side="left")
+        self._copy_btn.bind("<Button-1>", lambda _: self._copy_all())
+        self._copy_btn.bind("<Enter>", lambda _: self._copy_btn.config(fg="#ffffff"))
+        self._copy_btn.bind("<Leave>", lambda _: self._copy_btn.config(fg="#8a8a8a"))
+
         self._clear_btn = Label(
             parent, text="✕ Clear",
             bg="#252526", fg="#8a8a8a",
@@ -160,6 +178,29 @@ class OutputPanel(ttk.Frame):
             height=h,
         )
         win.geometry(f"{w}x{h}+{x}+{y}")
+
+    # ── Copy helpers ──────────────────────────────────────────────────────────
+
+    def _copy_all(self) -> None:
+        text = self._text.get("1.0", "end-1c")
+        if text:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+
+    def _copy_selection(self) -> None:
+        try:
+            text = self._text.get(tk.SEL_FIRST, tk.SEL_LAST)
+            if text:
+                self.clipboard_clear()
+                self.clipboard_append(text)
+        except tk.TclError:
+            pass  # no selection — do nothing
+
+    def _show_ctx(self, event) -> None:
+        has_sel = bool(self._text.tag_ranges(tk.SEL))
+        self._ctx_menu.entryconfigure("Copy Selection",
+                                      state="normal" if has_sel else "disabled")
+        self._ctx_menu.tk_popup(event.x_root, event.y_root)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
