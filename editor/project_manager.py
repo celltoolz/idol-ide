@@ -112,14 +112,11 @@ def _detect_pythons() -> list[tuple[str, str]]:
 
 
 def categorize_interpreter(exe: str) -> str:
-    """Return 'venv', 'system', or 'user' for a given interpreter path."""
+    """Return 'venv' or 'system' for a given interpreter path."""
     norm = exe.replace("\\", "/").lower()
     if "/venv/" in norm or "/.venv/" in norm or norm.endswith("/venv") or norm.endswith("/.venv"):
         return "venv"
-    system_prefixes = ("/usr/bin/", "/usr/local/bin/", "c:/windows/")
-    if any(norm.startswith(p) for p in system_prefixes):
-        return "system"
-    return "user"
+    return "system"
 
 
 class ProjectManager:
