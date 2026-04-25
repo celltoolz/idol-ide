@@ -13,10 +13,10 @@ def build_menubar(app) -> Menu:
       edit_undo, edit_redo, edit_cut, edit_copy, edit_paste, edit_select_all,
       edit_find_replace
       view_change_theme, view_change_font, view_toggle_highlight,
-      view_active_line_color, view_toggle_output, view_new_terminal
+      view_active_line_color, view_toggle_output, view_show_panel
       debug_file, _nav_run, run_line, run_selection, run_stop, run_clear
       help_about
-      theme_var, highlight_line_var, output_visible_var, _run_target_var
+      theme_var, highlight_line_var, output_visible_var, panel_tab_var, _run_target_var
     """
     menubar = Menu(app)
 
@@ -86,15 +86,25 @@ def build_menubar(app) -> Menu:
         label="Active Line Color...", command=app.view_active_line_color
     )
     view_menu.add_separator()
+    panels_menu = Menu(view_menu, tearoff=0)
+    for _label, _key, _accel in [
+        ("Output",   "output",   "Ctrl+Shift+U"),
+        ("Terminal", "terminal", "Ctrl+`"),
+        ("Problems", "problems", "Ctrl+Shift+M"),
+        ("Debug",    "debug",    "Ctrl+Shift+Y"),
+    ]:
+        panels_menu.add_radiobutton(
+            label=_label,
+            variable=app.panel_tab_var,
+            value=_key,
+            accelerator=_accel,
+            command=lambda k=_key: app.view_show_panel(k),
+        )
+    view_menu.add_cascade(label="Panels", menu=panels_menu)
     view_menu.add_checkbutton(
-        label="Show Output Panel",
+        label="Show Panels",
         variable=app.output_visible_var,
         command=app.view_toggle_output,
-    )
-    view_menu.add_command(
-        label="New Terminal",
-        command=app.view_new_terminal,
-        accelerator="Ctrl+`",
     )
     view_menu.add_checkbutton(
         label="Show Minimap",

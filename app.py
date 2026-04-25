@@ -330,6 +330,7 @@ class IDOL(Tk):
         self.theme_var = StringVar(value="monokai")
         self.highlight_line_var = BooleanVar(value=True)
         self.output_visible_var = BooleanVar(value=True)
+        self.panel_tab_var = StringVar(value="output")
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
         self.zen_mode_var = BooleanVar(value=False)
@@ -678,6 +679,13 @@ class IDOL(Tk):
             on_navigate=self._open_file_at,
             on_bp_click=lambda fp, ln: self._open_file_at(fp, ln, 0),
         )
+        # Keep panel_tab_var in sync whenever the bottom panel switches tabs
+        _orig_set_active = self._output._set_active
+        def _synced_set_active(key, _orig=_orig_set_active):
+            _orig(key)
+            self.panel_tab_var.set(key)
+        self._output._set_active = _synced_set_active
+
         self._output.output.on_runtime_error = self._on_runtime_error
         self._output.on_ask_ai_problems = self._ask_ai_about_problems
         self._output.problems.on_ask_ai_entry = self._ask_ai_about_entry
@@ -759,7 +767,10 @@ class IDOL(Tk):
         self.bind("<F11>",        lambda _: self._debug_step_in())
         self.bind("<Shift-F11>",  lambda _: self._debug_step_out())
         self.bind("<Shift-F5>",   lambda _: self.run_stop())
-        self.bind("<Control-grave>", lambda _: self.view_new_terminal())
+        self.bind("<Control-grave>",   lambda _: self.view_show_panel("terminal"))
+        self.bind("<Control-U>",       lambda _: self.view_show_panel("output"))
+        self.bind("<Control-M>",       lambda _: self.view_show_panel("problems"))
+        self.bind("<Control-Y>",       lambda _: self.view_show_panel("debug"))
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
@@ -2872,12 +2883,19 @@ class IDOL(Tk):
         else:
             self._v_pane.forget(self._output)
 
-    def view_new_terminal(self) -> None:
-        """Show the bottom panel and switch to the Terminal tab."""
-        if not self.output_visible_var.get():
-            self.output_visible_var.set(True)
+    def view_show_panel(self, tab: str) -> None:
+        """Show the panel area and switch to *tab*, or hide if already active."""
+        if self.output_visible_var.get() and self._output._active == tab:
+            self.output_visible_var.set(False)
             self.view_toggle_output()
-        self._output._set_active("terminal")
+        else:
+            if not self.output_visible_var.get():
+                self.output_visible_var.set(True)
+                self.view_toggle_output()
+            self._output._set_active(tab)
+
+    def view_new_terminal(self) -> None:
+        self.view_show_panel("terminal")
 
     def view_toggle_minimap(self) -> None:
         show = self.minimap_visible_var.get()
