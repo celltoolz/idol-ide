@@ -168,7 +168,9 @@ Implemented and stable:
 - **Diagnostic statusbar badge** — live ✕N ⚠N count; click to open Problems panel
 - Sticky scroll, minimap
 - **Breadcrumb bar** — path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
-- Multi-cursor editing
+- **Multi-cursor editing** — Alt+Click to add/remove cursors; Shift+Arrow for independent per-cursor selections; Ctrl+C copies all selections; smart pairs and bracket matching work at every cursor; click-placement aligned to nearest character boundary
+- **Line move & duplicate** — Alt+Up/Down moves current line or selected block; Shift+Alt+Down duplicates below (cursor follows); Shift+Alt+Up duplicates below (cursor stays on original)
+- **Unified Panels menu** — View → Panels submenu switches between Output/Terminal/Problems/Debug tabs; Ctrl+` terminal, Ctrl+Shift+U output, Ctrl+Shift+M problems, Ctrl+Shift+Y debug; each shortcut toggles visibility if already active
 - Split editor with scroll sync
 - Git integration: staging, unstaging, commit, push, diff view, health panel, inline file explanations, fix wizard
 - **Commit History panel** — last 50 commits, file diff on click, filter bar, load more

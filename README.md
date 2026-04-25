@@ -36,7 +36,10 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 - Line numbers with code folding (click ⊟/⊞ markers to collapse/expand blocks)
 - Sticky scroll — enclosing scope pins to the top while you scroll, fully syntax highlighted with correct line numbers
 - Minimap — live scaled-down view with hover zoom preview and mouse wheel scrolling
-- Multi-cursor editing — Alt+Click to place additional cursors; all cursors edit in sync
+- Multi-cursor editing — Alt+Click to add a cursor; Alt+Click an existing cursor to remove it; all cursors type, delete, and navigate in sync
+  - Shift+Arrow extends an independent selection at each cursor; Ctrl+C copies all selections at once
+  - Smart pairs (brackets, quotes) auto-close and skip-over correctly at every cursor
+- Line move & duplicate — Alt+Up/Down moves the current line (or selected block) up or down; Shift+Alt+Down duplicates below (cursor follows); Shift+Alt+Up duplicates below (cursor stays on original)
 - Insert key mode — toggles overwrite mode with block cursor and OVR status bar indicator
 - Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes
 
@@ -247,7 +250,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - **→ Output** / **→ Terminal** destination
   - **Run Line** / **Run Selection** for quick one-off execution
 - **■** — stop the running script or debug session
-- **>_** — open a new terminal
+- **>_** — show terminal panel (Ctrl+`)
 - **SPLIT** — toggle split editor; highlights blue when active
 - **MAP** — toggle minimap; highlights blue when active
 - **☰** — toggle sidebar (Ctrl+B); highlights blue when active
@@ -303,7 +306,10 @@ python main.py
 | Go to Definition | F12 |
 | Split editor | Ctrl+\\ |
 | Source control | Ctrl+Shift+G |
-| New terminal | Ctrl+` |
+| Show terminal panel | Ctrl+` |
+| Show output panel | Ctrl+Shift+U |
+| Show problems panel | Ctrl+Shift+M |
+| Show debug panel | Ctrl+Shift+Y |
 | Terminal copy | Ctrl+Shift+C |
 | Terminal paste | Ctrl+Shift+V |
 | Learning Mode | F1 |
@@ -312,8 +318,12 @@ python main.py
 | Toggle sidebar | Ctrl+B |
 | Zen mode | F10 |
 | Change font | Ctrl+L |
-| Add cursor | Alt+Click |
-| Clear cursors | Escape / Click |
+| Add / remove cursor | Alt+Click |
+| Clear all cursors | Escape / Click |
+| Extend selection (per cursor) | Shift+Arrow |
 | Toggle overwrite | Insert |
+| Move line up / down | Alt+Up / Alt+Down |
+| Duplicate line down | Shift+Alt+Down |
+| Duplicate line up (stay) | Shift+Alt+Up |
 | Run line / selection | Right-click menu |
 | Toggle scroll sync | Scroll Lock |
