@@ -1069,6 +1069,69 @@ class IDOL(Tk):
         _brc(codeview, self._on_editor_right_click)
         codeview.bind("<<ContentChanged>>", lambda _: self._on_content_changed())
 
+        # Alt+Up/Down — move line(s); Shift+Alt+Up/Down — duplicate line(s)
+        def _get_line_range(cv):
+            sel = cv.tag_ranges("sel")
+            if sel:
+                first = int(cv.index(sel[0]).split(".")[0])
+                last  = int(cv.index(sel[1]).split(".")[0])
+                if cv.index(sel[1]).endswith(".0"):
+                    last -= 1
+            else:
+                first = last = int(cv.index("insert").split(".")[0])
+            return first, last
+
+        def _move_lines(e, cv=codeview, direction="up"):
+            first, last = _get_line_range(cv)
+            total = int(cv.index("end - 1c").split(".")[0])
+            # Save column before edits clip INSERT to first.0
+            cur_col = int(cv.index("insert").split(".")[1])
+            n = last - first + 1
+            if direction == "up":
+                if first <= 1:
+                    return "break"
+                pivot = first - 1
+                above = cv.get(f"{pivot}.0", f"{pivot}.end")
+                block = cv.get(f"{first}.0", f"{last}.end")
+                cv.delete(f"{pivot}.0", f"{last}.end")
+                cv.insert(f"{pivot}.0", block + "\n" + above)
+                cv.mark_set("insert", f"{first - 1}.{cur_col}")
+            else:
+                if last >= total:
+                    return "break"
+                pivot = last + 1
+                below = cv.get(f"{pivot}.0", f"{pivot}.end")
+                block = cv.get(f"{first}.0", f"{last}.end")
+                cv.delete(f"{first}.0", f"{pivot}.end")
+                cv.insert(f"{first}.0", below + "\n" + block)
+                cv.mark_set("insert", f"{first + n}.{cur_col}")
+            cv.see("insert")
+            cv.after_idle(cv.highlight_all)
+            return "break"
+
+        def _copy_lines(e, cv=codeview, direction="down"):
+            first, last = _get_line_range(cv)
+            n = last - first + 1
+            cur_col = int(cv.index("insert").split(".")[1])
+            block = cv.get(f"{first}.0", f"{last}.end")
+            if direction == "down":
+                cv.insert(f"{last}.end", "\n" + block)
+                cv.mark_set("insert", f"{last + n}.{cur_col}")
+            else:
+                cv.insert(f"{first}.0", block + "\n")
+                # Cursor stays on original, now shifted down by n lines
+                cv.mark_set("insert", f"{first + n}.{cur_col}")
+            cv.see("insert")
+            cv.after_idle(cv.highlight_all)
+            return "break"
+
+        for _key, _dir in (("<Alt-Up>", "up"), ("<Alt-Down>", "down"),
+                           ("<Alt-KP_Up>", "up"), ("<Alt-KP_Down>", "down")):
+            codeview.bind(_key, lambda e, d=_dir: _move_lines(e, direction=d))
+        for _key, _dir in (("<Shift-Alt-Up>", "up"), ("<Shift-Alt-Down>", "down"),
+                           ("<Shift-Alt-KP_Up>", "up"), ("<Shift-Alt-KP_Down>", "down")):
+            codeview.bind(_key, lambda e, d=_dir: _copy_lines(e, direction=d))
+
         # Alt+Click — add a secondary cursor; returns "break" so plain-click
         # handler below doesn't also fire and clear the new cursor.
         def _alt_click(e, m=mc, cv=codeview):
