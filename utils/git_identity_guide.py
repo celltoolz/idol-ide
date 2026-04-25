@@ -62,12 +62,21 @@ def get_pages() -> list[GuidePage]:
             subtitle="Page 3 of 4",
             sections=[
                 (
-                    "INSTALL GITHUB CLI",
-                    "GitHub CLI (gh) is the easiest way to authenticate git with GitHub on Windows. "
-                    "In the terminal run:\n\n"
+                    "INSTALL GITHUB CLI — WINDOWS",
                     "    winget install --id GitHub.cli -e --source winget\n\n"
                     "After install, close and reopen the terminal so gh is on your PATH.",
                     "#73c991",
+                ),
+                (
+                    "INSTALL GITHUB CLI — macOS",
+                    "    brew install gh",
+                    "#4ec9b0",
+                ),
+                (
+                    "INSTALL GITHUB CLI — LINUX",
+                    "Install instructions vary by distro. See the official guide:\n\n"
+                    "    github.com/cli/cli/blob/trunk/docs/install_linux.md",
+                    "#c586c0",
                 ),
                 (
                     "LOG IN",
