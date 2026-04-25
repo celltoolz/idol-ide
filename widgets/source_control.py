@@ -1181,6 +1181,9 @@ class SourceControlPanel(ttk.Frame):
         self._health_frame.pack(fill="x")
         LearningManager.register(self._health_frame, "git_health_panel")
 
+        # Populate immediately so git-not-installed is visible before any git callback fires
+        self._refresh_health({}, {})
+
     def _toggle_health(self) -> None:
         self._health_collapsed = not self._health_collapsed
         self._health_arrow.config(text="▸" if self._health_collapsed else "▾")
