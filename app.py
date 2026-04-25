@@ -1118,9 +1118,9 @@ class IDOL(Tk):
                 cv.insert(f"{last}.end", "\n" + block)
                 cv.mark_set("insert", f"{last + n}.{cur_col}")
             else:
-                cv.insert(f"{first}.0", block + "\n")
-                # Cursor stays on original, now shifted down by n lines
-                cv.mark_set("insert", f"{first + n}.{cur_col}")
+                cv.insert(f"{last}.end", "\n" + block)
+                # Cursor stays on original (copy appears below)
+                cv.mark_set("insert", f"{first}.{cur_col}")
             cv.see("insert")
             cv.after_idle(cv.highlight_all)
             return "break"
