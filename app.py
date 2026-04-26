@@ -52,7 +52,7 @@ from widgets.package_manager import PackageManagerPanel
 def _add_tooltip(widget, text: str, delay: int = 500) -> None:
     """Attach a hover tooltip that appears *delay* ms after entering *widget*."""
     _after = [None]
-    _win   = [None]
+    _win = [None]
 
     def _show():
         if _win[0]:
@@ -62,8 +62,16 @@ def _add_tooltip(widget, text: str, delay: int = 500) -> None:
         win = tk.Toplevel(widget)
         win.overrideredirect(True)
         win.attributes("-topmost", True)
-        tk.Label(win, text=text, bg="#252526", fg="#cccccc",
-                 font=("Segoe UI", 8), padx=6, pady=3, relief="flat").pack()
+        tk.Label(
+            win,
+            text=text,
+            bg="#252526",
+            fg="#cccccc",
+            font=("Segoe UI", 8),
+            padx=6,
+            pady=3,
+            relief="flat",
+        ).pack()
         win.update_idletasks()
         w = win.winfo_width()
         win.geometry(f"+{x - w // 2}+{y}")
@@ -105,7 +113,7 @@ def _offset_to_tk(text: str, offset: int) -> str:
     """Convert a flat character offset into a Tk 'line.col' index string."""
     before = text[:offset]
     line = before.count("\n") + 1
-    col  = len(before) - before.rfind("\n") - 1
+    col = len(before) - before.rfind("\n") - 1
     return f"{line}.{col}"
 
 
@@ -212,21 +220,23 @@ def _diags_to_entries(diags: list, filepath: str, filename: str) -> list[dict]:
     entries = []
     for d in diags:
         line = d["range"]["start"]["line"] + 1
-        col  = d["range"]["start"]["character"]
-        sev  = d.get("severity", 2)
+        col = d["range"]["start"]["character"]
+        sev = d.get("severity", 2)
         # Drop anything within 3 lines of a syntax error that isn't itself a root
         if line not in syntax_error_lines and any(
             0 < line - root <= 3 for root in syntax_error_lines
         ):
             continue
-        entries.append({
-            "filepath": filepath,
-            "filename": filename,
-            "line":     line,
-            "col":      col,
-            "severity": sev,
-            "message":  d.get("message", ""),
-        })
+        entries.append(
+            {
+                "filepath": filepath,
+                "filename": filename,
+                "line": line,
+                "col": col,
+                "severity": sev,
+                "message": d.get("message", ""),
+            }
+        )
     return entries
 
 
@@ -275,9 +285,15 @@ class IDOL(Tk):
         self._find_replace: FindReplaceBar | None = None
 
         # LSP
-        self._lsp: LspManager | None = None        # intelligence (hover/completion/definition)
-        self._lsp_diag: PyflakesLinter | None = None  # diagnostics (ruff/pyflakes subprocess)
-        self._runtime_error_tab_id: str | None = None  # tab showing last crash indicator
+        self._lsp: LspManager | None = (
+            None  # intelligence (hover/completion/definition)
+        )
+        self._lsp_diag: PyflakesLinter | None = (
+            None  # diagnostics (ruff/pyflakes subprocess)
+        )
+        self._runtime_error_tab_id: str | None = (
+            None  # tab showing last crash indicator
+        )
         self._lsp_diagnostics: dict[str, list] = {}  # uri → diag list
         self._hover_after_id: str | None = None
         self._hover_popup = None
@@ -285,8 +301,8 @@ class IDOL(Tk):
 
         # Debugger
         self._debugger: DebugManager | None = None
-        self._breakpoints: dict[str, set[int]] = {}   # filepath → line numbers
-        self._debug_current_tab: str | None = None    # tab_id with debug highlight
+        self._breakpoints: dict[str, set[int]] = {}  # filepath → line numbers
+        self._debug_current_tab: str | None = None  # tab_id with debug highlight
 
         # Completion
         self._completion = CompletionPopup(
@@ -334,8 +350,8 @@ class IDOL(Tk):
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
         self.zen_mode_var = BooleanVar(value=False)
-        self._run_target_var  = tk.StringVar(value="output")
-        self._run_action_var  = tk.StringVar(value="run")
+        self._run_target_var = tk.StringVar(value="output")
+        self._run_action_var = tk.StringVar(value="run")
         self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
@@ -427,7 +443,9 @@ class IDOL(Tk):
         _nav_bar.pack(fill="x", side="top")
         _nav_bar.pack_propagate(False)
 
-        def _nav_btn(parent, text, cmd, side="left", padx=5, active_fn=None, passthrough=False):
+        def _nav_btn(
+            parent, text, cmd, side="left", padx=5, active_fn=None, passthrough=False
+        ):
             fg0 = "#007acc" if active_fn and active_fn() else "#858585"
             lbl = Label(
                 parent,
@@ -447,7 +465,11 @@ class IDOL(Tk):
                 lbl.config(fg="#007acc" if active_fn and active_fn() else "#858585")
 
             def _click():
-                if self._learning_tab and cmd is not self.view_learning_mode and not passthrough:
+                if (
+                    self._learning_tab
+                    and cmd is not self.view_learning_mode
+                    and not passthrough
+                ):
                     lid = self._learning_reg_map.get(lbl)
                     if lid:
                         self._on_learning_click(lbl, lid)
@@ -462,8 +484,12 @@ class IDOL(Tk):
             return lbl
 
         # Left cluster — lambdas defer notebook lookup until after assignment
-        self._prev_btn = _nav_btn(_nav_bar, " ‹ ", lambda: self.notebook.select_prev(), passthrough=True)
-        self._next_btn = _nav_btn(_nav_bar, " › ", lambda: self.notebook.select_next(), passthrough=True)
+        self._prev_btn = _nav_btn(
+            _nav_bar, " ‹ ", lambda: self.notebook.select_prev(), passthrough=True
+        )
+        self._next_btn = _nav_btn(
+            _nav_bar, " › ", lambda: self.notebook.select_next(), passthrough=True
+        )
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="left", fill="y", pady=4)
         self._plus_btn = _nav_btn(_nav_bar, " + ", self.file_new, passthrough=True)
         self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043"))
@@ -473,37 +499,52 @@ class IDOL(Tk):
         self._debug_bar = tk.Frame(_nav_bar, bg="#1e1e1e")
         # (packed dynamically by _show_debug_bar / _hide_debug_bar)
         _DBG_BTN_STYLE = dict(
-            bg="#1e1e1e", fg="#858585",
+            bg="#1e1e1e",
+            fg="#858585",
             font=("Segoe UI", 10),
-            relief="flat", bd=0,
-            cursor="hand2", padx=6, pady=2,
-            activebackground="#2a2d2e", activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            padx=6,
+            pady=2,
+            activebackground="#2a2d2e",
+            activeforeground="#ffffff",
         )
-        self._dbg_continue_btn = tk.Label(self._debug_bar, text="▶", **{**_DBG_BTN_STYLE, "fg": "#4ec94e"})
-        self._dbg_over_btn     = tk.Label(self._debug_bar, text="↷", **_DBG_BTN_STYLE)
-        self._dbg_in_btn       = tk.Label(self._debug_bar, text="↓", **_DBG_BTN_STYLE)
-        self._dbg_out_btn      = tk.Label(self._debug_bar, text="↑", **_DBG_BTN_STYLE)
-        self._dbg_stop_btn     = tk.Label(self._debug_bar, text="■", **{**_DBG_BTN_STYLE, "fg": "#f44747"})
+        self._dbg_continue_btn = tk.Label(
+            self._debug_bar, text="▶", **{**_DBG_BTN_STYLE, "fg": "#4ec94e"}
+        )
+        self._dbg_over_btn = tk.Label(self._debug_bar, text="↷", **_DBG_BTN_STYLE)
+        self._dbg_in_btn = tk.Label(self._debug_bar, text="↓", **_DBG_BTN_STYLE)
+        self._dbg_out_btn = tk.Label(self._debug_bar, text="↑", **_DBG_BTN_STYLE)
+        self._dbg_stop_btn = tk.Label(
+            self._debug_bar, text="■", **{**_DBG_BTN_STYLE, "fg": "#f44747"}
+        )
         for btn, cmd in (
             (self._dbg_continue_btn, self._debug_continue),
-            (self._dbg_over_btn,     self._debug_step_over),
-            (self._dbg_in_btn,       self._debug_step_in),
-            (self._dbg_out_btn,      self._debug_step_out),
-            (self._dbg_stop_btn,     self._debug_stop),
+            (self._dbg_over_btn, self._debug_step_over),
+            (self._dbg_in_btn, self._debug_step_in),
+            (self._dbg_out_btn, self._debug_step_out),
+            (self._dbg_stop_btn, self._debug_stop),
         ):
             btn.pack(side="left")
             btn.bind("<Button-1>", lambda _, fn=cmd: fn())
             btn.bind("<Enter>", lambda e, b=btn: b.config(fg="#ffffff"))
-            btn.bind("<Leave>", lambda e, b=btn: b.config(
-                fg="#4ec94e" if b is self._dbg_continue_btn else
-                "#f44747"   if b is self._dbg_stop_btn      else "#858585"
-            ))
+            btn.bind(
+                "<Leave>",
+                lambda e, b=btn: b.config(
+                    fg="#4ec94e"
+                    if b is self._dbg_continue_btn
+                    else "#f44747"
+                    if b is self._dbg_stop_btn
+                    else "#858585"
+                ),
+            )
         for btn, tip in (
             (self._dbg_continue_btn, "Continue (F5)"),
-            (self._dbg_over_btn,     "Step Over (F10)"),
-            (self._dbg_in_btn,       "Step Into (F11)"),
-            (self._dbg_out_btn,      "Step Out (Shift+F11)"),
-            (self._dbg_stop_btn,     "Stop (Shift+F5)"),
+            (self._dbg_over_btn, "Step Over (F10)"),
+            (self._dbg_in_btn, "Step Into (F11)"),
+            (self._dbg_out_btn, "Step Out (Shift+F11)"),
+            (self._dbg_stop_btn, "Stop (Shift+F5)"),
         ):
             _add_tooltip(btn, tip)
         tk.Frame(self._debug_bar, bg="#555555", width=1).pack(
@@ -523,18 +564,36 @@ class IDOL(Tk):
         # Layout (left→right): [ ▶/⬡ action ][ ▾ chevron ]  [ ■ stop ]
         # Packed side="right" so rightmost item is packed first.
         self._nav_stop_btn = Label(
-            _nav_bar, text=" ■ ", bg=_NAV_BG, fg="#555555",
-            font=("Segoe UI", 9), cursor="hand2", padx=3, pady=0,
+            _nav_bar,
+            text=" ■ ",
+            bg=_NAV_BG,
+            fg="#555555",
+            font=("Segoe UI", 9),
+            cursor="hand2",
+            padx=3,
+            pady=0,
         )
         self._nav_stop_btn.pack(side="right")
         self._nav_chevron_btn = Label(
-            _nav_bar, text="▾", bg=_NAV_BG, fg="#858585",
-            font=("Segoe UI", 8), cursor="hand2", padx=1, pady=0,
+            _nav_bar,
+            text="▾",
+            bg=_NAV_BG,
+            fg="#858585",
+            font=("Segoe UI", 8),
+            cursor="hand2",
+            padx=1,
+            pady=0,
         )
         self._nav_chevron_btn.pack(side="right")
         self._nav_run_btn = Label(
-            _nav_bar, text=" ▶ ", bg=_NAV_BG, fg="#4ec94e",
-            font=("Segoe UI", 9), cursor="hand2", padx=3, pady=0,
+            _nav_bar,
+            text=" ▶ ",
+            bg=_NAV_BG,
+            fg="#4ec94e",
+            font=("Segoe UI", 9),
+            cursor="hand2",
+            padx=3,
+            pady=0,
         )
         self._nav_run_btn.pack(side="right")
 
@@ -542,52 +601,73 @@ class IDOL(Tk):
             if not self._is_anything_running():
                 is_dbg = self._run_action_var.get() == "debug"
                 self._nav_run_btn.config(fg="#f0d880" if is_dbg else "#6fe06f")
+
         def _run_btn_leave(_):
             self._refresh_run_buttons()
+
         def _chevron_enter(_):
             if not self._is_anything_running():
                 self._nav_chevron_btn.config(fg="#cccccc")
+
         def _chevron_leave(_):
-            self._nav_chevron_btn.config(fg="#555555" if self._is_anything_running() else "#858585")
+            self._nav_chevron_btn.config(
+                fg="#555555" if self._is_anything_running() else "#858585"
+            )
+
         def _stop_btn_enter(_):
             if self._is_anything_running():
                 self._nav_stop_btn.config(fg="#ff6b6b")
-        def _stop_btn_leave(_):
-            self._nav_stop_btn.config(fg="#f44747" if self._is_anything_running() else "#555555")
 
-        self._nav_run_btn.bind("<Button-1>",     lambda _: self._nav_execute())
+        def _stop_btn_leave(_):
+            self._nav_stop_btn.config(
+                fg="#f44747" if self._is_anything_running() else "#555555"
+            )
+
+        self._nav_run_btn.bind("<Button-1>", lambda _: self._nav_execute())
         self._nav_run_btn.bind("<Enter>", _run_btn_enter)
         self._nav_run_btn.bind("<Leave>", _run_btn_leave)
         self._nav_chevron_btn.bind("<Button-1>", lambda _: self._show_run_menu())
         self._nav_chevron_btn.bind("<Enter>", _chevron_enter)
         self._nav_chevron_btn.bind("<Leave>", _chevron_leave)
-        self._nav_stop_btn.bind("<Button-1>",    lambda _: self.run_stop())
+        self._nav_stop_btn.bind("<Button-1>", lambda _: self.run_stop())
         self._nav_stop_btn.bind("<Enter>", _stop_btn_enter)
         self._nav_stop_btn.bind("<Leave>", _stop_btn_leave)
 
-        _add_tooltip(self._nav_run_btn,     "Run or Debug")
+        _add_tooltip(self._nav_run_btn, "Run or Debug")
         _add_tooltip(self._nav_chevron_btn, "Select run mode")
-        _add_tooltip(self._nav_stop_btn,    "Stop (Shift+F5)")
+        _add_tooltip(self._nav_stop_btn, "Stop (Shift+F5)")
 
         # Build the run dropdown menu (posted on ▾ click)
         self._run_menu = tk.Menu(
-            _nav_bar, tearoff=0, bg="#252526", fg="#cccccc",
-            activebackground="#094771", activeforeground="#ffffff",
+            _nav_bar,
+            tearoff=0,
+            bg="#252526",
+            fg="#cccccc",
+            activebackground="#094771",
+            activeforeground="#ffffff",
             font=("Segoe UI", 9),
         )
         self._run_menu.add_radiobutton(
-            label="\u25b6  Run", variable=self._run_action_var, value="run",
+            label="\u25b6  Run",
+            variable=self._run_action_var,
+            value="run",
             command=lambda: (self._refresh_run_buttons(), self._nav_execute()),
         )
         self._run_menu.add_radiobutton(
-            label="\u2b21  Debug", variable=self._run_action_var, value="debug",
+            label="\u2b21  Debug",
+            variable=self._run_action_var,
+            value="debug",
             command=lambda: (self._refresh_run_buttons(), self._nav_execute()),
         )
         self._run_menu.add_separator()
-        self._run_menu.add_radiobutton(label="  \u2192 Output",   variable=self._run_target_var, value="output")
-        self._run_menu.add_radiobutton(label="  \u2192 Terminal", variable=self._run_target_var, value="terminal")
+        self._run_menu.add_radiobutton(
+            label="  \u2192 Output", variable=self._run_target_var, value="output"
+        )
+        self._run_menu.add_radiobutton(
+            label="  \u2192 Terminal", variable=self._run_target_var, value="terminal"
+        )
         self._run_menu.add_separator()
-        self._run_menu.add_command(label="Run Line",      command=self._run_current_line)
+        self._run_menu.add_command(label="Run Line", command=self._run_current_line)
         self._run_menu.add_command(label="Run Selection", command=self._run_selection)
 
         tk.Frame(_nav_bar, bg="#555555", width=1).pack(side="right", fill="y", pady=4)
@@ -648,9 +728,9 @@ class IDOL(Tk):
         )
 
         # Register nav buttons with Learning Mode
-        LearningManager.register(self._nav_run_btn,     "nav_run")
+        LearningManager.register(self._nav_run_btn, "nav_run")
         LearningManager.register(self._nav_chevron_btn, "nav_chevron")
-        LearningManager.register(self._nav_stop_btn,    "nav_stop")
+        LearningManager.register(self._nav_stop_btn, "nav_stop")
         LearningManager.register(self._nav_split_btn, "nav_split")
         LearningManager.register(self._nav_map_btn, "nav_map")
         LearningManager.register(self._nav_sidebar_btn, "nav_sidebar")
@@ -684,9 +764,11 @@ class IDOL(Tk):
         )
         # Keep panel_tab_var in sync whenever the bottom panel switches tabs
         _orig_set_active = self._output._set_active
+
         def _synced_set_active(key, _orig=_orig_set_active):
             _orig(key)
             self.panel_tab_var.set(key)
+
         self._output._set_active = _synced_set_active
 
         self._output.output.on_runtime_error = self._on_runtime_error
@@ -764,16 +846,16 @@ class IDOL(Tk):
         self.bind("<Control-q>", lambda _: self.file_exit())
         self.bind("<Control-f>", lambda _: self.edit_find_replace())
         self.bind("<Control-l>", lambda _: self.view_change_font())
-        self.bind("<F5>",         lambda _: self.debug_file())
+        self.bind("<F5>", lambda _: self.debug_file())
         self.bind("<Control-F5>", lambda _: self._nav_run())
-        self.bind("<F10>",        lambda _: self._debug_step_over())
-        self.bind("<F11>",        lambda _: self._debug_step_in())
-        self.bind("<Shift-F11>",  lambda _: self._debug_step_out())
-        self.bind("<Shift-F5>",   lambda _: self.run_stop())
-        self.bind("<Control-grave>",   lambda _: self.view_show_panel("terminal"))
-        self.bind("<Control-U>",       lambda _: self.view_show_panel("output"))
-        self.bind("<Control-M>",       lambda _: self.view_show_panel("problems"))
-        self.bind("<Control-Y>",       lambda _: self.view_show_panel("debug"))
+        self.bind("<F10>", lambda _: self._debug_step_over())
+        self.bind("<F11>", lambda _: self._debug_step_in())
+        self.bind("<Shift-F11>", lambda _: self._debug_step_out())
+        self.bind("<Shift-F5>", lambda _: self.run_stop())
+        self.bind("<Control-grave>", lambda _: self.view_show_panel("terminal"))
+        self.bind("<Control-U>", lambda _: self.view_show_panel("output"))
+        self.bind("<Control-M>", lambda _: self.view_show_panel("problems"))
+        self.bind("<Control-Y>", lambda _: self.view_show_panel("debug"))
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
@@ -885,8 +967,11 @@ class IDOL(Tk):
         LearningManager.register(codeview, "editor")
         codeview.bind(
             "<Button-1>",
-            lambda e, cv=codeview: (LearningManager.fire_click(cv), "break")[-1]
-            if LearningManager.is_active() else None,
+            lambda e, cv=codeview: (
+                (LearningManager.fire_click(cv), "break")[-1]
+                if LearningManager.is_active()
+                else None
+            ),
             add="+",
         )
         self._learning_adopt_widgets(crumb, codeview)
@@ -911,6 +996,7 @@ class IDOL(Tk):
                     # have a stable path. Transfer to real path on file save.
                     import uuid
                     from utils.session import TMP_DIR
+
                     tmp = self._temp_files.get(tid)
                     if not tmp:
                         TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -919,15 +1005,17 @@ class IDOL(Tk):
                     cv = self._codeviews.get(tid)
                     if cv:
                         try:
-                            Path(tmp).write_text(cv.get("1.0", "end-1c"), encoding="utf-8")
+                            Path(tmp).write_text(
+                                cv.get("1.0", "end-1c"), encoding="utf-8"
+                            )
                         except Exception:
                             pass
                     fp = tmp
                 self._on_breakpoint_toggle(fp, lineno)
-                codeview._line_numbers.set_breakpoints(
-                    self._breakpoints.get(fp, set())
-                )
+                codeview._line_numbers.set_breakpoints(self._breakpoints.get(fp, set()))
+
             return _toggle
+
         codeview._line_numbers.on_breakpoint_toggle = _make_bp_toggle(tab_id)
 
         # Shift breakpoints when lines are inserted/removed above them
@@ -952,7 +1040,9 @@ class IDOL(Tk):
                 self._breakpoints[fp] = new_bp
                 cv._line_numbers.set_breakpoints(new_bp)
                 self._refresh_debug_breakpoints()
+
             return _on_lines_changed
+
         codeview.on_lines_changed = _make_lines_changed(tab_id, codeview)
 
         # Snapshot/restore breakpoints alongside undo/redo
@@ -960,6 +1050,7 @@ class IDOL(Tk):
             def _snapshot():
                 fp = self._files.get(tid)
                 return set(self._breakpoints.get(fp, set())) if fp else None
+
             return _snapshot
 
         def _make_bp_restore(tid, cv):
@@ -970,9 +1061,10 @@ class IDOL(Tk):
                 self._breakpoints[fp] = saved
                 cv._line_numbers.set_breakpoints(saved)
                 self._refresh_debug_breakpoints()
+
             return _restore
 
-        codeview.on_snapshot     = _make_bp_snapshot(tab_id)
+        codeview.on_snapshot = _make_bp_snapshot(tab_id)
         codeview.on_undo_restore = _make_bp_restore(tab_id, codeview)
 
         is_code = not isinstance(lexer, (pygments.lexers.TextLexer,))
@@ -1071,12 +1163,20 @@ class IDOL(Tk):
             return result
 
         codeview.bind("<Key>", _on_key)
-        codeview.bind("<Control-slash>", lambda e, cv=codeview: self._toggle_comment(cv) or "break")
+        codeview.bind(
+            "<Control-slash>",
+            lambda e, cv=codeview: self._toggle_comment(cv) or "break",
+        )
         codeview.bind("<KeyRelease>", self._bracket_matcher.match)
         codeview.bind("<ButtonRelease-1>", self._on_click_release)
-        for key in ("<KeyRelease-Left>", "<KeyRelease-Right>",
-                    "<KeyRelease-Up>",   "<KeyRelease-Down>",
-                    "<KeyRelease-Home>", "<KeyRelease-End>"):
+        for key in (
+            "<KeyRelease-Left>",
+            "<KeyRelease-Right>",
+            "<KeyRelease-Up>",
+            "<KeyRelease-Down>",
+            "<KeyRelease-Home>",
+            "<KeyRelease-End>",
+        ):
             codeview.bind(key, self._on_arrow_key)
         from utils import bind_right_click as _brc
 
@@ -1088,7 +1188,7 @@ class IDOL(Tk):
             sel = cv.tag_ranges("sel")
             if sel:
                 first = int(cv.index(sel[0]).split(".")[0])
-                last  = int(cv.index(sel[1]).split(".")[0])
+                last = int(cv.index(sel[1]).split(".")[0])
                 if cv.index(sel[1]).endswith(".0"):
                     last -= 1
             else:
@@ -1139,11 +1239,19 @@ class IDOL(Tk):
             cv.after_idle(cv.highlight_all)
             return "break"
 
-        for _key, _dir in (("<Alt-Up>", "up"), ("<Alt-Down>", "down"),
-                           ("<Alt-KP_Up>", "up"), ("<Alt-KP_Down>", "down")):
+        for _key, _dir in (
+            ("<Alt-Up>", "up"),
+            ("<Alt-Down>", "down"),
+            ("<Alt-KP_Up>", "up"),
+            ("<Alt-KP_Down>", "down"),
+        ):
             codeview.bind(_key, lambda e, d=_dir: _move_lines(e, direction=d))
-        for _key, _dir in (("<Shift-Alt-Up>", "up"), ("<Shift-Alt-Down>", "down"),
-                           ("<Shift-Alt-KP_Up>", "up"), ("<Shift-Alt-KP_Down>", "down")):
+        for _key, _dir in (
+            ("<Shift-Alt-Up>", "up"),
+            ("<Shift-Alt-Down>", "down"),
+            ("<Shift-Alt-KP_Up>", "up"),
+            ("<Shift-Alt-KP_Down>", "down"),
+        ):
             codeview.bind(_key, lambda e, d=_dir: _copy_lines(e, direction=d))
 
         # Alt+Click — add a secondary cursor; returns "break" so plain-click
@@ -1183,6 +1291,7 @@ class IDOL(Tk):
             self._set_active_pane(pane)
 
         codeview.bind("<ButtonPress-1>", _on_click)
+
         # Escape — dismiss completion first, then clear secondary cursors
         def _on_esc(_, m=mc):
             if self._completion.visible:
@@ -1374,9 +1483,11 @@ class IDOL(Tk):
             pattern = re.compile(r"\b" + re.escape(word) + r"\b")
             full_text = cv.get("1.0", "end-1c")
             for m in pattern.finditer(full_text):
-                cv.tag_add("matching_word",
-                           _offset_to_tk(full_text, m.start()),
-                           _offset_to_tk(full_text, m.end()))
+                cv.tag_add(
+                    "matching_word",
+                    _offset_to_tk(full_text, m.start()),
+                    _offset_to_tk(full_text, m.end()),
+                )
             cv.tag_configure("matching_word", background="#3d3f4a")
             cv.tag_raise("sel", "matching_word")
 
@@ -1588,9 +1699,9 @@ class IDOL(Tk):
 
     def _setup_lsp_tags(self, codeview: CodeView) -> None:
         """Configure diagnostic highlight tags on a new codeview."""
-        codeview.tag_configure("lsp_error",     background="#3d0000", underline=True)
-        codeview.tag_configure("lsp_warning",   background="#2e2a00", underline=True)
-        codeview.tag_configure("lsp_info",      background="#002040")
+        codeview.tag_configure("lsp_error", background="#3d0000", underline=True)
+        codeview.tag_configure("lsp_warning", background="#2e2a00", underline=True)
+        codeview.tag_configure("lsp_info", background="#002040")
         codeview.tag_configure("runtime_error", background="#3d2500")
 
     def _on_lsp_diagnostics(self, uri: str, diags: list) -> None:
@@ -1607,7 +1718,7 @@ class IDOL(Tk):
         # Rebuild the full problems list and push to the panel
         entries = self._build_problem_entries()
         self._output.update_problems(entries)
-        errors   = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
+        errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
         warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
         self._statusbar.set_diagnostics(errors, warnings)
 
@@ -1619,9 +1730,7 @@ class IDOL(Tk):
             if os.name == "nt" and filepath.startswith("\\"):
                 filepath = filepath[1:]
             filename = os.path.basename(filepath)
-            entries.extend(
-                _diags_to_entries(diags, filepath, filename)
-            )
+            entries.extend(_diags_to_entries(diags, filepath, filename))
         return entries
 
     def _apply_diagnostics(self, codeview: CodeView, diags: list) -> None:
@@ -2299,8 +2408,11 @@ class IDOL(Tk):
             prefix = ""
             line_text = ""
         if prefix:
-            items = [it for it in items
-                     if it.get("label", "").lower().startswith(prefix.lower())]
+            items = [
+                it
+                for it in items
+                if it.get("label", "").lower().startswith(prefix.lower())
+            ]
             if not items:
                 self._completion.hide()
                 return
@@ -2355,21 +2467,25 @@ class IDOL(Tk):
         sel = cv.tag_ranges("sel")
         if sel:
             start_line = int(cv.index(sel[0]).split(".")[0])
-            end_idx    = cv.index(sel[1])
-            end_line   = int(end_idx.split(".")[0])
+            end_idx = cv.index(sel[1])
+            end_line = int(end_idx.split(".")[0])
             if end_idx.endswith(".0"):
                 end_line -= 1
         else:
             start_line = end_line = int(cv.index("insert").split(".")[0])
 
-        lines = [cv.get(f"{ln}.0", f"{ln}.end") for ln in range(start_line, end_line + 1)]
+        lines = [
+            cv.get(f"{ln}.0", f"{ln}.end") for ln in range(start_line, end_line + 1)
+        ]
         non_empty = [l for l in lines if l.strip()]
-        all_commented = bool(non_empty) and all(l.lstrip().startswith("#") for l in non_empty)
+        all_commented = bool(non_empty) and all(
+            l.lstrip().startswith("#") for l in non_empty
+        )
 
         for ln in range(start_line, end_line + 1):
-            text   = cv.get(f"{ln}.0", f"{ln}.end")
+            text = cv.get(f"{ln}.0", f"{ln}.end")
             indent = len(text) - len(text.lstrip())
-            body   = text[indent:]
+            body = text[indent:]
             if all_commented:
                 if body.startswith("# "):
                     new = text[:indent] + body[2:]
@@ -2677,7 +2793,9 @@ class IDOL(Tk):
                     self._refresh_debug_breakpoints()
                     cv = self._codeviews.get(tab_id)
                     if cv:
-                        cv._line_numbers.set_breakpoints(self._breakpoints.get(filepath, set()))
+                        cv._line_numbers.set_breakpoints(
+                            self._breakpoints.get(filepath, set())
+                        )
                 try:
                     Path(_tmp).unlink(missing_ok=True)
                 except Exception:
@@ -3117,7 +3235,9 @@ class IDOL(Tk):
             return
         entries = self._build_problem_entries()
         # Only errors and warnings — skip pure style info
-        actionable = [e for e in entries if e.get("severity") in (SEV_ERROR, SEV_WARNING)]
+        actionable = [
+            e for e in entries if e.get("severity") in (SEV_ERROR, SEV_WARNING)
+        ]
         if not actionable:
             return
 
@@ -3144,9 +3264,9 @@ class IDOL(Tk):
         sev_label = {SEV_ERROR: "error", SEV_WARNING: "warning"}.get(
             entry.get("severity"), "issue"
         )
-        msg      = entry.get("message", "")
+        msg = entry.get("message", "")
         filename = entry.get("filename", "")
-        line     = entry.get("line", 0)
+        line = entry.get("line", 0)
         user_text = (
             f"I have a Python {sev_label} on line {line} of '{filename}':\n\n"
             f"  {msg}\n\n"
@@ -3171,8 +3291,12 @@ class IDOL(Tk):
         LM.register(self._sidebar._sc_hdr, "source_control_panel")
         LM.register(self._sidebar.source_control, "source_control_panel", overlay=False)
         LM.register(self._sidebar.source_control._health_hdr, "git_health_panel")
-        LM.register(self._sidebar.source_control._staged_sec._hdr, "source_control_panel")
-        LM.register(self._sidebar.source_control._unstaged_sec._hdr, "source_control_panel")
+        LM.register(
+            self._sidebar.source_control._staged_sec._hdr, "source_control_panel"
+        )
+        LM.register(
+            self._sidebar.source_control._unstaged_sec._hdr, "source_control_panel"
+        )
         LM.register(self._sidebar.source_control._history_sec._hdr, "commit_history")
         LM.register(self._sidebar._explorer_hdr, "explorer_panel")
 
@@ -3192,38 +3316,37 @@ class IDOL(Tk):
         LM.register(self._find_replace, "find_replace_bar")
 
         # Output / Terminal / Problems / Debug — tab buttons get overlays, large panels don't
-        LM.register(self._output.output_tab_btn,   "output_panel")
-        LM.register(self._output.output_tab_lbl,   "output_panel")
+        LM.register(self._output.output_tab_btn, "output_panel")
+        LM.register(self._output.output_tab_lbl, "output_panel")
         LM.register(self._output.terminal_tab_btn, "terminal_panel")
         LM.register(self._output.terminal_tab_lbl, "terminal_panel")
         LM.register(self._output.problems_tab_btn, "problems_panel")
         LM.register(self._output.problems_tab_lbl, "problems_panel")
-        LM.register(self._output.debug_tab_btn,    "debug_panel")
-        LM.register(self._output.debug_tab_lbl,    "debug_panel")
-        LM.register(self._output.output,   "output_panel",   overlay=False)
+        LM.register(self._output.debug_tab_btn, "debug_panel")
+        LM.register(self._output.debug_tab_lbl, "debug_panel")
+        LM.register(self._output.output, "output_panel", overlay=False)
         LM.register(self._output.terminal, "terminal_panel", overlay=False)
         LM.register(self._output.problems, "problems_panel", overlay=False)
-        LM.register(self._output.debug,    "debug_panel",    overlay=False)
+        LM.register(self._output.debug, "debug_panel", overlay=False)
 
         # Tab bar slot controls
-        LM.register(self._output.output._guide_btn,           "output_panel")
-        LM.register(self._output.output._clear_btn,          "output_panel")
-        LM.register(self._output.terminal._shell_cb,         "terminal_panel")
-        LM.register(self._output.terminal._restart_btn,      "terminal_panel")
-        LM.register(self._output.terminal._term_clear_btn,   "terminal_panel")
-        LM.register(self._output.terminal._venv_btn,         "terminal_panel")
-        LM.register(self._output._popout_lbl,                "debug_panel")
+        LM.register(self._output.output._guide_btn, "output_panel")
+        LM.register(self._output.output._clear_btn, "output_panel")
+        LM.register(self._output.terminal._shell_cb, "terminal_panel")
+        LM.register(self._output.terminal._restart_btn, "terminal_panel")
+        LM.register(self._output.terminal._term_clear_btn, "terminal_panel")
+        LM.register(self._output.terminal._venv_btn, "terminal_panel")
+        LM.register(self._output._popout_lbl, "debug_panel")
 
         # Debug toolbar buttons
         LM.register(self._dbg_continue_btn, "dbg_continue")
-        LM.register(self._dbg_over_btn,     "dbg_step_over")
-        LM.register(self._dbg_in_btn,       "dbg_step_in")
-        LM.register(self._dbg_out_btn,      "dbg_step_out")
-        LM.register(self._dbg_stop_btn,     "dbg_stop")
+        LM.register(self._dbg_over_btn, "dbg_step_over")
+        LM.register(self._dbg_in_btn, "dbg_step_in")
+        LM.register(self._dbg_out_btn, "dbg_step_out")
+        LM.register(self._dbg_stop_btn, "dbg_stop")
 
         # AI Chat input box
         LM.register(self._ai_chat_panel._input, "ai_chat")
-
 
     # Tkinter bindtag used to intercept all clicks while learning mode is active
     _LM_TAG = "LearningMode"
@@ -3378,16 +3501,20 @@ class IDOL(Tk):
     def _learning_flash(self, widget) -> None:
         """Flash *widget* with a blue highlight for 400 ms."""
         from tkinter import ttk as _ttk
+
         if isinstance(widget, _ttk.Treeview):
             return
         orig = LearningManager.get_widget_originals(widget)
         try:
             widget.config(highlightbackground="#007acc", highlightthickness=2)
-            self.after(400, lambda: self._learning_flash_restore(
-                widget,
-                orig.get("highlightbackground", ""),
-                orig.get("highlightthickness", 0),
-            ))
+            self.after(
+                400,
+                lambda: self._learning_flash_restore(
+                    widget,
+                    orig.get("highlightbackground", ""),
+                    orig.get("highlightthickness", 0),
+                ),
+            )
         except Exception:
             pass
 
@@ -3715,10 +3842,10 @@ class IDOL(Tk):
             if orig:
                 tk.Text.configure(cv, yscrollcommand=orig)
 
-        orig_left_vs  = left_cv.vertical_scroll
+        orig_left_vs = left_cv.vertical_scroll
         orig_right_vs = right_cv.vertical_scroll
         # Stash originals so we can restore them if the pair changes
-        left_cv._orig_vertical_scroll  = orig_left_vs
+        left_cv._orig_vertical_scroll = orig_left_vs
         right_cv._orig_vertical_scroll = orig_right_vs
 
         def left_scroll(first, last):
@@ -3896,17 +4023,19 @@ class IDOL(Tk):
 
     def _refresh_run_buttons(self) -> None:
         """Sync ▶/⬡ action button icon+colour and ■ stop button with run state."""
-        running  = self._is_anything_running()
-        is_debug = getattr(self, "_run_action_var", None) \
-                   and self._run_action_var.get() == "debug"
+        running = self._is_anything_running()
+        is_debug = (
+            getattr(self, "_run_action_var", None)
+            and self._run_action_var.get() == "debug"
+        )
 
-        run_btn     = getattr(self, "_nav_run_btn",     None)
+        run_btn = getattr(self, "_nav_run_btn", None)
         chevron_btn = getattr(self, "_nav_chevron_btn", None)
-        stop_btn    = getattr(self, "_nav_stop_btn",    None)
+        stop_btn = getattr(self, "_nav_stop_btn", None)
 
         if run_btn:
             try:
-                icon  = " \u2b21 " if is_debug else " \u25b6 "
+                icon = " \u2b21 " if is_debug else " \u25b6 "
                 color = "#555555" if running else ("#e5c07b" if is_debug else "#4ec94e")
                 run_btn.config(text=icon, fg=color)
             except Exception:
@@ -3986,20 +4115,23 @@ class IDOL(Tk):
             self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
         term = self._output.terminal
         cmd = f'python "{filepath}"\r'
+
         def _send_when_ready(retries: int = 40) -> None:
             if term.winfo_ismapped() and not term._resize_job:
                 term.after(200, lambda: term.send_text(cmd))
             elif retries > 0:
                 term.after(50, lambda: _send_when_ready(retries - 1))
+
         _send_when_ready()
 
     # ── Debugger ──────────────────────────────────────────────────────────────
 
     def _find_project_python(self, filepath: str) -> str:
         """Return the venv Python for *filepath*'s project tree, or sys.executable."""
-        is_win  = sys.platform == "win32"
-        subpath = os.path.join("Scripts" if is_win else "bin",
-                               "python.exe" if is_win else "python")
+        is_win = sys.platform == "win32"
+        subpath = os.path.join(
+            "Scripts" if is_win else "bin", "python.exe" if is_win else "python"
+        )
         directory = os.path.dirname(os.path.abspath(filepath))
         while True:
             for name in (".venv", "venv", "env", ".env"):
@@ -4026,22 +4158,32 @@ class IDOL(Tk):
         def _run():
             proc = _sp.Popen(
                 [python_exe, "-m", "pip", "install", "debugpy"],
-                stdout=_sp.PIPE, stderr=_sp.STDOUT,
+                stdout=_sp.PIPE,
+                stderr=_sp.STDOUT,
             )
             for raw in proc.stdout:
                 line = raw.decode("utf-8", errors="replace")
                 self.after(0, lambda l=line: self._output.output.write(l))
             proc.wait()
             if proc.returncode == 0:
-                self.after(0, lambda: (
-                    self._output.output.write("\ndebugpy installed — starting debugger…\n", "info"),
-                    self.debug_file(),
-                ))
+                self.after(
+                    0,
+                    lambda: (
+                        self._output.output.write(
+                            "\ndebugpy installed — starting debugger…\n", "info"
+                        ),
+                        self.debug_file(),
+                    ),
+                )
             else:
-                self.after(0, lambda: self._output.output.write(
-                    "\nInstallation failed. Try manually:\n"
-                    f"  {python_exe} -m pip install debugpy\n", "error",
-                ))
+                self.after(
+                    0,
+                    lambda: self._output.output.write(
+                        "\nInstallation failed. Try manually:\n"
+                        f"  {python_exe} -m pip install debugpy\n",
+                        "error",
+                    ),
+                )
 
         _th.Thread(target=_run, daemon=True).start()
 
@@ -4063,13 +4205,16 @@ class IDOL(Tk):
 
         # Check debugpy is available in the target interpreter
         import subprocess as _sp
+
         try:
             _sp.run(
                 [python_exe, "-c", "import debugpy"],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
         except _sp.CalledProcessError:
             from tkinter.messagebox import askyesno
+
             if not askyesno(
                 "debugpy not found",
                 "debugpy is not installed in this project's Python environment.\n\n"
@@ -4080,13 +4225,15 @@ class IDOL(Tk):
             return
 
         self._debugger = DebugManager(after_fn=self._safe_after)
-        self._debugger.on_stopped    = self._on_debug_stopped
-        self._debugger.on_continued  = self._on_debug_continued
+        self._debugger.on_stopped = self._on_debug_stopped
+        self._debugger.on_continued = self._on_debug_continued
         self._debugger.on_terminated = self._on_debug_terminated
-        self._debugger.on_output     = self._on_debug_output
+        self._debugger.on_output = self._on_debug_output
 
         # Collect breakpoints for all files
-        bp_dict = {fp: sorted(lines) for fp, lines in self._breakpoints.items() if lines}
+        bp_dict = {
+            fp: sorted(lines) for fp, lines in self._breakpoints.items() if lines
+        }
 
         if not self.output_visible_var.get():
             self.output_visible_var.set(True)
@@ -4097,15 +4244,20 @@ class IDOL(Tk):
         else:
             self._output._set_active("debug")
             self._output.output.clear()
-            self._output.output.write(f"$ Debugging {os.path.basename(filepath)}\n\n", "info")
+            self._output.output.write(
+                f"$ Debugging {os.path.basename(filepath)}\n\n", "info"
+            )
             self._debugger.launch(filepath, python_exe, bp_dict)
             self._show_debug_bar()
             if self._file_uses_input(filepath):
-                self._output.output.show_debug_input_guide_btn(self._switch_to_terminal_debug)
+                self._output.output.show_debug_input_guide_btn(
+                    self._switch_to_terminal_debug
+                )
 
     def _debug_in_terminal(self, filepath: str, python_exe: str, bp_dict: dict) -> None:
         """Launch debugpy in the terminal and attach our DAP client to it."""
         from editor.debug_manager import _find_free_port
+
         port = _find_free_port()
 
         self._output._set_active("terminal")
@@ -4114,6 +4266,7 @@ class IDOL(Tk):
 
         # PowerShell requires & before a quoted executable path; bash does not
         import platform as _pl
+
         prefix = "& " if _pl.system() == "Windows" else ""
         cmd = f'{prefix}"{python_exe}" -Xfrozen_modules=off -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"\r'
 
@@ -4123,11 +4276,13 @@ class IDOL(Tk):
         # that repaint finishes wipes the output. On subsequent runs the widget
         # is already the right size so _resize_job is None and this fires immediately.
         term = self._output.terminal
+
         def _send_when_ready(retries: int = 40) -> None:
             if term.winfo_ismapped() and not term._resize_job:
                 term.after(200, lambda: term.send_text(cmd))
             elif retries > 0:
                 term.after(50, lambda: _send_when_ready(retries - 1))
+
         _send_when_ready()
 
         self._debugger.attach_to_port(port, filepath, bp_dict)
@@ -4262,6 +4417,7 @@ class IDOL(Tk):
     def _refresh_debug_breakpoints(self) -> None:
         """Push the current breakpoint list to the debug panel."""
         from utils.session import TMP_DIR
+
         tmp_root = str(TMP_DIR)
         entries = []
         has_unsaved = False
@@ -4360,12 +4516,12 @@ class IDOL(Tk):
                 ]
             ],
             # Run
-            ("Debug",         "F5",       self.debug_file),
-            ("Run",           "Ctrl+F5",  self._nav_run),
-            ("Run Line",      "",         self.run_line),
-            ("Run Selection", "",         self.run_selection),
-            ("Stop",          "Shift+F5", self.run_stop),
-            ("Clear Output",  "",         self.run_clear),
+            ("Debug", "F5", self.debug_file),
+            ("Run", "Ctrl+F5", self._nav_run),
+            ("Run Line", "", self.run_line),
+            ("Run Selection", "", self.run_selection),
+            ("Stop", "Shift+F5", self.run_stop),
+            ("Clear Output", "", self.run_clear),
             # Help
             ("About", "", self.help_about),
         ]
@@ -4462,7 +4618,7 @@ class IDOL(Tk):
 
         tk.Label(
             dlg,
-            text="Built by  Alex Fero & Claude Sonnet",
+            text="Alex Fero & Claude Sonnet",
             bg="#0d1117",
             fg="#858585",
             font=("Segoe UI", 8),
