@@ -427,7 +427,7 @@ class AiChatPanel(tk.Frame):
                        f"Step 1 — Install Ollama (run in {shell_note}):\n"
                        f"  {install_cmd}\n\n"
                        f"Step 2 — Install the AI model (~4GB, 8GB RAM recommended):\n"
-                       f"  ollama pull qwen2.5-coder:7b\n\n"
+                       f"  ollama pull qwen2.5-coder\n\n"
                        f"Then reopen this tab."),
                  bg=_MSG_BG, fg=_WARN_FG,
                  font=("Segoe UI", 9), wraplength=400,
