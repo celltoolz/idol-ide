@@ -289,7 +289,7 @@ class IDOL(Tk):
             None  # intelligence (hover/completion/definition)
         )
         self._lsp_diag: PyflakesLinter | None = (
-            None  # diagnostics (ruff/pyflakes subprocess)
+            None  # diagnostics (ruff subprocess)
         )
         self._runtime_error_tab_id: str | None = (
             None  # tab showing last crash indicator

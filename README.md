@@ -62,14 +62,14 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 <img src="screenshots/intelligence-multi_error-hover_tooltip-autocomplete-problems_hover.gif" width="100%">
 
-- **Multi-error diagnostics** — [ruff](https://github.com/astral-sh/ruff) runs on every keystroke (debounced) reading from stdin so unsaved buffers work; falls back to `compile()` + pyflakes when ruff isn't installed
+- **Multi-error diagnostics** — [ruff](https://github.com/astral-sh/ruff) runs on every keystroke (debounced) reading from stdin so unsaved buffers work; falls back to `compile()` for syntax errors when ruff isn't available
 - **Three-tier severity** — red squiggles for crashes (syntax errors, undefined names), yellow for likely bugs, blue for style/unused imports
 - **Cascade suppression** — diagnostics within 3 lines of a root syntax error are hidden so one bad line doesn't flood the list
 - Hover documentation — rest the mouse over any symbol for inline docs (powered by [pylsp](https://github.com/python-lsp/python-lsp-server))
 - Go to Definition — F12 or right-click menu
 - Autocomplete — dropdown with kind labels, keyboard navigation (↑↓ to move, Tab/Enter to accept, Escape to dismiss)
 - **Problems panel** — PROBLEMS tab lists every diagnostic with colored severity dots (✕ error, ⚠ warning, · info); click any entry to jump directly to that line and column
-  - **Hover tooltips** — rest the mouse over any problem for 600ms to see the rule code, a beginner-friendly plain-English description (covers ~40 common ruff/pyflakes rules), and a hint to double-click for AI help
+  - **Hover tooltips** — rest the mouse over any problem for 600ms to see the rule code, a beginner-friendly plain-English description (covers ~40 common ruff rules), and a hint to double-click for AI help
   - **Double-click → Ask AI** — double-clicking any problem opens the AI Chat panel and asks for a plain-English explanation of that specific issue, a minimal broken example, and the fixed version
   - **✦ Ask AI button** — appears in the tab bar controls whenever there are errors or warnings; sends the full file with all problems to the AI Chat panel asking for explanations, exact lines to change, and a complete corrected file
   - **Flashing tab** — when a script crashes and the Problems panel isn't open, the PROBLEMS tab pulses amber until you click it or start typing
@@ -273,7 +273,7 @@ pip install python-lsp-server
 
 For diagnostics (multi-error, three-tier severity):
 ```
-pip install ruff pyflakes
+pip install ruff
 ```
 
 ## Usage

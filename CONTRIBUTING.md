@@ -76,7 +76,7 @@ These modules have no Tkinter widget imports.
 | `project_manager.py` | Interpreter discovery and project scaffolding — finds installed Python versions, creates venvs, scaffolds starter files. Daemon-threaded. |
 | `script_runner.py` | Runs Python scripts as subprocesses — pushes `(line, tag)` tuples to a thread-safe queue; sends `None` sentinel on completion. |
 | `debug_manager.py` | DAP client for debugpy — launches debugpy subprocess, connects via TCP, drives the debug session. All callbacks dispatched via `after_fn`. |
-| `pyflakes_linter.py` | Local diagnostics engine — runs ruff then compile() then pyflakes on a debounced background thread; fires `on_diagnostics(uri, diags)` via `after_fn`. No LSP dependency. |
+| `pyflakes_linter.py` | Local diagnostics engine — runs ruff then compile() on a debounced background thread; fires `on_diagnostics(uri, diags)` via `after_fn`. No LSP dependency. |
 
 ### `utils/` — stateless logic, content, config
 Pure functions, dataclasses, config parsing, content generators. No subprocess calls,
@@ -95,7 +95,7 @@ no widget imports, no stateful objects.
 | `guide_types.py` | Shared `GuidePage` dataclass used by all guide content modules. |
 | `custom_cursor.py` | Cross-platform learning-mode cursor (arrow + question mark). Uses system cursor on Windows/macOS; generates XBM bitmap on Linux where system cursor is unreliable. |
 | `thread_safe_after.py` | `make_thread_safe_after(widget)` — returns an `after_fn` safe to call from daemon threads. Use this instead of `self.after` when constructing any manager that runs on background threads. |
-| `ruff_rules.py` | Beginner-friendly descriptions for ruff/pyflakes diagnostic codes — maps rule IDs to plain-English explanations used in the Problems panel. |
+| `ruff_rules.py` | Beginner-friendly descriptions for ruff diagnostic codes — maps rule IDs to plain-English explanations used in the Problems panel. |
 | `debug_input_guide.py` | Content module — `get_pages()` returning `GuidePage` dataclasses for the input()/debugger guide. Same pattern as `venv_guide.py`. |
 | `git_install_guide.py` | Content module — 3-page guide for installing git on Windows, macOS, and Linux. Opened from the Git Health panel when git is not found on PATH. |
 | `git_identity_guide.py` | Content module — 4-page guide for setting git user.name/email, creating a GitHub account, and authenticating via GitHub CLI (`gh auth login`). |

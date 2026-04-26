@@ -1,4 +1,4 @@
-"""Beginner-friendly descriptions for common ruff/pyflakes diagnostic codes.
+"""Beginner-friendly descriptions for common ruff diagnostic codes.
 
 Each entry is (short_name, description).  Unknown codes return None so callers
 can fall back to the raw message text.

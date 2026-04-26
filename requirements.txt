@@ -9,6 +9,5 @@ tkcolorpicker>=2.1
 tkfontchooser>=2.0
 toml>=0.10
 python-lsp-server>=1.12  # LSP backend (pylsp)
-pyflakes>=3.0
 ruff>=0.4              # multi-error diagnostics engine
 debugpy>=1.8       # Python debugger (DAP backend)

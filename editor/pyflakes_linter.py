@@ -3,7 +3,6 @@
 Priority:
   1. ruff subprocess  — error-resilient parser, reports multiple syntax errors
   2. compile()        — catches the first syntax error (Python built-in)
-  3. pyflakes         — semantic analysis (undefined names, unused imports, etc.)
 
 Runs in a debounced background thread on every file change.  Exposes the same
 open_file / change_file / close_file / on_diagnostics interface as LspManager.
@@ -75,7 +74,7 @@ def _ruff_severity(code: str) -> int:
         return SEV_INFO
     if code.startswith("ANN"):
         return SEV_INFO
-    # Everything else: pyflakes findings, bugbear, ruff-specific, security…
+    # Everything else: bugbear, ruff-specific, security…
     return SEV_WARNING
 
 
@@ -174,7 +173,7 @@ class PyflakesLinter:
 # ── Linting logic (background thread) ────────────────────────────────────────
 
 def _run_checks(source: str, uri: str) -> list[dict]:
-    """Return LSP-style diagnostics via ruff → compile() → pyflakes fallback chain."""
+    """Return LSP-style diagnostics via ruff → compile() fallback chain."""
     # Extract a plain filesystem path from the URI for use as stdin-filename
     from .lsp_manager import uri_to_path
     try:
@@ -188,7 +187,7 @@ def _run_checks(source: str, uri: str) -> list[dict]:
         if result is not None:
             return result
 
-    # Stage 2 — compile() for syntax, pyflakes for semantics
+    # Stage 2 — compile() for syntax errors
     return _run_fallback(source, filename)
 
 
@@ -237,7 +236,7 @@ def _run_ruff(source: str, filename: str) -> list[dict] | None:
 
 
 def _run_fallback(source: str, filename: str) -> list[dict]:
-    """compile() + pyflakes fallback when ruff is unavailable."""
+    """compile() fallback when ruff is unavailable."""
     diags: list[dict] = []
 
     try:
@@ -247,22 +246,6 @@ def _run_fallback(source: str, filename: str) -> list[dict]:
         col  = max((e.offset or 1) - 1, 0)
         diags.append(_make_diag(e.msg or str(e), line, col, SEV_ERROR))
         return diags
-
-    try:
-        import ast
-        from pyflakes.checker import Checker
-
-        tree = ast.parse(source, filename=filename)
-        checker = Checker(tree, filename=filename)
-        for msg in checker.messages:
-            line = (msg.lineno or 1) - 1
-            col  = getattr(msg, "col", 0) or 0
-            text = msg.message % msg.message_args
-            diags.append(_make_diag(text, line, col, SEV_WARNING))
-    except ImportError:
-        pass
-    except Exception:
-        pass
 
     return diags
 
