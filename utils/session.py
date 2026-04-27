@@ -260,7 +260,10 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         elif content is not None:
             app._new_tab(title, content, filepath=fp if fp else None)
 
-    app.after_idle(lambda: setattr(app, '_restoring', False))
+    # Keep _restoring True past all layout callbacks (50ms, 250ms) so any
+    # ContentChanged events they generate are suppressed before the user
+    # can interact with the editor.  The 350ms cleanup still runs first.
+    app.after(400, lambda: setattr(app, '_restoring', False))
 
     tabs_list = app.notebook.tabs()
     active = data.get("active_index", 0)

@@ -1534,9 +1534,20 @@ class IDOL(Tk):
         self.after_idle(lambda tid=tab_id: self._reset_dirty_final(tid))
 
     def _reset_dirty_final(self, tab_id: str) -> None:
-        if tab_id in self._dirty and self._dirty[tab_id]:
-            self._dirty[tab_id] = False
-            self._refresh_tab_title(tab_id)
+        if tab_id not in self._dirty or not self._dirty[tab_id]:
+            return
+        fp = self._files.get(tab_id)
+        if not fp:
+            return  # unsaved tab — may have been intentionally marked dirty
+        cv = self._codeviews.get(tab_id)
+        if cv is None:
+            return
+        try:
+            if cv.get("1.0", "end-1c") == Path(fp).read_text(encoding="utf-8"):
+                self._dirty[tab_id] = False
+                self._refresh_tab_title(tab_id)
+        except Exception:
+            pass
 
     def _on_content_changed(self) -> None:
         self._clear_runtime_error()
