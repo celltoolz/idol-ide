@@ -2705,6 +2705,26 @@ class IDOL(Tk):
     def file_new_project(self) -> None:
         from widgets.project_wizard import ProjectWizard
 
+        # If there are meaningful tabs open, offer to save the current project
+        # before wiping the slate for the new one.
+        has_project = any(
+            self._titles.get(t) != "Untitled" or self._dirty.get(t)
+            or bool(self._codeviews.get(t) and self._codeviews[t].get("1.0", "end-1c").strip())
+            for t in self.notebook.tabs()
+        )
+        if has_project:
+            answer = askyesnocancel(
+                "New Project",
+                "Would you like to save your current project before creating a new one?",
+            )
+            if answer is None:
+                return  # Cancel — keep current project open
+            if answer:
+                self.workspace_save()
+            else:
+                session_utils.save(self)
+            self._teardown_project()
+
         ProjectWizard(self, on_complete=self._on_project_created)
 
     def _set_explorer_root(self, path: str) -> None:
@@ -2992,20 +3012,8 @@ class IDOL(Tk):
         root = str(self._sidebar.explorer._root or os.getcwd())
         self._set_explorer_root(root)
 
-    def workspace_close(self, *_) -> None:
-        """Close the current project (with save prompt) leaving a blank state."""
-        answer = askyesnocancel(
-            "Close Project",
-            "You are about to close your current project.\n\nWould you like to save before closing?",
-        )
-        if answer is None:
-            return  # Cancel
-        if answer:
-            self.workspace_save()
-        else:
-            # User chose No — auto-preserve dirty tabs to temp files (no per-tab
-            # prompts) so work isn't lost, matching the file_exit behavior.
-            session_utils.save(self)
+    def _teardown_project(self) -> None:
+        """Close all tabs and reset to a clean blank state (no save prompt)."""
         for tab_id in list(self.notebook.tabs()):
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
@@ -3023,21 +3031,30 @@ class IDOL(Tk):
                     srv.close_file(closed_path)
             self.notebook.forget(tab_id)
         self._new_tab("Untitled", "")
-        # Deactivate venv if one was active for this project
         if "(.venv)" in getattr(self, "_active_python_label", ""):
             term = self._output.terminal
             if term._running and term._venv_active:
                 term.send("deactivate\r")
-            # Clear interpreter synchronously so any immediate session save
-            # (e.g. if user closes IDOL right after) captures system Python,
-            # not the venv. _on_venv_deactivated refines the label async.
             import sys as _sys
             self._set_active_interpreter(_sys.executable, "Python")
             self._on_venv_deactivated()
-        # Reset explorer root to home — clears git context and source control
         self._set_explorer_root(str(Path.home()))
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
+
+    def workspace_close(self, *_) -> None:
+        """Close the current project (with save prompt) leaving a blank state."""
+        answer = askyesnocancel(
+            "Close Project",
+            "You are about to close your current project.\n\nWould you like to save before closing?",
+        )
+        if answer is None:
+            return  # Cancel
+        if answer:
+            self.workspace_save()
+        else:
+            session_utils.save(self)
+        self._teardown_project()
 
     def workspace_save(self, *_) -> None:
         """Save project to .idol-project in the explorer root (no dialog needed)."""
