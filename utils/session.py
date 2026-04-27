@@ -158,9 +158,20 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         if lines
     }
 
+    _interp_path = getattr(app, "_active_python", "")
+    # Derive the venv activate script from the interpreter path so it can be
+    # used to auto-activate the terminal on the next session restore.
+    import platform as _pl
+    _venv_activate = ""
+    if _interp_path:
+        _parent = Path(_interp_path).parent  # Scripts/ or bin/
+        _act = _parent / ("Activate.ps1" if _pl.system() == "Windows" else "activate")
+        if _act.exists():
+            _venv_activate = str(_act)
     interpreter = {
-        "path":  getattr(app, "_active_python", ""),
-        "label": getattr(app, "_active_python_label", ""),
+        "path":          _interp_path,
+        "label":         getattr(app, "_active_python_label", ""),
+        "venv_activate": _venv_activate,
     }
 
     try:
@@ -254,9 +265,12 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # ── Interpreter ───────────────────────────────────────────────────────────
     interp = data.get("interpreter", {})
     interp_path  = interp.get("path", "")
-    interp_label = interp.get("label", "")
+    interp_label    = interp.get("label", "")
+    venv_activate   = interp.get("venv_activate", "")
     if interp_path and os.path.isfile(interp_path) and hasattr(app, "_set_active_interpreter"):
         app._set_active_interpreter(interp_path, interp_label or "Python")
+    if venv_activate and os.path.isfile(venv_activate) and hasattr(app, "_schedule_venv_activation_if_needed"):
+        app._schedule_venv_activation_if_needed(venv_activate)
 
     # ── Appearance ────────────────────────────────────────────────────────────
     appearance = data.get("appearance", {})

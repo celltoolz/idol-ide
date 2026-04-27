@@ -828,6 +828,12 @@ class IDOL(Tk):
         if not self._output.terminal._running:
             cwd = self._output._cwd or os.getcwd()
             self._output.terminal.start(cwd=cwd)
+        # If session restore flagged a venv to activate, schedule it 1500 ms after
+        # the terminal starts — by then the shell hooks are injected and ready.
+        pending = getattr(self, "_pending_venv_activate", None)
+        if pending and os.path.isfile(pending):
+            self._pending_venv_activate = None
+            self.after(1500, lambda: self._auto_activate_venv(pending))
 
     def _on_venv_deactivated(self) -> None:
         """Called when the user clicks Deactivate — fall back to first system Python."""
@@ -857,6 +863,33 @@ class IDOL(Tk):
             self._set_active_interpreter(python_exe, "(.venv) Python")
 
         ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
+
+    def _schedule_venv_activation_if_needed(self, activate_path: str = "") -> None:
+        """After session restore: store the venv activate path so _prewarm_terminal
+        can fire it 1500 ms after the shell starts (not from restore time, which
+        races with the terminal spawn). activate_path comes from the session file;
+        if omitted it is derived from _active_python for old session files."""
+        import platform as _pl
+        if not activate_path:
+            path = getattr(self, "_active_python", "")
+            if not path:
+                return
+            parent = os.path.dirname(path)
+            activate_path = os.path.join(parent, "Activate.ps1" if _pl.system() == "Windows" else "activate")
+        if not os.path.isfile(activate_path):
+            return
+        self._pending_venv_activate = activate_path
+
+    def _auto_activate_venv(self, activate_path: str) -> None:
+        """Send the venv activate command to the terminal (used on session restore)."""
+        import platform as _pl
+        term = self._output.terminal
+        if not term._running:
+            return
+        if _pl.system() == "Windows":
+            term.send(f'& "{activate_path}"\r')
+        else:
+            term.send(f'source "{activate_path}"\r')
 
     def _on_window_configure(self, event=None) -> None:
         if event is not None and event.widget is not self:
@@ -2658,12 +2691,29 @@ class IDOL(Tk):
         self._git = None
         self._start_git()
 
-    def _on_project_created(self, project_path: str, python_exe: str = "", python_label: str = "") -> None:
+    def _on_project_created(self, project_path: str, python_exe: str = "",
+                            python_label: str = "", venv_activate_path: str | None = None) -> None:
         """Called when the project wizard finishes — open the new project."""
         self._set_explorer_root(project_path)
         self._git = None
         self._start_git()
-        if python_exe and os.path.isfile(python_exe):
+        if venv_activate_path and os.path.isfile(venv_activate_path):
+            import platform as _pl
+            _base = os.path.dirname(venv_activate_path)
+            _venv_py = os.path.join(_base, "python.exe" if _pl.system() == "Windows" else "python")
+            _activate_exe = _venv_py if os.path.isfile(_venv_py) else python_exe
+            # Set interpreter synchronously so workspace_save (500 ms below) captures
+            # the venv Python path before the async label refinement completes.
+            self._set_active_interpreter(_activate_exe, "(.venv) Python")
+            # Background thread refines the label with the exact version string.
+            self._on_venv_activated(_activate_exe)
+            term = self._output.terminal
+            if _pl.system() == "Windows":
+                term.send(f'& "{venv_activate_path}"\r')
+            else:
+                term.send(f'source "{venv_activate_path}"\r')
+            self.view_show_panel("terminal")
+        elif python_exe and os.path.isfile(python_exe):
             self._set_active_interpreter(python_exe, python_label or "Python")
         # Open main.py if it was created
         main_py = os.path.join(project_path, "main.py")

@@ -38,10 +38,11 @@ class ProjectWizard(tk.Toplevel):
 
     _STEPS = ["Details", "Environment", "Options", "Summary"]
 
-    def __init__(self, parent, on_complete: Callable[[str, str, str], None]) -> None:
+    def __init__(self, parent, on_complete: Callable[[str, str, str, "str | None"], None]) -> None:
         """
-        on_complete(project_path, python_exe, python_label) is called after
-        the project is created so the app can open it and set the interpreter.
+        on_complete(project_path, python_exe, python_label, venv_activate_path) is called
+        after the project is created. venv_activate_path is the activate script path when
+        a venv was created, or None otherwise.
         """
         super().__init__(parent)
         self.title("New Project")
@@ -342,7 +343,7 @@ class ProjectWizard(tk.Toplevel):
 
         Label(self._content, text="", bg=_BG).pack()  # spacer
         self._check("Create virtual environment (recommended)", self._venv_var,
-                    detail="venv/")
+                    detail=".venv/")
 
         # Learn more link
         learn = Label(self._content, text="? Learn about virtual environments & choosing a Python interpreter",
@@ -392,7 +393,7 @@ class ProjectWizard(tk.Toplevel):
         _row("Project name:", name)
         _row("Location:", path)
         _row("Python:", os.path.basename(python))
-        _row("Virtual environment:", "Yes — venv/" if self._venv_var.get() else "No")
+        _row("Virtual environment:", "Yes — .venv/" if self._venv_var.get() else "No")
         _row("Git repository:", "Yes" if self._git_var.get() else "No")
         _row("Starter files:", "Yes" if self._files_var.get() else "No")
 
@@ -475,7 +476,7 @@ class ProjectWizard(tk.Toplevel):
         if error:
             messagebox.showerror("Setup Error", error, parent=self)
             self.destroy()
-            self._on_complete(path, *self._selected_python())
+            self._on_complete(path, *self._selected_python(), None)
             return
         self._show_success(path)
 
@@ -526,9 +527,21 @@ class ProjectWizard(tk.Toplevel):
         self._next_btn.unbind("<Button-1>")
         self._next_btn.bind("<Button-1>", lambda _: self._open_project(path))
 
+    def _get_venv_activate_path(self, project_path: str) -> "str | None":
+        """Return the activate script path if a venv was created, else None."""
+        import platform as _pl
+        if not self._venv_var.get():
+            return None
+        base = os.path.join(project_path, ".venv")
+        if _pl.system() == "Windows":
+            p = os.path.join(base, "Scripts", "Activate.ps1")
+        else:
+            p = os.path.join(base, "bin", "activate")
+        return p if os.path.isfile(p) else None
+
     def _open_project(self, path: str) -> None:
         self.destroy()
-        self._on_complete(path, *self._selected_python())
+        self._on_complete(path, *self._selected_python(), self._get_venv_activate_path(path))
 
     def _selected_python(self) -> tuple[str, str]:
         """Return (exe_path, short_label) for the currently selected interpreter."""
