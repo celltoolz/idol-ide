@@ -4371,6 +4371,9 @@ class IDOL(Tk):
         self._active_python = path
         self._active_python_label = label
         self._statusbar.set_interpreter(label)
+        if hasattr(self._statusbar, "_interp_lbl") and not getattr(self._statusbar._interp_lbl, "_learning_registered", False):
+            LearningManager.register(self._statusbar._interp_lbl, "interpreter_selector")
+            self._statusbar._interp_lbl._learning_registered = True
         root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
         _settings.set(f"interpreter:{root}", path)
         if self._pkg_panel:

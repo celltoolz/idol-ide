@@ -263,6 +263,20 @@ REGISTRY: dict[str, dict[str, str]] = {
         ),
     },
 
+    "interpreter_selector": {
+        "title": "Python Interpreter",
+        "what": "Shows the active Python interpreter — the version (and venv, if one is active) used to run and debug your code.",
+        "how": (
+            "Click to open the interpreter picker. Choose any detected Python installation or virtual environment. "
+            "When a .venv is active it shows as '(.venv) Python x.x.x'. "
+            "The selection is saved per project so each project remembers its own interpreter."
+        ),
+        "example": (
+            "Your project needs Python 3.11 but the statusbar shows 3.9 — click it, pick 3.11, "
+            "and all subsequent runs and debugger sessions use the correct version."
+        ),
+    },
+
     # ── Breadcrumb bar ─────────────────────────────────────────────────────────
     "breadcrumb_bar": {
         "title": "Breadcrumb Bar",
