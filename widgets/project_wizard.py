@@ -38,10 +38,10 @@ class ProjectWizard(tk.Toplevel):
 
     _STEPS = ["Details", "Environment", "Options", "Summary"]
 
-    def __init__(self, parent, on_complete: Callable[[str], None]) -> None:
+    def __init__(self, parent, on_complete: Callable[[str, str, str], None]) -> None:
         """
-        on_complete(project_path) is called after the project is created
-        so the app can open it in the explorer.
+        on_complete(project_path, python_exe, python_label) is called after
+        the project is created so the app can open it and set the interpreter.
         """
         super().__init__(parent)
         self.title("New Project")
@@ -475,7 +475,7 @@ class ProjectWizard(tk.Toplevel):
         if error:
             messagebox.showerror("Setup Error", error, parent=self)
             self.destroy()
-            self._on_complete(path)
+            self._on_complete(path, *self._selected_python())
             return
         self._show_success(path)
 
@@ -528,7 +528,17 @@ class ProjectWizard(tk.Toplevel):
 
     def _open_project(self, path: str) -> None:
         self.destroy()
-        self._on_complete(path)
+        self._on_complete(path, *self._selected_python())
+
+    def _selected_python(self) -> tuple[str, str]:
+        """Return (exe_path, short_label) for the currently selected interpreter."""
+        import sys as _sys, re as _re
+        exe = self._python_var.get() or _sys.executable
+        for lbl, path in getattr(self, "_pythons", []):
+            if path == exe:
+                m = _re.match(r"(Python\s+\S+)", lbl)
+                return exe, (m.group(1) if m else lbl.split("(")[0].strip())
+        return exe, "Python"
 
     def _write_starter_files(self, project_path: str) -> None:
         main_py = os.path.join(project_path, "main.py")

@@ -169,6 +169,7 @@ Implemented and stable:
 - pylsp LSP integration (hover, diagnostics, definition, completion)
 - **Problems panel** — PROBLEMS tab in bottom bar with colored severity dots; click to jump to line/column
 - **Diagnostic statusbar badge** — live ✕N ⚠N count; click to open Problems panel
+- **Interpreter statusbar segment** — shows active Python version; click to open interpreter picker popup; selection persists per project root in `~/.idol/settings.json`
 - Sticky scroll, minimap
 - **Breadcrumb bar** — path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
 - **Multi-cursor editing** — Alt+Click to add/remove cursors; Shift+Arrow for independent per-cursor selections; Ctrl+C copies all selections; smart pairs and bracket matching work at every cursor; click-placement aligned to nearest character boundary

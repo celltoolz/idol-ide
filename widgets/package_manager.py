@@ -206,6 +206,11 @@ class PackageManagerPanel(tk.Frame):
         self._build()
         self.after(100, self._load_installed)
 
+    def set_python(self, exe: str) -> None:
+        """Switch the active interpreter and refresh the installed package list."""
+        self._pip.set_python(exe)
+        self._load_installed()
+
     # ── Disk cache ────────────────────────────────────────────────────────────
 
     def _load_topic_cache(self) -> None:

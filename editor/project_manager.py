@@ -160,7 +160,7 @@ class ProjectManager:
             try:
                 if create_venv:
                     self._after(0, on_status, "Creating virtual environment…")
-                    subprocess.run([python, "-m", "venv", os.path.join(path, "venv")],
+                    subprocess.run([python, "-m", "venv", os.path.join(path, ".venv")],
                                    check=True, timeout=120)
                 if write_files_fn:
                     self._after(0, on_status, "Writing starter files…")

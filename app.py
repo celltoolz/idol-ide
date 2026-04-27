@@ -304,6 +304,10 @@ class IDOL(Tk):
         self._breakpoints: dict[str, set[int]] = {}  # filepath → line numbers
         self._debug_current_tab: str | None = None  # tab_id with debug highlight
 
+        # Interpreter
+        self._active_python: str = sys.executable
+        self._active_python_label: str = ""
+
         # Completion
         self._completion = CompletionPopup(
             self, on_accept=self._completion_click_accept
@@ -381,6 +385,7 @@ class IDOL(Tk):
             self,
             on_indent_change=self._on_indent_change,
             on_diagnostics_click=lambda: self._output._set_active("problems"),
+            on_interpreter_click=self._open_interpreter_picker,
         )
         self._statusbar.pack(side="bottom", fill="x")
 
@@ -421,6 +426,9 @@ class IDOL(Tk):
 
         # Check git identity immediately — no repo needed, reads global config
         get_global_identity(self._safe_after, self._on_sc_identity)
+
+        # Detect active interpreter and show in statusbar
+        self._init_interpreter()
 
         # Right panel – vertical split: notebook (top) | output (bottom)
         self._v_pane = ttk.PanedWindow(self._h_pane, orient="vertical")
@@ -815,9 +823,40 @@ class IDOL(Tk):
 
     def _prewarm_terminal(self) -> None:
         """Start the terminal shell in the background so it's ready on first open."""
+        self._output.terminal.on_venv_activate   = self._on_venv_activated
+        self._output.terminal.on_venv_deactivate = self._on_venv_deactivated
         if not self._output.terminal._running:
             cwd = self._output._cwd or os.getcwd()
             self._output.terminal.start(cwd=cwd)
+
+    def _on_venv_deactivated(self) -> None:
+        """Called when the user clicks Deactivate — fall back to first system Python."""
+        from editor.project_manager import ProjectManager, categorize_interpreter
+
+        def _on_pythons(results: list[tuple[str, str]]) -> None:
+            for label, exe in results:
+                if categorize_interpreter(exe) == "system" and os.path.isfile(exe):
+                    self._set_active_interpreter(exe, self._get_short_interp_label(label))
+                    return
+            # Last resort: IDOL's own interpreter
+            self._set_active_interpreter(sys.executable, "Python")
+
+        ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
+
+    def _on_venv_activated(self, python_exe: str) -> None:
+        """Called when the user clicks Activate venv in the terminal toolbar."""
+        from editor.project_manager import ProjectManager
+
+        def _on_pythons(results: list[tuple[str, str]]) -> None:
+            for label, exe in results:
+                if os.path.normcase(exe) == os.path.normcase(python_exe):
+                    short = self._get_short_interp_label(label)
+                    self._set_active_interpreter(exe, f"(.venv) {short}")
+                    return
+            # Not in detected list — set with generic venv label
+            self._set_active_interpreter(python_exe, "(.venv) Python")
+
+        ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
 
     def _on_window_configure(self, event=None) -> None:
         if event is not None and event.widget is not self:
@@ -2619,11 +2658,13 @@ class IDOL(Tk):
         self._git = None
         self._start_git()
 
-    def _on_project_created(self, project_path: str) -> None:
+    def _on_project_created(self, project_path: str, python_exe: str = "", python_label: str = "") -> None:
         """Called when the project wizard finishes — open the new project."""
         self._set_explorer_root(project_path)
         self._git = None
         self._start_git()
+        if python_exe and os.path.isfile(python_exe):
+            self._set_active_interpreter(python_exe, python_label or "Python")
         # Open main.py if it was created
         main_py = os.path.join(project_path, "main.py")
         if os.path.isfile(main_py):
@@ -3094,6 +3135,7 @@ class IDOL(Tk):
             open_ai_panel=self._ensure_ai_panel_open,
         )
         panel.pack(fill="both", expand=True)
+        panel.set_python(self._active_python)
         self.notebook.add(frame, text="📦 Packages")
         self.notebook.select(frame)
         self._pkg_tab = self.notebook.select()
@@ -4098,7 +4140,7 @@ class IDOL(Tk):
             if not self.output_visible_var.get():
                 self.output_visible_var.set(True)
                 self.view_toggle_output()
-            self._output.run(filepath)
+            self._output.run(filepath, self._active_python)
 
     def run_file_in_terminal(self) -> None:
         """Ctrl+F5 — save and run the current file in the terminal panel."""
@@ -4114,7 +4156,9 @@ class IDOL(Tk):
         if not self._output.terminal._running:
             self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
         term = self._output.terminal
-        cmd = f'python "{filepath}"\r'
+        import platform as _pl
+        prefix = "& " if _pl.system() == "Windows" else ""
+        cmd = f'{prefix}"{self._active_python}" "{filepath}"\r'
 
         def _send_when_ready(retries: int = 40) -> None:
             if term.winfo_ismapped() and not term._resize_job:
@@ -4144,6 +4188,144 @@ class IDOL(Tk):
             directory = parent
         return sys.executable
 
+    # ── Interpreter management ────────────────────────────────────────────────
+
+    def _get_short_interp_label(self, label: str) -> str:
+        """Extract 'Python X.Y.Z' from a full interpreter label string."""
+        import re
+        m = re.match(r"(Python\s+\S+)", label)
+        return m.group(1) if m else label.split("(")[0].strip()
+
+    def _init_interpreter(self) -> None:
+        """Load saved interpreter from settings (or auto-detect) and show in statusbar."""
+        from editor.project_manager import ProjectManager
+        from utils import settings as _settings
+
+        root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
+        saved = _settings.get(f"interpreter:{root}")
+
+        def _on_pythons(results: list[tuple[str, str]]) -> None:
+            path, label = sys.executable, "Python"
+            if saved:
+                for lbl, exe in results:
+                    if exe == saved and os.path.isfile(exe):
+                        path, label = exe, self._get_short_interp_label(lbl)
+                        break
+            if not label or label == "Python":
+                # Fall back to auto-detect via venv walk, then first result
+                fp = next(iter(self._files.values()), None)
+                detected = self._find_project_python(fp) if fp else sys.executable
+                for lbl, exe in results:
+                    if exe == detected:
+                        path, label = exe, self._get_short_interp_label(lbl)
+                        break
+                else:
+                    if results:
+                        path, label = results[0][1], self._get_short_interp_label(results[0][0])
+            self._active_python = path
+            self._active_python_label = label
+            self._statusbar.set_interpreter(label)
+
+        ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
+
+    def _set_active_interpreter(self, path: str, label: str) -> None:
+        """Update the active interpreter, refresh the statusbar, and persist the choice."""
+        from utils import settings as _settings
+        self._active_python = path
+        self._active_python_label = label
+        self._statusbar.set_interpreter(label)
+        root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
+        _settings.set(f"interpreter:{root}", path)
+        if self._pkg_panel:
+            self._pkg_panel.set_python(path)
+
+    def _open_interpreter_picker(self) -> None:
+        """Show a popup above the statusbar to select the active Python interpreter."""
+        import tkinter as tk
+        from editor.project_manager import ProjectManager
+
+        # Toggle — click again to close
+        if hasattr(self, "_interp_picker") and self._interp_picker.winfo_exists():
+            self._interp_picker.destroy()
+            return
+
+        picker = tk.Toplevel(self)
+        self._interp_picker = picker
+        picker.overrideredirect(True)
+        picker.configure(bg="#252526")
+
+        # Header
+        tk.Label(
+            picker, text="Select Python Interpreter",
+            bg="#252526", fg="#cccccc",
+            font=("Segoe UI", 9, "bold"), pady=6, padx=10, anchor="w",
+        ).pack(fill="x")
+        ttk.Separator(picker, orient="horizontal").pack(fill="x")
+
+        lb = tk.Listbox(
+            picker,
+            bg="#1e1e1e", fg="#cccccc",
+            selectbackground="#094771", selectforeground="#ffffff",
+            borderwidth=0, highlightthickness=0,
+            font=("Consolas", 9), relief="flat", activestyle="none",
+        )
+        lb.pack(fill="both", expand=True, padx=1, pady=(1, 1))
+        lb.insert("end", "  Detecting interpreters…")
+
+        pythons: list[tuple[str, str]] = []
+
+        def _on_pythons(results: list[tuple[str, str]]) -> None:
+            nonlocal pythons
+            pythons = results
+            lb.delete(0, "end")
+            for lbl, exe in results:
+                prefix = "● " if exe == self._active_python else "  "
+                lb.insert("end", f"{prefix}{lbl}")
+            for i, (_, exe) in enumerate(results):
+                if exe == self._active_python:
+                    lb.selection_set(i)
+                    lb.see(i)
+                    break
+            # Resize to content (cap at 10 rows)
+            rows = min(len(results), 10)
+            lb.config(height=rows)
+            picker.update_idletasks()
+            _reposition()
+
+        def _reposition() -> None:
+            ax, ay = self._statusbar.get_interp_anchor()
+            pw = max(picker.winfo_reqwidth(), 420)
+            ph = picker.winfo_reqheight()
+            # Keep within screen bounds
+            sw = self.winfo_screenwidth()
+            x = min(ax, sw - pw - 4)
+            y = ay - ph - 2
+            picker.geometry(f"{pw}x{ph}+{x}+{y}")
+
+        def _select(event=None) -> None:
+            sel = lb.curselection()
+            if not sel or not pythons:
+                return
+            idx = sel[0]
+            if idx < len(pythons):
+                lbl, exe = pythons[idx]
+                self._set_active_interpreter(exe, self._get_short_interp_label(lbl))
+            picker.destroy()
+
+        lb.bind("<Return>", _select)
+        lb.bind("<Double-Button-1>", _select)
+        lb.bind("<Button-1>", lambda e: lb.after(10, _select))
+        lb.bind("<Escape>", lambda _: picker.destroy())
+        picker.bind("<FocusOut>", lambda e: picker.after(100, lambda: picker.destroy() if picker.winfo_exists() else None))
+
+        # Initial position before data loads
+        ax, ay = self._statusbar.get_interp_anchor()
+        picker.geometry(f"420x60+{ax}+{ay - 62}")
+        picker.lift()
+        lb.focus_set()
+
+        ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
+
     def _get_debugpy_site(self) -> str | None:
         """Return the site-packages dir containing IDOL's bundled debugpy, or None."""
         try:
@@ -4169,7 +4351,7 @@ class IDOL(Tk):
         if not filepath or not filepath.endswith(".py"):
             return
 
-        python_exe   = self._find_project_python(filepath)
+        python_exe   = self._active_python
         debugpy_site = self._get_debugpy_site()
 
         self._debugger = DebugManager(after_fn=self._safe_after)
@@ -4397,7 +4579,7 @@ class IDOL(Tk):
         if not self.output_visible_var.get():
             self.output_visible_var.set(True)
             self.view_toggle_output()
-        self._output.run_code(code, label)
+        self._output.run_code(code, label, self._active_python)
 
     def _run_current_line(self) -> None:
         cv = self._current_codeview

@@ -216,16 +216,16 @@ class OutputPanel(ttk.Frame):
         self._text.delete("1.0", "end")
         self._text.configure(state="disabled")
 
-    def run(self, filepath: str) -> None:
-        """Run *filepath* with the system Python interpreter."""
+    def run(self, filepath: str, python_path: str = "python") -> None:
+        """Run *filepath* with *python_path*."""
         if self._is_running:
             return
         self.clear()
         self.write(f"$ python {filepath}\n\n", "info")
         self._start_run()
-        self._runner.run(filepath)
+        self._runner.run(filepath, python_path)
 
-    def run_code(self, code: str, label: str = "selection") -> None:
+    def run_code(self, code: str, label: str = "selection", python_path: str = "python") -> None:
         """Write *code* to a temp file and run it, showing output as [label]."""
         if self._is_running:
             return
@@ -237,7 +237,7 @@ class OutputPanel(ttk.Frame):
         )
         tmp.write(code)
         tmp.close()
-        self._runner.run(tmp.name)
+        self._runner.run(tmp.name, python_path)
 
     def terminate(self) -> None:
         """Kill the running process if one is active."""

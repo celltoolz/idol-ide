@@ -17,16 +17,23 @@ class PipManager:
 
     def __init__(self, after_fn: Callable) -> None:
         self._after = after_fn
+        self._python_exe: str = sys.executable
+
+    def set_python(self, exe: str) -> None:
+        """Switch the Python interpreter used for all pip operations."""
+        self._python_exe = exe
 
     def fetch_installed(self, on_done: Callable[[dict[str, str]], None]) -> None:
         """Fetch installed packages via `pip list --format=json`.
 
         Calls on_done(name_to_version) on the main thread when complete.
         """
+        python = self._python_exe
+
         def _run():
             try:
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "list", "--format=json"],
+                    [python, "-m", "pip", "list", "--format=json"],
                     capture_output=True, text=True, timeout=15,
                 )
                 pkgs = json.loads(result.stdout)
@@ -50,10 +57,12 @@ class PipManager:
         If an exception is raised and on_error is provided, calls on_error(msg)
         instead of routing through on_line.
         """
+        python = self._python_exe
+
         def _run():
             try:
                 proc = subprocess.Popen(
-                    [sys.executable, "-m", "pip"] + args,
+                    [python, "-m", "pip"] + args,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True,
                 )

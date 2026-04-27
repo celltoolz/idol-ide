@@ -18,11 +18,13 @@ class StatusBar(ttk.Frame):
         master,
         on_indent_change: Optional[Callable[[int], None]] = None,
         on_diagnostics_click: Optional[Callable[[], None]] = None,
+        on_interpreter_click: Optional[Callable[[], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
         self._on_indent_change = on_indent_change
         self._on_diagnostics_click = on_diagnostics_click
+        self._on_interpreter_click = on_interpreter_click
         self._indent_size = 4
         self._build_ui()
 
@@ -113,6 +115,28 @@ class StatusBar(ttk.Frame):
         else:
             self._diag_sep.pack_forget()
             self._diag_lbl.pack_forget()
+
+    def set_interpreter(self, label: str) -> None:
+        """Show or update the active Python interpreter on the right of the status bar."""
+        if not hasattr(self, "_interp_lbl"):
+            self._interp_sep = ttk.Separator(self, orient="vertical")
+            self._interp_lbl = ttk.Label(self, style="SB.Hi.TLabel", cursor="hand2")
+            if self._on_interpreter_click:
+                self._interp_lbl.bind("<Button-1>", lambda _: self._on_interpreter_click())
+        if label:
+            self._interp_lbl.config(text=label)
+            self._interp_lbl.pack(side="right", padx=(2, 8), pady=2)
+            self._interp_sep.pack(side="right", fill="y", padx=4, pady=3)
+        else:
+            if hasattr(self, "_interp_lbl"):
+                self._interp_lbl.pack_forget()
+                self._interp_sep.pack_forget()
+
+    def get_interp_anchor(self) -> tuple[int, int]:
+        """Return (rootx, rooty) of the interpreter label for picker positioning."""
+        if hasattr(self, "_interp_lbl"):
+            return self._interp_lbl.winfo_rootx(), self._interp_lbl.winfo_rooty()
+        return self.winfo_rootx(), self.winfo_rooty()
 
     def set_overwrite(self, active: bool) -> None:
         """Show OVR indicator when Insert/overwrite mode is on."""

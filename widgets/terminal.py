@@ -19,7 +19,7 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import StringVar, ttk
-from typing import Optional
+from typing import Callable, Optional
 
 import pyte
 
@@ -208,6 +208,8 @@ class TerminalPanel(ttk.Frame):
         self._pty:      object = None
         self._queue:    queue.Queue = queue.Queue()
         self._shell_var = StringVar(value="Auto")
+        self.on_venv_activate:   Optional[Callable[[str], None]] = None
+        self.on_venv_deactivate: Optional[Callable[[], None]]   = None
         self._running   = False
         self._cwd: Optional[str] = None
 
@@ -1082,8 +1084,11 @@ class TerminalPanel(ttk.Frame):
                     self.send(f'& "{path}"\r')
                 else:
                     self.send(f'source "{path}"\r')
+                self._fire_venv_activate(path)
         elif state == "active_match":
             self.send("deactivate\r")
+            if self.on_venv_deactivate:
+                self.on_venv_deactivate()
         elif state == "active_other":
             # Deactivate current, then activate the one in CWD
             path = getattr(self, "_venv_activate_path", "")
@@ -1092,6 +1097,17 @@ class TerminalPanel(ttk.Frame):
                     self.send(f'deactivate; & "{path}"\r')
                 else:
                     self.send(f'deactivate && source "{path}"\r')
+                self._fire_venv_activate(path)
+
+    def _fire_venv_activate(self, activate_path: str) -> None:
+        """Derive the venv python exe from the activate script path and notify."""
+        if not self.on_venv_activate:
+            return
+        import os, platform as _pl
+        base = os.path.dirname(activate_path)  # Scripts/ or bin/
+        exe = os.path.join(base, "python.exe" if _pl.system() == "Windows" else "python")
+        if os.path.isfile(exe):
+            self.on_venv_activate(exe)
 
     def _on_resize(self, _=None) -> None:
         if self._resize_job:

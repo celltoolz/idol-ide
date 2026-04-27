@@ -22,12 +22,12 @@ class ScriptRunner:
         self._process: subprocess.Popen | None = None
         self._stdin_lock = threading.Lock()
 
-    def run(self, filepath: str) -> None:
-        """Spawn *filepath* with the system Python interpreter."""
+    def run(self, filepath: str, python_path: str = "python") -> None:
+        """Spawn *filepath* with *python_path* (defaults to system Python)."""
         def _run():
             try:
                 self._process = subprocess.Popen(
-                    ["python", "-u", filepath],
+                    [python_path, "-u", filepath],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     stdin=subprocess.PIPE,
