@@ -149,8 +149,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - **LOCALS** — shows every local variable in the current frame with name, value, and type, updated each time execution pauses
 - **Floating debug panel** — click **⊡** in the DEBUG tab bar to pop the panel into its own resizable window; keeps breakpoints and locals visible while working in Output or Terminal. **⬅ Dock** returns it to the bottom panel; **📌** pins it always on top. Float geometry persists across sessions
 - **Current-line arrow** — yellow arrow in the gutter marks the line where execution is paused; highlighted row in the editor
-- **Smart venv detection** — automatically uses the project's virtual environment Python (`.venv`, `venv`, `env`) so the debugger sees the same packages as your code
-- **One-click debugpy install** — if debugpy is missing from the project's Python, IDOL offers to install it automatically and retries the debug session on success
+- **Seamless debugpy** — IDOL bundles its own debugpy and injects it via `PYTHONPATH` at launch, mirroring VS Code's approach; no per-project install ever required
 - **Ctrl+F5** — run the current file directly in the integrated terminal (no debugger attached)
 - Unhandled exceptions pause execution and navigate to the crashing line automatically
 
@@ -217,21 +216,32 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 - **File → New Project…** launches a guided 4-step project setup wizard
   - Step 1: Project name and location (with live path preview)
-  - Step 2: Python interpreter selection (auto-detects all installed versions, with venv/system filters) + virtual environment creation
+  - Step 2: Python interpreter selection (auto-detects all installed versions, with venv/system filters) + virtual environment creation (`.venv`)
   - Step 3: Optional git init and starter files (main.py, requirements.txt, .gitignore)
   - Step 4: Summary — review settings before creating
 - Animated progress bar during venv creation so the UI stays responsive
+- Selected interpreter is applied to the statusbar and all run/debug operations immediately on project open
+- Auto-creates `.idol-project` in the project root on completion
 - Integrated learning guides — paginated, scrollable guides with plain-English analogies covering:
   - Virtual environments: what they are, why to use them, choosing an interpreter, creating/activating, best practices
   - Git remotes: repositories, remotes, creating a repo on GitHub, connecting and pushing, authentication
 
-### Workspace
+### Interpreter & Environment
+
+- **Interpreter statusbar** — active Python version always visible in the status bar (e.g. `Python 3.12.3` or `(.venv) Python 3.12.3`); click to open a picker and switch interpreters instantly
+- **Persistent per-project selection** — chosen interpreter is saved per project root and restored automatically on next open
+- **Activate venv** — clicking Activate in the terminal toolbar switches the statusbar and all run/debug/package operations to the venv Python automatically; Deactivate reverts to the system interpreter
+- **Package Manager linked** — installed packages always reflect the active interpreter; switches automatically when you change interpreters
+- Run, Run in Terminal, Run Selection, Debug, and the Package Manager all use the selected interpreter — one source of truth
+
+### Project
 
 <img src="screenshots/workspace-zen_mode.png" width="100%">
 
+- **Project file** — `File → New Project` auto-creates a `.idol-project` file in the project root storing open tabs, layout, interpreter, breakpoints, and appearance
+- **Save / Open / Close Project** — `File → Save Project` saves silently to `.idol-project`; `File → Open Project` restores the full project state including interpreter selection
 - Session persistence — restores open tabs, layout, and explorer root on relaunch; unsaved changes are auto-saved to temp files on exit and restored automatically
-- Save / Open Workspace for named sessions
-- Status bar: line/column, cursor count, lexer name, indent cycle (spaces ↔ tabs)
+- Status bar: line/column, cursor count, lexer name, active interpreter, indent cycle (spaces ↔ tabs)
 - Zen mode — F10 hides the sidebar, output panel, and status bar for distraction-free editing; toast notification on entry
 - **Toggle Sidebar** — Ctrl+B (or View → Show Sidebar) hides/shows the entire left panel in one click
 

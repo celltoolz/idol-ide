@@ -72,10 +72,10 @@ These modules have no Tkinter widget imports.
 | `completion.py` | Completion logic |
 | `key_handler.py` | Keybinding dispatch logic |
 | `multi_cursor.py` | Multi-cursor state and operations |
-| `pip_manager.py` | Subprocess backend for pip install/uninstall/list — runs on daemon threads, delivers results via `after_fn`. |
+| `pip_manager.py` | Subprocess backend for pip install/uninstall/list — runs on daemon threads, delivers results via `after_fn`. Tracks active interpreter via `set_python(exe)`. |
 | `project_manager.py` | Interpreter discovery and project scaffolding — finds installed Python versions, creates venvs, scaffolds starter files. Daemon-threaded. |
-| `script_runner.py` | Runs Python scripts as subprocesses — pushes `(line, tag)` tuples to a thread-safe queue; sends `None` sentinel on completion. |
-| `debug_manager.py` | DAP client for debugpy — launches debugpy subprocess, connects via TCP, drives the debug session. All callbacks dispatched via `after_fn`. |
+| `script_runner.py` | Runs Python scripts as subprocesses — pushes `(line, tag)` tuples to a thread-safe queue; sends `None` sentinel on completion. Accepts `python_path` to use the active interpreter. |
+| `debug_manager.py` | DAP client for debugpy — launches debugpy subprocess, connects via TCP, drives the debug session. Accepts `debugpy_site` to inject IDOL's bundled debugpy via `PYTHONPATH` (no per-project install needed). All callbacks dispatched via `after_fn`. |
 | `pyflakes_linter.py` | Local diagnostics engine — runs ruff then compile() on a debounced background thread; fires `on_diagnostics(uri, diags)` via `after_fn`. No LSP dependency. |
 
 ### `utils/` — stateless logic, content, config
@@ -87,7 +87,7 @@ no widget imports, no stateful objects.
 | `ollama_client.py` | HTTP client for local Ollama API |
 | `schemeparser.py` | Parses `.toml` colorscheme files |
 | `settings.py` | Settings load/save |
-| `session.py` | Session persistence (open files, state) |
+| `session.py` | Session persistence — saves/restores open tabs, layout, appearance, breakpoints, and active interpreter. Auto-session writes to `~/.idol/session.json`; named saves write to `.idol-project` in the project root. |
 | `learning_registry.py` | Registry of learning content |
 | `git_diagnostics.py` | Pure classification logic for Git health panel — regex pattern sets, `FileInfo`/`Issue`/`HealthCheck` dataclasses, stateless analysis functions. Called by `source_control.py`. |
 | `venv_guide.py` | Content module — exports `get_pages()` returning `GuidePage` dataclasses for the venv guide. No UI code. |
@@ -185,7 +185,7 @@ Implemented and stable:
 - Pip package manager with topic grouping, PyPI search, and AI examples
 - Command palette (Ctrl+Shift+P) with fuzzy search and `@` symbol search
 - Project setup wizard (4-step: name/location, interpreter/venv, git/starter files, summary)
-- **Integrated Python debugger** — debugpy over DAP; breakpoints, step controls, LOCALS + BREAKPOINTS panel, smart venv detection, one-click install
+- **Integrated Python debugger** — debugpy over DAP; breakpoints, step controls, LOCALS + BREAKPOINTS panel; IDOL's bundled debugpy injected via PYTHONPATH — no per-project install needed
 - Nav toolbar (back/forward, split, minimap, sidebar, zen, AI, packages, learning toggles)
 - Zen mode (F10), Toggle Sidebar (Ctrl+B)
 - Colorscheme system (`.toml` files)
