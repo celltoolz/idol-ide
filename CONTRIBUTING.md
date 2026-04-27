@@ -87,7 +87,7 @@ no widget imports, no stateful objects.
 | `ollama_client.py` | HTTP client for local Ollama API |
 | `schemeparser.py` | Parses `.toml` colorscheme files |
 | `settings.py` | Settings load/save |
-| `session.py` | Session persistence — saves/restores open tabs, layout, appearance, breakpoints, and active interpreter. Auto-session writes to `~/.idol/session.json`; named saves write to `.idol-project` in the project root. |
+| `session.py` | Session persistence — saves/restores open tabs, layout, appearance, breakpoints, active interpreter, and active venv (re-activates in terminal on next launch). Auto-session writes to `~/.idol/session.json`; named saves write to `.idol-project` in the project root. |
 | `learning_registry.py` | Registry of learning content |
 | `git_diagnostics.py` | Pure classification logic for Git health panel — regex pattern sets, `FileInfo`/`Issue`/`HealthCheck` dataclasses, stateless analysis functions. Called by `source_control.py`. |
 | `venv_guide.py` | Content module — exports `get_pages()` returning `GuidePage` dataclasses for the venv guide. No UI code. |
@@ -169,7 +169,7 @@ Implemented and stable:
 - pylsp LSP integration (hover, diagnostics, definition, completion)
 - **Problems panel** — PROBLEMS tab in bottom bar with colored severity dots; click to jump to line/column
 - **Diagnostic statusbar badge** — live ✕N ⚠N count; click to open Problems panel
-- **Interpreter statusbar segment** — shows active Python version; click to open interpreter picker popup; selection persists per project root in `~/.idol/settings.json`
+- **Interpreter statusbar segment** — shows active Python version; click to open interpreter picker popup; selection persists per project root in `~/.idol/settings.json`; venv activation (from terminal toolbar or project wizard) shown as `(.venv) Python x.x.x` and re-activated automatically on next launch
 - Sticky scroll, minimap
 - **Breadcrumb bar** — path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
 - **Multi-cursor editing** — Alt+Click to add/remove cursors; Shift+Arrow for independent per-cursor selections; Ctrl+C copies all selections; smart pairs and bracket matching work at every cursor; click-placement aligned to nearest character boundary
