@@ -2740,7 +2740,12 @@ class IDOL(Tk):
                 term.send(f'& "{venv_activate_path}"\r')
             else:
                 term.send(f'source "{venv_activate_path}"\r')
-            self.view_show_panel("terminal")
+            # Ensure panel is visible without toggling (view_show_panel would
+            # hide the panel if terminal was already the active tab)
+            if not self.output_visible_var.get():
+                self.output_visible_var.set(True)
+                self.view_toggle_output()
+            self._output._set_active("terminal")
         elif python_exe and os.path.isfile(python_exe):
             self._set_active_interpreter(python_exe, python_label or "Python")
         # Open main.py if it was created
