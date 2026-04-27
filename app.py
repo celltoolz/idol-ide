@@ -3029,7 +3029,8 @@ class IDOL(Tk):
             import sys as _sys
             self._set_active_interpreter(_sys.executable, "Python")
             self._on_venv_deactivated()
-        # Clear source control panel — no workspace, no git context
+        # Reset explorer root to home — clears git context and source control
+        self._set_explorer_root(str(Path.home()))
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
 
