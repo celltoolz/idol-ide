@@ -4144,48 +4144,16 @@ class IDOL(Tk):
             directory = parent
         return sys.executable
 
-    def _install_debugpy_then_debug(self, python_exe: str, filepath: str) -> None:
-        """pip install debugpy in *python_exe*'s env, then retry debug_file."""
-        import subprocess as _sp, threading as _th
-
-        if not self.output_visible_var.get():
-            self.output_visible_var.set(True)
-            self.view_toggle_output()
-        self._output._set_active("output")
-        self._output.output.clear()
-        self._output.output.write("$ pip install debugpy\n\n", "info")
-
-        def _run():
-            proc = _sp.Popen(
-                [python_exe, "-m", "pip", "install", "debugpy"],
-                stdout=_sp.PIPE,
-                stderr=_sp.STDOUT,
-            )
-            for raw in proc.stdout:
-                line = raw.decode("utf-8", errors="replace")
-                self.after(0, lambda l=line: self._output.output.write(l))
-            proc.wait()
-            if proc.returncode == 0:
-                self.after(
-                    0,
-                    lambda: (
-                        self._output.output.write(
-                            "\ndebugpy installed — starting debugger…\n", "info"
-                        ),
-                        self.debug_file(),
-                    ),
-                )
-            else:
-                self.after(
-                    0,
-                    lambda: self._output.output.write(
-                        "\nInstallation failed. Try manually:\n"
-                        f"  {python_exe} -m pip install debugpy\n",
-                        "error",
-                    ),
-                )
-
-        _th.Thread(target=_run, daemon=True).start()
+    def _get_debugpy_site(self) -> str | None:
+        """Return the site-packages dir containing IDOL's bundled debugpy, or None."""
+        try:
+            import importlib.util
+            spec = importlib.util.find_spec("debugpy")
+            if spec and spec.origin:
+                return os.path.dirname(os.path.dirname(spec.origin))
+        except Exception:
+            pass
+        return None
 
     def debug_file(self) -> None:
         """F5 — save and launch a debug session for the current file."""
@@ -4201,28 +4169,8 @@ class IDOL(Tk):
         if not filepath or not filepath.endswith(".py"):
             return
 
-        python_exe = self._find_project_python(filepath)
-
-        # Check debugpy is available in the target interpreter
-        import subprocess as _sp
-
-        try:
-            _sp.run(
-                [python_exe, "-c", "import debugpy"],
-                check=True,
-                capture_output=True,
-            )
-        except _sp.CalledProcessError:
-            from tkinter.messagebox import askyesno
-
-            if not askyesno(
-                "debugpy not found",
-                "debugpy is not installed in this project's Python environment.\n\n"
-                "Install it now?",
-            ):
-                return
-            self._install_debugpy_then_debug(python_exe, filepath)
-            return
+        python_exe   = self._find_project_python(filepath)
+        debugpy_site = self._get_debugpy_site()
 
         self._debugger = DebugManager(after_fn=self._safe_after)
         self._debugger.on_stopped = self._on_debug_stopped
@@ -4240,21 +4188,21 @@ class IDOL(Tk):
             self.view_toggle_output()
 
         if self._run_target_var.get() == "terminal":
-            self._debug_in_terminal(filepath, python_exe, bp_dict)
+            self._debug_in_terminal(filepath, python_exe, bp_dict, debugpy_site)
         else:
             self._output._set_active("debug")
             self._output.output.clear()
             self._output.output.write(
                 f"$ Debugging {os.path.basename(filepath)}\n\n", "info"
             )
-            self._debugger.launch(filepath, python_exe, bp_dict)
+            self._debugger.launch(filepath, python_exe, bp_dict, debugpy_site)
             self._show_debug_bar()
             if self._file_uses_input(filepath):
                 self._output.output.show_debug_input_guide_btn(
                     self._switch_to_terminal_debug
                 )
 
-    def _debug_in_terminal(self, filepath: str, python_exe: str, bp_dict: dict) -> None:
+    def _debug_in_terminal(self, filepath: str, python_exe: str, bp_dict: dict, debugpy_site: str | None = None) -> None:
         """Launch debugpy in the terminal and attach our DAP client to it."""
         from editor.debug_manager import _find_free_port
 
@@ -4264,11 +4212,18 @@ class IDOL(Tk):
         if not self._output.terminal._running:
             self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
 
-        # PowerShell requires & before a quoted executable path; bash does not
         import platform as _pl
-
-        prefix = "& " if _pl.system() == "Windows" else ""
-        cmd = f'{prefix}"{python_exe}" -Xfrozen_modules=off -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"\r'
+        is_win = _pl.system() == "Windows"
+        prefix = "& " if is_win else ""
+        base = f'{prefix}"{python_exe}" -Xfrozen_modules=off -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"'
+        if debugpy_site:
+            if is_win:
+                safe = debugpy_site.replace("'", "''")
+                cmd = f"$env:PYTHONPATH='{safe}' + [IO.Path]::PathSeparator + $env:PYTHONPATH; {base}\r"
+            else:
+                cmd = f'PYTHONPATH="{debugpy_site}:$PYTHONPATH" {base}\r'
+        else:
+            cmd = base + "\r"
 
         # Poll until the terminal is mapped AND its resize debounce has settled.
         # On first show the widget gets real pixel dimensions, firing <Configure>

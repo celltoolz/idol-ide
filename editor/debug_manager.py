@@ -57,8 +57,14 @@ class DebugManager:
         filepath: str,
         python_path: str,
         breakpoints: dict[str, list[int]],
+        debugpy_site: Optional[str] = None,
     ) -> None:
-        """Start a debug session for *filepath* using *python_path*."""
+        """Start a debug session for *filepath* using *python_path*.
+
+        If *debugpy_site* is given (the site-packages dir containing IDOL's
+        bundled debugpy), it is prepended to PYTHONPATH so the project's
+        interpreter finds debugpy without needing it installed locally.
+        """
         self._filepath            = filepath
         self._pending_breakpoints = breakpoints
         self._port                = _find_free_port()
@@ -71,11 +77,17 @@ class DebugManager:
             "--wait-for-client",
             filepath,
         ]
+        env = None
+        if debugpy_site:
+            env = os.environ.copy()
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = (debugpy_site + os.pathsep + existing) if existing else debugpy_site
         self._proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=os.path.dirname(filepath) or None,
+            env=env,
         )
         self._running = True
         threading.Thread(target=self._pipe_reader, args=(self._proc.stderr,), daemon=True).start()
