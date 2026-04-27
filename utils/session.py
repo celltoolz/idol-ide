@@ -38,6 +38,15 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
 
         entry: dict = {"title": title, "filepath": fp}
 
+        if dirty and fp and Path(fp).is_file():
+            # Verify the dirty flag isn't spurious — if content matches disk,
+            # treat the tab as clean so it doesn't come back as unsaved on restore.
+            try:
+                if cv.get("1.0", "end-1c") == Path(fp).read_text(encoding="utf-8"):
+                    dirty = False
+            except Exception:
+                pass
+
         if dirty:
             # Write unsaved content to a temp file so the session JSON stays
             # small and the content survives restarts without a save prompt.
@@ -220,6 +229,7 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         app.after_idle(app._refresh_debug_breakpoints)
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
+    app._restoring = True
     for entry in tabs:
         fp       = entry.get("filepath")
         title    = entry.get("title", "Untitled")
@@ -249,6 +259,8 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
                 continue
         elif content is not None:
             app._new_tab(title, content, filepath=fp if fp else None)
+
+    app.after_idle(lambda: setattr(app, '_restoring', False))
 
     tabs_list = app.notebook.tabs()
     active = data.get("active_index", 0)

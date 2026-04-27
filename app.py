@@ -865,10 +865,13 @@ class IDOL(Tk):
         ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
 
     def _schedule_venv_activation_if_needed(self, activate_path: str = "") -> None:
-        """After session restore: store the venv activate path so _prewarm_terminal
-        can fire it 1500 ms after the shell starts (not from restore time, which
-        races with the terminal spawn). activate_path comes from the session file;
-        if omitted it is derived from _active_python for old session files."""
+        """Schedule terminal venv activation after session restore.
+
+        At startup the terminal isn't running yet — store as _pending_venv_activate
+        so _prewarm_terminal picks it up 1500 ms after the shell starts.
+        When called from workspace_open the terminal is already running — schedule
+        _auto_activate_venv directly with a short delay.
+        """
         import platform as _pl
         if not activate_path:
             path = getattr(self, "_active_python", "")
@@ -878,7 +881,12 @@ class IDOL(Tk):
             activate_path = os.path.join(parent, "Activate.ps1" if _pl.system() == "Windows" else "activate")
         if not os.path.isfile(activate_path):
             return
-        self._pending_venv_activate = activate_path
+        if getattr(self._output, "terminal", None) and self._output.terminal._running:
+            # Terminal already up — fire directly after a short settle delay.
+            self.after(500, lambda: self._auto_activate_venv(activate_path))
+        else:
+            # Startup path — _prewarm_terminal will pick this up.
+            self._pending_venv_activate = activate_path
 
     def _auto_activate_venv(self, activate_path: str) -> None:
         """Send the venv activate command to the terminal (used on session restore)."""
@@ -1516,15 +1524,24 @@ class IDOL(Tk):
         """Clear the dirty flag after all deferred events from file load have fired.
 
         codeview.insert() during load fires <<ContentChanged>> with when="tail",
-        which is processed after the synchronous dirty=False assignment.  Calling
-        this via after_idle ensures the flag is cleared once that tail event drains.
+        which is processed after the synchronous dirty=False assignment.  A second
+        after_idle pass ensures the flag is cleared even if the LSP or linter fires
+        a late ContentChanged after the first pass.
         """
         if tab_id in self._dirty:
+            self._dirty[tab_id] = False
+            self._refresh_tab_title(tab_id)
+        self.after_idle(lambda tid=tab_id: self._reset_dirty_final(tid))
+
+    def _reset_dirty_final(self, tab_id: str) -> None:
+        if tab_id in self._dirty and self._dirty[tab_id]:
             self._dirty[tab_id] = False
             self._refresh_tab_title(tab_id)
 
     def _on_content_changed(self) -> None:
         self._clear_runtime_error()
+        if getattr(self, '_restoring', False):
+            return
         tab_id = self._current_tab_id
         if tab_id and not self._dirty.get(tab_id):
             self._dirty[tab_id] = True
@@ -2969,10 +2986,10 @@ class IDOL(Tk):
             return  # Cancel
         if answer:
             self.workspace_save()
-        # Check for dirty tabs
-        for tab_id in list(self.notebook.tabs()):
-            if not self._confirm_close_tab(tab_id):
-                return
+        else:
+            # User chose No — auto-preserve dirty tabs to temp files (no per-tab
+            # prompts) so work isn't lost, matching the file_exit behavior.
+            session_utils.save(self)
         for tab_id in list(self.notebook.tabs()):
             self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
@@ -2985,6 +3002,17 @@ class IDOL(Tk):
             mc.clear()
             self.notebook.forget(tab_id)
         self._new_tab("Untitled", "")
+        # Deactivate venv if one was active for this project
+        if "(.venv)" in getattr(self, "_active_python_label", ""):
+            term = self._output.terminal
+            if term._running and term._venv_active:
+                term.send("deactivate\r")
+            # Clear interpreter synchronously so any immediate session save
+            # (e.g. if user closes IDOL right after) captures system Python,
+            # not the venv. _on_venv_deactivated refines the label async.
+            import sys as _sys
+            self._set_active_interpreter(_sys.executable, "Python")
+            self._on_venv_deactivated()
         # Clear source control panel — no workspace, no git context
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
@@ -3004,6 +3032,13 @@ class IDOL(Tk):
         )
         if not path or not os.path.isfile(path):
             return
+        # Deactivate any active venv from the previous project before loading
+        if "(.venv)" in getattr(self, "_active_python_label", ""):
+            term = self._output.terminal
+            if term._running and term._venv_active:
+                term.send("deactivate\r")
+            import sys as _sys
+            self._set_active_interpreter(_sys.executable, "Python")
         # Close all tabs cleanly (bypass the auto-Untitled fallback)
         for tab_id in list(self.notebook.tabs()):
             self._files.pop(tab_id, None)
@@ -4254,8 +4289,15 @@ class IDOL(Tk):
 
         root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
         saved = _settings.get(f"interpreter:{root}")
+        # Snapshot the current value — if session restore sets a different interpreter
+        # before the background thread returns, don't override it.
+        _snapshot = self._active_python
 
         def _on_pythons(results: list[tuple[str, str]]) -> None:
+            if self._active_python != _snapshot:
+                # session.restore (or wizard) already set a more authoritative
+                # interpreter after we launched — leave it alone.
+                return
             path, label = sys.executable, "Python"
             if saved:
                 for lbl, exe in results:
