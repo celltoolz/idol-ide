@@ -325,7 +325,31 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         # sidebar collapse states, sash heights, and relayout.
         app.after(250, lambda: _apply_sidebar_layout(app, layout))
 
+    # Stage 3 (350 ms): final dirty-flag cleanup — any ContentChanged events
+    # that fired after _restoring was cleared (layout redraws, LSP) may have
+    # spuriously marked tabs dirty.  Clear tabs whose content matches disk.
+    app.after(350, lambda: _cleanup_dirty_flags(app))
+
     return True
+
+
+def _cleanup_dirty_flags(app: "IDOL") -> None:
+    """Clear dirty on tabs whose in-editor content matches what's on disk."""
+    for tab_id in app.notebook.tabs():
+        if not app._dirty.get(tab_id):
+            continue
+        fp = app._files.get(tab_id)
+        if not fp:
+            continue
+        cv = app._codeviews.get(tab_id)
+        if cv is None:
+            continue
+        try:
+            if cv.get("1.0", "end-1c") == Path(fp).read_text(encoding="utf-8"):
+                app._dirty[tab_id] = False
+                app._refresh_tab_title(tab_id)
+        except Exception:
+            pass
 
 
 _MIN_SASH = 40   # px — below this a saved sash value is considered corrupt
