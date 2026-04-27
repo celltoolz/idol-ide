@@ -2669,6 +2669,8 @@ class IDOL(Tk):
         main_py = os.path.join(project_path, "main.py")
         if os.path.isfile(main_py):
             self._open_file(main_py, update_explorer=False)
+        # Auto-create the project file so "Open Project" works immediately
+        self.after(500, self.workspace_save)
 
     def file_open(self, *_) -> None:
         path = askopenfilename(
@@ -2908,10 +2910,10 @@ class IDOL(Tk):
         self._set_explorer_root(root)
 
     def workspace_close(self, *_) -> None:
-        """Close the current workspace (with save prompt) leaving a blank state."""
+        """Close the current project (with save prompt) leaving a blank state."""
         answer = askyesnocancel(
-            "Close Workspace",
-            "You are about to close your current workspace.\n\nWould you like to save before closing?",
+            "Close Project",
+            "You are about to close your current project.\n\nWould you like to save before closing?",
         )
         if answer is None:
             return  # Cancel
@@ -2938,18 +2940,17 @@ class IDOL(Tk):
         self._sidebar.source_control.refresh_history([])
 
     def workspace_save(self, *_) -> None:
-        path = asksaveasfilename(
-            title="Save Workspace",
-            defaultextension=".json",
-            filetypes=[("Workspace files", "*.json"), ("All files", "*.*")],
+        """Save project to .idol-project in the explorer root (no dialog needed)."""
+        root = getattr(self, "_explorer_root", None) or str(
+            self._sidebar.explorer._root or os.getcwd()
         )
-        if path:
-            session_utils.save(self, path)
+        path = os.path.join(root, ".idol-project")
+        session_utils.save(self, path)
 
     def workspace_open(self, *_) -> None:
         path = askopenfilename(
-            title="Open Workspace",
-            filetypes=[("Workspace files", "*.json"), ("All files", "*.*")],
+            title="Open Project",
+            filetypes=[("IDOL Project files", "*.idol-project"), ("All files", "*.*")],
         )
         if not path or not os.path.isfile(path):
             return

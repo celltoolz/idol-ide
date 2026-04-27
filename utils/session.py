@@ -158,6 +158,11 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         if lines
     }
 
+    interpreter = {
+        "path":  getattr(app, "_active_python", ""),
+        "label": getattr(app, "_active_python_label", ""),
+    }
+
     try:
         target.write_text(
             json.dumps(
@@ -168,6 +173,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
                     "layout":        layout,
                     "appearance":    appearance,
                     "breakpoints":   breakpoints,
+                    "interpreter":   interpreter,
                 },
                 indent=2,
             ),
@@ -244,6 +250,13 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         root = str(Path.home())
     if root:
         app._set_explorer_root(root)
+
+    # ── Interpreter ───────────────────────────────────────────────────────────
+    interp = data.get("interpreter", {})
+    interp_path  = interp.get("path", "")
+    interp_label = interp.get("label", "")
+    if interp_path and os.path.isfile(interp_path) and hasattr(app, "_set_active_interpreter"):
+        app._set_active_interpreter(interp_path, interp_label or "Python")
 
     # ── Appearance ────────────────────────────────────────────────────────────
     appearance = data.get("appearance", {})
