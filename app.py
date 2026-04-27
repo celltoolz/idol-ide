@@ -3002,15 +3002,20 @@ class IDOL(Tk):
             # prompts) so work isn't lost, matching the file_exit behavior.
             session_utils.save(self)
         for tab_id in list(self.notebook.tabs()):
-            self._files.pop(tab_id, None)
+            closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)
             self._indent_sizes.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
             self._key_handlers.pop(tab_id, None)
-        mc = self._multi_cursors.pop(tab_id, None)
-        if mc:
-            mc.clear()
+            self._breadcrumbs.pop(tab_id, None)
+            self._temp_files.pop(tab_id, None)
+            mc = self._multi_cursors.pop(tab_id, None)
+            if mc:
+                mc.clear()
+            if closed_path and closed_path.endswith(".py"):
+                for srv in self._each_lsp():
+                    srv.close_file(closed_path)
             self.notebook.forget(tab_id)
         self._new_tab("Untitled", "")
         # Deactivate venv if one was active for this project
@@ -3052,15 +3057,20 @@ class IDOL(Tk):
             self._set_active_interpreter(_sys.executable, "Python")
         # Close all tabs cleanly (bypass the auto-Untitled fallback)
         for tab_id in list(self.notebook.tabs()):
-            self._files.pop(tab_id, None)
+            closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)
             self._indent_sizes.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
             self._key_handlers.pop(tab_id, None)
-        mc = self._multi_cursors.pop(tab_id, None)
-        if mc:
-            mc.clear()
+            self._breadcrumbs.pop(tab_id, None)
+            self._temp_files.pop(tab_id, None)
+            mc = self._multi_cursors.pop(tab_id, None)
+            if mc:
+                mc.clear()
+            if closed_path and closed_path.endswith(".py"):
+                for srv in self._each_lsp():
+                    srv.close_file(closed_path)
             self.notebook.forget(tab_id)
         if not session_utils.restore(self, path):
             self._new_tab("Untitled", "")
