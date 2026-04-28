@@ -117,6 +117,37 @@ objects and it renders them. The content lives in `utils/venv_guide.py` and
 `utils/git_remote_guide.py`. This is the Guide Pattern: content in `utils/`,
 rendering in `widgets/`.
 
+### `designer/` — GUI Designer (Tkinter GUI projects only)
+
+The visual form designer. Only active when the current project type is "Tkinter GUI App".
+Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `codegen`,
+`persistence`) have no Tkinter widget imports; UI modules (`canvas`, `palette`,
+`properties`) have no subprocess calls.
+
+| File | Role |
+|---|---|
+| `model.py` | `WidgetDescriptor` and `FormModel` dataclasses — the canonical source of truth for every form |
+| `registry.py` | `REGISTRY` dict — one entry per widget type: tk class, default size, default props, available events, mini-preview drawing function |
+| `codegen.py` | `FormModel → Python` — generates clean class-based source; extracts and preserves existing event body content on regeneration |
+| `persistence.py` | `.form.json` save/load; event body extraction from existing `.py` for regen splicing |
+| `canvas.py` | Dotted-grid drag/drop surface — `place()`-based widget rendering, click-to-select, drag-to-move, resize handles |
+| `palette.py` | Widget toolbox panel — canvas-drawn mini previews, click-to-place |
+| `properties.py` | Property grid + Events tab — edits selected widget descriptor in real time |
+
+**Designer layout (when active):**
+```
+┌─────────────┬──────────────────────────┬──────────────────┐
+│ Palette     │  [Editor]  [Designer]    │ Properties       │
+│ (reuses     │  Canvas (dotted grid)    │ Panel            │
+│  explorer   │                          │                  │
+│  slot)      │  ┌────────────────────┐  │ Name: btn1       │
+│             │  │ Form1              │  │ Text: Click Me   │
+│ [Button]    │  │  [Click Me]        │  │ Width: 90        │
+│ [Label]     │  └────────────────────┘  │ ── Events ──     │
+│ [Entry] ... │                          │ Click: [stub ▼]  │
+└─────────────┴──────────────────────────┴──────────────────┘
+```
+
 ### `menus/`
 `menubar.py` — constructs the application menubar. Kept separate from `app.py` for
 size management.
@@ -137,6 +168,16 @@ Any future static data files belong here, not inside package directories.
 - **Ollama for local AI, not cloud.** The AI chat panel targets `qwen2.5-coder:7b` running locally. Don't add cloud API calls to the AI panel without explicit discussion.
 - **pylsp for LSP.** Server selection is in `lsp_manager.py`. Don't change the LSP server without discussion.
 - **PTY terminal.** Real PTY via `pty` module (Unix) or `winpty` (Windows). Don't replace with `subprocess.PIPE`.
+
+### Designer-specific decisions
+
+- **One-way codegen.** Designer → Python only. Parsing arbitrary Python edits back into a widget model is a compiler problem — not worth it for v1. If the user edits generated code manually and re-enters the Designer, show a "Manual edits detected" warning.
+- **`place()` geometry manager.** Absolute positioning only in v1. `pack()` and `grid()` can't be represented as drag-to-coordinate visually. A "convert to grid layout" option is a future feature.
+- **`.form.json` sidecar.** `Form1.py` (generated code) lives next to `Form1.form.json` (designer state). The JSON is the source of truth; the `.py` is a build artifact.
+- **Event body preservation.** On regeneration, `codegen.py` extracts existing event method bodies from the current `.py` and splices them into the new output. User code in event stubs is never discarded.
+- **`form_type` field reserved.** `FormModel.form_type` exists now but is always `"main"` in v1. v2 will use `"dialog"` to generate `tk.Toplevel` subclasses without a data model migration.
+- **Contextual left panel.** Entering Designer mode swaps the explorer out and the palette in — same slot, no floating windows. Exiting Designer restores the explorer.
+- **No external image assets in palette.** Widget mini-previews are drawn procedurally on `tk.Canvas` per widget type. Defined in `registry.py` alongside the widget's other metadata.
 
 ---
 
@@ -192,7 +233,7 @@ Implemented and stable:
 
 ## Planned / In Progress
 
-- *(nothing currently tracked)*
+- **GUI Designer (Phase 2)** — VB6-style drag/drop Tkinter form builder. Architecture locked 2026-04-28. See `designer/` package. Build order: model → codegen/persistence → mode bar → properties panel → canvas → palette → project wizard update → manual-edits warning → session persistence.
 
 ---
 

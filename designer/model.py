@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class WidgetDescriptor:
+    """Canonical description of one widget on the canvas."""
+    id: str                              # e.g. "btn_submit"
+    type: str                            # registry key, e.g. "Button"
+    x: int = 0
+    y: int = 0
+    width: int = 100
+    height: int = 30
+    props: dict[str, Any] = field(default_factory=dict)   # text, bg, fg, font, ...
+    events: dict[str, str] = field(default_factory=dict)  # {"click": "btn_submit_click"}
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "type": self.type,
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+            "props": dict(self.props),
+            "events": dict(self.events),
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "WidgetDescriptor":
+        return WidgetDescriptor(
+            id=d["id"],
+            type=d["type"],
+            x=d.get("x", 0),
+            y=d.get("y", 0),
+            width=d.get("width", 100),
+            height=d.get("height", 30),
+            props=d.get("props", {}),
+            events=d.get("events", {}),
+        )
+
+
+@dataclass
+class FormModel:
+    """Canonical description of one form (one .form.json / one generated .py)."""
+    name: str = "Form1"
+    title: str = "Form1"
+    width: int = 800
+    height: int = 600
+    resizable_x: bool = True
+    resizable_y: bool = True
+    bg: str = ""                         # "" = system default
+    form_type: str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel, v2)
+    widgets: list[WidgetDescriptor] = field(default_factory=list)
+
+    # ── widget lookup helpers ──────────────────────────────────────────────────
+
+    def get_widget(self, widget_id: str) -> WidgetDescriptor | None:
+        for w in self.widgets:
+            if w.id == widget_id:
+                return w
+        return None
+
+    def add_widget(self, widget: WidgetDescriptor) -> None:
+        self.widgets.append(widget)
+
+    def remove_widget(self, widget_id: str) -> bool:
+        before = len(self.widgets)
+        self.widgets = [w for w in self.widgets if w.id != widget_id]
+        return len(self.widgets) < before
+
+    def next_id(self, type_key: str) -> str:
+        """Generate the next unique id for a widget type, e.g. 'btn3'."""
+        prefix = _ID_PREFIXES.get(type_key, type_key.lower())
+        existing = {w.id for w in self.widgets}
+        n = 1
+        while f"{prefix}{n}" in existing:
+            n += 1
+        return f"{prefix}{n}"
+
+    # ── serialization ──────────────────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "title": self.title,
+            "width": self.width,
+            "height": self.height,
+            "resizable_x": self.resizable_x,
+            "resizable_y": self.resizable_y,
+            "bg": self.bg,
+            "form_type": self.form_type,
+            "widgets": [w.to_dict() for w in self.widgets],
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "FormModel":
+        return FormModel(
+            name=d.get("name", "Form1"),
+            title=d.get("title", "Form1"),
+            width=d.get("width", 800),
+            height=d.get("height", 600),
+            resizable_x=d.get("resizable_x", True),
+            resizable_y=d.get("resizable_y", True),
+            bg=d.get("bg", ""),
+            form_type=d.get("form_type", "main"),
+            widgets=[WidgetDescriptor.from_dict(w) for w in d.get("widgets", [])],
+        )
+
+
+# Short id prefixes per widget type
+_ID_PREFIXES: dict[str, str] = {
+    "Button":      "btn",
+    "Label":       "lbl",
+    "Entry":       "ent",
+    "Text":        "txt",
+    "Checkbutton": "chk",
+    "Radiobutton": "rad",
+    "Combobox":    "cmb",
+    "Listbox":     "lst",
+    "Frame":       "frm",
+    "LabelFrame":  "lfr",
+    "Scale":       "scl",
+    "Spinbox":     "spn",
+    "Progressbar": "prg",
+    "Separator":   "sep",
+}
