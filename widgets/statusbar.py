@@ -82,8 +82,8 @@ class StatusBar(ttk.Frame):
         """Show or update the git branch indicator on the left of the status bar."""
         if name:
             self._branch_lbl.config(text=f"\u2387 {name}")   # ⎇ branch_name
-            self._branch_lbl.pack(side="left", padx=(10, 2), pady=2)
             self._branch_sep.pack(side="left", fill="y", padx=4, pady=3)
+            self._branch_lbl.pack(side="left", padx=(4, 2), pady=2)
         else:
             self._branch_lbl.pack_forget()
             self._branch_sep.pack_forget()
