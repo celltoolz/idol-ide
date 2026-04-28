@@ -47,6 +47,7 @@ from utils.custom_cursor import get_learn_cursor
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
+from widgets.designer_properties import DesignerProperties
 
 
 def _add_tooltip(widget, text: str, delay: int = 500) -> None:
@@ -782,6 +783,14 @@ class IDOL(Tk):
 
         # ── Designer surface (pre-built, swapped in by _enter_designer_mode) ──
         self._designer_frame = tk.Frame(nb_frame, bg="#1e1e1e")
+
+        # ── Properties panel (right pane, added to _h_pane in designer mode) ──
+        self._props_panel = DesignerProperties(
+            self._h_pane,
+            on_prop_change=self._on_designer_prop_change,
+            on_event_change=self._on_designer_event_change,
+        )
+        self._props_panel.configure(width=230)
 
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
@@ -3866,6 +3875,7 @@ class IDOL(Tk):
         self._designer_mode = True
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
+        self._h_pane.add(self._props_panel, minsize=200, stretch="never")
         self._refresh_mode_bar()
         # Swap left panel: hide explorer, show widget palette (Step 6)
 
@@ -3876,8 +3886,18 @@ class IDOL(Tk):
         self._designer_mode = False
         self._designer_frame.pack_forget()
         self.notebook.pack(fill="both", expand=True)
+        try:
+            self._h_pane.forget(self._props_panel)
+        except Exception:
+            pass
         self._refresh_mode_bar()
         # Restore left panel to explorer (Step 6)
+
+    def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
+        """Called by DesignerProperties when the user edits a property. (Step 5)"""
+
+    def _on_designer_event_change(self, widget_id: str, event_key: str, handler: str) -> None:
+        """Called by DesignerProperties when the user wires/unwires an event. (Step 5)"""
 
     # ── Split editor ──────────────────────────────────────────────────────────
 
