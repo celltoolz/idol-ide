@@ -362,6 +362,10 @@ class IDOL(Tk):
 
         # Zen mode
         self._zen_mode: bool = False
+
+        # Designer
+        self._designer_mode: bool = False
+        self._designer_project_type: str = "cli"   # "cli" | "gui"
         self._zen_pill: object = None  # floating toast Toplevel
 
         self._build_layout()
@@ -751,6 +755,33 @@ class IDOL(Tk):
         LearningManager.register(self._nav_pkg_btn, "nav_pkg")
         LearningManager.register(self._nav_learn_btn, "nav_learn")
         LearningManager.register(self._nav_term_btn, "nav_terminal")
+
+        # ── Mode bar — [Editor] | [Designer] ─────────────────────────────────
+        # Hidden until a Tkinter GUI project is active (_show_mode_bar).
+        _MB_BG  = "#1e1e1e"
+        _MB_ACT = "#ffffff"
+        _MB_DIM = "#6a6a6a"
+        _MB_HL  = "#007acc"
+
+        self._mode_bar = tk.Frame(nb_frame, bg=_MB_BG, height=28)
+        self._mode_bar.pack_propagate(False)
+
+        def _mode_btn(text: str, cmd) -> tk.Label:
+            lbl = tk.Label(
+                self._mode_bar, text=text, bg=_MB_BG, fg=_MB_DIM,
+                font=("Segoe UI", 9), cursor="hand2", padx=12, pady=0,
+            )
+            lbl.bind("<Button-1>", lambda _: cmd())
+            lbl.bind("<Enter>",    lambda _: lbl.config(fg=_MB_ACT))
+            lbl.bind("<Leave>",    lambda _: self._refresh_mode_bar())
+            lbl.pack(side="left")
+            return lbl
+
+        self._mode_btn_editor   = _mode_btn("Editor",   self._enter_editor_mode)
+        self._mode_btn_designer = _mode_btn("Designer", self._enter_designer_mode)
+
+        # ── Designer surface (pre-built, swapped in by _enter_designer_mode) ──
+        self._designer_frame = tk.Frame(nb_frame, bg="#1e1e1e")
 
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
@@ -3805,6 +3836,48 @@ class IDOL(Tk):
             except Exception:
                 pass
             self._zen_pill = None
+
+    # ── Designer mode ─────────────────────────────────────────────────────────
+
+    def _show_mode_bar(self) -> None:
+        """Pack the [Editor] | [Designer] strip above the notebook."""
+        self._mode_bar.pack(fill="x", side="top", before=self.notebook)
+        self._refresh_mode_bar()
+
+    def _hide_mode_bar(self) -> None:
+        """Remove the mode bar and force editor mode."""
+        self._enter_editor_mode()
+        self._mode_bar.pack_forget()
+
+    def _refresh_mode_bar(self) -> None:
+        """Sync button colours to the active mode."""
+        act, dim = "#ffffff", "#6a6a6a"
+        if self._designer_mode:
+            self._mode_btn_editor.config(fg=dim)
+            self._mode_btn_designer.config(fg=act)
+        else:
+            self._mode_btn_editor.config(fg=act)
+            self._mode_btn_designer.config(fg=dim)
+
+    def _enter_designer_mode(self) -> None:
+        """Switch the main content area to the designer canvas."""
+        if self._designer_mode:
+            return
+        self._designer_mode = True
+        self.notebook.pack_forget()
+        self._designer_frame.pack(fill="both", expand=True)
+        self._refresh_mode_bar()
+        # Swap left panel: hide explorer, show widget palette (Step 6)
+
+    def _enter_editor_mode(self) -> None:
+        """Switch the main content area back to the code editor."""
+        if not self._designer_mode:
+            return
+        self._designer_mode = False
+        self._designer_frame.pack_forget()
+        self.notebook.pack(fill="both", expand=True)
+        self._refresh_mode_bar()
+        # Restore left panel to explorer (Step 6)
 
     # ── Split editor ──────────────────────────────────────────────────────────
 
