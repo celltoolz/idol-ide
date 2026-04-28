@@ -390,6 +390,8 @@ class IDOL(Tk):
             on_run_entry_click=self._open_run_entry_picker,
         )
         self._statusbar.pack(side="bottom", fill="x")
+        self._statusbar.set_run_entry("Active Tab")  # show segment immediately
+        LearningManager.register(self._statusbar._run_entry_lbl, "run_entry_selector")
 
         # Horizontal split: outline (left) | editor+output (right)
         self._h_pane = tk.PanedWindow(
@@ -4396,11 +4398,6 @@ class IDOL(Tk):
         self._run_entry_file = path or None
         label = os.path.basename(path) if path else "Active Tab"
         self._statusbar.set_run_entry(label)
-        if hasattr(self._statusbar, "_run_entry_lbl") and not getattr(
-            self._statusbar._run_entry_lbl, "_learning_registered", False
-        ):
-            LearningManager.register(self._statusbar._run_entry_lbl, "run_entry_selector")
-            self._statusbar._run_entry_lbl._learning_registered = True
 
     def _open_run_entry_picker(self) -> None:
         """Popup above the statusbar to pin a specific entry file for Run/Debug."""
