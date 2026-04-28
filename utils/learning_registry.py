@@ -263,6 +263,20 @@ REGISTRY: dict[str, dict[str, str]] = {
         ),
     },
 
+    "run_entry_selector": {
+        "title": "Entry File Selector",
+        "what": "Pins a specific Python file as the run/debug target regardless of which tab is active.",
+        "how": (
+            "Click ▶ in the status bar to open the picker. "
+            "Choose 'Active Tab' to run whichever file is open (default), "
+            "pick a .py file from your project, or click Browse to locate any file. "
+            "The pinned file is saved with the project and restored on next open."
+        ),
+        "example": (
+            "Your project has main.py as the entry point but you're editing utils.py. "
+            "Pin main.py — now Ctrl+F5 and F5 always launch main.py no matter which tab is focused."
+        ),
+    },
     "interpreter_selector": {
         "title": "Python Interpreter",
         "what": "Shows the active Python interpreter — the version (and venv, if one is active) used to run and debug your code.",

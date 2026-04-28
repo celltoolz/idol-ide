@@ -356,6 +356,7 @@ class IDOL(Tk):
         self.zen_mode_var = BooleanVar(value=False)
         self._run_target_var = tk.StringVar(value="output")
         self._run_action_var = tk.StringVar(value="run")
+        self._run_entry_file: str | None = None
         self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
@@ -386,6 +387,7 @@ class IDOL(Tk):
             on_indent_change=self._on_indent_change,
             on_diagnostics_click=lambda: self._output._set_active("problems"),
             on_interpreter_click=self._open_interpreter_picker,
+            on_run_entry_click=self._open_run_entry_picker,
         )
         self._statusbar.pack(side="bottom", fill="x")
 
@@ -3038,6 +3040,7 @@ class IDOL(Tk):
             import sys as _sys
             self._set_active_interpreter(_sys.executable, "Python")
             self._on_venv_deactivated()
+        self._set_run_entry(None)
         self._set_explorer_root(str(Path.home()))
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
@@ -4262,10 +4265,11 @@ class IDOL(Tk):
         self._run_selection()
 
     def run_file(self) -> None:
-        """Run the current file in the output panel."""
-        if not self.file_save():
+        """Run the current file (or pinned entry) in the output panel."""
+        saved = self.file_save()
+        if not saved and not self._run_entry_file:
             return
-        filepath = self._files.get(self._current_tab_id)
+        filepath = self._get_run_filepath()
         if filepath:
             if not self.output_visible_var.get():
                 self.output_visible_var.set(True)
@@ -4273,10 +4277,11 @@ class IDOL(Tk):
             self._output.run(filepath, self._active_python)
 
     def run_file_in_terminal(self) -> None:
-        """Ctrl+F5 — save and run the current file in the terminal panel."""
-        if not self.file_save():
+        """Ctrl+F5 — save and run the current file (or pinned entry) in the terminal."""
+        saved = self.file_save()
+        if not saved and not self._run_entry_file:
             return
-        filepath = self._files.get(self._current_tab_id)
+        filepath = self._get_run_filepath()
         if not filepath:
             return
         if not self.output_visible_var.get():
@@ -4378,6 +4383,133 @@ class IDOL(Tk):
         _settings.set(f"interpreter:{root}", path)
         if self._pkg_panel:
             self._pkg_panel.set_python(path)
+
+    # ── Run entry file ────────────────────────────────────────────────────────
+
+    def _get_run_filepath(self) -> str | None:
+        """Return the pinned entry file path, or the current tab's file."""
+        if self._run_entry_file and os.path.isfile(self._run_entry_file):
+            return self._run_entry_file
+        return self._files.get(self._current_tab_id)
+
+    def _set_run_entry(self, path: str | None) -> None:
+        self._run_entry_file = path or None
+        label = os.path.basename(path) if path else "Active Tab"
+        self._statusbar.set_run_entry(label)
+        if hasattr(self._statusbar, "_run_entry_lbl") and not getattr(
+            self._statusbar._run_entry_lbl, "_learning_registered", False
+        ):
+            LearningManager.register(self._statusbar._run_entry_lbl, "run_entry_selector")
+            self._statusbar._run_entry_lbl._learning_registered = True
+
+    def _open_run_entry_picker(self) -> None:
+        """Popup above the statusbar to pin a specific entry file for Run/Debug."""
+        import tkinter as tk
+        import glob as _glob
+
+        if hasattr(self, "_run_entry_picker") and self._run_entry_picker.winfo_exists():
+            self._run_entry_picker.destroy()
+            return
+
+        picker = tk.Toplevel(self)
+        self._run_entry_picker = picker
+        picker.overrideredirect(True)
+        picker.configure(bg="#252526")
+
+        tk.Label(
+            picker, text="Select Entry File",
+            bg="#252526", fg="#cccccc",
+            font=("Segoe UI", 9, "bold"), pady=6, padx=10, anchor="w",
+        ).pack(fill="x")
+        ttk.Separator(picker, orient="horizontal").pack(fill="x")
+
+        lb = tk.Listbox(
+            picker,
+            bg="#1e1e1e", fg="#cccccc",
+            selectbackground="#094771", selectforeground="#ffffff",
+            borderwidth=0, highlightthickness=0,
+            font=("Consolas", 9), relief="flat", activestyle="none",
+        )
+        lb.pack(fill="both", expand=True, padx=1, pady=1)
+
+        # Build file list: "Active Tab" + project .py files + Browse
+        root = str(self._sidebar.explorer._root or os.getcwd())
+        _SKIP = {"__pycache__", ".venv", "venv", "env", ".git", "node_modules", "dist", "build"}
+
+        py_files: list[str] = []
+        for pattern in ("*.py", "*/*.py"):
+            for f in _glob.glob(os.path.join(root, pattern)):
+                parts = Path(f).relative_to(root).parts
+                if not any(p in _SKIP for p in parts):
+                    py_files.append(f)
+        py_files.sort(key=lambda f: (os.path.dirname(f) != root, os.path.basename(f).lower()))
+
+        entries: list[str | None] = [None] + py_files + ["__browse__"]
+
+        def _display(entry) -> str:
+            if entry is None:
+                marker = "● " if not self._run_entry_file else "  "
+                return f"{marker}Active Tab"
+            if entry == "__browse__":
+                return "  Browse..."
+            marker = "● " if entry == self._run_entry_file else "  "
+            try:
+                rel = os.path.relpath(entry, root)
+            except ValueError:
+                rel = os.path.basename(entry)
+            return f"{marker}{rel}"
+
+        for e in entries:
+            lb.insert("end", _display(e))
+
+        # Select current
+        for i, e in enumerate(entries):
+            if e == self._run_entry_file:
+                lb.selection_set(i)
+                lb.see(i)
+                break
+        else:
+            lb.selection_set(0)
+
+        rows = min(len(entries), 12)
+        lb.config(height=rows)
+
+        def _reposition() -> None:
+            ax, ay = self._statusbar.get_run_entry_anchor()
+            pw = max(picker.winfo_reqwidth(), 340)
+            ph = picker.winfo_reqheight()
+            sw = self.winfo_screenwidth()
+            x = min(ax, sw - pw - 4)
+            y = ay - ph - 2
+            picker.geometry(f"{pw}x{ph}+{x}+{y}")
+
+        picker.update_idletasks()
+        _reposition()
+
+        def _select(event=None) -> None:
+            sel = lb.curselection()
+            if not sel:
+                return
+            entry = entries[sel[0]]
+            picker.destroy()
+            if entry == "__browse__":
+                from tkinter.filedialog import askopenfilename
+                path = askopenfilename(
+                    title="Select Entry File",
+                    filetypes=[("Python files", "*.py"), ("All files", "*.*")],
+                    initialdir=root,
+                )
+                if path:
+                    self._set_run_entry(path)
+            else:
+                self._set_run_entry(entry)
+
+        lb.bind("<Double-Button-1>", _select)
+        lb.bind("<Return>", _select)
+        picker.bind("<Escape>", lambda _: picker.destroy())
+        picker.bind("<FocusOut>", lambda _: picker.destroy())
+        picker.focus_set()
+        lb.focus_set()
 
     def _open_interpreter_picker(self) -> None:
         """Show a popup above the statusbar to select the active Python interpreter."""
@@ -4485,9 +4617,10 @@ class IDOL(Tk):
             # Already paused — treat F5 as Continue
             self._debug_continue()
             return
-        if not self.file_save():
+        saved = self.file_save()
+        if not saved and not self._run_entry_file:
             return
-        filepath = self._files.get(self._current_tab_id)
+        filepath = self._get_run_filepath()
         if not filepath or not filepath.endswith(".py"):
             return
 

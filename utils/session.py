@@ -131,9 +131,10 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     layout["sc_visible"]          = sb._sc_visible
     layout["explorer_collapsed"]  = sb._explorer_collapsed
 
-    # Run preferences (target: output/terminal; action: run/debug)
+    # Run preferences (target: output/terminal; action: run/debug; entry file)
     layout["run_target"] = app._run_target_var.get()
     layout["run_action"] = app._run_action_var.get()
+    layout["run_entry"] = getattr(app, "_run_entry_file", "") or ""
 
     # Debug float window
     fw = app._output._debug_float_win
@@ -382,6 +383,9 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
     if run_action in ("run", "debug"):
         app._run_action_var.set(run_action)
         app.after_idle(app._refresh_run_buttons)
+    run_entry = layout.get("run_entry", "")
+    if run_entry and os.path.isfile(run_entry) and hasattr(app, "_set_run_entry"):
+        app._set_run_entry(run_entry)
 
     # Restore Ollama URL if customized
     if layout.get("ollama_url"):

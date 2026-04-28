@@ -19,12 +19,14 @@ class StatusBar(ttk.Frame):
         on_indent_change: Optional[Callable[[int], None]] = None,
         on_diagnostics_click: Optional[Callable[[], None]] = None,
         on_interpreter_click: Optional[Callable[[], None]] = None,
+        on_run_entry_click: Optional[Callable[[], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
         self._on_indent_change = on_indent_change
         self._on_diagnostics_click = on_diagnostics_click
         self._on_interpreter_click = on_interpreter_click
+        self._on_run_entry_click = on_run_entry_click
         self._indent_size = 4
         self._build_ui()
 
@@ -115,6 +117,33 @@ class StatusBar(ttk.Frame):
         else:
             self._diag_sep.pack_forget()
             self._diag_lbl.pack_forget()
+
+    def set_run_entry(self, label: str) -> None:
+        """Show or update the run-entry file indicator (right side, left of interpreter)."""
+        if not hasattr(self, "_run_entry_lbl"):
+            self._run_entry_sep = ttk.Separator(self, orient="vertical")
+            self._run_entry_lbl = ttk.Label(self, style="SB.Hi.TLabel", cursor="hand2")
+            if self._on_run_entry_click:
+                self._run_entry_lbl.bind("<Button-1>", lambda _: self._on_run_entry_click())
+        if label:
+            self._run_entry_lbl.config(text=f"\u25b6 {label}")
+            self._run_entry_lbl.pack(side="right", padx=(2, 8), pady=2)
+            self._run_entry_sep.pack(side="right", fill="y", padx=4, pady=3)
+            # Keep interpreter rightmost
+            if hasattr(self, "_interp_lbl"):
+                self._interp_lbl.pack_forget()
+                self._interp_sep.pack_forget()
+                self._interp_lbl.pack(side="right", padx=(2, 8), pady=2)
+                self._interp_sep.pack(side="right", fill="y", padx=4, pady=3)
+        else:
+            if hasattr(self, "_run_entry_lbl"):
+                self._run_entry_lbl.pack_forget()
+                self._run_entry_sep.pack_forget()
+
+    def get_run_entry_anchor(self) -> tuple[int, int]:
+        if hasattr(self, "_run_entry_lbl"):
+            return self._run_entry_lbl.winfo_rootx(), self._run_entry_lbl.winfo_rooty()
+        return self.winfo_rootx(), self.winfo_rooty()
 
     def set_interpreter(self, label: str) -> None:
         """Show or update the active Python interpreter on the right of the status bar."""
