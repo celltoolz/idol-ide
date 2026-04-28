@@ -4855,7 +4855,7 @@ class IDOL(Tk):
         cv = self._current_codeview
         if cv is None:
             return
-        line = cv.get("insert linestart", "insert lineend")
+        line = cv.get("insert linestart", "insert lineend").lstrip()
         self._run_snippet(line, "line")
 
     def _run_selection(self) -> None:
