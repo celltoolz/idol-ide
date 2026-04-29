@@ -433,9 +433,6 @@ class DesignerCanvas(tk.Canvas):
         d = self._drag
         if d is None or self._form is None:
             return
-        w = self._form.get_widget(d["id"])
-        if w is None:
-            return
 
         dx = event.x - d["start_cx"]
         dy = event.y - d["start_cy"]
@@ -470,6 +467,10 @@ class DesignerCanvas(tk.Canvas):
                 self._render_widget(widget)
             self._draw_form_handles()
             self.tag_raise("fhandle")
+            return
+
+        w = self._form.get_widget(d["id"])
+        if w is None:
             return
 
         if d["mode"] == "move":
