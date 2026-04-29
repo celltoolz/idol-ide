@@ -2847,6 +2847,7 @@ class IDOL(Tk):
         entry = os.path.join(project_path, "main.py")
         if os.path.isfile(entry):
             self._open_file(entry, update_explorer=False)
+            self._set_run_entry(entry)
         # Auto-create the project file so "Open Project" works immediately
         self.after(500, self.workspace_save)
 
