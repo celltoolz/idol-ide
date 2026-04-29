@@ -212,6 +212,9 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 ### GUI Designer
 
 <img src="screenshots/designer-canvas-palette-properties.png" width="100%">
+<p align="center">
+  <img src="screenshots/designer-calculator-running.png" width="40%">
+</p>
 
 IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applications — the only Python IDE with a visual form designer built in.
 
