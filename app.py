@@ -2843,10 +2843,13 @@ class IDOL(Tk):
             self._output._set_active("terminal")
         elif python_exe and os.path.isfile(python_exe):
             self._set_active_interpreter(python_exe, python_label or "Python")
-        # Open main.py if it was created
-        main_py = os.path.join(project_path, "main.py")
-        if os.path.isfile(main_py):
-            self._open_file(main_py, update_explorer=False)
+        # Open the entry-point file for the project type
+        if project_type == "gui":
+            entry = os.path.join(project_path, "Form1.py")
+        else:
+            entry = os.path.join(project_path, "main.py")
+        if os.path.isfile(entry):
+            self._open_file(entry, update_explorer=False)
         # Auto-create the project file so "Open Project" works immediately
         self.after(500, self.workspace_save)
 
@@ -3117,6 +3120,12 @@ class IDOL(Tk):
         self._set_explorer_root(str(Path.home()))
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
+        # Reset designer state for the new project
+        self.designer_close_form()
+        if self._designer_mode:
+            self._enter_editor_mode()
+        self._hide_mode_bar()
+        self._designer_project_type = "cli"
 
     def workspace_close(self, *_) -> None:
         """Close the current project (with save prompt) leaving a blank state."""

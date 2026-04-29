@@ -394,7 +394,7 @@ class ProjectWizard(tk.Toplevel):
         ))
 
         self._check("Create starter files", self._files_var,
-                    detail="main.py, requirements.txt, .gitignore")
+                    detail="Form1.py / main.py, requirements.txt, .gitignore")
 
     # ── Step 3: Summary ───────────────────────────────────────────────────────
 
@@ -602,16 +602,6 @@ class ProjectWizard(tk.Toplevel):
             form_py_path.write_text(code, encoding="utf-8")
             checksum = compute_checksum(form_py_path)
             designer_save(form, form_json_path, py_checksum=checksum)
-
-            # main.py — entry point that runs Form1
-            main_py = os.path.join(project_path, "main.py")
-            with open(main_py, "w", encoding="utf-8") as f:
-                f.write(
-                    f"from Form1 import Form1\n\n\n"
-                    f"if __name__ == \"__main__\":\n"
-                    f"    app = Form1()\n"
-                    f"    app.mainloop()\n"
-                )
         else:
             main_py = os.path.join(project_path, "main.py")
             with open(main_py, "w", encoding="utf-8") as f:
