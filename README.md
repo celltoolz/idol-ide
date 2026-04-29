@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/LSP-pylsp%20%2B%20ruff-orange?style=flat-square" alt="LSP">
   <img src="https://img.shields.io/badge/Debugger-debugpy-red?style=flat-square" alt="Debugger">
   <img src="https://img.shields.io/badge/AI-Ollama%20powered-8b5cf6?style=flat-square" alt="Ollama AI">
+  <img src="https://img.shields.io/badge/Designer-GUI%20Builder-ff6b35?style=flat-square" alt="GUI Designer">
   <img src="https://img.shields.io/badge/Status-Active%20Development-brightgreen?style=flat-square" alt="Active Development">
 </p>
 
@@ -208,6 +209,41 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
   - Offline card shows platform-specific install instructions and model setup when Ollama isn't running
   - Recommended model: `qwen2.5-coder` (~4GB) — install with `ollama pull qwen2.5-coder`
 
+### GUI Designer
+
+<img src="screenshots/designer-canvas-palette-properties.png" width="100%">
+
+IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applications — the only Python IDE with a visual form designer built in.
+
+- **Visual canvas** — a dotted-grid design surface showing your form at real size with a simulated title bar and drop shadow; widgets render with realistic visuals (raised buttons, sunken entries, filled progress bars, checked checkboxes, and more)
+- **Widget palette** — 14 widget types in a scrollable toolbox with canvas-drawn mini-previews: Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, Scale, Spinbox, Progressbar, Separator
+- **Drag, move & resize** — click to select any widget (blue dashed border + 8 white handles); drag to reposition; drag any handle to resize — all snapped to an 8px grid
+- **Properties panel** — right-side panel with Property and Value columns; click any value to edit inline; geometry (x, y, width, height) updates live as you drag
+- **Events tab** — every widget exposes its full event list (click, dblclick, keypress, focusin, change, and more); click an event name to auto-wire a default handler; type a custom method name to override
+- **Code generation** — `Designer → Generate Code` (Ctrl+Shift+G) writes clean, class-based Python from the canvas model:
+  ```python
+  class Form1(tk.Tk):
+      def __init__(self):
+          super().__init__()
+          self.title("My App")
+          self.geometry("800x600")
+          self._build_ui()
+
+      def _build_ui(self):
+          self.btn1 = tk.Button(self, text="Click Me", command=self._btn1_click)
+          self.btn1.place(x=10, y=10, width=100, height=30)
+
+      # ── Events ───────────────────────────────────────────────────────────────
+
+      def _btn1_click(self, *args):
+          pass  # TODO
+  ```
+- **Event body preservation** — regenerating code splices your existing handler bodies back in; code you wrote is never overwritten
+- **Manual edits detection** — if you edit the generated `.py` by hand and return to the Designer, IDOL detects the change via checksum and prompts before discarding your edits
+- **[Editor] | [Designer] mode bar** — a toggle strip above the editor switches the main area between code and canvas; the left panel swaps from File Explorer to the Widget Palette automatically
+- **Project type gating** — the Designer only appears for **Tkinter GUI App** projects; Command Line projects see only the standard editor with no extra UI
+- **Persistent form model** — the canvas state is stored in a `.form.json` sidecar file next to the generated `.py`; fully version-control friendly
+
 ### Project Wizard
 
 <p align="center">
@@ -215,10 +251,11 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 </p>
 
 - **File → New Project…** launches a guided 4-step project setup wizard
-  - Step 1: Project name and location (with live path preview)
+  - Step 1: **Project type** — choose **Command Line App** (standard script) or **Tkinter GUI App** (visual designer enabled); then project name and location with live path preview
   - Step 2: Python interpreter selection (auto-detects all installed versions, with venv/system filters) + virtual environment creation (`.venv`)
   - Step 3: Optional git init and starter files (main.py, requirements.txt, .gitignore)
-  - Step 4: Summary — review settings before creating
+  - Step 4: Summary — review all settings including project type before creating
+- **GUI App scaffolding** — Tkinter GUI projects auto-generate `Form1.py` (clean class-based boilerplate), `Form1.form.json` (designer state), and a `main.py` entry point that launches `Form1`
 - Animated progress bar during venv creation so the UI stays responsive
 - Selected interpreter is applied to the statusbar and all run/debug operations immediately on project open
 - Auto-creates `.idol-project` in the project root on completion
@@ -337,3 +374,4 @@ python main.py
 | Duplicate line up (stay) | Shift+Alt+Up |
 | Run line / selection | Right-click menu |
 | Toggle scroll sync | Scroll Lock |
+| Designer: Generate Code | Ctrl+Shift+G |
