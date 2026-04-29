@@ -280,6 +280,27 @@ class DesignerCanvas(tk.Canvas):
         if self._on_deselect:
             self._on_deselect()
 
+    def rename_widget(self, old_id: str, new_id: str) -> None:
+        """Rename a widget ID in the model and re-tag canvas items."""
+        if self._form is None:
+            return
+        w = self._form.get_widget(old_id)
+        if w is None:
+            return
+        # Update canvas items tagged with the old id
+        self.delete(f"widget:{old_id}")
+        w.id = new_id
+        self._render_widget(w)
+        # Update selection state
+        if old_id in self._selected_ids:
+            self._selected_ids.discard(old_id)
+            self._selected_ids.add(new_id)
+        if self._primary_id == old_id:
+            self._primary_id = new_id
+        self.delete("handle")
+        self._draw_all_handles()
+        self.tag_raise("handle")
+
     def bring_to_front(self) -> None:
         if self._primary_id is None or self._form is None:
             return

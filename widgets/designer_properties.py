@@ -142,7 +142,10 @@ class DesignerProperties(tk.Frame):
 
     def _populate_props(self, d: WidgetDescriptor, reg: dict) -> None:
         self._props_tree.delete(*self._props_tree.get_children())
-        # Geometry first
+        # Name first (the widget's ID / variable name)
+        self._props_tree.insert("", "end", iid="widget__name",
+                                text="name", values=(d.id,))
+        # Geometry
         for key in ("x", "y", "width", "height"):
             self._props_tree.insert("", "end", iid=f"geo__{key}",
                                     text=key, values=(str(getattr(d, key)),))
@@ -287,6 +290,19 @@ class DesignerProperties(tk.Frame):
                     self._on_prop_change("__multi__", key, delta)
             except ValueError:
                 pass
+            return
+        if row_iid == "widget__name":
+            d = self._current_widget
+            if d is None:
+                return
+            new_name = raw.strip()
+            if not new_name or not new_name.isidentifier() or new_name == d.id:
+                # Restore original if invalid
+                self._props_tree.set(row_iid, "#1", d.id)
+                return
+            old_id = d.id
+            if self._on_prop_change:
+                self._on_prop_change(old_id, "__name__", new_name)
             return
         d = self._current_widget
         if d is None:

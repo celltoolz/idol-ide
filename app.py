@@ -3044,11 +3044,26 @@ class IDOL(Tk):
         # session.save() so nothing is lost. Prompts only happen on tab close.
         self._do_exit()
 
+    def _designer_autosave(self) -> None:
+        """Silently save the .form.json without regenerating Python code."""
+        from pathlib import Path as _Path
+        from designer.persistence import save as _save
+        form = self._design_canvas.form
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if form is None or not root:
+            return
+        try:
+            json_path = _Path(root) / f"{form.name}.form.json"
+            _save(form, json_path)
+        except Exception:
+            pass
+
     def _do_exit(self) -> None:
         """Save session and quit — called exactly once."""
         if getattr(self, "_exiting", False):
             return
         self._exiting = True
+        self._designer_autosave()
         session_utils.save(self)
         if self._ai_chat_panel:
             self._ai_chat_panel.auto_save_history()
@@ -3965,6 +3980,7 @@ class IDOL(Tk):
         """Switch the main content area back to the code editor."""
         if not self._designer_mode:
             return
+        self._designer_autosave()
         self._designer_mode = False
         self._designer_frame.pack_forget()
         self.notebook.pack(fill="both", expand=True)
@@ -3997,6 +4013,13 @@ class IDOL(Tk):
             return
         if widget_id == "__multi__":
             self._design_canvas.redraw()
+            return
+        if key == "__name__":
+            new_name = value
+            self._design_canvas.rename_widget(widget_id, new_name)
+            # Update the descriptor reference in the properties panel
+            if form.get_widget(new_name):
+                self._props_panel.load_widget(form.get_widget(new_name))
             return
         if widget_id == "__form__":
             if key == "bg":
