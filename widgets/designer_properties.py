@@ -88,16 +88,18 @@ class DesignerProperties(tk.Frame):
         self._header.config(text=f"{form.name}  (Form)")
 
         self._props_tree.delete(*self._props_tree.get_children())
-        for key, val in [
-            ("title",       form.title),
-            ("width",       form.width),
-            ("height",      form.height),
-            ("resizable_x", form.resizable_x),
-            ("resizable_y", form.resizable_y),
-            ("bg",          form.bg),
+        for key, label, val in [
+            ("title",       "title",       form.title),
+            ("width",       "width",       form.width),
+            ("height",      "height",      form.height),
+            ("resizable_x", "resizable_x", form.resizable_x),
+            ("resizable_y", "resizable_y", form.resizable_y),
+            ("bg",          "background",  form.bg),
         ]:
             self._props_tree.insert("", "end", iid=f"form__{key}",
-                                    text=key, values=(str(val),))
+                                    text=label, values=(str(val),))
+        # Tint the background row with the current color
+        self._apply_color_swatch("form__bg", form.bg or "#f5f5f5")
 
         self._events_tree.delete(*self._events_tree.get_children())
         for ev in ("load", "activate", "deactivate", "unload"):
@@ -149,7 +151,11 @@ class DesignerProperties(tk.Frame):
         tree = self._props_tree
         row  = tree.identify_row(event.y)
         col  = tree.identify_column(event.x)
-        if row and col == "#1":
+        if not row or col != "#1":
+            return
+        if row == "form__bg":
+            self._open_color_picker(row)
+        else:
             self._open_editor(tree, row, col, self._commit_prop)
 
     def _on_event_click(self, event: tk.Event) -> None:
@@ -210,6 +216,33 @@ class DesignerProperties(tk.Frame):
         entry.bind("<Escape>",   lambda _: self._dismiss_editor())
         entry.bind("<FocusOut>", commit)
 
+    def _open_color_picker(self, row_iid: str) -> None:
+        """Open a color picker for a color property cell."""
+        current = self._props_tree.set(row_iid, "#1").strip() or "#ffffff"
+        try:
+            from tkcolorpicker import askcolor
+            color = askcolor(current, self._props_tree.winfo_toplevel())[1]
+        except Exception:
+            from tkinter.colorchooser import askcolor as _fallback
+            result = _fallback(current, parent=self._props_tree.winfo_toplevel())
+            color = result[1] if result else None
+        if not color:
+            return
+        color = color.lower()
+        self._props_tree.set(row_iid, "#1", color)
+        self._apply_color_swatch(row_iid, color)
+        self._commit_prop(row_iid, color)
+
+    def _apply_color_swatch(self, row_iid: str, color: str) -> None:
+        """Tint the treeview row to preview the color."""
+        try:
+            tag = f"swatch:{row_iid}"
+            fg  = _contrast_color(color)
+            self._props_tree.tag_configure(tag, background=color, foreground=fg)
+            self._props_tree.item(row_iid, tags=(tag,))
+        except Exception:
+            pass
+
     def _dismiss_editor(self) -> None:
         if self._entry_editor:
             try:
@@ -221,6 +254,11 @@ class DesignerProperties(tk.Frame):
     # ── Commit callbacks ──────────────────────────────────────────────────────
 
     def _commit_prop(self, row_iid: str, raw: str) -> None:
+        if row_iid.startswith("form__"):
+            key = row_iid[6:]
+            if self._on_prop_change:
+                self._on_prop_change("__form__", key, raw)
+            return
         d = self._current_widget
         if d is None:
             return
@@ -306,6 +344,18 @@ def _display(val: Any) -> str:
     if isinstance(val, list):
         return ", ".join(str(v) for v in val)
     return str(val)
+
+
+def _contrast_color(hex_color: str) -> str:
+    """Return black or white for readable text on hex_color."""
+    h = hex_color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    try:
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return "#000000" if (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 else "#ffffff"
+    except Exception:
+        return "#000000"
 
 
 def _parse_value(raw: str, current: Any) -> Any:

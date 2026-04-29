@@ -3253,7 +3253,12 @@ class IDOL(Tk):
         pass  # BooleanVar already toggled; the poll loop picks it up automatically
 
     def view_active_line_color(self) -> None:
-        color = askcolor(self._active_line_color or "#ffffff", self)[1]
+        try:
+            color = askcolor(self._active_line_color or "#ffffff", self)[1]
+        except Exception:
+            from tkinter.colorchooser import askcolor as _fallback
+            result = _fallback(self._active_line_color or "#ffffff", parent=self)
+            color = result[1] if result else None
         if color:
             self._active_line_color = color
 
@@ -3990,9 +3995,26 @@ class IDOL(Tk):
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
         """Property panel edit → update canvas rendering."""
-        if self._design_canvas.form is None:
+        form = self._design_canvas.form
+        if form is None:
             return
-        w = self._design_canvas.form.get_widget(widget_id)
+        if widget_id == "__form__":
+            if key == "bg":
+                form.bg = value
+                self._design_canvas.redraw()
+            elif key == "title":
+                form.title = value
+                self._design_canvas.redraw()
+            elif key in ("width", "height"):
+                try:
+                    setattr(form, key, int(value))
+                    self._design_canvas._reposition()
+                except ValueError:
+                    pass
+            elif key in ("resizable_x", "resizable_y"):
+                setattr(form, key, str(value).lower() in ("true", "1", "yes"))
+            return
+        w = form.get_widget(widget_id)
         if w:
             self._design_canvas.update_widget(w)
 
