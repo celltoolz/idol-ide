@@ -99,7 +99,7 @@ class DesignerProperties(tk.Frame):
             self._props_tree.insert("", "end", iid=f"form__{key}",
                                     text=label, values=(str(val),))
         # Tint the background row with the current color
-        self._apply_color_swatch("form__bg", form.bg or "#f5f5f5")
+        self._apply_color_swatch("form__bg", (form.bg or "#f5f5f5").upper())
 
         self._events_tree.delete(*self._events_tree.get_children())
         for ev in ("load", "activate", "deactivate", "unload"):
@@ -224,7 +224,7 @@ class DesignerProperties(tk.Frame):
         color = result[1] if result else None
         if not color:
             return
-        color = color.lower()
+        color = color.upper()
         self._props_tree.set(row_iid, "#1", color)
         self._apply_color_swatch(row_iid, color)
         self._commit_prop(row_iid, color)
