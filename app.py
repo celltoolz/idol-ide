@@ -48,6 +48,7 @@ from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 from widgets.designer_properties import DesignerProperties
+from designer.canvas import DesignerCanvas
 
 
 def _add_tooltip(widget, text: str, delay: int = 500) -> None:
@@ -783,6 +784,13 @@ class IDOL(Tk):
 
         # ── Designer surface (pre-built, swapped in by _enter_designer_mode) ──
         self._designer_frame = tk.Frame(nb_frame, bg="#1e1e1e")
+        self._design_canvas = DesignerCanvas(
+            self._designer_frame,
+            on_select=self._on_designer_select,
+            on_deselect=self._on_designer_deselect,
+            on_widget_changed=self._on_designer_widget_changed,
+        )
+        self._design_canvas.pack(fill="both", expand=True)
 
         # ── Properties panel (right pane, added to _h_pane in designer mode) ──
         self._props_panel = DesignerProperties(
@@ -3894,10 +3902,34 @@ class IDOL(Tk):
         # Restore left panel to explorer (Step 6)
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
-        """Called by DesignerProperties when the user edits a property. (Step 5)"""
+        """Property panel edit → update canvas rendering."""
+        if self._design_canvas.form is None:
+            return
+        w = self._design_canvas.form.get_widget(widget_id)
+        if w:
+            self._design_canvas.update_widget(w)
 
     def _on_designer_event_change(self, widget_id: str, event_key: str, handler: str) -> None:
-        """Called by DesignerProperties when the user wires/unwires an event. (Step 5)"""
+        """Event panel edit — model already mutated by properties panel."""
+
+    def _on_designer_select(self, widget_id: str) -> None:
+        """Canvas selection → populate properties panel."""
+        if self._design_canvas.form is None:
+            return
+        w = self._design_canvas.form.get_widget(widget_id)
+        if w:
+            self._props_panel.load_widget(w)
+
+    def _on_designer_deselect(self) -> None:
+        """Canvas deselect → show form-level properties."""
+        if self._design_canvas.form:
+            self._props_panel.load_form(self._design_canvas.form)
+        else:
+            self._props_panel.clear()
+
+    def _on_designer_widget_changed(self, descriptor) -> None:
+        """Drag/resize finished → refresh properties panel geometry fields."""
+        self._props_panel.refresh_widget(descriptor)
 
     # ── Split editor ──────────────────────────────────────────────────────────
 
