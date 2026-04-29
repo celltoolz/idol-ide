@@ -2843,11 +2843,8 @@ class IDOL(Tk):
             self._output._set_active("terminal")
         elif python_exe and os.path.isfile(python_exe):
             self._set_active_interpreter(python_exe, python_label or "Python")
-        # Open the entry-point file for the project type
-        if project_type == "gui":
-            entry = os.path.join(project_path, "Form1.py")
-        else:
-            entry = os.path.join(project_path, "main.py")
+        # Open the project entry point
+        entry = os.path.join(project_path, "main.py")
         if os.path.isfile(entry):
             self._open_file(entry, update_explorer=False)
         # Auto-create the project file so "Open Project" works immediately
