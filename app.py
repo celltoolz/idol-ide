@@ -3927,6 +3927,30 @@ class IDOL(Tk):
         self._designer_palette.reset_to_pointer()
         self._refresh_mode_bar()
 
+        # Auto-load form if canvas is empty (e.g. after session restore)
+        if self._design_canvas.form is None:
+            self._load_designer_form_from_project()
+
+    def _load_designer_form_from_project(self) -> None:
+        """Find the first .form.json in the current project root and load it."""
+        from pathlib import Path as _Path
+        from designer.persistence import load as _load
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if not root:
+            return
+        try:
+            json_files = sorted(_Path(root).glob("*.form.json"))
+        except Exception:
+            return
+        if not json_files:
+            return
+        try:
+            form, _ = _load(json_files[0])
+            self._design_canvas.load_form(form)
+            self._props_panel.load_form(form)
+        except Exception:
+            pass
+
     def _enter_editor_mode(self) -> None:
         """Switch the main content area back to the code editor."""
         if not self._designer_mode:
@@ -4043,6 +4067,34 @@ class IDOL(Tk):
     def _on_designer_widget_changed(self, descriptor) -> None:
         """Drag/resize finished → refresh properties panel geometry fields."""
         self._props_panel.refresh_widget(descriptor)
+
+    def designer_close_form(self) -> None:
+        """Unload the current form from the designer canvas."""
+        self._design_canvas._form = None
+        self._design_canvas.delete("all")
+        self._props_panel.clear()
+
+    def designer_open_form(self) -> None:
+        """Open a .form.json file and load it into the designer canvas."""
+        from pathlib import Path as _Path
+        from tkinter.filedialog import askopenfilename
+        from designer.persistence import load as _load
+        path = askopenfilename(
+            filetypes=[("Designer Form", "*.form.json"), ("All Files", "*.*")],
+            title="Open Form",
+            parent=self,
+        )
+        if not path:
+            return
+        try:
+            form, _ = _load(_Path(path))
+            self._design_canvas.load_form(form)
+            self._props_panel.load_form(form)
+            if not self._designer_mode:
+                self._enter_designer_mode()
+        except Exception as exc:
+            from tkinter.messagebox import showerror
+            showerror("Open Form", f"Could not load form:\n{exc}", parent=self)
 
     def designer_generate_code(self) -> None:
         """Regenerate the form .py from the current canvas model and save checksums."""

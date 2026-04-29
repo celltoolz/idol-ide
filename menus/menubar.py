@@ -150,6 +150,11 @@ def build_menubar(app) -> Menu:
 
     # ── Designer ──────────────────────────────────────────────────────────────
     designer_menu = Menu(menubar, tearoff=0)
+    designer_menu.add_command(label="Open Form...",
+                              command=app.designer_open_form)
+    designer_menu.add_command(label="Close Form",
+                              command=app.designer_close_form)
+    designer_menu.add_separator()
     designer_menu.add_command(label="Generate Code",
                               command=app.designer_generate_code,
                               accelerator="Ctrl+Shift+G")

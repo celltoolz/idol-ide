@@ -97,6 +97,8 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<B1-Motion>",       self._on_motion)
         self.bind("<ButtonRelease-1>", self._on_release)
         self.bind("<Motion>",          self._on_hover)
+        self.bind("<Button-3>",        self._on_right_click)
+        self.bind("<Delete>",          lambda _: self.remove_selected())
         self.bind("<Configure>",       lambda _: self._reposition())
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -167,6 +169,24 @@ class DesignerCanvas(tk.Canvas):
         self.delete("handle")
         if self._on_deselect:
             self._on_deselect()
+
+    def bring_to_front(self) -> None:
+        if self._selected_id is None or self._form is None:
+            return
+        w = self._form.get_widget(self._selected_id)
+        if w:
+            self._form.widgets.remove(w)
+            self._form.widgets.append(w)
+            self.redraw()
+
+    def send_to_back(self) -> None:
+        if self._selected_id is None or self._form is None:
+            return
+        w = self._form.get_widget(self._selected_id)
+        if w:
+            self._form.widgets.remove(w)
+            self._form.widgets.insert(0, w)
+            self.redraw()
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
@@ -277,6 +297,7 @@ class DesignerCanvas(tk.Canvas):
     # ── Mouse events ──────────────────────────────────────────────────────────
 
     def _on_click(self, event: tk.Event) -> None:
+        self.focus_set()
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
             reg = REGISTRY.get(self._active_tool)
@@ -428,6 +449,40 @@ class DesignerCanvas(tk.Canvas):
     def _clear_hover(self) -> None:
         self._hover_id = None
         self.config(cursor="arrow")
+
+    def _on_right_click(self, event: tk.Event) -> None:
+        import tkinter as _tk
+        # If there's a widget under the cursor, select it first
+        item = self._topmost_at(event.x, event.y)
+        if item:
+            tags = self.gettags(item)
+            widget_tag = next((t for t in tags if t.startswith("widget:")), None)
+            if widget_tag:
+                self.select(widget_tag.split(":", 1)[1])
+
+        menu = _tk.Menu(self, tearoff=0)
+        has_sel = self._selected_id is not None
+
+        menu.add_command(
+            label="Delete",
+            state="normal" if has_sel else "disabled",
+            command=self.remove_selected,
+        )
+        menu.add_separator()
+        menu.add_command(
+            label="Bring to Front",
+            state="normal" if has_sel else "disabled",
+            command=self.bring_to_front,
+        )
+        menu.add_command(
+            label="Send to Back",
+            state="normal" if has_sel else "disabled",
+            command=self.send_to_back,
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     # ── Hit testing ───────────────────────────────────────────────────────────
 

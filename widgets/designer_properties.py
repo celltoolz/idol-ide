@@ -149,7 +149,7 @@ class DesignerProperties(tk.Frame):
         tree = self._props_tree
         row  = tree.identify_row(event.y)
         col  = tree.identify_column(event.x)
-        if row and col == "#2":
+        if row and col == "#1":
             self._open_editor(tree, row, col, self._commit_prop)
 
     def _on_event_click(self, event: tk.Event) -> None:
@@ -158,10 +158,13 @@ class DesignerProperties(tk.Frame):
         col  = tree.identify_column(event.x)
         if not row:
             return
-        if col == "#2":
-            self._open_editor(tree, row, col, self._commit_event)
-        elif col in ("#0", "#1"):
-            # Clicking the event name auto-wires default handler name
+        if col == "#1":
+            # If no handler set yet, auto-wire on click; otherwise open editor
+            if tree.set(row, "#1").strip():
+                self._open_editor(tree, row, col, self._commit_event)
+            else:
+                self._auto_wire_event(row)
+        elif col == "#0":
             self._auto_wire_event(row)
 
     # ── Inline cell editor ────────────────────────────────────────────────────
@@ -183,10 +186,18 @@ class DesignerProperties(tk.Frame):
             highlightbackground="#007acc",
         )
         entry.insert(0, tree.set(row, col))
-        entry.select_range(0, "end")
         entry.place(x=x, y=y, width=w, height=h)
-        entry.focus_set()
         self._entry_editor = entry
+
+        # Defer focus so the treeview's own Button-1 bindings can't steal it back
+        def _grab_focus():
+            try:
+                entry.focus_force()
+                entry.select_range(0, "end")
+                entry.icursor("end")
+            except Exception:
+                pass
+        tree.after_idle(_grab_focus)
 
         def commit(_=None):
             val = entry.get()
@@ -251,7 +262,7 @@ class DesignerProperties(tk.Frame):
             return  # already wired
         default = f"_{d.id}_{event_key}"
         d.events[event_key] = default
-        self._events_tree.set(row_iid, "#2", default)
+        self._events_tree.set(row_iid, "#1", default)
         if self._on_event_change:
             self._on_event_change(d.id, event_key, default)
 
