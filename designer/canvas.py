@@ -76,18 +76,21 @@ class DesignerCanvas(tk.Canvas):
         on_select:         Optional[Callable[[str],               None]] = None,
         on_deselect:       Optional[Callable[[],                  None]] = None,
         on_widget_changed: Optional[Callable[[WidgetDescriptor],  None]] = None,
+        on_form_changed:   Optional[Callable[["FormModel"],       None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
         self._on_select         = on_select
         self._on_deselect       = on_deselect
         self._on_widget_changed = on_widget_changed
+        self._on_form_changed   = on_form_changed
 
-        self._form:        FormModel | None = None
-        self._selected_id: str | None       = None
-        self._hover_id:    str | None       = None
-        self._active_tool: str | None       = None  # None = pointer; type_key = place mode
-        self._ox = _MARGIN   # canvas x of form top-left
+        self._form:          FormModel | None = None
+        self._selected_id:   str | None       = None
+        self._form_selected: bool             = False
+        self._hover_id:      str | None       = None
+        self._active_tool:   str | None       = None
+        self._ox = _MARGIN
         self._oy = _MARGIN + _TITLE
 
         # Drag / resize state dict, set on ButtonPress and cleared on Release
@@ -158,7 +161,9 @@ class DesignerCanvas(tk.Canvas):
         if w is None:
             return
         self._selected_id = widget_id
+        self._form_selected = False
         self.delete("handle")
+        self.delete("fhandle")
         self._draw_handles(w)
         self.tag_raise("handle")
         if self._on_select:
@@ -166,9 +171,24 @@ class DesignerCanvas(tk.Canvas):
 
     def deselect(self) -> None:
         self._selected_id = None
+        self._form_selected = False
         self.delete("handle")
+        self.delete("fhandle")
         if self._on_deselect:
             self._on_deselect()
+
+    def select_form(self) -> None:
+        """Select the form itself, showing resize handles around it."""
+        if self._form is None:
+            return
+        self._selected_id = None
+        self._form_selected = True
+        self.delete("handle")
+        self.delete("fhandle")
+        self._draw_form_handles()
+        self.tag_raise("fhandle")
+        if self._on_deselect:
+            self._on_deselect()  # shows form-level properties in panel
 
     def bring_to_front(self) -> None:
         if self._selected_id is None or self._form is None:
@@ -211,7 +231,10 @@ class DesignerCanvas(tk.Canvas):
             sel = self._form.get_widget(self._selected_id)
             if sel:
                 self._draw_handles(sel)
-        self.tag_raise("handle")
+            self.tag_raise("handle")
+        elif self._form_selected:
+            self._draw_form_handles()
+            self.tag_raise("fhandle")
 
     # ── Form background ───────────────────────────────────────────────────────
 
@@ -294,6 +317,29 @@ class DesignerCanvas(tk.Canvas):
             self.tag_bind(f"handle:{name}", "<Leave>",
                           lambda e: self.config(cursor="arrow"))
 
+    def _draw_form_handles(self) -> None:
+        f  = self._form
+        ox, oy = self._ox, self._oy
+        x2 = ox + f.width
+        y2 = oy + f.height
+        ty = oy - _TITLE
+        h  = _HW // 2
+
+        # Dashed selection border around the whole form (body + title bar)
+        self.create_rectangle(ox - 1, ty - 1, x2 + 1, y2 + 1,
+                               outline=_SEL, width=1, dash=(4, 3),
+                               fill="", tags="fhandle")
+
+        for name in _HANDLES:
+            cx, cy = _handle_center(ox, oy, f.width, f.height, name)
+            self.create_rectangle(cx - h, cy - h, cx + h + 1, cy + h + 1,
+                                   fill="#ffffff", outline=_SEL, width=1,
+                                   tags=("fhandle", f"fhandle:{name}"))
+            self.tag_bind(f"fhandle:{name}", "<Enter>",
+                          lambda e, n=name: self.config(cursor=_handle_cursor(n)))
+            self.tag_bind(f"fhandle:{name}", "<Leave>",
+                          lambda e: self.config(cursor="arrow"))
+
     # ── Mouse events ──────────────────────────────────────────────────────────
 
     def _on_click(self, event: tk.Event) -> None:
@@ -327,7 +373,23 @@ class DesignerCanvas(tk.Canvas):
 
         tags = self.gettags(item)
 
-        # Handle click → start resize
+        # Form handle click → start form resize
+        fhandle_tag = next((t for t in tags if t.startswith("fhandle:")), None)
+        if fhandle_tag:
+            handle_name = fhandle_tag.split(":", 1)[1]
+            if self._form:
+                self._drag = {
+                    "mode":     "form_resize",
+                    "handle":   handle_name,
+                    "start_cx": event.x, "start_cy": event.y,
+                    "orig_w":   self._form.width,
+                    "orig_h":   self._form.height,
+                    "orig_ox":  self._ox,
+                    "orig_oy":  self._oy,
+                }
+            return
+
+        # Widget handle click → start widget resize
         handle_tag = next((t for t in tags if t.startswith("handle:")), None)
         if handle_tag:
             handle_name = handle_tag.split(":", 1)[1]
@@ -360,7 +422,11 @@ class DesignerCanvas(tk.Canvas):
                 }
             return
 
-        # Clicked form bg or empty space → deselect
+        # Clicked form body, title bar, or grid → select the form
+        if any(t in ("form_bg", "titlebar", "grid") for t in tags):
+            self.select_form()
+            return
+
         self.deselect()
 
     def _on_motion(self, event: tk.Event) -> None:
@@ -373,6 +439,38 @@ class DesignerCanvas(tk.Canvas):
 
         dx = event.x - d["start_cx"]
         dy = event.y - d["start_cy"]
+
+        if d["mode"] == "form_resize":
+            f      = self._form
+            handle = d["handle"]
+            ow, oh = d["orig_w"], d["orig_h"]
+            oox, ooy = d["orig_ox"], d["orig_oy"]
+            nw, nh   = ow, oh
+            nox, noy = oox, ooy
+
+            if "E" in handle:
+                nw = _snap(ow + dx)
+            if "W" in handle:
+                nw  = _snap(ow - dx)
+                nox = oox + (ow - nw)
+            if "S" in handle:
+                nh = _snap(oh + dy)
+            if "N" in handle:
+                nh  = _snap(oh - dy)
+                noy = ooy + (oh - nh)
+
+            f.width  = max(GRID * 8, nw)
+            f.height = max(GRID * 8, nh)
+            self._ox = nox
+            self._oy = noy
+
+            self.delete("all")
+            self._draw_form()
+            for widget in f.widgets:
+                self._render_widget(widget)
+            self._draw_form_handles()
+            self.tag_raise("fhandle")
+            return
 
         if d["mode"] == "move":
             new_x = _snap(d["orig_x"] + dx)
@@ -412,9 +510,13 @@ class DesignerCanvas(tk.Canvas):
 
     def _on_release(self, event: tk.Event) -> None:
         if self._drag and self._form:
-            w = self._form.get_widget(self._drag["id"])
-            if w and self._on_widget_changed:
-                self._on_widget_changed(w)
+            if self._drag["mode"] == "form_resize":
+                if self._on_form_changed:
+                    self._on_form_changed(self._form)
+            else:
+                w = self._form.get_widget(self._drag["id"])
+                if w and self._on_widget_changed:
+                    self._on_widget_changed(w)
         self._drag = None
         self.config(cursor="arrow")
 
@@ -432,7 +534,7 @@ class DesignerCanvas(tk.Canvas):
                 self._clear_hover()
                 self._hover_id = wid
                 self.config(cursor="fleur")
-        elif not any(t.startswith("handle:") for t in tags):
+        elif not any(t.startswith("handle:") or t.startswith("fhandle:") for t in tags):
             self._clear_hover()
 
     def _widget_clicked(self, event: tk.Event, wid: str) -> None:

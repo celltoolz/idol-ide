@@ -790,6 +790,7 @@ class IDOL(Tk):
             on_select=self._on_designer_select,
             on_deselect=self._on_designer_deselect,
             on_widget_changed=self._on_designer_widget_changed,
+            on_form_changed=self._on_designer_form_changed,
         )
         self._design_canvas.pack(fill="both", expand=True)
 
@@ -4074,6 +4075,10 @@ class IDOL(Tk):
     def _on_designer_widget_changed(self, descriptor) -> None:
         """Drag/resize finished → refresh properties panel geometry fields."""
         self._props_panel.refresh_widget(descriptor)
+
+    def _on_designer_form_changed(self, form) -> None:
+        """Form resize finished → refresh form-level properties panel."""
+        self._props_panel.load_form(form)
 
     def designer_close_form(self) -> None:
         """Unload the current form from the designer canvas."""
