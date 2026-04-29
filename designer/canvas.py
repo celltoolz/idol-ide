@@ -85,11 +85,13 @@ class DesignerCanvas(tk.Canvas):
         self._on_widget_changed = on_widget_changed
         self._on_form_changed   = on_form_changed
 
-        self._form:          FormModel | None = None
-        self._selected_id:   str | None       = None
-        self._form_selected: bool             = False
-        self._hover_id:      str | None       = None
-        self._active_tool:   str | None       = None
+        self._form:          FormModel | None        = None
+        self._selected_id:   str | None              = None
+        self._form_selected: bool                    = False
+        self._hover_id:      str | None              = None
+        self._active_tool:   str | None              = None
+        self._clipboard:     WidgetDescriptor | None = None
+        self._paste_offset:  int                     = 0  # nudge per consecutive paste
         self._ox = _MARGIN
         self._oy = _MARGIN + _TITLE
 
@@ -102,6 +104,8 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Motion>",          self._on_hover)
         self.bind("<Button-3>",        self._on_right_click)
         self.bind("<Delete>",          lambda _: self.remove_selected())
+        self.bind("<Control-c>",       lambda _: self.copy_selected())
+        self.bind("<Control-v>",       lambda _: self.paste())
         self.bind("<Configure>",       lambda _: self._reposition())
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -176,6 +180,47 @@ class DesignerCanvas(tk.Canvas):
         self.delete("fhandle")
         if self._on_deselect:
             self._on_deselect()
+
+    def copy_selected(self) -> None:
+        if self._selected_id is None or self._form is None:
+            return
+        w = self._form.get_widget(self._selected_id)
+        if w:
+            self._clipboard = WidgetDescriptor(
+                id=w.id, type=w.type,
+                x=w.x, y=w.y, width=w.width, height=w.height,
+                props=dict(w.props),
+                events={},  # don't copy event handlers — new widget needs its own
+            )
+            self._paste_offset = 0
+
+    def paste(self, canvas_x: int | None = None, canvas_y: int | None = None) -> None:
+        if self._clipboard is None or self._form is None:
+            return
+        src = self._clipboard
+        new_id = self._form.next_id(src.type)
+
+        if canvas_x is not None and canvas_y is not None:
+            # Paste at mouse position (right-click), snapped to grid
+            fx = _snap(canvas_x - self._ox)
+            fy = _snap(canvas_y - self._oy)
+        else:
+            # Ctrl+V: offset from the original so repeated pastes don't stack
+            self._paste_offset += GRID * 2
+            fx = src.x + self._paste_offset
+            fy = src.y + self._paste_offset
+
+        # Clamp to form bounds
+        fx = max(0, min(fx, self._form.width  - src.width))
+        fy = max(0, min(fy, self._form.height - src.height))
+
+        desc = WidgetDescriptor(
+            id=new_id, type=src.type,
+            x=fx, y=fy, width=src.width, height=src.height,
+            props=dict(src.props),
+            events={},
+        )
+        self.add_widget(desc)
 
     def select_form(self) -> None:
         """Select the form itself, showing resize handles around it."""
@@ -565,7 +610,19 @@ class DesignerCanvas(tk.Canvas):
 
         menu = _tk.Menu(self, tearoff=0)
         has_sel = self._selected_id is not None
+        has_clip = self._clipboard is not None
 
+        menu.add_command(
+            label="Copy",
+            state="normal" if has_sel else "disabled",
+            command=self.copy_selected,
+        )
+        menu.add_command(
+            label="Paste",
+            state="normal" if has_clip else "disabled",
+            command=lambda: self.paste(event.x, event.y),
+        )
+        menu.add_separator()
         menu.add_command(
             label="Delete",
             state="normal" if has_sel else "disabled",
