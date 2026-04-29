@@ -15,7 +15,7 @@ import pygments
 import pygments.lexers
 import pygments.util
 from tkfontchooser import askfont
-from tkcolorpicker import askcolor
+from tkinter.colorchooser import askcolor
 
 from widgets.codeview import CodeView
 from widgets.notebook import CustomNotebook
@@ -3253,12 +3253,8 @@ class IDOL(Tk):
         pass  # BooleanVar already toggled; the poll loop picks it up automatically
 
     def view_active_line_color(self) -> None:
-        try:
-            color = askcolor(self._active_line_color or "#ffffff", self)[1]
-        except Exception:
-            from tkinter.colorchooser import askcolor as _fallback
-            result = _fallback(self._active_line_color or "#ffffff", parent=self)
-            color = result[1] if result else None
+        result = askcolor(self._active_line_color or "#ffffff", parent=self)
+        color = result[1] if result else None
         if color:
             self._active_line_color = color
 

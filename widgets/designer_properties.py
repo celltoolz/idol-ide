@@ -219,13 +219,9 @@ class DesignerProperties(tk.Frame):
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
         current = self._props_tree.set(row_iid, "#1").strip() or "#ffffff"
-        try:
-            from tkcolorpicker import askcolor
-            color = askcolor(current, self._props_tree.winfo_toplevel())[1]
-        except Exception:
-            from tkinter.colorchooser import askcolor as _fallback
-            result = _fallback(current, parent=self._props_tree.winfo_toplevel())
-            color = result[1] if result else None
+        from tkinter.colorchooser import askcolor
+        result = askcolor(current, parent=self._props_tree.winfo_toplevel())
+        color = result[1] if result else None
         if not color:
             return
         color = color.lower()
