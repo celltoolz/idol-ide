@@ -86,6 +86,7 @@ class DesignerCanvas(tk.Canvas):
         self._form:        FormModel | None = None
         self._selected_id: str | None       = None
         self._hover_id:    str | None       = None
+        self._active_tool: str | None       = None  # None = pointer; type_key = place mode
         self._ox = _MARGIN   # canvas x of form top-left
         self._oy = _MARGIN + _TITLE
 
@@ -107,6 +108,11 @@ class DesignerCanvas(tk.Canvas):
     @property
     def form(self) -> FormModel | None:
         return self._form
+
+    def set_tool(self, type_key: str | None) -> None:
+        """Switch active tool. None = pointer/select; a registry key = place mode."""
+        self._active_tool = type_key
+        self.config(cursor="crosshair" if type_key else "arrow")
 
     def load_form(self, form: FormModel) -> None:
         self._form = form
@@ -271,6 +277,28 @@ class DesignerCanvas(tk.Canvas):
     # ── Mouse events ──────────────────────────────────────────────────────────
 
     def _on_click(self, event: tk.Event) -> None:
+        # Placement mode: drop a new widget at the click position
+        if self._active_tool and self._form:
+            reg = REGISTRY.get(self._active_tool)
+            if reg:
+                fx = _snap(event.x - self._ox)
+                fy = _snap(event.y - self._oy)
+                fx = max(0, min(fx, self._form.width  - reg["default_size"][0]))
+                fy = max(0, min(fy, self._form.height - reg["default_size"][1]))
+                w, h = reg["default_size"]
+                wid  = self._form.next_id(self._active_tool)
+                desc = WidgetDescriptor(
+                    id=wid, type=self._active_tool,
+                    x=fx, y=fy, width=w, height=h,
+                    props=dict(reg["default_props"]),
+                )
+                self.add_widget(desc)
+                self._active_tool = None
+                self.config(cursor="arrow")
+                if self._on_deselect:   # signal palette to reset to pointer
+                    pass                # palette resets via app.py callback
+            return
+
         item = self._topmost_at(event.x, event.y)
         if item is None:
             self.deselect()

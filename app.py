@@ -48,6 +48,7 @@ from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 from widgets.designer_properties import DesignerProperties
+from widgets.designer_palette import DesignerPalette
 from designer.canvas import DesignerCanvas
 
 
@@ -799,6 +800,13 @@ class IDOL(Tk):
             on_event_change=self._on_designer_event_change,
         )
         self._props_panel.configure(width=230)
+
+        # ── Widget palette (swaps into left pane in designer mode) ────────────
+        self._designer_palette = DesignerPalette(
+            self._h_pane,
+            on_tool_select=self._on_palette_tool_select,
+        )
+        self._designer_palette.configure(width=180)
 
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
@@ -3883,9 +3891,23 @@ class IDOL(Tk):
         self._designer_mode = True
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
+
+        # Swap left pane: sidebar → palette
+        # Rebuild h_pane order: palette | v_pane | props
+        self._h_pane.forget(self._v_pane)
+        if self._sidebar_shown:
+            self._h_pane.forget(self._sidebar)
+        if getattr(self, "_ai_panel_visible", False):
+            try:
+                self._h_pane.forget(self._ai_panel_frame)
+            except Exception:
+                pass
+        self._h_pane.add(self._designer_palette, minsize=160, stretch="never")
+        self._h_pane.add(self._v_pane, stretch="always")
         self._h_pane.add(self._props_panel, minsize=200, stretch="never")
+
+        self._designer_palette.reset_to_pointer()
         self._refresh_mode_bar()
-        # Swap left panel: hide explorer, show widget palette (Step 6)
 
     def _enter_editor_mode(self) -> None:
         """Switch the main content area back to the code editor."""
@@ -3894,12 +3916,27 @@ class IDOL(Tk):
         self._designer_mode = False
         self._designer_frame.pack_forget()
         self.notebook.pack(fill="both", expand=True)
+
+        # Rebuild h_pane order: sidebar | v_pane  (remove palette + props)
+        try:
+            self._h_pane.forget(self._designer_palette)
+        except Exception:
+            pass
         try:
             self._h_pane.forget(self._props_panel)
         except Exception:
             pass
+        self._h_pane.forget(self._v_pane)
+        if self._sidebar_shown:
+            self._h_pane.add(self._sidebar, minsize=220, stretch="never")
+        self._h_pane.add(self._v_pane, stretch="always")
+        if getattr(self, "_ai_panel_visible", False):
+            try:
+                self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
+            except Exception:
+                pass
+
         self._refresh_mode_bar()
-        # Restore left panel to explorer (Step 6)
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
         """Property panel edit → update canvas rendering."""
@@ -3912,8 +3949,13 @@ class IDOL(Tk):
     def _on_designer_event_change(self, widget_id: str, event_key: str, handler: str) -> None:
         """Event panel edit — model already mutated by properties panel."""
 
+    def _on_palette_tool_select(self, type_key: str | None) -> None:
+        """Palette click → arm canvas with placement tool."""
+        self._design_canvas.set_tool(type_key)
+
     def _on_designer_select(self, widget_id: str) -> None:
-        """Canvas selection → populate properties panel."""
+        """Canvas selection → populate properties panel, reset palette to pointer."""
+        self._designer_palette.reset_to_pointer()
         if self._design_canvas.form is None:
             return
         w = self._design_canvas.form.get_widget(widget_id)
