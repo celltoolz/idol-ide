@@ -15,6 +15,9 @@ from widgets.guide_window import GuideWindow
 import utils.venv_guide as venv_guide
 import utils.git_remote_guide as git_remote_guide
 import utils.first_commit_guide as first_commit_guide
+from designer.model import FormModel
+from designer.codegen import generate as designer_codegen
+from designer.persistence import save as designer_save, compute_checksum
 
 _BG      = "#252526"
 _HDR_BG  = "#2d2d30"
@@ -66,6 +69,7 @@ class ProjectWizard(tk.Toplevel):
         self._venv_var    = tk.BooleanVar(value=True)
         self._git_var     = tk.BooleanVar(value=True)
         self._files_var   = tk.BooleanVar(value=True)
+        self._type_var    = tk.StringVar(value="cli")   # "cli" | "gui"
 
         self._pythons: list[tuple[str, str]] = []   # populated by background thread
         self._detecting = True
@@ -235,7 +239,28 @@ class ProjectWizard(tk.Toplevel):
 
     def _render_step_0(self) -> None:
         Label(self._content, text="Set up your new Python project.",
-              bg=_BG, fg=_DIM, font=("Segoe UI", 9)).pack(anchor="w")
+              bg=_BG, fg=_DIM, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
+
+        # ── Project type ──────────────────────────────────────────────────────
+        Label(self._content, text="Project Type", bg=_BG, fg=_DIM,
+              font=("Segoe UI", 8)).pack(anchor="w")
+        type_row = Frame(self._content, bg=_BG)
+        type_row.pack(fill="x", pady=(2, 10))
+
+        for value, label, detail in (
+            ("cli", "Command Line App",  "Standard script — no visual designer"),
+            ("gui", "Tkinter GUI App",   "Visual designer enabled — drag-and-drop UI builder"),
+        ):
+            rb_frame = Frame(type_row, bg=_BG, cursor="hand2")
+            rb_frame.pack(fill="x", pady=1)
+            rb = tk.Radiobutton(
+                rb_frame, variable=self._type_var, value=value,
+                bg=_BG, fg=_FG, selectcolor=_BG, activebackground=_BG,
+                font=("Segoe UI", 9), text=label,
+            )
+            rb.pack(side="left")
+            Label(rb_frame, text=detail, bg=_BG, fg=_DIM,
+                  font=("Segoe UI", 8)).pack(side="left", padx=(4, 0))
 
         row = self._row("Project Name")
         self._entry(row, self._name_var)
@@ -390,6 +415,8 @@ class ProjectWizard(tk.Toplevel):
             Label(f, text=value, bg=_BG, fg=_FG,
                   font=("Segoe UI", 9), anchor="w").pack(side="left")
 
+        type_label = "Tkinter GUI App" if self._type_var.get() == "gui" else "Command Line App"
+        _row("Project type:", type_label)
         _row("Project name:", name)
         _row("Location:", path)
         _row("Python:", os.path.basename(python))
@@ -541,7 +568,11 @@ class ProjectWizard(tk.Toplevel):
 
     def _open_project(self, path: str) -> None:
         self.destroy()
-        self._on_complete(path, *self._selected_python(), self._get_venv_activate_path(path))
+        self._on_complete(
+            path, *self._selected_python(),
+            self._get_venv_activate_path(path),
+            self._type_var.get(),
+        )
 
     def _selected_python(self) -> tuple[str, str]:
         """Return (exe_path, short_label) for the currently selected interpreter."""
@@ -554,9 +585,37 @@ class ProjectWizard(tk.Toplevel):
         return exe, "Python"
 
     def _write_starter_files(self, project_path: str) -> None:
-        main_py = os.path.join(project_path, "main.py")
-        with open(main_py, "w", encoding="utf-8") as f:
-            f.write('def main():\n    print("Hello, World!")\n\n\nif __name__ == "__main__":\n    main()\n')
+        is_gui = self._type_var.get() == "gui"
+        project_name = os.path.basename(project_path)
+
+        if is_gui:
+            # Generate Form1.py + Form1.form.json
+            form = FormModel(
+                name="Form1",
+                title=project_name,
+                width=800,
+                height=600,
+            )
+            form_py_path   = Path(project_path) / "Form1.py"
+            form_json_path = Path(project_path) / "Form1.form.json"
+            code = designer_codegen(form)
+            form_py_path.write_text(code, encoding="utf-8")
+            checksum = compute_checksum(form_py_path)
+            designer_save(form, form_json_path, py_checksum=checksum)
+
+            # main.py — entry point that runs Form1
+            main_py = os.path.join(project_path, "main.py")
+            with open(main_py, "w", encoding="utf-8") as f:
+                f.write(
+                    f"from Form1 import Form1\n\n\n"
+                    f"if __name__ == \"__main__\":\n"
+                    f"    app = Form1()\n"
+                    f"    app.mainloop()\n"
+                )
+        else:
+            main_py = os.path.join(project_path, "main.py")
+            with open(main_py, "w", encoding="utf-8") as f:
+                f.write('def main():\n    print("Hello, World!")\n\n\nif __name__ == "__main__":\n    main()\n')
 
         req = os.path.join(project_path, "requirements.txt")
         with open(req, "w", encoding="utf-8") as f:

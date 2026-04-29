@@ -2800,8 +2800,22 @@ class IDOL(Tk):
         self._start_git()
 
     def _on_project_created(self, project_path: str, python_exe: str = "",
-                            python_label: str = "", venv_activate_path: str | None = None) -> None:
+                            python_label: str = "", venv_activate_path: str | None = None,
+                            project_type: str = "cli") -> None:
         """Called when the project wizard finishes — open the new project."""
+        self._designer_project_type = project_type
+        if project_type == "gui":
+            self._show_mode_bar()
+            # Load Form1.form.json into the design canvas
+            from designer.persistence import load as designer_load
+            from pathlib import Path as _Path
+            json_path = _Path(project_path) / "Form1.form.json"
+            if json_path.exists():
+                form, _ = designer_load(json_path)
+                self._design_canvas.load_form(form)
+                self._props_panel.load_form(form)
+        else:
+            self._hide_mode_bar()
         self._set_explorer_root(project_path)
         self._git = None
         self._start_git()
