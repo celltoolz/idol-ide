@@ -136,6 +136,10 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     layout["run_action"] = app._run_action_var.get()
     layout["run_entry"] = getattr(app, "_run_entry_file", "") or ""
 
+    # Designer
+    layout["designer_project_type"] = getattr(app, "_designer_project_type", "cli")
+    layout["designer_mode_active"]  = getattr(app, "_designer_mode", False)
+
     # Debug float window
     fw = app._output._debug_float_win
     layout["debug_floating"] = fw is not None
@@ -386,6 +390,14 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
     run_entry = layout.get("run_entry", "")
     if run_entry and os.path.isfile(run_entry) and hasattr(app, "_set_run_entry"):
         app._set_run_entry(run_entry)
+
+    # Designer — restore project type and mode bar visibility
+    project_type = layout.get("designer_project_type", "cli")
+    if project_type == "gui" and hasattr(app, "_show_mode_bar"):
+        app._designer_project_type = "gui"
+        app.after_idle(app._show_mode_bar)
+        if layout.get("designer_mode_active") and hasattr(app, "_enter_designer_mode"):
+            app.after(300, app._enter_designer_mode)
 
     # Restore Ollama URL if customized
     if layout.get("ollama_url"):

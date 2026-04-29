@@ -148,6 +148,13 @@ def build_menubar(app) -> Menu:
     run_menu.add_command(label="Clear Output",  command=app.run_clear)
     menubar.add_cascade(label="Run", menu=run_menu)
 
+    # ── Designer ──────────────────────────────────────────────────────────────
+    designer_menu = Menu(menubar, tearoff=0)
+    designer_menu.add_command(label="Generate Code",
+                              command=app.designer_generate_code,
+                              accelerator="Ctrl+Shift+G")
+    menubar.add_cascade(label="Designer", menu=designer_menu)
+
     # ── Help ─────────────────────────────────────────────────────────────────
     help_menu = Menu(menubar, tearoff=0)
     help_menu.add_command(

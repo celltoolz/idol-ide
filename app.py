@@ -999,6 +999,7 @@ class IDOL(Tk):
         self.bind("<Control-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
         self.bind("<Control-P>", lambda _: self.open_command_palette())
+        self.bind("<Control-Shift-G>", lambda _: self.designer_generate_code())
         self.bind("<Control-b>", lambda _: self.view_toggle_sidebar())
         self.bind("<F10>", lambda _: self.view_zen_mode())
         self.bind("<F1>", lambda _: self.view_learning_mode())
@@ -3902,6 +3903,9 @@ class IDOL(Tk):
         """Switch the main content area to the designer canvas."""
         if self._designer_mode:
             return
+        # Step 8 — check for manual edits before entering designer
+        if not self._designer_check_edits():
+            return   # user chose to stay in editor
         self._designer_mode = True
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
@@ -3963,6 +3967,59 @@ class IDOL(Tk):
     def _on_designer_event_change(self, widget_id: str, event_key: str, handler: str) -> None:
         """Event panel edit — model already mutated by properties panel."""
 
+    def _designer_check_edits(self) -> bool:
+        """Return True if it's safe to enter designer mode.
+
+        If the generated .py has been manually edited since last codegen,
+        prompt the user.  Returns False if they choose to stay in the editor.
+        """
+        from pathlib import Path as _Path
+        from designer.persistence import load as _load, was_modified as _modified
+        from tkinter.messagebox import askyesno
+
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if not root:
+            return True
+
+        # Find the first .form.json in the project root
+        try:
+            json_files = list(_Path(root).glob("*.form.json"))
+        except Exception:
+            return True
+        if not json_files:
+            return True
+
+        json_path = json_files[0]
+        py_path   = json_path.with_suffix(".py")
+        if not py_path.exists():
+            return True
+
+        try:
+            _, stored_checksum = _load(json_path)
+            if not _modified(py_path, stored_checksum):
+                return True
+        except Exception:
+            return True
+
+        # Manual edits detected — ask the user
+        answer = askyesno(
+            "Manual Edits Detected",
+            f"{py_path.name} has been edited manually since the last Designer save.\n\n"
+            "Returning to the Designer will discard those edits.\n\n"
+            "Discard manual edits and return to Designer?",
+            parent=self,
+            default="no",
+        )
+        if answer:
+            # Reload the form from JSON so the canvas reflects the clean state
+            try:
+                form, _ = _load(json_path)
+                self._design_canvas.load_form(form)
+                self._props_panel.load_form(form)
+            except Exception:
+                pass
+        return answer
+
     def _on_palette_tool_select(self, type_key: str | None) -> None:
         """Palette click → arm canvas with placement tool."""
         self._design_canvas.set_tool(type_key)
@@ -3986,6 +4043,38 @@ class IDOL(Tk):
     def _on_designer_widget_changed(self, descriptor) -> None:
         """Drag/resize finished → refresh properties panel geometry fields."""
         self._props_panel.refresh_widget(descriptor)
+
+    def designer_generate_code(self) -> None:
+        """Regenerate the form .py from the current canvas model and save checksums."""
+        from pathlib import Path as _Path
+        from designer.codegen import generate as _gen
+        from designer.persistence import (save as _save, compute_checksum as _cs,
+                                          extract_event_bodies as _bodies)
+
+        form = self._design_canvas.form
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if form is None or not root:
+            return
+
+        json_path = _Path(root) / f"{form.name}.form.json"
+        py_path   = _Path(root) / f"{form.name}.py"
+
+        event_bodies = _bodies(py_path) if py_path.exists() else {}
+        code = _gen(form, event_bodies=event_bodies)
+        py_path.write_text(code, encoding="utf-8")
+        checksum = _cs(py_path)
+        _save(form, json_path, py_checksum=checksum)
+
+        # If the generated file is open in a tab, update its content in place
+        for tab_id, fp in list(self._files.items()):
+            if fp and _Path(fp) == py_path:
+                cv = self._codeviews.get(tab_id)
+                if cv:
+                    cv.delete("1.0", "end")
+                    cv.insert("1.0", code)
+                    self._dirty[tab_id] = False
+                    self._refresh_tab_title(tab_id)
+                break
 
     # ── Split editor ──────────────────────────────────────────────────────────
 
