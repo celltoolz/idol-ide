@@ -27,8 +27,9 @@ class DesignerProperties(tk.Frame):
         super().__init__(master, bg="#252526", **kwargs)
         self._on_prop_change  = on_prop_change
         self._on_event_change = on_event_change
-        self._current_widget: WidgetDescriptor | None = None
-        self._entry_editor:   tk.Entry | None = None
+        self._current_widget: WidgetDescriptor | None       = None
+        self._multi_widgets:  list[WidgetDescriptor]         = []
+        self._entry_editor:   tk.Entry | None                = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -76,6 +77,7 @@ class DesignerProperties(tk.Frame):
         """Populate the panel from *descriptor*."""
         self._dismiss_editor()
         self._current_widget = descriptor
+        self._multi_widgets  = []
         reg = REGISTRY.get(descriptor.type, {})
         self._header.config(text=f"{descriptor.id}  ({descriptor.type})")
         self._populate_props(descriptor, reg)
@@ -85,6 +87,7 @@ class DesignerProperties(tk.Frame):
         """Show form-level properties when the canvas background is selected."""
         self._dismiss_editor()
         self._current_widget = None
+        self._multi_widgets  = []
         self._header.config(text=f"{form.name}  (Form)")
 
         self._props_tree.delete(*self._props_tree.get_children())
@@ -106,10 +109,26 @@ class DesignerProperties(tk.Frame):
             self._events_tree.insert("", "end", iid=f"form_ev__{ev}",
                                      text=ev, values=("",))
 
+    def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
+        """Show geometry-only panel for a multi-widget selection."""
+        self._dismiss_editor()
+        self._current_widget = None
+        self._multi_widgets  = list(descriptors)
+        self._header.config(text=f"{len(descriptors)} widgets selected")
+        primary = descriptors[0] if descriptors else None
+
+        self._props_tree.delete(*self._props_tree.get_children())
+        if primary:
+            for key in ("x", "y", "width", "height"):
+                self._props_tree.insert("", "end", iid=f"geo__{key}",
+                                        text=key, values=(str(getattr(primary, key)),))
+        self._events_tree.delete(*self._events_tree.get_children())
+
     def clear(self) -> None:
         """Reset to the empty / no-selection state."""
         self._dismiss_editor()
         self._current_widget = None
+        self._multi_widgets  = []
         self._header.config(text="Properties")
         self._props_tree.delete(*self._props_tree.get_children())
         self._events_tree.delete(*self._events_tree.get_children())
@@ -254,6 +273,20 @@ class DesignerProperties(tk.Frame):
             key = row_iid[6:]
             if self._on_prop_change:
                 self._on_prop_change("__form__", key, raw)
+            return
+        # Multi-select: apply relative delta to all selected widgets
+        if self._multi_widgets and row_iid.startswith("geo__"):
+            key = row_iid[5:]
+            try:
+                new_val = int(raw)
+                old_val = getattr(self._multi_widgets[0], key)
+                delta   = new_val - old_val
+                for desc in self._multi_widgets:
+                    setattr(desc, key, max(0, getattr(desc, key) + delta))
+                if self._on_prop_change:
+                    self._on_prop_change("__multi__", key, delta)
+            except ValueError:
+                pass
             return
         d = self._current_widget
         if d is None:

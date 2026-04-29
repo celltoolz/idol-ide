@@ -77,6 +77,7 @@ class DesignerCanvas(tk.Canvas):
         on_deselect:       Optional[Callable[[],                  None]] = None,
         on_widget_changed: Optional[Callable[[WidgetDescriptor],  None]] = None,
         on_form_changed:   Optional[Callable[["FormModel"],       None]] = None,
+        on_multi_select:   Optional[Callable[[list],              None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
@@ -84,18 +85,19 @@ class DesignerCanvas(tk.Canvas):
         self._on_deselect       = on_deselect
         self._on_widget_changed = on_widget_changed
         self._on_form_changed   = on_form_changed
+        self._on_multi_select   = on_multi_select
 
         self._form:          FormModel | None        = None
-        self._selected_id:   str | None              = None
+        self._selected_ids:  set[str]                = set()
+        self._primary_id:    str | None              = None
         self._form_selected: bool                    = False
         self._hover_id:      str | None              = None
         self._active_tool:   str | None              = None
         self._clipboard:     WidgetDescriptor | None = None
-        self._paste_offset:  int                     = 0  # nudge per consecutive paste
+        self._paste_offset:  int                     = 0
         self._ox = _MARGIN
         self._oy = _MARGIN + _TITLE
 
-        # Drag / resize state dict, set on ButtonPress and cleared on Release
         self._drag: dict | None = None
 
         self.bind("<Button-1>",        self._on_click)
@@ -106,26 +108,31 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Delete>",          lambda _: self.remove_selected())
         self.bind("<Control-c>",       lambda _: self.copy_selected())
         self.bind("<Control-v>",       lambda _: self.paste())
+        self.bind("<Control-a>",       lambda _: self.select_all())
         self.bind("<Configure>",       lambda _: self._reposition())
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     @property
     def selected_id(self) -> str | None:
-        return self._selected_id
+        return self._primary_id
+
+    @property
+    def selected_ids(self) -> set[str]:
+        return self._selected_ids
 
     @property
     def form(self) -> FormModel | None:
         return self._form
 
     def set_tool(self, type_key: str | None) -> None:
-        """Switch active tool. None = pointer/select; a registry key = place mode."""
         self._active_tool = type_key
         self.config(cursor="crosshair" if type_key else "arrow")
 
     def load_form(self, form: FormModel) -> None:
         self._form = form
-        self._selected_id = None
+        self._selected_ids.clear()
+        self._primary_id = None
         self._hover_id = None
         self._drag = None
         self._reposition()
@@ -137,44 +144,70 @@ class DesignerCanvas(tk.Canvas):
         self._render_widget(descriptor)
         self.select(descriptor.id)
 
-    def remove_selected(self) -> WidgetDescriptor | None:
-        if self._selected_id is None or self._form is None:
-            return None
-        w = self._form.get_widget(self._selected_id)
-        self._form.remove_widget(self._selected_id)
-        self.delete(f"widget:{self._selected_id}")
+    def remove_selected(self) -> None:
+        if not self._selected_ids or self._form is None:
+            return
+        for wid in list(self._selected_ids):
+            self._form.remove_widget(wid)
+            self.delete(f"widget:{wid}")
         self.delete("handle")
-        self._selected_id = None
+        self.delete("fhandle")
+        self._selected_ids.clear()
+        self._primary_id = None
         if self._on_deselect:
             self._on_deselect()
-        return w
 
     def update_widget(self, descriptor: WidgetDescriptor) -> None:
-        """Re-render one widget after a property change from the properties panel."""
-        was_selected = self._selected_id == descriptor.id
+        was_selected = descriptor.id in self._selected_ids
         self.delete(f"widget:{descriptor.id}")
         self._render_widget(descriptor)
         if was_selected:
-            self._draw_handles(descriptor)
+            self._draw_all_handles()
         self.tag_raise("handle")
 
     def select(self, widget_id: str) -> None:
-        if self._form is None:
+        if self._form is None or self._form.get_widget(widget_id) is None:
             return
-        w = self._form.get_widget(widget_id)
-        if w is None:
-            return
-        self._selected_id = widget_id
+        self._selected_ids = {widget_id}
+        self._primary_id = widget_id
         self._form_selected = False
         self.delete("handle")
         self.delete("fhandle")
-        self._draw_handles(w)
-        self.tag_raise("handle")
+        self._draw_all_handles()
         if self._on_select:
             self._on_select(widget_id)
 
+    def select_toggle(self, widget_id: str) -> None:
+        """Ctrl+Click: add to or remove from selection."""
+        if self._form is None or self._form.get_widget(widget_id) is None:
+            return
+        if widget_id in self._selected_ids:
+            self._selected_ids.discard(widget_id)
+            if self._primary_id == widget_id:
+                self._primary_id = next(iter(self._selected_ids), None)
+        else:
+            self._selected_ids.add(widget_id)
+            self._primary_id = widget_id
+        self._form_selected = False
+        self.delete("handle")
+        self.delete("fhandle")
+        self._draw_all_handles()
+        self._notify_selection()
+
+    def select_all(self) -> None:
+        if not self._form or not self._form.widgets:
+            return
+        self._selected_ids = {w.id for w in self._form.widgets}
+        self._primary_id = self._form.widgets[0].id
+        self._form_selected = False
+        self.delete("handle")
+        self.delete("fhandle")
+        self._draw_all_handles()
+        self._notify_selection()
+
     def deselect(self) -> None:
-        self._selected_id = None
+        self._selected_ids.clear()
+        self._primary_id = None
         self._form_selected = False
         self.delete("handle")
         self.delete("fhandle")
@@ -182,17 +215,29 @@ class DesignerCanvas(tk.Canvas):
             self._on_deselect()
 
     def copy_selected(self) -> None:
-        if self._selected_id is None or self._form is None:
+        if self._primary_id is None or self._form is None:
             return
-        w = self._form.get_widget(self._selected_id)
+        w = self._form.get_widget(self._primary_id)
         if w:
             self._clipboard = WidgetDescriptor(
                 id=w.id, type=w.type,
                 x=w.x, y=w.y, width=w.width, height=w.height,
                 props=dict(w.props),
-                events={},  # don't copy event handlers — new widget needs its own
+                events={},
             )
             self._paste_offset = 0
+
+    def _notify_selection(self) -> None:
+        n = len(self._selected_ids)
+        if n == 0:
+            if self._on_deselect:
+                self._on_deselect()
+        elif n == 1:
+            if self._on_select:
+                self._on_select(self._primary_id)
+        else:
+            if self._on_multi_select:
+                self._on_multi_select(list(self._selected_ids))
 
     def paste(self, canvas_x: int | None = None, canvas_y: int | None = None) -> None:
         if self._clipboard is None or self._form is None:
@@ -223,31 +268,31 @@ class DesignerCanvas(tk.Canvas):
         self.add_widget(desc)
 
     def select_form(self) -> None:
-        """Select the form itself, showing resize handles around it."""
         if self._form is None:
             return
-        self._selected_id = None
+        self._selected_ids.clear()
+        self._primary_id = None
         self._form_selected = True
         self.delete("handle")
         self.delete("fhandle")
         self._draw_form_handles()
         self.tag_raise("fhandle")
         if self._on_deselect:
-            self._on_deselect()  # shows form-level properties in panel
+            self._on_deselect()
 
     def bring_to_front(self) -> None:
-        if self._selected_id is None or self._form is None:
+        if self._primary_id is None or self._form is None:
             return
-        w = self._form.get_widget(self._selected_id)
+        w = self._form.get_widget(self._primary_id)
         if w:
             self._form.widgets.remove(w)
             self._form.widgets.append(w)
             self.redraw()
 
     def send_to_back(self) -> None:
-        if self._selected_id is None or self._form is None:
+        if self._primary_id is None or self._form is None:
             return
-        w = self._form.get_widget(self._selected_id)
+        w = self._form.get_widget(self._primary_id)
         if w:
             self._form.widgets.remove(w)
             self._form.widgets.insert(0, w)
@@ -272,10 +317,8 @@ class DesignerCanvas(tk.Canvas):
         self._draw_form()
         for w in self._form.widgets:
             self._render_widget(w)
-        if self._selected_id:
-            sel = self._form.get_widget(self._selected_id)
-            if sel:
-                self._draw_handles(sel)
+        if self._selected_ids:
+            self._draw_all_handles()
             self.tag_raise("handle")
         elif self._form_selected:
             self._draw_form_handles()
@@ -362,6 +405,26 @@ class DesignerCanvas(tk.Canvas):
             self.tag_bind(f"handle:{name}", "<Leave>",
                           lambda e: self.config(cursor="arrow"))
 
+    def _draw_all_handles(self) -> None:
+        """Draw selection handles for all selected widgets."""
+        self.delete("handle")
+        if not self._form:
+            return
+        single = len(self._selected_ids) == 1
+        for wid in self._selected_ids:
+            w = self._form.get_widget(wid)
+            if w is None:
+                continue
+            if single:
+                self._draw_handles(w)
+            else:
+                # Multi-select: dashed border only (no resize handles)
+                x  = self._ox + w.x
+                y  = self._oy + w.y
+                self.create_rectangle(x - 1, y - 1, x + w.width + 1, y + w.height + 1,
+                                       outline=_SEL, width=1, dash=(4, 3),
+                                       fill="", tags="handle")
+
     def _draw_form_handles(self) -> None:
         f  = self._form
         ox, oy = self._ox, self._oy
@@ -434,12 +497,12 @@ class DesignerCanvas(tk.Canvas):
                 }
             return
 
-        # Widget handle click → start widget resize
+        # Widget handle click → start resize (single-select only)
         handle_tag = next((t for t in tags if t.startswith("handle:")), None)
         if handle_tag:
             handle_name = handle_tag.split(":", 1)[1]
-            if self._selected_id and self._form:
-                w = self._form.get_widget(self._selected_id)
+            if self._primary_id and self._form:
+                w = self._form.get_widget(self._primary_id)
                 if w:
                     self._drag = {
                         "mode":    "resize",
@@ -451,25 +514,46 @@ class DesignerCanvas(tk.Canvas):
                     }
             return
 
-        # Widget click → select + prepare move
+        # Widget click → Ctrl toggles; otherwise select + prepare move
+        ctrl = bool(event.state & 0x0004)
         widget_tag = next((t for t in tags if t.startswith("widget:")), None)
         if widget_tag:
             wid = widget_tag.split(":", 1)[1]
-            self.select(wid)
-            w = self._form.get_widget(wid) if self._form else None
-            if w:
-                self._drag = {
-                    "mode":    "move",
-                    "id":      wid,
-                    "start_cx": event.x, "start_cy": event.y,
-                    "orig_x": w.x, "orig_y": w.y,
-                    "orig_w": w.width, "orig_h": w.height,
-                }
+            if ctrl:
+                self.select_toggle(wid)
+            else:
+                # If clicking an already-selected widget keep the group; else replace
+                if wid not in self._selected_ids:
+                    self.select(wid)
+                w = self._form.get_widget(wid) if self._form else None
+                if w:
+                    orig_positions = {
+                        sid: (sw.x, sw.y)
+                        for sid in self._selected_ids
+                        if (sw := self._form.get_widget(sid))
+                    }
+                    self._drag = {
+                        "mode":     "move",
+                        "id":       wid,
+                        "start_cx": event.x, "start_cy": event.y,
+                        "orig_x":   w.x,     "orig_y":   w.y,
+                        "orig_positions": orig_positions,
+                    }
             return
 
-        # Clicked form body, title bar, or grid → select the form
+        # Clicked form body, title bar, or grid → select form or start rubber-band
         if any(t in ("form_bg", "titlebar", "grid") for t in tags):
-            self.select_form()
+            if not ctrl:
+                self._selected_ids.clear()
+                self._primary_id = None
+                self.delete("handle")
+                self.delete("fhandle")
+            self._drag = {
+                "mode":     "rubber_band",
+                "start_cx": event.x, "start_cy": event.y,
+                "ctrl":     ctrl,
+                "prev_ids": set(self._selected_ids),
+            }
             return
 
         self.deselect()
@@ -514,6 +598,16 @@ class DesignerCanvas(tk.Canvas):
             self.tag_raise("fhandle")
             return
 
+        if d["mode"] == "rubber_band":
+            x0, y0 = d["start_cx"], d["start_cy"]
+            # Delete old rubber-band rect if any
+            self.delete("rubber_band")
+            self.create_rectangle(min(x0, event.x), min(y0, event.y),
+                                   max(x0, event.x), max(y0, event.y),
+                                   outline=_SEL, dash=(4, 3), fill="",
+                                   width=1, tags="rubber_band")
+            return
+
         w = self._form.get_widget(d["id"])
         if w is None:
             return
@@ -523,7 +617,18 @@ class DesignerCanvas(tk.Canvas):
             new_y = _snap(d["orig_y"] + dy)
             new_x = max(0, min(new_x, self._form.width  - w.width))
             new_y = max(0, min(new_y, self._form.height - w.height))
-            w.x, w.y = new_x, new_y
+            # Actual snapped delta (may differ from raw dx/dy due to clamping)
+            actual_dx = new_x - d["orig_x"]
+            actual_dy = new_y - d["orig_y"]
+            # Move all selected widgets by the same delta
+            for sid, (ox, oy) in d["orig_positions"].items():
+                sw = self._form.get_widget(sid)
+                if sw is None:
+                    continue
+                sw.x = max(0, min(ox + actual_dx, self._form.width  - sw.width))
+                sw.y = max(0, min(oy + actual_dy, self._form.height - sw.height))
+                self.delete(f"widget:{sid}")
+                self._render_widget(sw)
 
         elif d["mode"] == "resize":
             handle = d["handle"]
@@ -546,25 +651,53 @@ class DesignerCanvas(tk.Canvas):
             nw = max(GRID * 2, nw)
             nh = max(GRID * 2, nh)
             w.x, w.y, w.width, w.height = nx, ny, nw, nh
+            self.delete(f"widget:{w.id}")
+            self._render_widget(w)
 
-        # Live re-render
-        self.delete(f"widget:{w.id}")
-        self._render_widget(w)
         self.delete("handle")
-        self._draw_handles(w)
+        self._draw_all_handles()
         self.tag_raise("handle")
 
     def _on_release(self, event: tk.Event) -> None:
-        if self._drag and self._form:
-            if self._drag["mode"] == "form_resize":
-                if self._on_form_changed:
-                    self._on_form_changed(self._form)
-            else:
-                w = self._form.get_widget(self._drag["id"])
-                if w and self._on_widget_changed:
-                    self._on_widget_changed(w)
+        d = self._drag
         self._drag = None
         self.config(cursor="arrow")
+        if d is None or self._form is None:
+            return
+
+        if d["mode"] == "rubber_band":
+            self.delete("rubber_band")
+            x0 = min(d["start_cx"], event.x)
+            y0 = min(d["start_cy"], event.y)
+            x1 = max(d["start_cx"], event.x)
+            y1 = max(d["start_cy"], event.y)
+            if x1 - x0 > 4 or y1 - y0 > 4:
+                # Select all widgets intersecting the band
+                hit = {
+                    w.id for w in self._form.widgets
+                    if (self._ox + w.x) < x1 and (self._ox + w.x + w.width)  > x0
+                    and (self._oy + w.y) < y1 and (self._oy + w.y + w.height) > y0
+                }
+                self._selected_ids = d["prev_ids"] | hit
+                self._primary_id   = next(iter(self._selected_ids), None)
+                self._form_selected = False
+                self.delete("handle")
+                self.delete("fhandle")
+                self._draw_all_handles()
+                self.tag_raise("handle")
+                self._notify_selection()
+            else:
+                # Bare click on empty space → select form
+                self.select_form()
+            return
+
+        if d["mode"] == "form_resize":
+            if self._on_form_changed:
+                self._on_form_changed(self._form)
+        elif d["mode"] in ("move", "resize"):
+            w = self._form.get_widget(d["id"])
+            if w and self._on_widget_changed:
+                self._on_widget_changed(w)
 
     def _on_hover(self, event: tk.Event) -> None:
         item = self._topmost_at(event.x, event.y)
@@ -587,7 +720,7 @@ class DesignerCanvas(tk.Canvas):
         pass  # handled by _on_click via tag binding
 
     def _widget_enter(self, event: tk.Event, wid: str) -> None:
-        if wid != self._selected_id:
+        if wid not in self._selected_ids:
             self.config(cursor="fleur")
 
     def _widget_leave(self, event: tk.Event, wid: str) -> None:
@@ -600,16 +733,18 @@ class DesignerCanvas(tk.Canvas):
 
     def _on_right_click(self, event: tk.Event) -> None:
         import tkinter as _tk
-        # If there's a widget under the cursor, select it first
+        # If widget under cursor isn't in selection, select just it
         item = self._topmost_at(event.x, event.y)
         if item:
             tags = self.gettags(item)
             widget_tag = next((t for t in tags if t.startswith("widget:")), None)
             if widget_tag:
-                self.select(widget_tag.split(":", 1)[1])
+                wid = widget_tag.split(":", 1)[1]
+                if wid not in self._selected_ids:
+                    self.select(wid)
 
         menu = _tk.Menu(self, tearoff=0)
-        has_sel = self._selected_id is not None
+        has_sel = bool(self._selected_ids)
         has_clip = self._clipboard is not None
 
         menu.add_command(

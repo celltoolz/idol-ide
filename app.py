@@ -791,6 +791,7 @@ class IDOL(Tk):
             on_deselect=self._on_designer_deselect,
             on_widget_changed=self._on_designer_widget_changed,
             on_form_changed=self._on_designer_form_changed,
+            on_multi_select=self._on_designer_multi_select,
         )
         self._design_canvas.pack(fill="both", expand=True)
 
@@ -3994,6 +3995,9 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form is None:
             return
+        if widget_id == "__multi__":
+            self._design_canvas.redraw()
+            return
         if widget_id == "__form__":
             if key == "bg":
                 form.bg = value
@@ -4090,9 +4094,22 @@ class IDOL(Tk):
         else:
             self._props_panel.clear()
 
+    def _on_designer_multi_select(self, widget_ids: list) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        descriptors = [form.get_widget(wid) for wid in widget_ids if form.get_widget(wid)]
+        if descriptors:
+            self._props_panel.load_multi(descriptors)
+
     def _on_designer_widget_changed(self, descriptor) -> None:
-        """Drag/resize finished → refresh properties panel geometry fields."""
-        self._props_panel.refresh_widget(descriptor)
+        if len(self._design_canvas.selected_ids) > 1:
+            form = self._design_canvas.form
+            descriptors = [form.get_widget(wid) for wid in self._design_canvas.selected_ids
+                           if form and form.get_widget(wid)]
+            self._props_panel.load_multi(descriptors)
+        else:
+            self._props_panel.refresh_widget(descriptor)
 
     def _on_designer_form_changed(self, form) -> None:
         """Form resize finished → refresh form-level properties panel."""
