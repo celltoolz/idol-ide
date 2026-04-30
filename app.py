@@ -4177,17 +4177,26 @@ class IDOL(Tk):
 
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""
+        from pathlib import Path as _Path
+
         form = self._design_canvas.form
         if form is None:
             return
         w = form.get_widget(widget_id)
         if w is None:
             return
-        if w.events:
-            first_handler = next(iter(w.events.values()))
-            self._designer_jump_to_handler(first_handler)
-        else:
+        if not w.events:
             self._props_panel.flash_events_tab()
+            return
+
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if root:
+            py_path = _Path(root) / f"{form.name}.py"
+            if self._designer_dirty or not py_path.exists():
+                self.designer_generate_code()
+
+        first_handler = next(iter(w.events.values()))
+        self._designer_jump_to_handler(first_handler)
 
     def _designer_jump_to_handler(self, method_name: str) -> None:
         """Switch to editor mode and navigate to the named method in the generated .py."""

@@ -6,6 +6,7 @@ from typing import Any, Callable, Optional
 
 from designer.model import FormModel, VariableBinding, WidgetDescriptor
 from designer.registry import REGISTRY
+from widgets.guide_window import GuideWindow, GuidePage
 
 
 class DesignerProperties(tk.Frame):
@@ -88,19 +89,6 @@ class DesignerProperties(tk.Frame):
         # Events tab
         self._events_frame = tk.Frame(self._nb, bg="#1e1e1e")
         self._nb.add(self._events_frame, text="  Events  ")
-
-        # Thin toolbar row: ? guide button at top-right
-        ev_toolbar = tk.Frame(self._events_frame, bg="#1e1e1e")
-        ev_toolbar.pack(fill="x", side="top")
-        self._ev_guide_btn = tk.Label(
-            ev_toolbar, text=" ? ",
-            bg="#1e1e1e", fg="#555555",
-            font=("Segoe UI", 8), cursor="hand2",
-        )
-        self._ev_guide_btn.pack(side="right", padx=(0, 4), pady=(2, 0))
-        self._ev_guide_btn.bind("<Enter>",    lambda e: self._ev_guide_btn.config(fg="#cccccc"))
-        self._ev_guide_btn.bind("<Leave>",    lambda e: self._ev_guide_btn.config(fg="#555555"))
-        self._ev_guide_btn.bind("<Button-1>", self._open_event_guide)
 
         self._events_tree = _make_tree(self._events_frame, value_col_name="Handler")
         self._events_tree.bind("<Button-1>", self._on_event_click)
@@ -221,71 +209,71 @@ class DesignerProperties(tk.Frame):
             menu.grab_release()
 
     def flash_events_tab(self) -> None:
-        """Switch to the Events tab and briefly flash the tab label red."""
+        """Switch to the Events tab."""
         self._nb.select(self._events_frame)
-        self._flash_tab(3, True)
-
-    def _flash_tab(self, remaining: int, red: bool) -> None:
-        if remaining <= 0:
-            self._nb.tab(self._events_frame, text="  Events  ")
-            return
-        color = "#ff6b6b" if red else "#858585"
-        self._nb.tab(self._events_frame, text="  Events  ")
-        try:
-            s = ttk.Style()
-            s.configure("Flash.TNotebook.Tab", foreground=color)
-            self._nb.tab(self._events_frame, style="Flash.TNotebook.Tab")
-        except Exception:
-            pass
-        self.after(180, lambda: self._flash_tab(remaining - 1, not red))
 
     def _open_event_guide(self, event=None) -> None:
-        """Show a Toplevel listing available events and their tkinter bindings."""
+        """Open the paginated Events guide window."""
         d = self._current_widget
-        if d is None:
-            return
-        reg = REGISTRY.get(d.type, {})
+        reg = REGISTRY.get(d.type, {}) if d else {}
         events = reg.get("events", [])
 
-        top = tk.Toplevel(self.winfo_toplevel())
-        top.title(f"Events — {d.type}")
-        top.configure(bg="#252526")
-        top.resizable(False, False)
-        top.transient(self.winfo_toplevel())
-
-        tk.Label(top, text=f"Available events for {d.type}",
-                 bg="#252526", fg="#cccccc",
-                 font=("Segoe UI", 9, "bold"), anchor="w", padx=12, pady=8,
-                 ).pack(fill="x")
-
-        frame = tk.Frame(top, bg="#1e1e1e", padx=12, pady=8)
-        frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-
+        # Build the events reference list as a formatted string for the second page
+        lines: list[str] = []
         for ev in events:
-            binding = _EVENT_DESCRIPTIONS.get(ev, ("", ""))
-            row = tk.Frame(frame, bg="#1e1e1e")
-            row.pack(fill="x", pady=1)
-            tk.Label(row, text=f"{ev:<14}", bg="#1e1e1e", fg="#569cd6",
-                     font=("Consolas", 9), anchor="w", width=14,
-                     ).pack(side="left")
-            tk.Label(row, text=binding[0], bg="#1e1e1e", fg="#858585",
-                     font=("Consolas", 9), anchor="w",
-                     ).pack(side="left", padx=(4, 16))
-            tk.Label(row, text=binding[1], bg="#1e1e1e", fg="#cccccc",
-                     font=("Segoe UI", 9), anchor="w",
-                     ).pack(side="left")
+            binding, desc = _EVENT_DESCRIPTIONS.get(ev, ("", ev))
+            lines.append(f"{ev:<14}  {binding:<22}  {desc}")
+        events_text = "\n".join(lines) if lines else "No events available for this widget type."
 
-        tk.Button(top, text="Close", command=top.destroy,
-                  bg="#3c3c3c", fg="#cccccc", relief="flat",
-                  activebackground="#094771", activeforeground="#ffffff",
-                  ).pack(pady=(0, 8))
+        widget_label = d.type if d else "Widget"
 
-        top.update_idletasks()
-        pw = top.winfo_reqwidth()
-        ph = top.winfo_reqheight()
-        sx = self.winfo_rootx() - pw - 8
-        sy = self.winfo_rooty()
-        top.geometry(f"{pw}x{ph}+{max(0, sx)}+{sy}")
+        GuideWindow(self, "Events Guide", [
+            GuidePage(
+                title="What are Events?",
+                sections=[
+                    ("THE IDEA",
+                     "Events let your form react to things the user does — clicking a button, "
+                     "typing in a field, moving the mouse. You wire an event to a handler method "
+                     "and IDOL generates the stub for you.", "#569cd6"),
+                    ("WIRING AN EVENT",
+                     "1. Select a widget on the canvas.\n"
+                     "2. Switch to the Events tab in the Properties panel.\n"
+                     "3. Click the event row you want (e.g. click).\n"
+                     "4. Type a method name starting with an underscore (e.g. _on_button_click).\n"
+                     "5. Generate Code — the stub appears in your .py file ready to fill in.",
+                     "#73c991"),
+                    ("NAMING CONVENTION",
+                     "Always prefix your handler names with an underscore (e.g. _on_submit). "
+                     "Non-underscore names are treated as public helper methods and will appear "
+                     "in the Functions section instead. IDOL warns you in red if you forget.",
+                     "#e2c08d"),
+                ],
+                plain_english=(
+                    "Think of events like a doorbell. The doorbell is the event (someone pressed it). "
+                    "Your handler is what happens next (you walk to the door). "
+                    "You decide which doorbells to listen for and what to do when they ring."
+                ),
+            ),
+            GuidePage(
+                title=f"Available Events — {widget_label}",
+                sections=[
+                    ("EVENT REFERENCE",
+                     events_text, "#569cd6"),
+                    ("AUTO-WIRE",
+                     "Click the ✦ icon next to an event row to auto-fill a handler name based on "
+                     "the widget name. You can also type any name directly in the Handler column.",
+                     "#cccccc"),
+                    ("BUTTON COMMAND",
+                     "For Button widgets, the click event is wired as command= in the constructor "
+                     "rather than a .bind() call — this is the standard tkinter pattern and "
+                     "behaves identically from your handler's perspective.", "#e2c08d"),
+                ],
+                plain_english=(
+                    "Each event maps to a tkinter binding string shown in the middle column. "
+                    "IDOL handles the .bind() call for you — just name the method and write the body."
+                ),
+            ),
+        ])
 
     def refresh_widget(self, descriptor: WidgetDescriptor) -> None:
         """Re-populate without switching the notebook tab (for canvas drag updates)."""
@@ -392,12 +380,16 @@ class DesignerProperties(tk.Frame):
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_tree.delete(*self._events_tree.get_children())
         self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
+        self._events_tree.tag_configure("ev_guide_link", foreground="#569cd6")
         for ev in reg.get("events", []):
             handler = d.events.get(ev, "")
             iid = f"ev__{ev}"
             self._events_tree.insert("", "end", iid=iid, text=ev, values=(handler,))
             if handler and not handler.startswith("_"):
                 self._events_tree.item(iid, tags=("name_warn",))
+        self._events_tree.insert("", "end", iid="ev__learn_guide",
+                                 text="? Events", values=("",),
+                                 tags=("ev_guide_link",))
 
     # ── Click handlers ────────────────────────────────────────────────────────
 
@@ -451,6 +443,9 @@ class DesignerProperties(tk.Frame):
         row  = tree.identify_row(event.y)
         col  = tree.identify_column(event.x)
         if not row:
+            return
+        if row == "ev__learn_guide":
+            self._open_event_guide()
             return
         if col == "#1":
             # If no handler set yet, auto-wire on click; otherwise open editor

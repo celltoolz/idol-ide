@@ -112,10 +112,46 @@ Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `codevi
 `sidebar.py`, `source_control.py`, `statusbar.py`, `sticky_scroll.py`, `terminal.py`
 
 #### `guide_window.py` — reusable paginated guide UI
-`GuideWindow` is a content-agnostic `Toplevel` — you hand it any list of `GuidePage`
-objects and it renders them. The content lives in `utils/venv_guide.py` and
-`utils/git_remote_guide.py`. This is the Guide Pattern: content in `utils/`,
-rendering in `widgets/`.
+
+`GuideWindow(parent, title, pages)` is a content-agnostic paginated `Toplevel`.
+Hand it a list of `GuidePage` objects; it handles navigation, layout, and styling.
+
+**How to build a GuideWindow:**
+
+```python
+from widgets.guide_window import GuideWindow, GuidePage
+
+GuideWindow(self, "My Feature", [
+    GuidePage(
+        title="What is it?",
+        sections=[
+            ("THE IDEA",   "Plain explanation of the concept.", "#569cd6"),
+            ("HOW TO USE", "Step-by-step or bullet list.",      "#73c991"),
+            ("GOTCHAS",    "Warnings or edge cases.",           "#e2c08d"),
+        ],
+        plain_english=(
+            "One plain-English analogy paragraph shown in a highlighted box "
+            "at the bottom of the page."
+        ),
+    ),
+    GuidePage(title="Reference", sections=[...], plain_english="..."),
+])
+```
+
+**Conventions:**
+- `sections` is a list of `(heading, body, accent_color)` tuples. Use `#569cd6` (blue) for
+  concept headings, `#73c991` (green) for how-to steps, `#e2c08d` (amber) for warnings,
+  `#cccccc` (grey) for neutral reference text.
+- `plain_english` is a short analogy or summary — written for a beginner, no jargon.
+  It appears in a dimmed highlight box at the bottom of each page.
+- Target 2–4 pages per guide. One concept per page.
+
+**Where to put the content:**
+- **Complex / reusable guides** (venv, git, pip): extract content into a `utils/*_guide.py`
+  module that exports `get_pages() -> list[GuidePage]`. This keeps `widgets/` files lean.
+- **Simple / widget-specific guides** (e.g. the Events guide in `designer_properties.py`):
+  define the `GuidePage` list inline. Only do this when the content is tightly coupled to
+  one widget and won't be reused.
 
 ### `designer/` — GUI Designer (Tkinter GUI projects only)
 
@@ -128,11 +164,11 @@ Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `co
 |---|---|
 | `model.py` | `WidgetDescriptor`, `VariableBinding`, and `FormModel` dataclasses — the canonical source of truth for every form. `FormModel` tracks name, title, size, `border_style`, `maximize_box`, `bg`, and the widget list. `VariableBinding` holds the tkinter variable (StringVar/IntVar/DoubleVar/BooleanVar) bound to a widget. |
 | `registry.py` | `REGISTRY` dict — one entry per widget type: tk class, default size, default props, available events, `color_props` list, `variable_prop`/`variable_types` for variable binding, and a mini-preview drawing function |
-| `codegen.py` | `FormModel → Python` — generates a class-based source file. Two IDOL:BEGIN/END marker blocks in `__init__` delimit user-owned zones (pre-build and post-build) that survive regeneration. Preserves event bodies, helper methods, and user `__init__` code. Skips empty color props. |
-| `persistence.py` | `.form.json` save/load with SHA-256 checksum for manual-edit detection; `extract_event_bodies`, `extract_init_user_zones`, `extract_helper_methods` — AST + marker-based extraction used during regeneration to splice user code back in |
-| `canvas.py` | Dotted-grid drag/drop surface — canvas-primitive widget rendering (bg/fg from props applied live), click-to-select, drag-to-move, resize handles, multi-select rubber band, copy/paste, bring-to-front/send-to-back. Fires `on_structure_changed` on add/remove/reorder. |
+| `codegen.py` | `FormModel → Python` — generates a class-based source file. Two `IDOL:BEGIN/END` marker pairs in `__init__` delimit user-owned zones (pre-build and post-build) that survive regeneration. `IDOL:IMPORTS:BEGIN/END` markers preserve user-added imports. Preserves event bodies, helper methods, and user `__init__` code. Handles `validatecommand`/`invalidcommand` as `(self.register(self.method), args...)`. Skips empty/default props. |
+| `persistence.py` | `.form.json` save/load with SHA-256 checksum for manual-edit detection; `extract_event_bodies`, `extract_init_user_zones`, `extract_helper_methods`, `extract_user_imports` — AST + marker-based extraction used during regeneration to splice user code back in |
+| `canvas.py` | Dotted-grid drag/drop surface — canvas-primitive widget rendering (bg/fg from props applied live), click-to-select, drag-to-move, resize handles, multi-select rubber band, copy/paste, bring-to-front/send-to-back. Fires `on_structure_changed` on add/remove/reorder. Fires `on_double_click(widget_id)` on double-click. |
 | `palette.py` | Widget toolbox panel — canvas-drawn mini previews, click-to-place |
-| `widgets/designer_properties.py` | Property grid + Events tab — inline text editor for most props; `tk.Menu` popup for enum props (border style, variable type, etc.); color swatch + `tkinter.colorchooser` for color props; variable binding section for supported widgets |
+| `widgets/designer_properties.py` | Property grid + Events tab — inline text editor for most props; `tk.Menu` popup for enum props; color swatch + `tkinter.colorchooser` for color props; state dropdown with conditional state-color rows; validate dropdown with `--vcmd`/`--args`/`--ivcmd` rows; variable binding section; control selector dropdown at top; red `name_warn` tag on non-underscore handler names; `? Events` guide row at bottom of Events tab |
 
 **Designer layout (when active):**
 ```
@@ -240,16 +276,22 @@ Implemented and stable:
 
 ## Planned / In Progress
 
-- **GUI Designer — remaining roadmap:** font picker; anchor/justify dropdowns; tab order / z-order panel; dialog/Toplevel forms (`form_type="dialog"` slot exists); grid layout mode; live preview (run form in subprocess).
+- **GUI Designer — remaining roadmap:** font picker; anchor/justify dropdowns; tab order / z-order panel; dialog/Toplevel forms (`form_type="dialog"` slot exists); grid layout mode; live preview (run form in subprocess); persist designer sash positions.
 
 ## Designer — Shipped (Phase 2)
 
 - Drag/drop canvas with snap grid, resize handles, multi-select rubber band, copy/paste, bring-to-front/send-to-back
 - Properties panel: inline editor, color picker with live canvas preview, variable binding (StringVar/IntVar/DoubleVar/BooleanVar), border style / maximize box dropdowns
-- Events tab: click event name to auto-wire handler; edit handler name inline
-- Code generation: IDOL:BEGIN/END markers preserve user `__init__` zones; helper methods and event bodies survive regeneration
+- **Control selector dropdown** at top of properties panel — lists all widgets + form; selecting navigates canvas
+- **State property** with conditional state-color rows (`readonlybackground`, `disabledbackground`, `disabledforeground`) that appear only when state is readonly/disabled; auto-fills default colors on state change
+- **Validate support** for Entry/Spinbox — `validatecommand` / `--args` / `invalidcommand` rows; `--args` dropdown with common substitution code presets (`%P`, `%P, %S`, etc.)
+- **Red `name_warn` tag** on event handler names and vcmd method names that don't start with `_`
+- Events tab: click event name to auto-wire handler; edit handler name inline; `? Events` guide row opens paginated GuideWindow
+- **Double-click widget** → auto-generates code if dirty, then switches to editor and navigates to first event handler; double-click with no events → switches to Events tab
+- Code generation: `IDOL:BEGIN/END` markers preserve user `__init__` zones; `IDOL:IMPORTS:BEGIN/END` markers preserve user imports; helper methods and event bodies survive regeneration
 - Manual-edits detection via SHA-256 checksum (warning on Generate Code, not on mode-switch)
-- Dirty tracking: Run prompts to generate first if designer has ungenerated changes
+- Dirty tracking: Run prompts to generate first; double-click auto-generates silently
+- Default bg/fg on new widgets; auto state-color defaults on state change
 - bg/fg color props for all applicable widget types, reflected live on canvas
 
 ---
