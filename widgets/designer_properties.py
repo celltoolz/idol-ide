@@ -276,15 +276,19 @@ class DesignerProperties(tk.Frame):
                                     text="validate", values=(current_validate,))
             seen.add("validate")
             if current_validate != "none":
-                self._props_tree.insert("", "end", iid="prop__validatecommand",
-                                        text="  --vcmd",
-                                        values=(d.props.get("validatecommand", ""),))
-                self._props_tree.insert("", "end", iid="prop__vcmd_args",
-                                        text="  --args",
-                                        values=(d.props.get("vcmd_args", "%P"),))
-                self._props_tree.insert("", "end", iid="prop__invalidcommand",
-                                        text="  --ivcmd",
-                                        values=(d.props.get("invalidcommand", ""),))
+                self._props_tree.tag_configure("vcmd_warn", foreground="#ff6b6b")
+                for v_key, v_label in (("validatecommand", "  --vcmd"),
+                                       ("invalidcommand",  "  --ivcmd")):
+                    val = d.props.get(v_key, "")
+                    self._props_tree.insert("", "end", iid=f"prop__{v_key}",
+                                            text=v_label, values=(val,))
+                    if val and not val.startswith("_"):
+                        self._props_tree.item(f"prop__{v_key}", tags=("vcmd_warn",))
+                    # --args between the two command rows
+                    if v_key == "validatecommand":
+                        self._props_tree.insert("", "end", iid="prop__vcmd_args",
+                                                text="  --args",
+                                                values=(d.props.get("vcmd_args", "%P"),))
                 seen.update({"validatecommand", "vcmd_args", "invalidcommand"})
 
         # Variable binding section (only for widgets that support it)
@@ -592,6 +596,13 @@ class DesignerProperties(tk.Frame):
                         if self._on_prop_change:
                             self._on_prop_change(d.id, color_key, color_defaults[color_key])
                 self.load_widget(d)
+            elif key in ("validatecommand", "invalidcommand"):
+                self._props_tree.tag_configure("vcmd_warn", foreground="#ff6b6b")
+                val = str(parsed)
+                if val and not val.startswith("_"):
+                    self._props_tree.item(row_iid, tags=("vcmd_warn",))
+                else:
+                    self._props_tree.item(row_iid, tags=())
             elif key == "validate":
                 if parsed != "none" and not d.props.get("validatecommand"):
                     auto = f"_{d.id}_validate"
