@@ -231,7 +231,7 @@ class DesignerProperties(tk.Frame):
             if reg.get("state_prop") else set()
         )
         _validate_reserved = (
-            {"validate"} | set(_VALIDATE_LABELS)
+            {"validate", "validatecommand", "vcmd_args", "invalidcommand"}
             if reg.get("validate_prop") else set()
         )
         seen: set[str] = set()
@@ -269,18 +269,23 @@ class DesignerProperties(tk.Frame):
                 if val:
                     self._apply_color_swatch(f"prop__{color_key}", val.upper())
 
-        # Validate row + conditional vcmd/ivcmd rows
+        # Validate row + conditional vcmd / --args / ivcmd rows
         if reg.get("validate_prop"):
             current_validate = d.props.get("validate", "none")
             self._props_tree.insert("", "end", iid="prop__validate",
                                     text="validate", values=(current_validate,))
             seen.add("validate")
             if current_validate != "none":
-                for v_key, v_label in _VALIDATE_LABELS.items():
-                    val = d.props.get(v_key, "")
-                    self._props_tree.insert("", "end", iid=f"prop__{v_key}",
-                                            text=v_label, values=(val,))
-                    seen.add(v_key)
+                self._props_tree.insert("", "end", iid="prop__validatecommand",
+                                        text="  --vcmd",
+                                        values=(d.props.get("validatecommand", ""),))
+                self._props_tree.insert("", "end", iid="prop__vcmd_args",
+                                        text="  --args",
+                                        values=(d.props.get("vcmd_args", "%P"),))
+                self._props_tree.insert("", "end", iid="prop__invalidcommand",
+                                        text="  --ivcmd",
+                                        values=(d.props.get("invalidcommand", ""),))
+                seen.update({"validatecommand", "vcmd_args", "invalidcommand"})
 
         # Variable binding section (only for widgets that support it)
         if reg.get("variable_prop"):
@@ -341,6 +346,8 @@ class DesignerProperties(tk.Frame):
                                 reg.get("validate_values",
                                         ["none", "focus", "focusin", "focusout", "key", "all"]),
                                 self._commit_prop)
+        elif row == "prop__vcmd_args":
+            self._open_dropdown(tree, row, col, _VCMD_ARG_PRESETS, self._commit_prop)
         elif row == "var__type":
             d = self._current_widget
             if d is None:
@@ -664,8 +671,18 @@ _PROP_LABELS: dict[str, str] = {
 
 _VALIDATE_LABELS: dict[str, str] = {
     "validatecommand": "  --vcmd",
+    "vcmd_args":       "  --args",
     "invalidcommand":  "  --ivcmd",
 }
+
+_VCMD_ARG_PRESETS: list[str] = [
+    "%P",
+    "%P, %S",
+    "%d, %P, %S",
+    "%s, %P, %S",
+    "%d, %i, %P, %S",
+    "%d, %i, %P, %S, %s, %v, %V, %W",
+]
 
 _STATE_COLOR_LABELS: dict[str, str] = {
     "readonlybackground": "  --bg",

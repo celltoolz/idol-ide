@@ -180,9 +180,13 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
             continue
         if k == "validate" and v == "none":
             continue
+        if k == "vcmd_args":
+            continue  # consumed when building validatecommand/invalidcommand
         if k in _vcmd_keys:
             if v:
-                kw_parts.append(f"{k}=(self.register(self.{v}), '%P')")
+                args_raw = w.props.get("vcmd_args", "%P")
+                arg_str = ", ".join(f"'{a.strip()}'" for a in args_raw.split(","))
+                kw_parts.append(f"{k}=(self.register(self.{v}), {arg_str})")
             continue
         kw_parts.append(_prop_str(k, v))
 
