@@ -314,7 +314,12 @@ class DesignerProperties(tk.Frame):
         combo.bind("<<ComboboxSelected>>", commit)
         combo.bind("<FocusOut>",           commit)
         combo.bind("<Escape>",             lambda _: self._dismiss_editor())
-        tree.after_idle(combo.focus_force)
+
+        def _show():
+            combo.focus_force()
+            combo.event_generate("<Down>")  # auto-open so treeview click doesn't interfere
+
+        tree.after_idle(_show)
 
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
@@ -352,6 +357,11 @@ class DesignerProperties(tk.Frame):
     def _commit_prop(self, row_iid: str, raw: str) -> None:
         if row_iid.startswith("form__"):
             key = row_iid[6:]
+            # Disabling maximize implies fixed border — auto-sync the UI row
+            if key == "maximize_box" and raw.lower() == "false":
+                self._props_tree.set("form__border_style", "#1", "fixed")
+                if self._on_prop_change:
+                    self._on_prop_change("__form__", "border_style", "fixed")
             if self._on_prop_change:
                 self._on_prop_change("__form__", key, raw)
             return
