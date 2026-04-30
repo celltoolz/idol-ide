@@ -229,7 +229,9 @@ def _collect_methods(form: FormModel) -> list[str]:
                 methods.append(method_name)
         for key in ("validatecommand", "invalidcommand"):
             method_name = w.props.get(key, "")
-            if method_name and method_name not in seen:
+            # Only stub underscore-prefixed names; public names live in the
+            # Functions section and are preserved by extract_helper_methods.
+            if method_name and method_name.startswith("_") and method_name not in seen:
                 seen.add(method_name)
                 methods.append(method_name)
     return methods

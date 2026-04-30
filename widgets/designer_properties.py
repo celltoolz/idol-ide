@@ -593,6 +593,11 @@ class DesignerProperties(tk.Frame):
                             self._on_prop_change(d.id, color_key, color_defaults[color_key])
                 self.load_widget(d)
             elif key == "validate":
+                if parsed != "none" and not d.props.get("validatecommand"):
+                    auto = f"_{d.id}_validate"
+                    d.props["validatecommand"] = auto
+                    if self._on_prop_change:
+                        self._on_prop_change(d.id, "validatecommand", auto)
                 self.load_widget(d)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
