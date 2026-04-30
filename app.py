@@ -4055,8 +4055,10 @@ class IDOL(Tk):
                     self._design_canvas._reposition()
                 except ValueError:
                     pass
-            elif key in ("resizable_x", "resizable_y"):
-                setattr(form, key, str(value).lower() in ("true", "1", "yes"))
+            elif key == "border_style":
+                form.border_style = str(value).lower().strip()
+            elif key == "maximize_box":
+                form.maximize_box = str(value).lower() in ("true", "1", "yes")
             return
         if key == "__variable__":
             return  # model already mutated by properties panel; no canvas redraw needed

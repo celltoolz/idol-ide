@@ -71,8 +71,10 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     out.append("        super().__init__()")
     out.append(f'        self.title("{form.title}")')
     out.append(f'        self.geometry("{form.width}x{form.height}")')
-    if not (form.resizable_x and form.resizable_y):
-        out.append(f"        self.resizable({form.resizable_x}, {form.resizable_y})")
+    if form.border_style == "none":
+        out.append("        self.overrideredirect(True)")
+    elif form.border_style == "fixed" or not form.maximize_box:
+        out.append("        self.resizable(False, False)")
     if form.bg:
         out.append(f'        self.configure(bg="{form.bg}")')
     for line in _variable_decls(form):

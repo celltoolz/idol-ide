@@ -92,12 +92,12 @@ class DesignerProperties(tk.Frame):
 
         self._props_tree.delete(*self._props_tree.get_children())
         for key, label, val in [
-            ("title",       "title",       form.title),
-            ("width",       "width",       form.width),
-            ("height",      "height",      form.height),
-            ("resizable_x", "resizable_x", form.resizable_x),
-            ("resizable_y", "resizable_y", form.resizable_y),
-            ("bg",          "background",  form.bg),
+            ("title",        "title",        form.title),
+            ("width",        "width",        form.width),
+            ("height",       "height",       form.height),
+            ("border_style", "border style", form.border_style),
+            ("maximize_box", "maximize",     form.maximize_box),
+            ("bg",           "background",   form.bg),
         ]:
             self._props_tree.insert("", "end", iid=f"form__{key}",
                                     text=label, values=(str(val),))
@@ -208,6 +208,12 @@ class DesignerProperties(tk.Frame):
             return  # section header — not editable
         if row == "form__bg" or self._is_color_row(row):
             self._open_color_picker(row)
+        elif row == "form__border_style":
+            self._open_dropdown(self._props_tree, row, col,
+                                ["sizable", "fixed", "none"], self._commit_prop)
+        elif row == "form__maximize_box":
+            self._open_dropdown(self._props_tree, row, col,
+                                ["True", "False"], self._commit_prop)
         elif row == "var__type":
             d = self._current_widget
             if d is None:

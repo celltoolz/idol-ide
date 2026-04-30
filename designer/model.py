@@ -74,8 +74,8 @@ class FormModel:
     title: str = "Form1"
     width: int = 800
     height: int = 600
-    resizable_x: bool = True
-    resizable_y: bool = True
+    border_style: str = "sizable"         # "sizable" | "fixed" | "none"
+    maximize_box: bool = True
     bg: str = ""                         # "" = system default
     form_type: str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel, v2)
     widgets: list[WidgetDescriptor] = field(default_factory=list)
@@ -113,8 +113,8 @@ class FormModel:
             "title": self.title,
             "width": self.width,
             "height": self.height,
-            "resizable_x": self.resizable_x,
-            "resizable_y": self.resizable_y,
+            "border_style": self.border_style,
+            "maximize_box": self.maximize_box,
             "bg": self.bg,
             "form_type": self.form_type,
             "widgets": [w.to_dict() for w in self.widgets],
@@ -122,13 +122,20 @@ class FormModel:
 
     @staticmethod
     def from_dict(d: dict) -> "FormModel":
+        # Migrate legacy resizable_x/resizable_y to border_style
+        if "border_style" not in d:
+            rx = d.get("resizable_x", True)
+            ry = d.get("resizable_y", True)
+            border_style = "sizable" if (rx and ry) else "fixed"
+        else:
+            border_style = d["border_style"]
         return FormModel(
             name=d.get("name", "Form1"),
             title=d.get("title", "Form1"),
             width=d.get("width", 800),
             height=d.get("height", 600),
-            resizable_x=d.get("resizable_x", True),
-            resizable_y=d.get("resizable_y", True),
+            border_style=border_style,
+            maximize_box=d.get("maximize_box", True),
             bg=d.get("bg", ""),
             form_type=d.get("form_type", "main"),
             widgets=[WidgetDescriptor.from_dict(w) for w in d.get("widgets", [])],
