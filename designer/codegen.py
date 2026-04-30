@@ -37,10 +37,13 @@ _STUB = "pass  # TODO"
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def generate(form: FormModel, event_bodies: dict[str, str] | None = None) -> str:
+def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
+             extra_init: str = "", helpers: str = "") -> str:
     """Return Python source for *form*.
 
-    event_bodies: {method_name: dedented_body_str} — user code preserved on regen.
+    event_bodies: {method_name: dedented_body_str} — user event handler code.
+    extra_init:   lines that follow self._build_ui() in __init__ (user-written).
+    helpers:      full source of public helper methods (user-written).
     """
     bodies = event_bodies or {}
     needs_ttk = _uses_ttk(form)
@@ -65,6 +68,10 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None) -> str
     if form.bg:
         out.append(f'        self.configure(bg="{form.bg}")')
     out.append("        self._build_ui()")
+    if extra_init:
+        out.append("")
+        for line in extra_init.splitlines():
+            out.append(("        " + line) if line.strip() else "")
     out.append("")
 
     # ── _build_ui ─────────────────────────────────────────────────────────────
@@ -85,6 +92,14 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None) -> str
             out.append(f"    def {name}(self, *args):")
             out.extend(_body_lines(name, bodies))
             out.append("")
+
+    # ── helper methods ────────────────────────────────────────────────────────
+    if helpers:
+        out.append("    # ── Functions " + "─" * 59)
+        out.append("")
+        for line in helpers.splitlines():
+            out.append(("    " + line) if line.strip() else "")
+        out.append("")
 
     # ── entry point ───────────────────────────────────────────────────────────
     out += ["", f'if __name__ == "__main__":',

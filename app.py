@@ -4141,6 +4141,8 @@ class IDOL(Tk):
         from designer.codegen import generate as _gen
         from designer.persistence import (save as _save, compute_checksum as _cs,
                                           extract_event_bodies as _bodies,
+                                          extract_extra_init as _extra_init,
+                                          extract_helper_methods as _helpers,
                                           load as _load, was_modified as _modified)
         from tkinter.messagebox import askyesno
 
@@ -4159,8 +4161,8 @@ class IDOL(Tk):
                     answer = askyesno(
                         "Manual Edits Detected",
                         f"{py_path.name} has been manually edited since the last code generation.\n\n"
-                        "Event handlers will be preserved, but any other manual changes\n"
-                        "(e.g. edits to __init__ or _build_ui) will be overwritten.\n\n"
+                        "Event handlers, helper methods, and extra __init__ code will be preserved.\n"
+                        "Only _build_ui will be regenerated from the Designer layout.\n\n"
                         "Generate code and overwrite?",
                         parent=self,
                         default="yes",
@@ -4170,8 +4172,13 @@ class IDOL(Tk):
             except Exception:
                 pass
 
-        event_bodies = _bodies(py_path) if py_path.exists() else {}
-        code = _gen(form, event_bodies=event_bodies)
+        if py_path.exists():
+            event_bodies = _bodies(py_path)
+            extra_init   = _extra_init(py_path)
+            helpers      = _helpers(py_path)
+        else:
+            event_bodies, extra_init, helpers = {}, "", ""
+        code = _gen(form, event_bodies=event_bodies, extra_init=extra_init, helpers=helpers)
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)

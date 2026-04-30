@@ -80,19 +80,11 @@ def extract_event_bodies(py_path: Path) -> dict[str, str]:
     Skips __init__ and _build_ui.  All other underscore-prefixed methods are
     treated as event stubs and their bodies are extracted for regen splicing.
     """
-    try:
-        source = py_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
+    src, tree, lines = _parse(py_path)
+    if tree is None:
         return {}
 
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return {}
-
-    lines = source.splitlines()
     bodies: dict[str, str] = {}
-
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
@@ -107,6 +99,72 @@ def extract_event_bodies(py_path: Path) -> dict[str, str]:
                 bodies[name] = body
 
     return bodies
+
+
+def extract_extra_init(py_path: Path) -> str:
+    """Return lines in __init__ that follow self._build_ui(), dedented."""
+    _, tree, lines = _parse(py_path)
+    if tree is None:
+        return ""
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if not (isinstance(item, ast.FunctionDef) and item.name == "__init__"):
+                continue
+            build_ui_lineno = None
+            for child in ast.walk(item):
+                if isinstance(child, ast.Expr) and isinstance(child.value, ast.Call):
+                    func = child.value.func
+                    if isinstance(func, ast.Attribute) and func.attr == "_build_ui":
+                        build_ui_lineno = child.lineno  # 1-indexed
+                        break
+            if build_ui_lineno is None:
+                return ""
+            start = build_ui_lineno        # 0-indexed = line after _build_ui()
+            end   = item.end_lineno        # 1-indexed inclusive → 0-indexed exclusive
+            if start >= end:
+                return ""
+            return textwrap.dedent("\n".join(lines[start:end])).strip()
+
+    return ""
+
+
+def extract_helper_methods(py_path: Path) -> str:
+    """Return full source of class methods that are not __init__, _build_ui, or event stubs.
+
+    These are public helper methods the user wrote that should survive regeneration.
+    """
+    _, tree, lines = _parse(py_path)
+    if tree is None:
+        return ""
+
+    parts: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.FunctionDef):
+                continue
+            if item.name in ("__init__", "_build_ui") or item.name.startswith("_"):
+                continue
+            start = item.lineno - 1   # 0-indexed, includes def line
+            end   = item.end_lineno   # exclusive
+            parts.append(textwrap.dedent("\n".join(lines[start:end])))
+
+    return "\n\n".join(parts)
+
+
+def _parse(py_path: Path) -> tuple[str, ast.Module | None, list[str]]:
+    try:
+        source = py_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "", None, []
+    try:
+        return source, ast.parse(source), source.splitlines()
+    except SyntaxError:
+        return source, None, source.splitlines()
 
 
 def _extract_body(fn: ast.FunctionDef, lines: list[str]) -> str | None:
