@@ -73,19 +73,21 @@ class DesignerCanvas(tk.Canvas):
     def __init__(
         self,
         master,
-        on_select:         Optional[Callable[[str],               None]] = None,
-        on_deselect:       Optional[Callable[[],                  None]] = None,
-        on_widget_changed: Optional[Callable[[WidgetDescriptor],  None]] = None,
-        on_form_changed:   Optional[Callable[["FormModel"],       None]] = None,
-        on_multi_select:   Optional[Callable[[list],              None]] = None,
+        on_select:            Optional[Callable[[str],               None]] = None,
+        on_deselect:          Optional[Callable[[],                  None]] = None,
+        on_widget_changed:    Optional[Callable[[WidgetDescriptor],  None]] = None,
+        on_form_changed:      Optional[Callable[["FormModel"],       None]] = None,
+        on_multi_select:      Optional[Callable[[list],              None]] = None,
+        on_structure_changed: Optional[Callable[[],                  None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
-        self._on_select         = on_select
-        self._on_deselect       = on_deselect
-        self._on_widget_changed = on_widget_changed
-        self._on_form_changed   = on_form_changed
-        self._on_multi_select   = on_multi_select
+        self._on_select            = on_select
+        self._on_deselect          = on_deselect
+        self._on_widget_changed    = on_widget_changed
+        self._on_form_changed      = on_form_changed
+        self._on_multi_select      = on_multi_select
+        self._on_structure_changed = on_structure_changed
 
         self._form:          FormModel | None        = None
         self._selected_ids:  set[str]                = set()
@@ -143,6 +145,8 @@ class DesignerCanvas(tk.Canvas):
         self._form.add_widget(descriptor)
         self._render_widget(descriptor)
         self.select(descriptor.id)
+        if self._on_structure_changed:
+            self._on_structure_changed()
 
     def remove_selected(self) -> None:
         if not self._selected_ids or self._form is None:
@@ -156,6 +160,8 @@ class DesignerCanvas(tk.Canvas):
         self._primary_id = None
         if self._on_deselect:
             self._on_deselect()
+        if self._on_structure_changed:
+            self._on_structure_changed()
 
     def update_widget(self, descriptor: WidgetDescriptor) -> None:
         was_selected = descriptor.id in self._selected_ids
@@ -309,6 +315,8 @@ class DesignerCanvas(tk.Canvas):
             self._form.widgets.remove(w)
             self._form.widgets.append(w)
             self.redraw()
+            if self._on_structure_changed:
+                self._on_structure_changed()
 
     def send_to_back(self) -> None:
         if self._primary_id is None or self._form is None:
@@ -318,6 +326,8 @@ class DesignerCanvas(tk.Canvas):
             self._form.widgets.remove(w)
             self._form.widgets.insert(0, w)
             self.redraw()
+            if self._on_structure_changed:
+                self._on_structure_changed()
 
     # ── Layout ────────────────────────────────────────────────────────────────
 

@@ -793,6 +793,7 @@ class IDOL(Tk):
             on_widget_changed=self._on_designer_widget_changed,
             on_form_changed=self._on_designer_form_changed,
             on_multi_select=self._on_designer_multi_select,
+            on_structure_changed=lambda: setattr(self, "_designer_dirty", True),
         )
         self._design_canvas.pack(fill="both", expand=True)
 
@@ -3080,7 +3081,6 @@ class IDOL(Tk):
             json_path = _Path(root) / f"{form.name}.form.json"
             _, existing_checksum = _load(json_path)
             _save(form, json_path, py_checksum=existing_checksum)
-            self._designer_dirty = True
         except Exception:
             pass
 
@@ -4034,6 +4034,7 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form is None:
             return
+        self._designer_dirty = True
         if widget_id == "__multi__":
             self._design_canvas.redraw()
             return
@@ -4070,6 +4071,7 @@ class IDOL(Tk):
 
     def _on_designer_event_change(self, widget_id: str, event_key: str, handler: str) -> None:
         """Event panel edit — model already mutated by properties panel."""
+        self._designer_dirty = True
 
 
     def _on_palette_tool_select(self, type_key: str | None) -> None:
@@ -4101,6 +4103,7 @@ class IDOL(Tk):
             self._props_panel.load_multi(descriptors)
 
     def _on_designer_widget_changed(self, descriptor) -> None:
+        self._designer_dirty = True
         if len(self._design_canvas.selected_ids) > 1:
             form = self._design_canvas.form
             descriptors = [form.get_widget(wid) for wid in self._design_canvas.selected_ids
@@ -4111,6 +4114,7 @@ class IDOL(Tk):
 
     def _on_designer_form_changed(self, form) -> None:
         """Form resize finished → refresh form-level properties panel."""
+        self._designer_dirty = True
         self._props_panel.load_form(form)
 
     def designer_close_form(self) -> None:
