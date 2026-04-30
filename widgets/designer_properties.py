@@ -70,6 +70,18 @@ class DesignerProperties(tk.Frame):
         self._nb.add(self._events_frame, text="  Events  ")
         self._events_tree = _make_tree(self._events_frame, value_col_name="Handler")
         self._events_tree.bind("<Button-1>", self._on_event_click)
+        self._events_tree.bind("<Motion>",   self._on_event_hover)
+        self._events_tree.bind("<Leave>",    self._on_event_leave)
+
+        self._ev_hover_row: str | None = None
+        self._ev_clear_btn = tk.Label(
+            self._events_tree, text="×",
+            bg="#3a3a3a", fg="#888888",
+            font=("Segoe UI", 9), cursor="hand2", padx=2,
+        )
+        self._ev_clear_btn.bind("<Enter>",    lambda e: self._ev_clear_btn.config(fg="#ff6b6b"))
+        self._ev_clear_btn.bind("<Leave>",    lambda e: self._ev_clear_btn.config(fg="#888888"))
+        self._ev_clear_btn.bind("<Button-1>", self._on_ev_clear_click)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -340,6 +352,37 @@ class DesignerProperties(tk.Frame):
             self._props_tree.item(row_iid, tags=(tag,))
         except Exception:
             pass
+
+    def _on_event_hover(self, event: tk.Event) -> None:
+        tree = self._events_tree
+        row  = tree.identify_row(event.y)
+        if row == self._ev_hover_row:
+            return
+        self._ev_hover_row = row
+        if not row or not tree.set(row, "#1").strip():
+            self._ev_clear_btn.place_forget()
+            return
+        bbox = tree.bbox(row, "#1")
+        if not bbox:
+            self._ev_clear_btn.place_forget()
+            return
+        x, y, w, h = bbox
+        bw = 18
+        self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+        self._ev_clear_btn.lift()
+
+    def _on_event_leave(self, event: tk.Event) -> None:
+        self._ev_hover_row = None
+        self._ev_clear_btn.place_forget()
+
+    def _on_ev_clear_click(self, event: tk.Event) -> None:
+        row = self._ev_hover_row
+        if not row:
+            return
+        self._ev_clear_btn.place_forget()
+        self._ev_hover_row = None
+        self._events_tree.set(row, "#1", "")
+        self._commit_event(row, "")
 
     def _dismiss_editor(self) -> None:
         if self._entry_editor:
