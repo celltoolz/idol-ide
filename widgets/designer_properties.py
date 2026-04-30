@@ -360,10 +360,11 @@ class DesignerProperties(tk.Frame):
                 self._props_tree.set("form__maximize_box", "#1", new_max)
                 if self._on_prop_change:
                     self._on_prop_change("__form__", "maximize_box", new_max)
-            elif key == "maximize_box" and raw.lower() == "false":
-                self._props_tree.set("form__border_style", "#1", "fixed")
+            elif key == "maximize_box":
+                new_style = "sizable" if raw.lower() == "true" else "fixed"
+                self._props_tree.set("form__border_style", "#1", new_style)
                 if self._on_prop_change:
-                    self._on_prop_change("__form__", "border_style", "fixed")
+                    self._on_prop_change("__form__", "border_style", new_style)
             if self._on_prop_change:
                 self._on_prop_change("__form__", key, raw)
             return
