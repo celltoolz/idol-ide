@@ -145,6 +145,8 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": "Label"},
         "events":       _SIMPLE_EVENTS,
         "draw_preview": _draw_label,
+        "variable_prop":  "textvariable",
+        "variable_types": ["StringVar"],
     },
     "Entry": {
         "label":        "Entry",
@@ -153,6 +155,8 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": ""},
         "events":       _WIDGET_EVENTS,
         "draw_preview": _draw_entry,
+        "variable_prop":  "textvariable",
+        "variable_types": ["StringVar", "IntVar", "DoubleVar"],
     },
     "Text": {
         "label":        "Text",
@@ -169,6 +173,8 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": "Check"},
         "events":       _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_checkbutton,
+        "variable_prop":  "variable",
+        "variable_types": ["BooleanVar", "IntVar"],
     },
     "Radiobutton": {
         "label":        "Radiobutton",
@@ -177,6 +183,8 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": "Radio", "value": "1"},
         "events":       _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_radiobutton,
+        "variable_prop":  "variable",
+        "variable_types": ["IntVar", "StringVar"],
     },
     "Combobox": {
         "label":        "Combobox",
@@ -185,6 +193,8 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"values": []},
         "events":       _SIMPLE_EVENTS + _CHANGE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_combobox,
+        "variable_prop":  "textvariable",
+        "variable_types": ["StringVar"],
     },
     "Listbox": {
         "label":        "Listbox",
@@ -217,6 +227,8 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"orient": "horizontal", "from_": 0, "to": 100},
         "events":       _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_scale,
+        "variable_prop":  "variable",
+        "variable_types": ["DoubleVar", "IntVar"],
     },
     "Spinbox": {
         "label":        "Spinbox",
@@ -225,6 +237,8 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"from_": 0, "to": 100},
         "events":       _WIDGET_EVENTS,
         "draw_preview": _draw_spinbox,
+        "variable_prop":  "textvariable",
+        "variable_types": ["StringVar", "IntVar", "DoubleVar"],
     },
     "Progressbar": {
         "label":        "Progressbar",

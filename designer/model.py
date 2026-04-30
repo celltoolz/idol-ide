@@ -5,6 +5,25 @@ from typing import Any
 
 
 @dataclass
+class VariableBinding:
+    """A tkinter variable (StringVar/IntVar/DoubleVar/BooleanVar) bound to a widget."""
+    name:     str   # attribute name on self, e.g. "result_var" → self.result_var
+    var_type: str   # "StringVar" | "IntVar" | "DoubleVar" | "BooleanVar"
+    initial:  str   # initial value as a string; "" = use tkinter default
+
+    def to_dict(self) -> dict:
+        return {"name": self.name, "var_type": self.var_type, "initial": self.initial}
+
+    @staticmethod
+    def from_dict(d: dict) -> "VariableBinding":
+        return VariableBinding(
+            name=d.get("name", ""),
+            var_type=d.get("var_type", "StringVar"),
+            initial=d.get("initial", ""),
+        )
+
+
+@dataclass
 class WidgetDescriptor:
     """Canonical description of one widget on the canvas."""
     id: str                              # e.g. "btn_submit"
@@ -13,11 +32,12 @@ class WidgetDescriptor:
     y: int = 0
     width: int = 100
     height: int = 30
-    props: dict[str, Any] = field(default_factory=dict)   # text, bg, fg, font, ...
-    events: dict[str, str] = field(default_factory=dict)  # {"click": "btn_submit_click"}
+    props: dict[str, Any] = field(default_factory=dict)    # text, bg, fg, font, ...
+    events: dict[str, str] = field(default_factory=dict)   # {"click": "_btn_submit_click"}
+    variable: VariableBinding | None = field(default=None) # optional tkinter variable
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "id": self.id,
             "type": self.type,
             "x": self.x,
@@ -27,9 +47,13 @@ class WidgetDescriptor:
             "props": dict(self.props),
             "events": dict(self.events),
         }
+        if self.variable is not None:
+            d["variable"] = self.variable.to_dict()
+        return d
 
     @staticmethod
     def from_dict(d: dict) -> "WidgetDescriptor":
+        var_data = d.get("variable")
         return WidgetDescriptor(
             id=d["id"],
             type=d["type"],
@@ -39,6 +63,7 @@ class WidgetDescriptor:
             height=d.get("height", 30),
             props=d.get("props", {}),
             events=d.get("events", {}),
+            variable=VariableBinding.from_dict(var_data) if var_data else None,
         )
 
 

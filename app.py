@@ -4058,6 +4058,8 @@ class IDOL(Tk):
             elif key in ("resizable_x", "resizable_y"):
                 setattr(form, key, str(value).lower() in ("true", "1", "yes"))
             return
+        if key == "__variable__":
+            return  # model already mutated by properties panel; no canvas redraw needed
         w = form.get_widget(widget_id)
         if w:
             self._design_canvas.update_widget(w)

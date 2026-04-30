@@ -66,7 +66,7 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     out.append(f"class {form.name}({base}):")
     out.append("    def __init__(self):")
 
-    # Generated form-setup block
+    # Generated form-setup block (includes variable declarations)
     out.append(_INIT_B)
     out.append("        super().__init__()")
     out.append(f'        self.title("{form.title}")')
@@ -75,6 +75,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append(f"        self.resizable({form.resizable_x}, {form.resizable_y})")
     if form.bg:
         out.append(f'        self.configure(bg="{form.bg}")')
+    for line in _variable_decls(form):
+        out.append(line)
     out.append(_INIT_E)
     out.append("")
 
@@ -161,8 +163,12 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
 
     tk_class = reg["tk_class"]
 
-    # Build ordered kwargs: props first, then command if Button+click
+    # Build ordered kwargs: props first, then variable binding, then command
     kw_parts: list[str] = [_prop_str(k, v) for k, v in w.props.items()]
+
+    if w.variable:
+        var_kwarg = reg.get("variable_prop", "textvariable")
+        kw_parts.append(f"{var_kwarg}=self.{w.variable.name}")
 
     click_method = w.events.get("click")
     if w.type == "Button" and click_method:
@@ -198,6 +204,40 @@ def _collect_methods(form: FormModel) -> list[str]:
                 seen.add(method_name)
                 methods.append(method_name)
     return methods
+
+
+def _variable_decls(form: FormModel) -> list[str]:
+    """Return 8-space-indented self.name = tk.VarType(...) lines, deduplicated."""
+    seen: set[str] = set()
+    lines: list[str] = []
+    for w in form.widgets:
+        vb = w.variable
+        if vb is None or vb.name in seen:
+            continue
+        seen.add(vb.name)
+        if vb.initial:
+            val = _prop_str("value", _coerce_initial(vb.var_type, vb.initial))
+            lines.append(f"        self.{vb.name} = tk.{vb.var_type}({val})")
+        else:
+            lines.append(f"        self.{vb.name} = tk.{vb.var_type}()")
+    return lines
+
+
+def _coerce_initial(var_type: str, initial: str):
+    """Convert the initial-value string to the right Python type for codegen."""
+    if var_type == "IntVar":
+        try:
+            return int(initial)
+        except ValueError:
+            return 0
+    if var_type == "DoubleVar":
+        try:
+            return float(initial)
+        except ValueError:
+            return 0.0
+    if var_type == "BooleanVar":
+        return initial.strip().lower() in ("true", "1", "yes")
+    return initial  # StringVar — keep as string
 
 
 def _body_lines(method_name: str, bodies: dict[str, str]) -> list[str]:

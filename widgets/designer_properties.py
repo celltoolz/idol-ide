@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable, Optional
 
-from designer.model import FormModel, WidgetDescriptor
+from designer.model import FormModel, VariableBinding, WidgetDescriptor
 from designer.registry import REGISTRY
 
 
@@ -159,6 +159,22 @@ class DesignerProperties(tk.Frame):
             val = d.props.get(key, defaults.get(key, ""))
             self._props_tree.insert("", "end", iid=f"prop__{key}",
                                     text=key, values=(_display(val),))
+        # Variable binding section (only for widgets that support it)
+        if reg.get("variable_prop"):
+            var_types = reg.get("variable_types", ["StringVar"])
+            vb = d.variable
+            self._props_tree.insert("", "end", iid="var__section",
+                                    text="── Variable", values=("",))
+            self._props_tree.tag_configure("var_section",
+                                           foreground="#569cd6", font=("Segoe UI", 8))
+            self._props_tree.item("var__section", tags=("var_section",))
+            self._props_tree.insert("", "end", iid="var__name",
+                                    text="  variable", values=(vb.name if vb else "",))
+            self._props_tree.insert("", "end", iid="var__type",
+                                    text="  type",
+                                    values=(vb.var_type if vb else var_types[0],))
+            self._props_tree.insert("", "end", iid="var__initial",
+                                    text="  initial", values=(vb.initial if vb else "",))
 
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_tree.delete(*self._events_tree.get_children())
@@ -175,8 +191,17 @@ class DesignerProperties(tk.Frame):
         col  = tree.identify_column(event.x)
         if not row or col != "#1":
             return
+        if row == "var__section":
+            return  # section header — not editable
         if row == "form__bg":
             self._open_color_picker(row)
+        elif row == "var__type":
+            d = self._current_widget
+            if d is None:
+                return
+            reg = REGISTRY.get(d.type, {})
+            var_types = reg.get("variable_types", ["StringVar"])
+            self._open_dropdown(tree, row, col, var_types, self._commit_prop)
         else:
             self._open_editor(tree, row, col, self._commit_prop)
 
@@ -237,6 +262,31 @@ class DesignerProperties(tk.Frame):
         entry.bind("<Tab>",      commit)
         entry.bind("<Escape>",   lambda _: self._dismiss_editor())
         entry.bind("<FocusOut>", commit)
+
+    def _open_dropdown(self, tree: ttk.Treeview, row: str, col: str,
+                       values: list[str], commit_fn) -> None:
+        self._dismiss_editor()
+        bbox = tree.bbox(row, col)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        combo = ttk.Combobox(tree, values=values, state="readonly",
+                             font=("TkDefaultFont", 8))
+        current = tree.set(row, col)
+        combo.set(current if current in values else values[0])
+        combo.place(x=x, y=y, width=w, height=h)
+        self._entry_editor = combo
+
+        def commit(_=None):
+            val = combo.get()
+            self._dismiss_editor()
+            tree.set(row, col, val)
+            commit_fn(row, val)
+
+        combo.bind("<<ComboboxSelected>>", commit)
+        combo.bind("<FocusOut>",           commit)
+        combo.bind("<Escape>",             lambda _: self._dismiss_editor())
+        tree.after_idle(combo.focus_force)
 
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
@@ -321,6 +371,45 @@ class DesignerProperties(tk.Frame):
             d.props[key] = parsed
             if self._on_prop_change:
                 self._on_prop_change(d.id, key, parsed)
+        elif row_iid.startswith("var__"):
+            self._commit_variable(d, row_iid, raw)
+
+    def _commit_variable(self, d: WidgetDescriptor, row_iid: str, raw: str) -> None:
+        reg = REGISTRY.get(d.type, {})
+        var_types = reg.get("variable_types", ["StringVar"])
+        field = row_iid[5:]  # "name", "type", "initial"
+
+        if field == "name":
+            name = raw.strip()
+            if not name:
+                d.variable = None
+            elif name.isidentifier():
+                if d.variable is None:
+                    d.variable = VariableBinding(name=name,
+                                                 var_type=var_types[0],
+                                                 initial="")
+                else:
+                    d.variable.name = name
+            else:
+                # Restore original
+                self._props_tree.set(row_iid, "#1",
+                                     d.variable.name if d.variable else "")
+                return
+        elif field in ("type", "initial"):
+            if d.variable is None:
+                # Auto-create with default name
+                default_name = f"{d.id}_var"
+                d.variable = VariableBinding(name=default_name,
+                                             var_type=var_types[0],
+                                             initial="")
+                self._props_tree.set("var__name", "#1", default_name)
+            if field == "type":
+                d.variable.var_type = raw.strip()
+            else:
+                d.variable.initial = raw.strip()
+
+        if self._on_prop_change:
+            self._on_prop_change(d.id, "__variable__", d.variable)
 
     def _commit_event(self, row_iid: str, raw: str) -> None:
         d = self._current_widget
