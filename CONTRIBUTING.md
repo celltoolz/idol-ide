@@ -122,17 +122,17 @@ rendering in `widgets/`.
 The visual form designer. Only active when the current project type is "Tkinter GUI App".
 Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `codegen`,
 `persistence`) have no Tkinter widget imports; UI modules (`canvas`, `palette`,
-`properties`) have no subprocess calls.
+`widgets/designer_properties.py`) have no subprocess calls.
 
 | File | Role |
 |---|---|
-| `model.py` | `WidgetDescriptor` and `FormModel` dataclasses — the canonical source of truth for every form |
-| `registry.py` | `REGISTRY` dict — one entry per widget type: tk class, default size, default props, available events, mini-preview drawing function |
-| `codegen.py` | `FormModel → Python` — generates clean class-based source; extracts and preserves existing event body content on regeneration |
-| `persistence.py` | `.form.json` save/load; event body extraction from existing `.py` for regen splicing |
-| `canvas.py` | Dotted-grid drag/drop surface — `place()`-based widget rendering, click-to-select, drag-to-move, resize handles |
+| `model.py` | `WidgetDescriptor`, `VariableBinding`, and `FormModel` dataclasses — the canonical source of truth for every form. `FormModel` tracks name, title, size, `border_style`, `maximize_box`, `bg`, and the widget list. `VariableBinding` holds the tkinter variable (StringVar/IntVar/DoubleVar/BooleanVar) bound to a widget. |
+| `registry.py` | `REGISTRY` dict — one entry per widget type: tk class, default size, default props, available events, `color_props` list, `variable_prop`/`variable_types` for variable binding, and a mini-preview drawing function |
+| `codegen.py` | `FormModel → Python` — generates a class-based source file. Two IDOL:BEGIN/END marker blocks in `__init__` delimit user-owned zones (pre-build and post-build) that survive regeneration. Preserves event bodies, helper methods, and user `__init__` code. Skips empty color props. |
+| `persistence.py` | `.form.json` save/load with SHA-256 checksum for manual-edit detection; `extract_event_bodies`, `extract_init_user_zones`, `extract_helper_methods` — AST + marker-based extraction used during regeneration to splice user code back in |
+| `canvas.py` | Dotted-grid drag/drop surface — canvas-primitive widget rendering (bg/fg from props applied live), click-to-select, drag-to-move, resize handles, multi-select rubber band, copy/paste, bring-to-front/send-to-back. Fires `on_structure_changed` on add/remove/reorder. |
 | `palette.py` | Widget toolbox panel — canvas-drawn mini previews, click-to-place |
-| `properties.py` | Property grid + Events tab — edits selected widget descriptor in real time |
+| `widgets/designer_properties.py` | Property grid + Events tab — inline text editor for most props; `tk.Menu` popup for enum props (border style, variable type, etc.); color swatch + `tkinter.colorchooser` for color props; variable binding section for supported widgets |
 
 **Designer layout (when active):**
 ```
@@ -171,13 +171,20 @@ Any future static data files belong here, not inside package directories.
 
 ### Designer-specific decisions
 
-- **One-way codegen.** Designer → Python only. Parsing arbitrary Python edits back into a widget model is a compiler problem — not worth it for v1. If the user edits generated code manually and re-enters the Designer, show a "Manual edits detected" warning.
+- **One-way codegen.** Designer → Python only. Parsing arbitrary Python edits back into a widget model is a compiler problem — not worth it for v1.
+- **Manual-edits warning on Generate Code only.** When the user clicks Generate Code and the `.py` has been manually edited since last generation (detected via SHA-256 checksum stored in `.form.json`), a dialog warns them. The warning is NOT shown on Designer mode-switch — too disruptive. Event handlers, helper methods, and user `__init__` code are always preserved.
+- **IDOL:BEGIN/END markers.** Generated `__init__` wraps the auto-generated form setup and `_build_ui()` call each in `# ── IDOL:BEGIN` / `# ── IDOL:END` block pairs. The two gaps between those blocks are user-owned zones (pre-build and post-build) that survive regeneration without being overwritten.
+- **Helper method preservation.** The `# ── Functions ──` section at the bottom of the generated class is fully user-owned. Any public method defined there is extracted verbatim and re-injected on regeneration. A comment explains this to the user.
 - **`place()` geometry manager.** Absolute positioning only in v1. `pack()` and `grid()` can't be represented as drag-to-coordinate visually. A "convert to grid layout" option is a future feature.
 - **`.form.json` sidecar.** `Form1.py` (generated code) lives next to `Form1.form.json` (designer state). The JSON is the source of truth; the `.py` is a build artifact.
-- **Event body preservation.** On regeneration, `codegen.py` extracts existing event method bodies from the current `.py` and splices them into the new output. User code in event stubs is never discarded.
+- **Variable bindings.** `WidgetDescriptor.variable` holds an optional `VariableBinding(name, var_type, initial)`. The properties panel shows a Variable section for widgets that support it. Codegen emits `self.name = tk.VarType(...)` declarations inside the IDOL:BEGIN block and wires the `textvariable=`/`variable=` kwarg automatically.
+- **Color props.** `registry.py` declares `color_props` per widget type. Empty color props are skipped in codegen (no `bg=""` passed to tkinter). Canvas draw functions read `props.get("bg"/"fg")` with hardcoded fallbacks so color changes reflect live on the design surface.
+- **Border style and maximize box.** `FormModel.border_style` ("sizable"/"fixed"/"none") and `maximize_box` (bool) replace the old `resizable_x`/`resizable_y` fields. Old `.form.json` files are auto-migrated on load. "none" generates `overrideredirect(True)`; "fixed" or `maximize_box=False` generates `resizable(False, False)`.
+- **Dirty tracking.** `app.py` tracks `_designer_dirty` — set on every prop/event/structure change, cleared on form load and after Generate Code. Clicking Run while dirty prompts the user to generate first.
 - **`form_type` field reserved.** `FormModel.form_type` exists now but is always `"main"` in v1. v2 will use `"dialog"` to generate `tk.Toplevel` subclasses without a data model migration.
 - **Contextual left panel.** Entering Designer mode swaps the explorer out and the palette in — same slot, no floating windows. Exiting Designer restores the explorer.
 - **No external image assets in palette.** Widget mini-previews are drawn procedurally on `tk.Canvas` per widget type. Defined in `registry.py` alongside the widget's other metadata.
+- **Enum dropdowns use `tk.Menu`, not `ttk.Combobox`.** Combobox embedded inside a Treeview fights with the tree's Button-1 binding (focus stealing, event bubbling). A `tk.Menu` popup posted below the cell is simpler and conflict-free.
 
 ---
 
@@ -233,7 +240,17 @@ Implemented and stable:
 
 ## Planned / In Progress
 
-- **GUI Designer (Phase 2)** — VB6-style drag/drop Tkinter form builder. Architecture locked 2026-04-28. See `designer/` package. Build order: model → codegen/persistence → mode bar → properties panel → canvas → palette → project wizard update → manual-edits warning → session persistence.
+- **GUI Designer — remaining roadmap:** font picker; anchor/justify dropdowns; tab order / z-order panel; dialog/Toplevel forms (`form_type="dialog"` slot exists); grid layout mode; live preview (run form in subprocess).
+
+## Designer — Shipped (Phase 2)
+
+- Drag/drop canvas with snap grid, resize handles, multi-select rubber band, copy/paste, bring-to-front/send-to-back
+- Properties panel: inline editor, color picker with live canvas preview, variable binding (StringVar/IntVar/DoubleVar/BooleanVar), border style / maximize box dropdowns
+- Events tab: click event name to auto-wire handler; edit handler name inline
+- Code generation: IDOL:BEGIN/END markers preserve user `__init__` zones; helper methods and event bodies survive regeneration
+- Manual-edits detection via SHA-256 checksum (warning on Generate Code, not on mode-switch)
+- Dirty tracking: Run prompts to generate first if designer has ungenerated changes
+- bg/fg color props for all applicable widget types, reflected live on canvas
 
 ---
 
