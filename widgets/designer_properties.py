@@ -298,28 +298,25 @@ class DesignerProperties(tk.Frame):
         if not bbox:
             return
         x, y, w, h = bbox
-        combo = ttk.Combobox(tree, values=values, state="readonly",
-                             font=("TkDefaultFont", 8))
+        rx = tree.winfo_rootx() + x
+        ry = tree.winfo_rooty() + y + h
+
         current = tree.set(row, col)
-        combo.set(current if current in values else values[0])
-        combo.place(x=x, y=y, width=w, height=h)
-        self._entry_editor = combo
-
-        def commit(_=None):
-            val = combo.get()
-            self._dismiss_editor()
-            tree.set(row, col, val)
-            commit_fn(row, val)
-
-        combo.bind("<<ComboboxSelected>>", commit)
-        combo.bind("<FocusOut>",           commit)
-        combo.bind("<Escape>",             lambda _: self._dismiss_editor())
-
-        def _show():
-            combo.focus_force()
-            combo.event_generate("<Down>")  # auto-open so treeview click doesn't interfere
-
-        tree.after_idle(_show)
+        menu = tk.Menu(tree.winfo_toplevel(), tearoff=0,
+                       bg="#2d2d2d", fg="#cccccc",
+                       activebackground="#094771", activeforeground="#ffffff",
+                       relief="flat", bd=1)
+        for val in values:
+            def _cmd(v=val):
+                tree.set(row, col, v)
+                commit_fn(row, v)
+            menu.add_command(label=val, command=_cmd,
+                             font=("Segoe UI", 9),
+                             columnbreak=False)
+        try:
+            menu.tk_popup(rx, ry)
+        finally:
+            menu.grab_release()
 
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
