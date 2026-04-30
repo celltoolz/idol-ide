@@ -169,6 +169,8 @@ REGISTRY: dict[str, dict] = {
             "readonly": ["readonlybackground"],
             "disabled": ["disabledbackground", "disabledforeground"],
         },
+        "validate_prop":   True,
+        "validate_values": ["none", "focus", "focusin", "focusout", "key", "all"],
     },
     "Text": {
         "label":        "Text",
@@ -279,6 +281,8 @@ REGISTRY: dict[str, dict] = {
             "readonly": ["readonlybackground"],
             "disabled": ["disabledbackground", "disabledforeground"],
         },
+        "validate_prop":   True,
+        "validate_values": ["none", "focus", "focusin", "focusout", "key", "all"],
     },
     "Progressbar": {
         "label":        "Progressbar",

@@ -222,7 +222,7 @@ class DesignerProperties(tk.Frame):
         for key in ("x", "y", "width", "height"):
             self._props_tree.insert("", "end", iid=f"geo__{key}",
                                     text=key, values=(str(getattr(d, key)),))
-        # Widget-specific props — exclude state (handled in its own block below)
+        # Widget-specific props — exclude state/validate (handled in dedicated blocks)
         defaults = reg.get("default_props", {})
         color_props = reg.get("color_props", [])
         _state_reserved = (
@@ -230,9 +230,13 @@ class DesignerProperties(tk.Frame):
                          for c in clist}
             if reg.get("state_prop") else set()
         )
+        _validate_reserved = (
+            {"validate"} | set(_VALIDATE_LABELS)
+            if reg.get("validate_prop") else set()
+        )
         seen: set[str] = set()
         for key in list(defaults) + [k for k in d.props if k not in defaults]:
-            if key in seen or key in _state_reserved:
+            if key in seen or key in _state_reserved or key in _validate_reserved:
                 continue
             seen.add(key)
             val = d.props.get(key, defaults.get(key, ""))
@@ -264,6 +268,19 @@ class DesignerProperties(tk.Frame):
                 seen.add(color_key)
                 if val:
                     self._apply_color_swatch(f"prop__{color_key}", val.upper())
+
+        # Validate row + conditional vcmd/ivcmd rows
+        if reg.get("validate_prop"):
+            current_validate = d.props.get("validate", "none")
+            self._props_tree.insert("", "end", iid="prop__validate",
+                                    text="validate", values=(current_validate,))
+            seen.add("validate")
+            if current_validate != "none":
+                for v_key, v_label in _VALIDATE_LABELS.items():
+                    val = d.props.get(v_key, "")
+                    self._props_tree.insert("", "end", iid=f"prop__{v_key}",
+                                            text=v_label, values=(val,))
+                    seen.add(v_key)
 
         # Variable binding section (only for widgets that support it)
         if reg.get("variable_prop"):
@@ -314,6 +331,15 @@ class DesignerProperties(tk.Frame):
             reg = REGISTRY.get(d.type, {})
             self._open_dropdown(tree, row, col,
                                 reg.get("state_values", ["normal", "disabled"]),
+                                self._commit_prop)
+        elif row == "prop__validate":
+            d = self._current_widget
+            if d is None:
+                return
+            reg = REGISTRY.get(d.type, {})
+            self._open_dropdown(tree, row, col,
+                                reg.get("validate_values",
+                                        ["none", "focus", "focusin", "focusout", "key", "all"]),
                                 self._commit_prop)
         elif row == "var__type":
             d = self._current_widget
@@ -559,6 +585,8 @@ class DesignerProperties(tk.Frame):
                         if self._on_prop_change:
                             self._on_prop_change(d.id, color_key, color_defaults[color_key])
                 self.load_widget(d)
+            elif key == "validate":
+                self.load_widget(d)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
 
@@ -632,6 +660,11 @@ class DesignerProperties(tk.Frame):
 _PROP_LABELS: dict[str, str] = {
     "bg": "Background",
     "fg": "Foreground",
+}
+
+_VALIDATE_LABELS: dict[str, str] = {
+    "validatecommand": "  --vcmd",
+    "invalidcommand":  "  --ivcmd",
 }
 
 _STATE_COLOR_LABELS: dict[str, str] = {

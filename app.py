@@ -1527,6 +1527,15 @@ class IDOL(Tk):
         if closed_path and closed_path.endswith(".py"):
             for srv in self._each_lsp():
                 srv.close_file(closed_path)
+            # Drop diagnostics for this file so problems panel stays clean
+            closed_uri = Path(closed_path).as_uri()
+            if closed_uri in self._lsp_diagnostics:
+                del self._lsp_diagnostics[closed_uri]
+                entries = self._build_problem_entries()
+                self._output.update_problems(entries)
+                errors   = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
+                warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
+                self._statusbar.set_diagnostics(errors, warnings)
         nb.forget(index)
         if nb is self._notebook_r and not nb.tabs():
             self._close_split()

@@ -166,17 +166,25 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
     tk_class = reg["tk_class"]
 
     # Build ordered kwargs: props first, then variable binding, then command
-    # Skip empty color/state-color props to avoid passing bg="" to tkinter
     _color_props = set(reg.get("color_props", []))
     _state_color_props = {
         c for clist in reg.get("state_color_props", {}).values() for c in clist
     }
     _all_color_props = _color_props | _state_color_props
-    kw_parts: list[str] = [
-        _prop_str(k, v) for k, v in w.props.items()
-        if not (k in _all_color_props and v == "")
-        and not (k == "state" and v == "normal")
-    ]
+    _vcmd_keys = {"validatecommand", "invalidcommand"}
+    kw_parts: list[str] = []
+    for k, v in w.props.items():
+        if k in _all_color_props and v == "":
+            continue
+        if k == "state" and v == "normal":
+            continue
+        if k == "validate" and v == "none":
+            continue
+        if k in _vcmd_keys:
+            if v:
+                kw_parts.append(f"{k}=(self.register(self.{v}), '%P')")
+            continue
+        kw_parts.append(_prop_str(k, v))
 
     if w.variable:
         var_kwarg = reg.get("variable_prop", "textvariable")
@@ -207,11 +215,16 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
 
 
 def _collect_methods(form: FormModel) -> list[str]:
-    """All unique event method names across the form, in widget/event order."""
+    """All unique event/validate method names across the form, in widget order."""
     seen: set[str] = set()
     methods: list[str] = []
     for w in form.widgets:
         for method_name in w.events.values():
+            if method_name and method_name not in seen:
+                seen.add(method_name)
+                methods.append(method_name)
+        for key in ("validatecommand", "invalidcommand"):
+            method_name = w.props.get(key, "")
             if method_name and method_name not in seen:
                 seen.add(method_name)
                 methods.append(method_name)
