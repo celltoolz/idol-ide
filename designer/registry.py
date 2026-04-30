@@ -138,6 +138,9 @@ REGISTRY: dict[str, dict] = {
         "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_button,
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
+        "state_color_props": {"disabled": ["disabledforeground"]},
     },
     "Label": {
         "label":        "Label",
@@ -160,6 +163,12 @@ REGISTRY: dict[str, dict] = {
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar", "IntVar", "DoubleVar"],
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "readonly", "disabled"],
+        "state_color_props": {
+            "readonly": ["readonlybackground"],
+            "disabled": ["disabledbackground", "disabledforeground"],
+        },
     },
     "Text": {
         "label":        "Text",
@@ -169,6 +178,8 @@ REGISTRY: dict[str, dict] = {
         "events":       _WIDGET_EVENTS,
         "draw_preview": _draw_text,
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
     },
     "Checkbutton": {
         "label":        "Checkbutton",
@@ -180,6 +191,9 @@ REGISTRY: dict[str, dict] = {
         "variable_prop":  "variable",
         "variable_types": ["BooleanVar", "IntVar"],
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
+        "state_color_props": {"disabled": ["disabledforeground"]},
     },
     "Radiobutton": {
         "label":        "Radiobutton",
@@ -191,6 +205,9 @@ REGISTRY: dict[str, dict] = {
         "variable_prop":  "variable",
         "variable_types": ["IntVar", "StringVar"],
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
+        "state_color_props": {"disabled": ["disabledforeground"]},
     },
     "Combobox": {
         "label":        "Combobox",
@@ -201,6 +218,8 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_combobox,
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar"],
+        "state_prop":   True,
+        "state_values": ["normal", "readonly", "disabled"],
     },
     "Listbox": {
         "label":        "Listbox",
@@ -210,6 +229,8 @@ REGISTRY: dict[str, dict] = {
         "events":       _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_listbox,
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
     },
     "Frame": {
         "label":        "Frame",
@@ -239,6 +260,8 @@ REGISTRY: dict[str, dict] = {
         "variable_prop":  "variable",
         "variable_types": ["DoubleVar", "IntVar"],
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
     },
     "Spinbox": {
         "label":        "Spinbox",
@@ -250,6 +273,12 @@ REGISTRY: dict[str, dict] = {
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar", "IntVar", "DoubleVar"],
         "color_props":  ["bg", "fg"],
+        "state_prop":   True,
+        "state_values": ["normal", "readonly", "disabled"],
+        "state_color_props": {
+            "readonly": ["readonlybackground"],
+            "disabled": ["disabledbackground", "disabledforeground"],
+        },
     },
     "Progressbar": {
         "label":        "Progressbar",

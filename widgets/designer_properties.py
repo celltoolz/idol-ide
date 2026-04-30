@@ -161,12 +161,17 @@ class DesignerProperties(tk.Frame):
         for key in ("x", "y", "width", "height"):
             self._props_tree.insert("", "end", iid=f"geo__{key}",
                                     text=key, values=(str(getattr(d, key)),))
-        # Widget-specific props (default order from registry, then any extras)
+        # Widget-specific props — exclude state (handled in its own block below)
         defaults = reg.get("default_props", {})
         color_props = reg.get("color_props", [])
+        _state_reserved = (
+            {"state"} | {c for clist in reg.get("state_color_props", {}).values()
+                         for c in clist}
+            if reg.get("state_prop") else set()
+        )
         seen: set[str] = set()
         for key in list(defaults) + [k for k in d.props if k not in defaults]:
-            if key in seen:
+            if key in seen or key in _state_reserved:
                 continue
             seen.add(key)
             val = d.props.get(key, defaults.get(key, ""))
@@ -175,7 +180,6 @@ class DesignerProperties(tk.Frame):
         # Color props — always show even when not set, apply swatches
         for key in color_props:
             if key in seen:
-                # Already inserted above — just apply swatch if value is set
                 val = d.props.get(key, "")
             else:
                 val = d.props.get(key, "")
@@ -184,6 +188,22 @@ class DesignerProperties(tk.Frame):
                 seen.add(key)
             if val:
                 self._apply_color_swatch(f"prop__{key}", val.upper())
+        # State row + conditional indented color props
+        if reg.get("state_prop"):
+            current_state = d.props.get("state", "normal")
+            self._props_tree.insert("", "end", iid="prop__state",
+                                    text="state", values=(current_state,))
+            seen.add("state")
+            state_colors = reg.get("state_color_props", {})
+            for color_key in state_colors.get(current_state, []):
+                label = _STATE_COLOR_LABELS.get(color_key, f"  --{color_key}")
+                val = d.props.get(color_key, "")
+                self._props_tree.insert("", "end", iid=f"prop__{color_key}",
+                                        text=label, values=(val,))
+                seen.add(color_key)
+                if val:
+                    self._apply_color_swatch(f"prop__{color_key}", val.upper())
+
         # Variable binding section (only for widgets that support it)
         if reg.get("variable_prop"):
             var_types = reg.get("variable_types", ["StringVar"])
@@ -226,6 +246,14 @@ class DesignerProperties(tk.Frame):
         elif row == "form__maximize_box":
             self._open_dropdown(self._props_tree, row, col,
                                 ["True", "False"], self._commit_prop)
+        elif row == "prop__state":
+            d = self._current_widget
+            if d is None:
+                return
+            reg = REGISTRY.get(d.type, {})
+            self._open_dropdown(tree, row, col,
+                                reg.get("state_values", ["normal", "disabled"]),
+                                self._commit_prop)
         elif row == "var__type":
             d = self._current_widget
             if d is None:
@@ -301,7 +329,13 @@ class DesignerProperties(tk.Frame):
         if d is None:
             return False
         key = row_iid[6:]
-        return key in REGISTRY.get(d.type, {}).get("color_props", [])
+        reg = REGISTRY.get(d.type, {})
+        if key in reg.get("color_props", []):
+            return True
+        for color_list in reg.get("state_color_props", {}).values():
+            if key in color_list:
+                return True
+        return False
 
     def _open_dropdown(self, tree: ttk.Treeview, row: str, col: str,
                        values: list[str], commit_fn) -> None:
@@ -455,6 +489,8 @@ class DesignerProperties(tk.Frame):
             d.props[key] = parsed
             if self._on_prop_change:
                 self._on_prop_change(d.id, key, parsed)
+            if key == "state":
+                self.load_widget(d)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
 
@@ -524,6 +560,13 @@ class DesignerProperties(tk.Frame):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+_STATE_COLOR_LABELS: dict[str, str] = {
+    "readonlybackground": "  --bg",
+    "disabledbackground": "  --bg",
+    "disabledforeground": "  --fg",
+}
+
 
 def _apply_tree_style() -> None:
     s = ttk.Style()
