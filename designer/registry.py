@@ -137,6 +137,7 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": "Button"},
         "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_button,
+        "color_props":  ["bg", "fg"],
     },
     "Label": {
         "label":        "Label",
@@ -147,6 +148,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_label,
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar"],
+        "color_props":  ["bg", "fg"],
     },
     "Entry": {
         "label":        "Entry",
@@ -157,6 +159,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_entry,
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar", "IntVar", "DoubleVar"],
+        "color_props":  ["bg", "fg"],
     },
     "Text": {
         "label":        "Text",
@@ -165,6 +168,7 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"wrap": "word"},
         "events":       _WIDGET_EVENTS,
         "draw_preview": _draw_text,
+        "color_props":  ["bg", "fg"],
     },
     "Checkbutton": {
         "label":        "Checkbutton",
@@ -175,6 +179,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_checkbutton,
         "variable_prop":  "variable",
         "variable_types": ["BooleanVar", "IntVar"],
+        "color_props":  ["bg", "fg"],
     },
     "Radiobutton": {
         "label":        "Radiobutton",
@@ -185,6 +190,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_radiobutton,
         "variable_prop":  "variable",
         "variable_types": ["IntVar", "StringVar"],
+        "color_props":  ["bg", "fg"],
     },
     "Combobox": {
         "label":        "Combobox",
@@ -203,6 +209,7 @@ REGISTRY: dict[str, dict] = {
         "default_props": {},
         "events":       _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_listbox,
+        "color_props":  ["bg", "fg"],
     },
     "Frame": {
         "label":        "Frame",
@@ -211,6 +218,7 @@ REGISTRY: dict[str, dict] = {
         "default_props": {},
         "events":       _SIMPLE_EVENTS,
         "draw_preview": _draw_frame,
+        "color_props":  ["bg"],
     },
     "LabelFrame": {
         "label":        "LabelFrame",
@@ -219,6 +227,7 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": "Group"},
         "events":       _SIMPLE_EVENTS,
         "draw_preview": _draw_labelframe,
+        "color_props":  ["bg", "fg"],
     },
     "Scale": {
         "label":        "Scale",
@@ -229,6 +238,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_scale,
         "variable_prop":  "variable",
         "variable_types": ["DoubleVar", "IntVar"],
+        "color_props":  ["bg", "fg"],
     },
     "Spinbox": {
         "label":        "Spinbox",
@@ -239,6 +249,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_spinbox,
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar", "IntVar", "DoubleVar"],
+        "color_props":  ["bg", "fg"],
     },
     "Progressbar": {
         "label":        "Progressbar",

@@ -151,6 +151,7 @@ class DesignerProperties(tk.Frame):
                                     text=key, values=(str(getattr(d, key)),))
         # Widget-specific props (default order from registry, then any extras)
         defaults = reg.get("default_props", {})
+        color_props = reg.get("color_props", [])
         seen: set[str] = set()
         for key in list(defaults) + [k for k in d.props if k not in defaults]:
             if key in seen:
@@ -159,6 +160,18 @@ class DesignerProperties(tk.Frame):
             val = d.props.get(key, defaults.get(key, ""))
             self._props_tree.insert("", "end", iid=f"prop__{key}",
                                     text=key, values=(_display(val),))
+        # Color props — always show even when not set, apply swatches
+        for key in color_props:
+            if key in seen:
+                # Already inserted above — just apply swatch if value is set
+                val = d.props.get(key, "")
+            else:
+                val = d.props.get(key, "")
+                self._props_tree.insert("", "end", iid=f"prop__{key}",
+                                        text=key, values=(val,))
+                seen.add(key)
+            if val:
+                self._apply_color_swatch(f"prop__{key}", val.upper())
         # Variable binding section (only for widgets that support it)
         if reg.get("variable_prop"):
             var_types = reg.get("variable_types", ["StringVar"])
@@ -193,7 +206,7 @@ class DesignerProperties(tk.Frame):
             return
         if row == "var__section":
             return  # section header — not editable
-        if row == "form__bg":
+        if row == "form__bg" or self._is_color_row(row):
             self._open_color_picker(row)
         elif row == "var__type":
             d = self._current_widget
@@ -262,6 +275,15 @@ class DesignerProperties(tk.Frame):
         entry.bind("<Tab>",      commit)
         entry.bind("<Escape>",   lambda _: self._dismiss_editor())
         entry.bind("<FocusOut>", commit)
+
+    def _is_color_row(self, row_iid: str) -> bool:
+        if not row_iid.startswith("prop__"):
+            return False
+        d = self._current_widget
+        if d is None:
+            return False
+        key = row_iid[6:]
+        return key in REGISTRY.get(d.type, {}).get("color_props", [])
 
     def _open_dropdown(self, tree: ttk.Treeview, row: str, col: str,
                        values: list[str], commit_fn) -> None:

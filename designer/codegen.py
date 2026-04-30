@@ -164,7 +164,12 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
     tk_class = reg["tk_class"]
 
     # Build ordered kwargs: props first, then variable binding, then command
-    kw_parts: list[str] = [_prop_str(k, v) for k, v in w.props.items()]
+    # Skip color props that are empty (unset) to avoid passing bg="" to tkinter
+    _color_props = set(reg.get("color_props", []))
+    kw_parts: list[str] = [
+        _prop_str(k, v) for k, v in w.props.items()
+        if not (k in _color_props and v == "")
+    ]
 
     if w.variable:
         var_kwarg = reg.get("variable_prop", "textvariable")
