@@ -88,6 +88,20 @@ class DesignerProperties(tk.Frame):
         # Events tab
         self._events_frame = tk.Frame(self._nb, bg="#1e1e1e")
         self._nb.add(self._events_frame, text="  Events  ")
+
+        # Thin toolbar row: ? guide button at top-right
+        ev_toolbar = tk.Frame(self._events_frame, bg="#1e1e1e")
+        ev_toolbar.pack(fill="x", side="top")
+        self._ev_guide_btn = tk.Label(
+            ev_toolbar, text=" ? ",
+            bg="#1e1e1e", fg="#555555",
+            font=("Segoe UI", 8), cursor="hand2",
+        )
+        self._ev_guide_btn.pack(side="right", padx=(0, 4), pady=(2, 0))
+        self._ev_guide_btn.bind("<Enter>",    lambda e: self._ev_guide_btn.config(fg="#cccccc"))
+        self._ev_guide_btn.bind("<Leave>",    lambda e: self._ev_guide_btn.config(fg="#555555"))
+        self._ev_guide_btn.bind("<Button-1>", self._open_event_guide)
+
         self._events_tree = _make_tree(self._events_frame, value_col_name="Handler")
         self._events_tree.bind("<Button-1>", self._on_event_click)
         self._events_tree.bind("<Motion>",   self._on_event_hover)
@@ -205,6 +219,73 @@ class DesignerProperties(tk.Frame):
             menu.tk_popup(rx, ry)
         finally:
             menu.grab_release()
+
+    def flash_events_tab(self) -> None:
+        """Switch to the Events tab and briefly flash the tab label red."""
+        self._nb.select(self._events_frame)
+        self._flash_tab(3, True)
+
+    def _flash_tab(self, remaining: int, red: bool) -> None:
+        if remaining <= 0:
+            self._nb.tab(self._events_frame, text="  Events  ")
+            return
+        color = "#ff6b6b" if red else "#858585"
+        self._nb.tab(self._events_frame, text="  Events  ")
+        try:
+            s = ttk.Style()
+            s.configure("Flash.TNotebook.Tab", foreground=color)
+            self._nb.tab(self._events_frame, style="Flash.TNotebook.Tab")
+        except Exception:
+            pass
+        self.after(180, lambda: self._flash_tab(remaining - 1, not red))
+
+    def _open_event_guide(self, event=None) -> None:
+        """Show a Toplevel listing available events and their tkinter bindings."""
+        d = self._current_widget
+        if d is None:
+            return
+        reg = REGISTRY.get(d.type, {})
+        events = reg.get("events", [])
+
+        top = tk.Toplevel(self.winfo_toplevel())
+        top.title(f"Events — {d.type}")
+        top.configure(bg="#252526")
+        top.resizable(False, False)
+        top.transient(self.winfo_toplevel())
+
+        tk.Label(top, text=f"Available events for {d.type}",
+                 bg="#252526", fg="#cccccc",
+                 font=("Segoe UI", 9, "bold"), anchor="w", padx=12, pady=8,
+                 ).pack(fill="x")
+
+        frame = tk.Frame(top, bg="#1e1e1e", padx=12, pady=8)
+        frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        for ev in events:
+            binding = _EVENT_DESCRIPTIONS.get(ev, ("", ""))
+            row = tk.Frame(frame, bg="#1e1e1e")
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=f"{ev:<14}", bg="#1e1e1e", fg="#569cd6",
+                     font=("Consolas", 9), anchor="w", width=14,
+                     ).pack(side="left")
+            tk.Label(row, text=binding[0], bg="#1e1e1e", fg="#858585",
+                     font=("Consolas", 9), anchor="w",
+                     ).pack(side="left", padx=(4, 16))
+            tk.Label(row, text=binding[1], bg="#1e1e1e", fg="#cccccc",
+                     font=("Segoe UI", 9), anchor="w",
+                     ).pack(side="left")
+
+        tk.Button(top, text="Close", command=top.destroy,
+                  bg="#3c3c3c", fg="#cccccc", relief="flat",
+                  activebackground="#094771", activeforeground="#ffffff",
+                  ).pack(pady=(0, 8))
+
+        top.update_idletasks()
+        pw = top.winfo_reqwidth()
+        ph = top.winfo_reqheight()
+        sx = self.winfo_rootx() - pw - 8
+        sy = self.winfo_rooty()
+        top.geometry(f"{pw}x{ph}+{max(0, sx)}+{sy}")
 
     def refresh_widget(self, descriptor: WidgetDescriptor) -> None:
         """Re-populate without switching the notebook tab (for canvas drag updates)."""
@@ -697,6 +778,23 @@ _VALIDATE_LABELS: dict[str, str] = {
     "validatecommand": "  --vcmd",
     "vcmd_args":       "  --args",
     "invalidcommand":  "  --ivcmd",
+}
+
+_EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "click":       ("<Button-1>",         "Left mouse button click"),
+    "dblclick":    ("<Double-Button-1>",  "Double click"),
+    "rightclick":  ("<Button-3>",         "Right mouse button click"),
+    "mousedown":   ("<ButtonPress>",      "Any mouse button pressed"),
+    "mouseup":     ("<ButtonRelease>",    "Any mouse button released"),
+    "mousemove":   ("<Motion>",           "Mouse moved over widget"),
+    "mouseenter":  ("<Enter>",            "Mouse entered widget"),
+    "mouseleave":  ("<Leave>",            "Mouse left widget"),
+    "focusin":     ("<FocusIn>",          "Widget gained focus"),
+    "focusout":    ("<FocusOut>",         "Widget lost focus"),
+    "keypress":    ("<KeyPress>",         "Key pressed while focused"),
+    "keydown":     ("<KeyPress>",         "Key pressed while focused"),
+    "keyup":       ("<KeyRelease>",       "Key released while focused"),
+    "change":      ("<<Modified>>",       "Content changed"),
 }
 
 _VCMD_ARG_PRESETS: list[str] = [

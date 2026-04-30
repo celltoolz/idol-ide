@@ -800,6 +800,7 @@ class IDOL(Tk):
             on_form_changed=self._on_designer_form_changed,
             on_multi_select=self._on_designer_multi_select,
             on_structure_changed=self._on_designer_structure_changed,
+            on_double_click=self._on_designer_double_click,
         )
         self._design_canvas.pack(fill="both", expand=True)
 
@@ -4173,6 +4174,63 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form:
             self._props_panel.set_form(form)
+
+    def _on_designer_double_click(self, widget_id: str) -> None:
+        """Double-click on canvas widget → jump to first event handler or flash Events tab."""
+        form = self._design_canvas.form
+        if form is None:
+            return
+        w = form.get_widget(widget_id)
+        if w is None:
+            return
+        if w.events:
+            first_handler = next(iter(w.events.values()))
+            self._designer_jump_to_handler(first_handler)
+        else:
+            self._props_panel.flash_events_tab()
+
+    def _designer_jump_to_handler(self, method_name: str) -> None:
+        """Switch to editor mode and navigate to the named method in the generated .py."""
+        from pathlib import Path as _Path
+        form = self._design_canvas.form
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if not form or not root:
+            return
+        py_path = _Path(root) / f"{form.name}.py"
+        self._enter_editor_mode()
+
+        def _navigate():
+            # Find or open the generated .py tab
+            target_tab = None
+            for tab_id, fp in self._files.items():
+                if fp and _Path(fp) == py_path:
+                    target_tab = tab_id
+                    break
+            if target_tab is None:
+                if py_path.exists():
+                    self._open_file(str(py_path))
+                    for tab_id, fp in self._files.items():
+                        if fp and _Path(fp) == py_path:
+                            target_tab = tab_id
+                            break
+            if target_tab is None:
+                return
+            # Switch to the tab
+            for i, tid in enumerate(self.notebook.tabs()):
+                if tid == target_tab:
+                    self.notebook.select(i)
+                    break
+            cv = self._codeviews.get(target_tab)
+            if cv is None:
+                return
+            # Find `def method_name` and navigate
+            search = f"def {method_name}"
+            for lineno, line in enumerate(cv.get("1.0", "end").splitlines(), 1):
+                if search in line:
+                    self._outline_navigate(lineno)
+                    return
+
+        self.after(50, _navigate)
 
     def _on_designer_selector_pick(self, widget_id: str | None) -> None:
         """User picks a control from the selector dropdown → select on canvas."""

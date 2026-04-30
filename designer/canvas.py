@@ -79,6 +79,7 @@ class DesignerCanvas(tk.Canvas):
         on_form_changed:      Optional[Callable[["FormModel"],       None]] = None,
         on_multi_select:      Optional[Callable[[list],              None]] = None,
         on_structure_changed: Optional[Callable[[],                  None]] = None,
+        on_double_click:      Optional[Callable[[str],               None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
@@ -88,6 +89,7 @@ class DesignerCanvas(tk.Canvas):
         self._on_form_changed      = on_form_changed
         self._on_multi_select      = on_multi_select
         self._on_structure_changed = on_structure_changed
+        self._on_double_click      = on_double_click
 
         self._form:          FormModel | None        = None
         self._selected_ids:  set[str]                = set()
@@ -103,6 +105,7 @@ class DesignerCanvas(tk.Canvas):
         self._drag: dict | None = None
 
         self.bind("<Button-1>",        self._on_click)
+        self.bind("<Double-Button-1>", self._on_double_click_evt)
         self.bind("<B1-Motion>",       self._on_motion)
         self.bind("<ButtonRelease-1>", self._on_release)
         self.bind("<Motion>",          self._on_hover)
@@ -588,6 +591,10 @@ class DesignerCanvas(tk.Canvas):
             return
 
         self.deselect()
+
+    def _on_double_click_evt(self, event: tk.Event) -> None:
+        if self._on_double_click and self._primary_id:
+            self._on_double_click(self._primary_id)
 
     def _on_motion(self, event: tk.Event) -> None:
         d = self._drag
