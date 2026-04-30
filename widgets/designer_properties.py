@@ -310,10 +310,13 @@ class DesignerProperties(tk.Frame):
 
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_tree.delete(*self._events_tree.get_children())
+        self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
         for ev in reg.get("events", []):
             handler = d.events.get(ev, "")
-            self._events_tree.insert("", "end", iid=f"ev__{ev}",
-                                     text=ev, values=(handler,))
+            iid = f"ev__{ev}"
+            self._events_tree.insert("", "end", iid=iid, text=ev, values=(handler,))
+            if handler and not handler.startswith("_"):
+                self._events_tree.item(iid, tags=("name_warn",))
 
     # ── Click handlers ────────────────────────────────────────────────────────
 
@@ -662,6 +665,11 @@ class DesignerProperties(tk.Frame):
             d.events.pop(event_key, None)
         if self._on_event_change:
             self._on_event_change(d.id, event_key, handler)
+        self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
+        if handler and not handler.startswith("_"):
+            self._events_tree.item(row_iid, tags=("name_warn",))
+        else:
+            self._events_tree.item(row_iid, tags=())
 
     def _auto_wire_event(self, row_iid: str) -> None:
         """Click on event name → fill default handler and commit."""
