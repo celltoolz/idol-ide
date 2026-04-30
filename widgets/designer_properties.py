@@ -176,7 +176,7 @@ class DesignerProperties(tk.Frame):
             seen.add(key)
             val = d.props.get(key, defaults.get(key, ""))
             self._props_tree.insert("", "end", iid=f"prop__{key}",
-                                    text=key, values=(_display(val),))
+                                    text=_PROP_LABELS.get(key, key), values=(_display(val),))
         # Color props — always show even when not set, apply swatches
         for key in color_props:
             if key in seen:
@@ -184,7 +184,7 @@ class DesignerProperties(tk.Frame):
             else:
                 val = d.props.get(key, "")
                 self._props_tree.insert("", "end", iid=f"prop__{key}",
-                                        text=key, values=(val,))
+                                        text=_PROP_LABELS.get(key, key), values=(val,))
                 seen.add(key)
             if val:
                 self._apply_color_swatch(f"prop__{key}", val.upper())
@@ -490,6 +490,13 @@ class DesignerProperties(tk.Frame):
             if self._on_prop_change:
                 self._on_prop_change(d.id, key, parsed)
             if key == "state":
+                reg = REGISTRY.get(d.type, {})
+                color_defaults = _STATE_COLOR_DEFAULTS.get(parsed, {})
+                for color_key in reg.get("state_color_props", {}).get(parsed, []):
+                    if not d.props.get(color_key) and color_key in color_defaults:
+                        d.props[color_key] = color_defaults[color_key]
+                        if self._on_prop_change:
+                            self._on_prop_change(d.id, color_key, color_defaults[color_key])
                 self.load_widget(d)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
@@ -561,10 +568,25 @@ class DesignerProperties(tk.Frame):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+_PROP_LABELS: dict[str, str] = {
+    "bg": "Background",
+    "fg": "Foreground",
+}
+
 _STATE_COLOR_LABELS: dict[str, str] = {
     "readonlybackground": "  --bg",
     "disabledbackground": "  --bg",
     "disabledforeground": "  --fg",
+}
+
+_STATE_COLOR_DEFAULTS: dict[str, dict[str, str]] = {
+    "readonly": {
+        "readonlybackground": "#F0F0F0",
+    },
+    "disabled": {
+        "disabledbackground": "#F5F5F5",
+        "disabledforeground": "#A0A0A0",
+    },
 }
 
 
