@@ -367,7 +367,8 @@ class IDOL(Tk):
         self._zen_mode: bool = False
 
         # Designer
-        self._designer_mode: bool = False
+        self._designer_mode: bool  = False
+        self._designer_dirty: bool = False  # True when model changed since last Generate Code
         self._designer_project_type: str = "cli"   # "cli" | "gui"
         self._zen_pill: object = None  # floating toast Toplevel
 
@@ -3079,6 +3080,7 @@ class IDOL(Tk):
             json_path = _Path(root) / f"{form.name}.form.json"
             _, existing_checksum = _load(json_path)
             _save(form, json_path, py_checksum=existing_checksum)
+            self._designer_dirty = True
         except Exception:
             pass
 
@@ -4133,6 +4135,7 @@ class IDOL(Tk):
             form, _ = _load(_Path(path))
             self._design_canvas.load_form(form)
             self._props_panel.load_form(form)
+            self._designer_dirty = False
             if not self._designer_mode:
                 self._enter_designer_mode()
         except Exception as exc:
@@ -4187,6 +4190,8 @@ class IDOL(Tk):
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)
+
+        self._designer_dirty = False
 
         # If the generated file is open in a tab, update its content in place
         for tab_id, fp in list(self._files.items()):
@@ -4632,6 +4637,18 @@ class IDOL(Tk):
 
     def _nav_execute(self) -> None:
         """One-click execute using the mode selected in the run menu."""
+        if self._designer_mode and self._designer_dirty:
+            from tkinter.messagebox import askyesnocancel
+            answer = askyesnocancel(
+                "Designer Changes Not Generated",
+                "The Designer has changes that haven't been code-generated yet.\n\n"
+                "Generate code now before running?",
+                parent=self,
+            )
+            if answer is None:
+                return
+            if answer:
+                self.designer_generate_code()
         if self._run_action_var.get() == "debug":
             self.debug_file()
         else:
