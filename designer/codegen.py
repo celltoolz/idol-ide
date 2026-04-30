@@ -45,7 +45,8 @@ _INIT_E   = "        # ── IDOL:END "   + "─" * 57
 
 def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
              pre_init: str = "", post_init: str = "", helpers: str = "",
-             user_imports: str = "") -> str:
+             user_imports: str = "",
+             event_signatures: dict[str, tuple[str, str]] | None = None) -> str:
     """Return Python source for *form*.
 
     event_bodies: {method_name: dedented_body_str} — user event handler code.
@@ -54,6 +55,7 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     helpers:      full source of public helper methods (user-written).
     """
     bodies = event_bodies or {}
+    sigs   = event_signatures or {}
     needs_ttk = _uses_ttk(form)
 
     out: list[str] = []
@@ -125,7 +127,9 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append("    # ── Events " + "─" * 63)
         out.append("")
         for name in methods:
-            out.append(f"    def {name}(self, *args):")
+            params, ret = sigs.get(name, ("*args", ""))
+            ret_str = f" -> {ret}" if ret else ""
+            out.append(f"    def {name}(self, {params}){ret_str}:")
             out.extend(_body_lines(name, bodies))
             out.append("")
 

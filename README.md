@@ -223,13 +223,23 @@ IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applica
 - **Drag, move & resize** — click to select any widget (blue dashed border + 8 white handles); drag to reposition; drag any handle to resize — all snapped to an 8px grid
 - **Multi-select** — rubber-band drag to select multiple widgets; Ctrl+Click to toggle; drag the group to move all at once
 - **Copy / Paste** — Ctrl+C / Ctrl+V to duplicate widgets; right-click context menu with Copy, Paste, Delete, Bring to Front, Send to Back
-- **Properties panel** — right-side panel with Property and Value columns; click any value to edit inline; geometry (x, y, width, height) updates live as you drag
-  - **Color picker** — bg and fg properties open `tkinter.colorchooser`; the row tints immediately and the canvas widget updates live
-  - **Variable binding** — supported widgets (Entry, Label, Checkbutton, Radiobutton, Scale, Spinbox, Combobox) expose a Variable section: set a name, type (StringVar / IntVar / DoubleVar / BooleanVar), and initial value; codegen emits the declaration and wires `textvariable=` / `variable=` automatically
+- **Properties panel** — right-side panel with a control selector dropdown at the top; Property and Value columns below; click any value to edit inline; geometry (x, y, width, height) updates live as you drag
+  - **Color picker** — Background and Foreground properties open `tkinter.colorchooser`; the row tints immediately and the canvas widget updates live; new widgets get sensible default colors automatically
+  - **State** — Button, Entry, Text, Combobox, and other widgets expose a `state` dropdown (normal / readonly / disabled); selecting readonly or disabled reveals conditional color rows (`readonlybackground`, `disabledbackground`, `disabledforeground`) that auto-fill with defaults and are hidden when not applicable
+  - **Validation** — Entry and Spinbox expose a `validate` dropdown (key / focus / all / etc.) with `--vcmd`, `--args`, and `--ivcmd` sub-rows; `--args` has a preset dropdown for common tkinter substitution codes (`%P`, `%P, %S`, etc.); codegen emits `self.register(self.method)` wiring automatically
+  - **Variable binding** — supported widgets expose a Variable section: set a name, type (StringVar / IntVar / DoubleVar / BooleanVar), and initial value; codegen emits the declaration and wires `textvariable=` / `variable=` automatically
   - **Form properties** — click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), and maximize box; border style and maximize stay in sync automatically
 - **Events tab** — every widget exposes its full event list (click, dblclick, keypress, focusin, change, and more); click an event name to auto-wire a default handler; type a custom method name to override
+  - Handler names that don't start with `_` are flagged in red — non-underscore names go to the Functions section instead of the Events stub section
+  - **? Events** row at the bottom opens a paginated guide explaining events, wiring steps, naming conventions, and a full reference table for the selected widget type
+- **Double-click to navigate** — double-clicking a widget with events auto-generates code (if the form has ungenerated changes) then switches to Editor mode and places the cursor on the first event handler; double-clicking a widget with no events switches to the Events tab
 - **Code generation** — `Designer → Generate Code` (Ctrl+Shift+G) writes clean, class-based Python from the canvas model:
   ```python
+  import tkinter as tk
+  # ── IDOL:IMPORTS:BEGIN ── (add your imports between the markers)
+  # Add your imports here
+  # ── IDOL:IMPORTS:END ──
+
   class Form1(tk.Tk):
       def __init__(self):
           # ── IDOL:BEGIN ────── (generated — do not edit inside markers)
@@ -258,11 +268,13 @@ IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applica
       # Methods defined here are preserved across code generation.
   ```
 - **Full user code preservation** — regenerating code never discards what you wrote:
-  - Event handler bodies are extracted and spliced back in
+  - Event handler **bodies** are extracted and spliced back in verbatim
+  - Event handler **signatures** are preserved — change `*args` to `event: tk.Event` once and IDOL keeps it on every subsequent regeneration
+  - User **imports** between the `IDOL:IMPORTS:BEGIN/END` markers survive regeneration
   - Helper methods in the `# ── Functions ──` section survive verbatim
   - Code in the two `__init__` user zones (between the IDOL marker blocks) is preserved
 - **Manual edits detection** — if you edit the generated `.py` by hand, IDOL detects the change via SHA-256 checksum when you click Generate Code and warns you; event handlers, helpers, and `__init__` code are always preserved regardless
-- **Run prompt** — clicking ▶ Run while the designer has ungenerated changes asks if you want to generate first; Yes generates then runs, No runs the existing file, Cancel aborts
+- **Run / navigate prompt** — clicking ▶ Run or double-clicking a widget while the designer has ungenerated changes silently auto-generates before proceeding
 - **[Editor] | [Designer] mode bar** — a toggle strip above the editor switches the main area between code and canvas; the left panel swaps from File Explorer to the Widget Palette automatically
 - **Project type gating** — the Designer only appears for **Tkinter GUI App** projects; Command Line projects see only the standard editor with no extra UI
 - **Persistent form model** — the canvas state is stored in a `.form.json` sidecar file next to the generated `.py`; fully version-control friendly

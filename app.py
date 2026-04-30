@@ -4287,6 +4287,7 @@ class IDOL(Tk):
             save as _save,
             compute_checksum as _cs,
             extract_event_bodies as _bodies,
+            extract_event_signatures as _sigs,
             extract_init_user_zones as _init_zones,
             extract_helper_methods as _helpers,
             extract_user_imports as _user_imports,
@@ -4322,15 +4323,17 @@ class IDOL(Tk):
                 pass
 
         if py_path.exists():
-            event_bodies = _bodies(py_path)
+            event_bodies  = _bodies(py_path)
+            event_sigs    = _sigs(py_path)
             pre_init, post_init = _init_zones(py_path)
-            helpers = _helpers(py_path)
-            user_imports = _user_imports(py_path)
+            helpers       = _helpers(py_path)
+            user_imports  = _user_imports(py_path)
         else:
-            event_bodies, pre_init, post_init, helpers, user_imports = {}, "", "", "", ""
+            event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = {}, {}, "", "", "", ""
         code = _gen(
             form,
             event_bodies=event_bodies,
+            event_signatures=event_sigs,
             pre_init=pre_init,
             post_init=post_init,
             helpers=helpers,

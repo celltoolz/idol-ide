@@ -87,6 +87,58 @@ def extract_user_imports(py_path: Path) -> str:
     return "\n".join(lines[begins[0] + 1 : ends[0]]).strip()
 
 
+def extract_event_signatures(py_path: Path) -> dict[str, tuple[str, str]]:
+    """Return {method_name: (params, return_ann)} for event methods.
+
+    params     — everything after 'self' in the signature, e.g. 'event' or 'event: tk.Event'
+    return_ann — return annotation string without '->', e.g. 'None', or '' if absent
+
+    Only methods whose signature differs from the default '(self, *args)' are included,
+    so callers can use .get(name, ("*args", "")) to fall back cleanly.
+    """
+    _, tree, _ = _parse(py_path)
+    if tree is None:
+        return {}
+
+    sigs: dict[str, tuple[str, str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.FunctionDef):
+                continue
+            name = item.name
+            if name in ("__init__", "_build_ui") or not name.startswith("_"):
+                continue
+            params = _extract_params(item)
+            ret    = ast.unparse(item.returns) if item.returns else ""
+            if params != "*args" or ret:
+                sigs[name] = (params, ret)
+    return sigs
+
+
+def _extract_params(fn: ast.FunctionDef) -> str:
+    """Reconstruct the parameter string after 'self' from the AST."""
+    args  = fn.args
+    parts: list[str] = []
+    for arg in args.args[1:]:   # skip self
+        p = arg.arg
+        if arg.annotation:
+            p += f": {ast.unparse(arg.annotation)}"
+        parts.append(p)
+    if args.vararg:
+        va = f"*{args.vararg.arg}"
+        if args.vararg.annotation:
+            va += f": {ast.unparse(args.vararg.annotation)}"
+        parts.append(va)
+    if args.kwarg:
+        kw = f"**{args.kwarg.arg}"
+        if args.kwarg.annotation:
+            kw += f": {ast.unparse(args.kwarg.annotation)}"
+        parts.append(kw)
+    return ", ".join(parts)
+
+
 def extract_event_bodies(py_path: Path) -> dict[str, str]:
     """Return {method_name: dedented_body_str} for event methods in the generated class.
 
