@@ -94,12 +94,14 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append("")
 
     # ── helper methods ────────────────────────────────────────────────────────
+    out.append("    # ── Functions " + "─" * 59)
+    out.append("")
     if helpers:
-        out.append("    # ── Functions " + "─" * 59)
-        out.append("")
         for line in helpers.splitlines():
             out.append(("    " + line) if line.strip() else "")
-        out.append("")
+    else:
+        out.append("    # Methods defined here are preserved across code generation.")
+    out.append("")
 
     # ── entry point ───────────────────────────────────────────────────────────
     out += ["", f'if __name__ == "__main__":',
