@@ -12,24 +12,29 @@ class DesignerProperties(tk.Frame):
     """Properties + Events panel for the GUI Designer.
 
     Displayed in the right pane of _h_pane while Designer mode is active.
-    Exposes load_widget(), load_form(), and clear() as the public API.
-    Fires on_prop_change(widget_id, key, value) and
-         on_event_change(widget_id, event_key, handler_name) on user edits.
+    Exposes load_widget(), load_form(), set_form(), and clear() as the public API.
+    Fires on_prop_change(widget_id, key, value),
+         on_event_change(widget_id, event_key, handler_name), and
+         on_select_widget(widget_id | None) on user edits.
     """
 
     def __init__(
         self,
         master,
-        on_prop_change:  Optional[Callable[[str, str, Any],  None]] = None,
-        on_event_change: Optional[Callable[[str, str, str], None]] = None,
+        on_prop_change:   Optional[Callable[[str, str, Any],  None]] = None,
+        on_event_change:  Optional[Callable[[str, str, str], None]] = None,
+        on_select_widget: Optional[Callable[[str | None],    None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
-        self._on_prop_change  = on_prop_change
-        self._on_event_change = on_event_change
-        self._current_widget: WidgetDescriptor | None       = None
-        self._multi_widgets:  list[WidgetDescriptor]         = []
-        self._entry_editor:   tk.Entry | None                = None
+        self._on_prop_change   = on_prop_change
+        self._on_event_change  = on_event_change
+        self._on_select_widget = on_select_widget
+        self._current_widget: WidgetDescriptor | None  = None
+        self._multi_widgets:  list[WidgetDescriptor]    = []
+        self._entry_editor:   tk.Entry | None           = None
+        # (display_label, widget_id | None)  — None means the form itself
+        self._selector_items: list[tuple[str, str | None]] = []
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -37,14 +42,29 @@ class DesignerProperties(tk.Frame):
     def _build_ui(self) -> None:
         _apply_tree_style()
 
-        # Header — shows "widget_id  (Type)" or "Form1  (Form)"
-        self._header = tk.Label(
-            self, text="Properties",
-            bg="#252526", fg="#cccccc",
-            font=("Segoe UI", 9, "bold"),
-            anchor="w", padx=8,
+        # Control selector — dropdown that lists the form + all widgets
+        sel_frame = tk.Frame(self, bg="#3c3c3c", relief="flat", bd=1)
+        sel_frame.pack(fill="x", side="top", padx=4, pady=(6, 2))
+
+        self._selector_label = tk.Label(
+            sel_frame, text="Properties",
+            bg="#3c3c3c", fg="#cccccc",
+            font=("Segoe UI", 9), anchor="w", padx=6,
+            cursor="hand2",
         )
-        self._header.pack(fill="x", side="top", pady=(6, 2))
+        self._selector_label.pack(side="left", fill="x", expand=True)
+
+        self._selector_arrow = tk.Label(
+            sel_frame, text="▼",
+            bg="#3c3c3c", fg="#858585",
+            font=("Segoe UI", 7), padx=4,
+            cursor="hand2",
+        )
+        self._selector_arrow.pack(side="right")
+
+        for w in (sel_frame, self._selector_label, self._selector_arrow):
+            w.bind("<Button-1>", self._open_selector_menu)
+
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
         # Notebook: Properties | Events
@@ -91,7 +111,7 @@ class DesignerProperties(tk.Frame):
         self._current_widget = descriptor
         self._multi_widgets  = []
         reg = REGISTRY.get(descriptor.type, {})
-        self._header.config(text=f"{descriptor.id}  ({descriptor.type})")
+        self._set_selector(descriptor.id)
         self._populate_props(descriptor, reg)
         self._populate_events(descriptor, reg)
 
@@ -100,7 +120,7 @@ class DesignerProperties(tk.Frame):
         self._dismiss_editor()
         self._current_widget = None
         self._multi_widgets  = []
-        self._header.config(text=f"{form.name}  (Form)")
+        self._set_selector(None)
 
         self._props_tree.delete(*self._props_tree.get_children())
         for key, label, val in [
@@ -126,7 +146,7 @@ class DesignerProperties(tk.Frame):
         self._dismiss_editor()
         self._current_widget = None
         self._multi_widgets  = list(descriptors)
-        self._header.config(text=f"{len(descriptors)} widgets selected")
+        self._selector_label.config(text=f"({len(descriptors)} widgets selected)")
         primary = descriptors[0] if descriptors else None
 
         self._props_tree.delete(*self._props_tree.get_children())
@@ -141,9 +161,50 @@ class DesignerProperties(tk.Frame):
         self._dismiss_editor()
         self._current_widget = None
         self._multi_widgets  = []
-        self._header.config(text="Properties")
+        self._selector_items = []
+        self._selector_label.config(text="Properties")
         self._props_tree.delete(*self._props_tree.get_children())
         self._events_tree.delete(*self._events_tree.get_children())
+
+    def set_form(self, form: FormModel) -> None:
+        """Rebuild the control selector dropdown from the current form."""
+        self._selector_items = [(f"{form.name}  (Form)", None)]
+        for w in form.widgets:
+            self._selector_items.append((f"{w.id}  ({w.type})", w.id))
+
+    def _set_selector(self, widget_id: str | None) -> None:
+        """Update the selector label to reflect the currently selected item."""
+        for label, wid in self._selector_items:
+            if wid == widget_id:
+                self._selector_label.config(text=label)
+                return
+        # Fallback: show generic text if selector not yet populated
+        if widget_id is None:
+            self._selector_label.config(text="Form")
+        else:
+            self._selector_label.config(text=widget_id)
+
+    def _open_selector_menu(self, event=None) -> None:
+        """Pop up the control selector dropdown."""
+        if not self._selector_items:
+            return
+        menu = tk.Menu(
+            self.winfo_toplevel(), tearoff=0,
+            bg="#2d2d2d", fg="#cccccc",
+            activebackground="#094771", activeforeground="#ffffff",
+            relief="flat", bd=1,
+        )
+        for label, wid in self._selector_items:
+            def _cmd(w=wid):
+                if self._on_select_widget:
+                    self._on_select_widget(w)
+            menu.add_command(label=label, command=_cmd, font=("Segoe UI", 9))
+        try:
+            rx = self._selector_label.winfo_rootx()
+            ry = self._selector_label.winfo_rooty() + self._selector_label.winfo_height()
+            menu.tk_popup(rx, ry)
+        finally:
+            menu.grab_release()
 
     def refresh_widget(self, descriptor: WidgetDescriptor) -> None:
         """Re-populate without switching the notebook tab (for canvas drag updates)."""

@@ -799,7 +799,7 @@ class IDOL(Tk):
             on_widget_changed=self._on_designer_widget_changed,
             on_form_changed=self._on_designer_form_changed,
             on_multi_select=self._on_designer_multi_select,
-            on_structure_changed=lambda: setattr(self, "_designer_dirty", True),
+            on_structure_changed=self._on_designer_structure_changed,
         )
         self._design_canvas.pack(fill="both", expand=True)
 
@@ -808,6 +808,7 @@ class IDOL(Tk):
             self._h_pane,
             on_prop_change=self._on_designer_prop_change,
             on_event_change=self._on_designer_event_change,
+            on_select_widget=self._on_designer_selector_pick,
         )
         self._props_panel.configure(width=230)
 
@@ -2865,6 +2866,7 @@ class IDOL(Tk):
             if json_path.exists():
                 form, _ = designer_load(json_path)
                 self._design_canvas.load_form(form)
+                self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
         else:
             self._hide_mode_bar()
@@ -4026,6 +4028,7 @@ class IDOL(Tk):
         try:
             form, _ = _load(json_files[0])
             self._design_canvas.load_form(form)
+            self._props_panel.set_form(form)
             self._props_panel.load_form(form)
         except Exception:
             pass
@@ -4072,7 +4075,7 @@ class IDOL(Tk):
         if key == "__name__":
             new_name = value
             self._design_canvas.rename_widget(widget_id, new_name)
-            # Update the descriptor reference in the properties panel
+            self._props_panel.set_form(form)
             if form.get_widget(new_name):
                 self._props_panel.load_widget(form.get_widget(new_name))
             return
@@ -4152,7 +4155,22 @@ class IDOL(Tk):
     def _on_designer_form_changed(self, form) -> None:
         """Form resize finished → refresh form-level properties panel."""
         self._designer_dirty = True
+        self._props_panel.set_form(form)
         self._props_panel.load_form(form)
+
+    def _on_designer_structure_changed(self) -> None:
+        """Widget added/removed/reordered → dirty flag + rebuild selector."""
+        self._designer_dirty = True
+        form = self._design_canvas.form
+        if form:
+            self._props_panel.set_form(form)
+
+    def _on_designer_selector_pick(self, widget_id: str | None) -> None:
+        """User picks a control from the selector dropdown → select on canvas."""
+        if widget_id is None:
+            self._design_canvas.select_form()
+        else:
+            self._design_canvas.select(widget_id)
 
     def designer_close_form(self) -> None:
         """Unload the current form from the designer canvas."""
