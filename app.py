@@ -1788,6 +1788,27 @@ class IDOL(Tk):
             cv.see(f"{lineno}.0")
             cv.mark_set("insert", f"{lineno}.0")
             cv.focus_set()
+            self._scroll_clear_sticky(cv, lineno)
+
+    def _scroll_clear_sticky(self, cv, lineno: int) -> None:
+        """Nudge the view so *lineno* isn't hidden beneath the sticky-scroll overlay."""
+        sticky = getattr(cv, "_sticky", None)
+        if sticky is None:
+            return
+        def _check():
+            if not sticky.winfo_ismapped():
+                return
+            sticky_h = sticky.winfo_height()
+            if sticky_h <= 0:
+                return
+            bbox = cv.bbox(f"{lineno}.0")
+            if bbox is None:
+                return
+            line_y, line_h = bbox[1], max(bbox[3], 1)
+            if line_y < sticky_h:
+                lines = (sticky_h - line_y + line_h - 1) // line_h
+                cv.yview_scroll(lines, "units")
+        cv.after_idle(_check)
 
     def _refresh_tab_title(self, tab_id: str) -> None:
         name = self._titles.get(tab_id, "Untitled")
@@ -2702,6 +2723,7 @@ class IDOL(Tk):
                 if cv:
                     cv.mark_set("insert", f"{line}.{col}")
                     cv.see("insert")
+                    self._scroll_clear_sticky(cv, line)
                 return
         # Otherwise open as a new tab
         if os.path.isfile(path):
@@ -2710,6 +2732,7 @@ class IDOL(Tk):
             if cv:
                 cv.mark_set("insert", f"{line}.{col}")
                 cv.see("insert")
+                self._scroll_clear_sticky(cv, line)
 
     # ── Active-line highlight loop ────────────────────────────────────────────
 

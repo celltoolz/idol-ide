@@ -152,7 +152,8 @@ class StickyScroll(Frame):
         scrolled above the viewport are included, so the header vanishes the moment
         its line scrolls back into view.
         """
-        top_line = int(self._cv.index("@0,0").split(".")[0])
+        sticky_h = self.winfo_height() if self.winfo_ismapped() else 0
+        top_line = int(self._cv.index(f"@0,{sticky_h}").split(".")[0])
         if top_line <= 1:
             return []
 
