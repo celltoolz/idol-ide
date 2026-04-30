@@ -3070,14 +3070,15 @@ class IDOL(Tk):
     def _designer_autosave(self) -> None:
         """Silently save the .form.json without regenerating Python code."""
         from pathlib import Path as _Path
-        from designer.persistence import save as _save
+        from designer.persistence import save as _save, load as _load
         form = self._design_canvas.form
         root = getattr(self._sidebar.explorer, "_root", None)
         if form is None or not root:
             return
         try:
             json_path = _Path(root) / f"{form.name}.form.json"
-            _save(form, json_path)
+            _, existing_checksum = _load(json_path)
+            _save(form, json_path, py_checksum=existing_checksum)
         except Exception:
             pass
 
@@ -3951,9 +3952,6 @@ class IDOL(Tk):
         """Switch the main content area to the designer canvas."""
         if self._designer_mode:
             return
-        # Step 8 — check for manual edits before entering designer
-        if not self._designer_check_edits():
-            return   # user chose to stay in editor
         self._designer_mode = True
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
@@ -4067,58 +4065,6 @@ class IDOL(Tk):
     def _on_designer_event_change(self, widget_id: str, event_key: str, handler: str) -> None:
         """Event panel edit — model already mutated by properties panel."""
 
-    def _designer_check_edits(self) -> bool:
-        """Return True if it's safe to enter designer mode.
-
-        If the generated .py has been manually edited since last codegen,
-        prompt the user.  Returns False if they choose to stay in the editor.
-        """
-        from pathlib import Path as _Path
-        from designer.persistence import load as _load, was_modified as _modified
-        from tkinter.messagebox import askyesno
-
-        root = getattr(self._sidebar.explorer, "_root", None)
-        if not root:
-            return True
-
-        # Find the first .form.json in the project root
-        try:
-            json_files = list(_Path(root).glob("*.form.json"))
-        except Exception:
-            return True
-        if not json_files:
-            return True
-
-        json_path = json_files[0]
-        py_path   = json_path.with_suffix(".py")
-        if not py_path.exists():
-            return True
-
-        try:
-            _, stored_checksum = _load(json_path)
-            if not _modified(py_path, stored_checksum):
-                return True
-        except Exception:
-            return True
-
-        # Manual edits detected — ask the user
-        answer = askyesno(
-            "Manual Edits Detected",
-            f"{py_path.name} has been edited manually since the last Designer save.\n\n"
-            "Returning to the Designer will discard those edits.\n\n"
-            "Discard manual edits and return to Designer?",
-            parent=self,
-            default="no",
-        )
-        if answer:
-            # Reload the form from JSON so the canvas reflects the clean state
-            try:
-                form, _ = _load(json_path)
-                self._design_canvas.load_form(form)
-                self._props_panel.load_form(form)
-            except Exception:
-                pass
-        return answer
 
     def _on_palette_tool_select(self, type_key: str | None) -> None:
         """Palette click → arm canvas with placement tool."""
@@ -4194,7 +4140,9 @@ class IDOL(Tk):
         from pathlib import Path as _Path
         from designer.codegen import generate as _gen
         from designer.persistence import (save as _save, compute_checksum as _cs,
-                                          extract_event_bodies as _bodies)
+                                          extract_event_bodies as _bodies,
+                                          load as _load, was_modified as _modified)
+        from tkinter.messagebox import askyesno
 
         form = self._design_canvas.form
         root = getattr(self._sidebar.explorer, "_root", None)
@@ -4203,6 +4151,24 @@ class IDOL(Tk):
 
         json_path = _Path(root) / f"{form.name}.form.json"
         py_path   = _Path(root) / f"{form.name}.py"
+
+        if py_path.exists():
+            try:
+                _, stored_checksum = _load(json_path)
+                if _modified(py_path, stored_checksum):
+                    answer = askyesno(
+                        "Manual Edits Detected",
+                        f"{py_path.name} has been manually edited since the last code generation.\n\n"
+                        "Event handlers will be preserved, but any other manual changes\n"
+                        "(e.g. edits to __init__ or _build_ui) will be overwritten.\n\n"
+                        "Generate code and overwrite?",
+                        parent=self,
+                        default="yes",
+                    )
+                    if not answer:
+                        return
+            except Exception:
+                pass
 
         event_bodies = _bodies(py_path) if py_path.exists() else {}
         code = _gen(form, event_bodies=event_bodies)
