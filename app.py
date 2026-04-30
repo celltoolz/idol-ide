@@ -4222,6 +4222,7 @@ class IDOL(Tk):
             extract_event_bodies as _bodies,
             extract_init_user_zones as _init_zones,
             extract_helper_methods as _helpers,
+            extract_user_imports as _user_imports,
             load as _load,
             was_modified as _modified,
         )
@@ -4257,14 +4258,16 @@ class IDOL(Tk):
             event_bodies = _bodies(py_path)
             pre_init, post_init = _init_zones(py_path)
             helpers = _helpers(py_path)
+            user_imports = _user_imports(py_path)
         else:
-            event_bodies, pre_init, post_init, helpers = {}, "", "", ""
+            event_bodies, pre_init, post_init, helpers, user_imports = {}, "", "", "", ""
         code = _gen(
             form,
             event_bodies=event_bodies,
             pre_init=pre_init,
             post_init=post_init,
             helpers=helpers,
+            user_imports=user_imports,
         )
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)

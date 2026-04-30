@@ -74,6 +74,19 @@ def was_modified(py_path: Path, stored_checksum: str) -> bool:
 
 # ── Event body extraction ─────────────────────────────────────────────────────
 
+def extract_user_imports(py_path: Path) -> str:
+    """Return user import lines between IDOL:IMPORTS markers, or ''."""
+    try:
+        lines = py_path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return ""
+    begins = [i for i, l in enumerate(lines) if _IDOL_IMPORT_BEGIN in l]
+    ends   = [i for i, l in enumerate(lines) if _IDOL_IMPORT_END   in l]
+    if not begins or not ends:
+        return ""
+    return "\n".join(lines[begins[0] + 1 : ends[0]]).strip()
+
+
 def extract_event_bodies(py_path: Path) -> dict[str, str]:
     """Return {method_name: dedented_body_str} for event methods in the generated class.
 
@@ -104,6 +117,10 @@ def extract_event_bodies(py_path: Path) -> dict[str, str]:
 # Tokens used to identify IDOL-generated blocks inside __init__
 _IDOL_BEGIN = "IDOL:BEGIN"
 _IDOL_END   = "IDOL:END"
+
+# Tokens for the module-level user imports block
+_IDOL_IMPORT_BEGIN = "IDOL:IMPORTS:BEGIN"
+_IDOL_IMPORT_END   = "IDOL:IMPORTS:END"
 
 
 def extract_init_user_zones(py_path: Path) -> tuple[str, str]:

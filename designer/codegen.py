@@ -34,15 +34,18 @@ _BINDINGS: dict[str, str] = {
 
 _STUB = "pass  # TODO"
 
-# IDOL:BEGIN/END marker lines — must contain the tokens persistence.py detects
-_INIT_B = "        # ── IDOL:BEGIN " + "─" * 55
-_INIT_E = "        # ── IDOL:END "   + "─" * 57
+# IDOL marker lines — must contain the tokens persistence.py detects
+_IMPORT_B = "# ── IDOL:IMPORTS:BEGIN " + "─" * 49
+_IMPORT_E = "# ── IDOL:IMPORTS:END "   + "─" * 51
+_INIT_B   = "        # ── IDOL:BEGIN " + "─" * 55
+_INIT_E   = "        # ── IDOL:END "   + "─" * 57
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
-             pre_init: str = "", post_init: str = "", helpers: str = "") -> str:
+             pre_init: str = "", post_init: str = "", helpers: str = "",
+             user_imports: str = "") -> str:
     """Return Python source for *form*.
 
     event_bodies: {method_name: dedented_body_str} — user event handler code.
@@ -59,6 +62,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     out.append("import tkinter as tk")
     if needs_ttk:
         out.append("from tkinter import ttk")
+    out.append(_IMPORT_B)
+    if user_imports:
+        for line in user_imports.splitlines():
+            out.append(line)
+    else:
+        out.append("# Add your imports here")
+    out.append(_IMPORT_E)
     out += ["", ""]
 
     # ── class header ──────────────────────────────────────────────────────────
