@@ -354,8 +354,13 @@ class DesignerProperties(tk.Frame):
     def _commit_prop(self, row_iid: str, raw: str) -> None:
         if row_iid.startswith("form__"):
             key = row_iid[6:]
-            # Disabling maximize implies fixed border — auto-sync the UI row
-            if key == "maximize_box" and raw.lower() == "false":
+            # Keep border_style and maximize_box in sync
+            if key == "border_style":
+                new_max = "True" if raw.lower() == "sizable" else "False"
+                self._props_tree.set("form__maximize_box", "#1", new_max)
+                if self._on_prop_change:
+                    self._on_prop_change("__form__", "maximize_box", new_max)
+            elif key == "maximize_box" and raw.lower() == "false":
                 self._props_tree.set("form__border_style", "#1", "fixed")
                 if self._on_prop_change:
                     self._on_prop_change("__form__", "border_style", "fixed")
