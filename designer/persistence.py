@@ -101,33 +101,67 @@ def extract_event_bodies(py_path: Path) -> dict[str, str]:
     return bodies
 
 
-def extract_extra_init(py_path: Path) -> str:
-    """Return lines in __init__ that follow self._build_ui(), dedented."""
+# Tokens used to identify IDOL-generated blocks inside __init__
+_IDOL_BEGIN = "IDOL:BEGIN"
+_IDOL_END   = "IDOL:END"
+
+
+def extract_init_user_zones(py_path: Path) -> tuple[str, str]:
+    """Return (pre_build_ui, post_build_ui) user code from __init__.
+
+    If IDOL:BEGIN/END markers are present uses string scanning; otherwise
+    falls back to AST to extract the post-build zone only (legacy files).
+    Both strings are stripped and dedented.
+    """
     _, tree, lines = _parse(py_path)
     if tree is None:
-        return ""
+        return "", ""
 
+    # Find __init__ line bounds
+    init_start = init_end = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                init_start = item.lineno - 1   # 0-indexed inclusive
+                init_end   = item.end_lineno    # 0-indexed exclusive
+
+    if init_start is None:
+        return "", ""
+
+    init_lines = lines[init_start:init_end]
+    begins = [i for i, l in enumerate(init_lines) if _IDOL_BEGIN in l]
+    ends   = [i for i, l in enumerate(init_lines) if _IDOL_END   in l]
+
+    if len(begins) >= 2 and len(ends) >= 2:
+        pre_lines  = init_lines[ends[0] + 1 : begins[1]]
+        post_lines = init_lines[ends[1] + 1 :]
+        pre  = textwrap.dedent("\n".join(pre_lines)).strip()
+        post = textwrap.dedent("\n".join(post_lines)).strip()
+        return pre, post
+
+    # Legacy fallback: AST extraction of post-build zone only
+    return "", _extract_post_build_ast(tree, lines)
+
+
+def _extract_post_build_ast(tree: ast.Module, lines: list[str]) -> str:
+    """AST fallback for files without IDOL markers — extracts post-_build_ui lines."""
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
         for item in node.body:
             if not (isinstance(item, ast.FunctionDef) and item.name == "__init__"):
                 continue
-            build_ui_lineno = None
             for child in ast.walk(item):
                 if isinstance(child, ast.Expr) and isinstance(child.value, ast.Call):
                     func = child.value.func
                     if isinstance(func, ast.Attribute) and func.attr == "_build_ui":
-                        build_ui_lineno = child.lineno  # 1-indexed
-                        break
-            if build_ui_lineno is None:
-                return ""
-            start = build_ui_lineno        # 0-indexed = line after _build_ui()
-            end   = item.end_lineno        # 1-indexed inclusive → 0-indexed exclusive
-            if start >= end:
-                return ""
-            return textwrap.dedent("\n".join(lines[start:end])).strip()
-
+                        start = child.lineno   # 0-indexed = line after _build_ui()
+                        end   = item.end_lineno
+                        if start >= end:
+                            return ""
+                        return textwrap.dedent("\n".join(lines[start:end])).strip()
     return ""
 
 

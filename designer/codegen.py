@@ -34,15 +34,20 @@ _BINDINGS: dict[str, str] = {
 
 _STUB = "pass  # TODO"
 
+# IDOL:BEGIN/END marker lines — must contain the tokens persistence.py detects
+_INIT_B = "        # ── IDOL:BEGIN " + "─" * 55
+_INIT_E = "        # ── IDOL:END "   + "─" * 57
+
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
-             extra_init: str = "", helpers: str = "") -> str:
+             pre_init: str = "", post_init: str = "", helpers: str = "") -> str:
     """Return Python source for *form*.
 
     event_bodies: {method_name: dedented_body_str} — user event handler code.
-    extra_init:   lines that follow self._build_ui() in __init__ (user-written).
+    pre_init:     user code placed between form setup and self._build_ui().
+    post_init:    user code placed after self._build_ui().
     helpers:      full source of public helper methods (user-written).
     """
     bodies = event_bodies or {}
@@ -60,6 +65,9 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     base = "tk.Tk" if form.form_type == "main" else "tk.Toplevel"
     out.append(f"class {form.name}({base}):")
     out.append("    def __init__(self):")
+
+    # Generated form-setup block
+    out.append(_INIT_B)
     out.append("        super().__init__()")
     out.append(f'        self.title("{form.title}")')
     out.append(f'        self.geometry("{form.width}x{form.height}")')
@@ -67,12 +75,26 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append(f"        self.resizable({form.resizable_x}, {form.resizable_y})")
     if form.bg:
         out.append(f'        self.configure(bg="{form.bg}")')
-    out.append("        self._build_ui()")
-    if extra_init:
-        out.append("")
-        for line in extra_init.splitlines():
-            out.append(("        " + line) if line.strip() else "")
+    out.append(_INIT_E)
     out.append("")
+
+    # User pre-build zone
+    if pre_init:
+        for line in pre_init.splitlines():
+            out.append(("        " + line) if line.strip() else "")
+        out.append("")
+
+    # Generated _build_ui call block
+    out.append(_INIT_B)
+    out.append("        self._build_ui()")
+    out.append(_INIT_E)
+    out.append("")
+
+    # User post-build zone
+    if post_init:
+        for line in post_init.splitlines():
+            out.append(("        " + line) if line.strip() else "")
+        out.append("")
 
     # ── _build_ui ─────────────────────────────────────────────────────────────
     out.append("    def _build_ui(self):")

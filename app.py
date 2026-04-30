@@ -4141,7 +4141,7 @@ class IDOL(Tk):
         from designer.codegen import generate as _gen
         from designer.persistence import (save as _save, compute_checksum as _cs,
                                           extract_event_bodies as _bodies,
-                                          extract_extra_init as _extra_init,
+                                          extract_init_user_zones as _init_zones,
                                           extract_helper_methods as _helpers,
                                           load as _load, was_modified as _modified)
         from tkinter.messagebox import askyesno
@@ -4173,12 +4173,13 @@ class IDOL(Tk):
                 pass
 
         if py_path.exists():
-            event_bodies = _bodies(py_path)
-            extra_init   = _extra_init(py_path)
-            helpers      = _helpers(py_path)
+            event_bodies       = _bodies(py_path)
+            pre_init, post_init = _init_zones(py_path)
+            helpers            = _helpers(py_path)
         else:
-            event_bodies, extra_init, helpers = {}, "", ""
-        code = _gen(form, event_bodies=event_bodies, extra_init=extra_init, helpers=helpers)
+            event_bodies, pre_init, post_init, helpers = {}, "", "", ""
+        code = _gen(form, event_bodies=event_bodies, pre_init=pre_init,
+                    post_init=post_init, helpers=helpers)
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)
