@@ -5476,7 +5476,7 @@ class IDOL(Tk):
         def _run():
             try:
                 proc = subprocess.Popen(
-                    [__import__("sys").executable, "-m", "pip"] + args,
+                    [self._active_python, "-m", "pip"] + args,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
