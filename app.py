@@ -291,9 +291,7 @@ class IDOL(Tk):
         self._lsp: LspManager | None = (
             None  # intelligence (hover/completion/definition)
         )
-        self._lsp_diag: PyflakesLinter | None = (
-            None  # diagnostics (ruff subprocess)
-        )
+        self._lsp_diag: PyflakesLinter | None = None  # diagnostics (ruff subprocess)
         self._runtime_error_tab_id: str | None = (
             None  # tab showing last crash indicator
         )
@@ -367,9 +365,11 @@ class IDOL(Tk):
         self._zen_mode: bool = False
 
         # Designer
-        self._designer_mode: bool  = False
-        self._designer_dirty: bool = False  # True when model changed since last Generate Code
-        self._designer_project_type: str = "cli"   # "cli" | "gui"
+        self._designer_mode: bool = False
+        self._designer_dirty: bool = (
+            False  # True when model changed since last Generate Code
+        )
+        self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._zen_pill: object = None  # floating toast Toplevel
 
         self._build_layout()
@@ -762,26 +762,32 @@ class IDOL(Tk):
 
         # ── Mode bar — [Editor] | [Designer] ─────────────────────────────────
         # Hidden until a Tkinter GUI project is active (_show_mode_bar).
-        _MB_BG  = "#1e1e1e"
+        _MB_BG = "#1e1e1e"
         _MB_ACT = "#ffffff"
         _MB_DIM = "#6a6a6a"
-        _MB_HL  = "#007acc"
+        _MB_HL = "#007acc"
 
         self._mode_bar = tk.Frame(nb_frame, bg=_MB_BG, height=28)
         self._mode_bar.pack_propagate(False)
 
         def _mode_btn(text: str, cmd) -> tk.Label:
             lbl = tk.Label(
-                self._mode_bar, text=text, bg=_MB_BG, fg=_MB_DIM,
-                font=("Segoe UI", 9), cursor="hand2", padx=12, pady=0,
+                self._mode_bar,
+                text=text,
+                bg=_MB_BG,
+                fg=_MB_DIM,
+                font=("Segoe UI", 9),
+                cursor="hand2",
+                padx=12,
+                pady=0,
             )
             lbl.bind("<Button-1>", lambda _: cmd())
-            lbl.bind("<Enter>",    lambda _: lbl.config(fg=_MB_ACT))
-            lbl.bind("<Leave>",    lambda _: self._refresh_mode_bar())
+            lbl.bind("<Enter>", lambda _: lbl.config(fg=_MB_ACT))
+            lbl.bind("<Leave>", lambda _: self._refresh_mode_bar())
             lbl.pack(side="left")
             return lbl
 
-        self._mode_btn_editor   = _mode_btn("Editor",   self._enter_editor_mode)
+        self._mode_btn_editor = _mode_btn("Editor", self._enter_editor_mode)
         self._mode_btn_designer = _mode_btn("Designer", self._enter_designer_mode)
 
         # ── Designer surface (pre-built, swapped in by _enter_designer_mode) ──
@@ -887,7 +893,7 @@ class IDOL(Tk):
 
     def _prewarm_terminal(self) -> None:
         """Start the terminal shell in the background so it's ready on first open."""
-        self._output.terminal.on_venv_activate   = self._on_venv_activated
+        self._output.terminal.on_venv_activate = self._on_venv_activated
         self._output.terminal.on_venv_deactivate = self._on_venv_deactivated
         if not self._output.terminal._running:
             cwd = self._output._cwd or os.getcwd()
@@ -906,7 +912,9 @@ class IDOL(Tk):
         def _on_pythons(results: list[tuple[str, str]]) -> None:
             for label, exe in results:
                 if categorize_interpreter(exe) == "system" and os.path.isfile(exe):
-                    self._set_active_interpreter(exe, self._get_short_interp_label(label))
+                    self._set_active_interpreter(
+                        exe, self._get_short_interp_label(label)
+                    )
                     return
             # Last resort: IDOL's own interpreter
             self._set_active_interpreter(sys.executable, "Python")
@@ -937,12 +945,15 @@ class IDOL(Tk):
         _auto_activate_venv directly with a short delay.
         """
         import platform as _pl
+
         if not activate_path:
             path = getattr(self, "_active_python", "")
             if not path:
                 return
             parent = os.path.dirname(path)
-            activate_path = os.path.join(parent, "Activate.ps1" if _pl.system() == "Windows" else "activate")
+            activate_path = os.path.join(
+                parent, "Activate.ps1" if _pl.system() == "Windows" else "activate"
+            )
         if not os.path.isfile(activate_path):
             return
         if getattr(self._output, "terminal", None) and self._output.terminal._running:
@@ -955,6 +966,7 @@ class IDOL(Tk):
     def _auto_activate_venv(self, activate_path: str) -> None:
         """Send the venv activate command to the terminal (used on session restore)."""
         import platform as _pl
+
         term = self._output.terminal
         if not term._running:
             return
@@ -1616,7 +1628,7 @@ class IDOL(Tk):
 
     def _on_content_changed(self) -> None:
         self._clear_runtime_error()
-        if getattr(self, '_restoring', False):
+        if getattr(self, "_restoring", False):
             return
         tab_id = self._current_tab_id
         if tab_id and not self._dirty.get(tab_id):
@@ -1797,6 +1809,7 @@ class IDOL(Tk):
         sticky = getattr(cv, "_sticky", None)
         if sticky is None:
             return
+
         def _check():
             if not sticky.winfo_ismapped():
                 return
@@ -1810,6 +1823,7 @@ class IDOL(Tk):
             if line_y < sticky_h:
                 lines = (sticky_h - line_y + line_h - 1) // line_h
                 cv.yview_scroll(lines, "units")
+
         cv.after_idle(_check)
 
     def _refresh_tab_title(self, tab_id: str) -> None:
@@ -2796,8 +2810,12 @@ class IDOL(Tk):
         # If there are meaningful tabs open, offer to save the current project
         # before wiping the slate for the new one.
         has_project = any(
-            self._titles.get(t) != "Untitled" or self._dirty.get(t)
-            or bool(self._codeviews.get(t) and self._codeviews[t].get("1.0", "end-1c").strip())
+            self._titles.get(t) != "Untitled"
+            or self._dirty.get(t)
+            or bool(
+                self._codeviews.get(t)
+                and self._codeviews[t].get("1.0", "end-1c").strip()
+            )
             for t in self.notebook.tabs()
         )
         if has_project:
@@ -2827,9 +2845,14 @@ class IDOL(Tk):
         self._git = None
         self._start_git()
 
-    def _on_project_created(self, project_path: str, python_exe: str = "",
-                            python_label: str = "", venv_activate_path: str | None = None,
-                            project_type: str = "cli") -> None:
+    def _on_project_created(
+        self,
+        project_path: str,
+        python_exe: str = "",
+        python_label: str = "",
+        venv_activate_path: str | None = None,
+        project_type: str = "cli",
+    ) -> None:
         """Called when the project wizard finishes — open the new project."""
         self._designer_project_type = project_type
         if project_type == "gui":
@@ -2837,6 +2860,7 @@ class IDOL(Tk):
             # Load Form1.form.json into the design canvas
             from designer.persistence import load as designer_load
             from pathlib import Path as _Path
+
             json_path = _Path(project_path) / "Form1.form.json"
             if json_path.exists():
                 form, _ = designer_load(json_path)
@@ -2849,8 +2873,11 @@ class IDOL(Tk):
         self._start_git()
         if venv_activate_path and os.path.isfile(venv_activate_path):
             import platform as _pl
+
             _base = os.path.dirname(venv_activate_path)
-            _venv_py = os.path.join(_base, "python.exe" if _pl.system() == "Windows" else "python")
+            _venv_py = os.path.join(
+                _base, "python.exe" if _pl.system() == "Windows" else "python"
+            )
             _activate_exe = _venv_py if os.path.isfile(_venv_py) else python_exe
             # Set interpreter synchronously so workspace_save (500 ms below) captures
             # the venv Python path before the async label refinement completes.
@@ -3073,6 +3100,7 @@ class IDOL(Tk):
         """Silently save the .form.json without regenerating Python code."""
         from pathlib import Path as _Path
         from designer.persistence import save as _save, load as _load
+
         form = self._design_canvas.form
         root = getattr(self._sidebar.explorer, "_root", None)
         if form is None or not root:
@@ -3155,6 +3183,7 @@ class IDOL(Tk):
             if term._running and term._venv_active:
                 term.send("deactivate\r")
             import sys as _sys
+
             self._set_active_interpreter(_sys.executable, "Python")
             self._on_venv_deactivated()
         self._set_run_entry(None)
@@ -3203,6 +3232,7 @@ class IDOL(Tk):
             if term._running and term._venv_active:
                 term.send("deactivate\r")
             import sys as _sys
+
             self._set_active_interpreter(_sys.executable, "Python")
         # Close all tabs cleanly (bypass the auto-Untitled fallback)
         for tab_id in list(self.notebook.tabs()):
@@ -3983,6 +4013,7 @@ class IDOL(Tk):
         """Find the first .form.json in the current project root and load it."""
         from pathlib import Path as _Path
         from designer.persistence import load as _load
+
         root = getattr(self._sidebar.explorer, "_root", None)
         if not root:
             return
@@ -4069,10 +4100,11 @@ class IDOL(Tk):
         if w:
             self._design_canvas.update_widget(w)
 
-    def _on_designer_event_change(self, widget_id: str, event_key: str, handler: str) -> None:
+    def _on_designer_event_change(
+        self, widget_id: str, event_key: str, handler: str
+    ) -> None:
         """Event panel edit — model already mutated by properties panel."""
         self._designer_dirty = True
-
 
     def _on_palette_tool_select(self, type_key: str | None) -> None:
         """Palette click → arm canvas with placement tool."""
@@ -4098,7 +4130,9 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form is None:
             return
-        descriptors = [form.get_widget(wid) for wid in widget_ids if form.get_widget(wid)]
+        descriptors = [
+            form.get_widget(wid) for wid in widget_ids if form.get_widget(wid)
+        ]
         if descriptors:
             self._props_panel.load_multi(descriptors)
 
@@ -4106,8 +4140,11 @@ class IDOL(Tk):
         self._designer_dirty = True
         if len(self._design_canvas.selected_ids) > 1:
             form = self._design_canvas.form
-            descriptors = [form.get_widget(wid) for wid in self._design_canvas.selected_ids
-                           if form and form.get_widget(wid)]
+            descriptors = [
+                form.get_widget(wid)
+                for wid in self._design_canvas.selected_ids
+                if form and form.get_widget(wid)
+            ]
             self._props_panel.load_multi(descriptors)
         else:
             self._props_panel.refresh_widget(descriptor)
@@ -4128,6 +4165,7 @@ class IDOL(Tk):
         from pathlib import Path as _Path
         from tkinter.filedialog import askopenfilename
         from designer.persistence import load as _load
+
         path = askopenfilename(
             filetypes=[("Designer Form", "*.form.json"), ("All Files", "*.*")],
             title="Open Form",
@@ -4144,17 +4182,22 @@ class IDOL(Tk):
                 self._enter_designer_mode()
         except Exception as exc:
             from tkinter.messagebox import showerror
+
             showerror("Open Form", f"Could not load form:\n{exc}", parent=self)
 
     def designer_generate_code(self) -> None:
         """Regenerate the form .py from the current canvas model and save checksums."""
         from pathlib import Path as _Path
         from designer.codegen import generate as _gen
-        from designer.persistence import (save as _save, compute_checksum as _cs,
-                                          extract_event_bodies as _bodies,
-                                          extract_init_user_zones as _init_zones,
-                                          extract_helper_methods as _helpers,
-                                          load as _load, was_modified as _modified)
+        from designer.persistence import (
+            save as _save,
+            compute_checksum as _cs,
+            extract_event_bodies as _bodies,
+            extract_init_user_zones as _init_zones,
+            extract_helper_methods as _helpers,
+            load as _load,
+            was_modified as _modified,
+        )
         from tkinter.messagebox import askyesno
 
         form = self._design_canvas.form
@@ -4163,7 +4206,7 @@ class IDOL(Tk):
             return
 
         json_path = _Path(root) / f"{form.name}.form.json"
-        py_path   = _Path(root) / f"{form.name}.py"
+        py_path = _Path(root) / f"{form.name}.py"
 
         if py_path.exists():
             try:
@@ -4184,13 +4227,18 @@ class IDOL(Tk):
                 pass
 
         if py_path.exists():
-            event_bodies       = _bodies(py_path)
+            event_bodies = _bodies(py_path)
             pre_init, post_init = _init_zones(py_path)
-            helpers            = _helpers(py_path)
+            helpers = _helpers(py_path)
         else:
             event_bodies, pre_init, post_init, helpers = {}, "", "", ""
-        code = _gen(form, event_bodies=event_bodies, pre_init=pre_init,
-                    post_init=post_init, helpers=helpers)
+        code = _gen(
+            form,
+            event_bodies=event_bodies,
+            pre_init=pre_init,
+            post_init=post_init,
+            helpers=helpers,
+        )
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)
@@ -4643,6 +4691,7 @@ class IDOL(Tk):
         """One-click execute using the mode selected in the run menu."""
         if self._designer_mode and self._designer_dirty:
             from tkinter.messagebox import askyesnocancel
+
             answer = askyesnocancel(
                 "Designer Changes Not Generated",
                 "The Designer has changes that haven't been code-generated yet.\n\n"
@@ -4708,6 +4757,7 @@ class IDOL(Tk):
             self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
         term = self._output.terminal
         import platform as _pl
+
         prefix = "& " if _pl.system() == "Windows" else ""
         cmd = f'{prefix}"{self._active_python}" "{filepath}"\r'
 
@@ -4744,6 +4794,7 @@ class IDOL(Tk):
     def _get_short_interp_label(self, label: str) -> str:
         """Extract 'Python X.Y.Z' from a full interpreter label string."""
         import re
+
         m = re.match(r"(Python\s+\S+)", label)
         return m.group(1) if m else label.split("(")[0].strip()
 
@@ -4779,7 +4830,10 @@ class IDOL(Tk):
                         break
                 else:
                     if results:
-                        path, label = results[0][1], self._get_short_interp_label(results[0][0])
+                        path, label = (
+                            results[0][1],
+                            self._get_short_interp_label(results[0][0]),
+                        )
             self._active_python = path
             self._active_python_label = label
             self._statusbar.set_interpreter(label)
@@ -4789,11 +4843,16 @@ class IDOL(Tk):
     def _set_active_interpreter(self, path: str, label: str) -> None:
         """Update the active interpreter, refresh the statusbar, and persist the choice."""
         from utils import settings as _settings
+
         self._active_python = path
         self._active_python_label = label
         self._statusbar.set_interpreter(label)
-        if hasattr(self._statusbar, "_interp_lbl") and not getattr(self._statusbar._interp_lbl, "_learning_registered", False):
-            LearningManager.register(self._statusbar._interp_lbl, "interpreter_selector")
+        if hasattr(self._statusbar, "_interp_lbl") and not getattr(
+            self._statusbar._interp_lbl, "_learning_registered", False
+        ):
+            LearningManager.register(
+                self._statusbar._interp_lbl, "interpreter_selector"
+            )
             self._statusbar._interp_lbl._learning_registered = True
         root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
         _settings.set(f"interpreter:{root}", path)
@@ -4828,24 +4887,43 @@ class IDOL(Tk):
         picker.configure(bg="#252526")
 
         tk.Label(
-            picker, text="Select Entry File",
-            bg="#252526", fg="#cccccc",
-            font=("Segoe UI", 9, "bold"), pady=6, padx=10, anchor="w",
+            picker,
+            text="Select Entry File",
+            bg="#252526",
+            fg="#cccccc",
+            font=("Segoe UI", 9, "bold"),
+            pady=6,
+            padx=10,
+            anchor="w",
         ).pack(fill="x")
         ttk.Separator(picker, orient="horizontal").pack(fill="x")
 
         lb = tk.Listbox(
             picker,
-            bg="#1e1e1e", fg="#cccccc",
-            selectbackground="#094771", selectforeground="#ffffff",
-            borderwidth=0, highlightthickness=0,
-            font=("Consolas", 9), relief="flat", activestyle="none",
+            bg="#1e1e1e",
+            fg="#cccccc",
+            selectbackground="#094771",
+            selectforeground="#ffffff",
+            borderwidth=0,
+            highlightthickness=0,
+            font=("Consolas", 9),
+            relief="flat",
+            activestyle="none",
         )
         lb.pack(fill="both", expand=True, padx=1, pady=1)
 
         # Build file list: "Active Tab" + project .py files + Browse
         root = str(self._sidebar.explorer._root or os.getcwd())
-        _SKIP = {"__pycache__", ".venv", "venv", "env", ".git", "node_modules", "dist", "build"}
+        _SKIP = {
+            "__pycache__",
+            ".venv",
+            "venv",
+            "env",
+            ".git",
+            "node_modules",
+            "dist",
+            "build",
+        }
 
         py_files: list[str] = []
         for pattern in ("*.py", "*/*.py"):
@@ -4853,7 +4931,9 @@ class IDOL(Tk):
                 parts = Path(f).relative_to(root).parts
                 if not any(p in _SKIP for p in parts):
                     py_files.append(f)
-        py_files.sort(key=lambda f: (os.path.dirname(f) != root, os.path.basename(f).lower()))
+        py_files.sort(
+            key=lambda f: (os.path.dirname(f) != root, os.path.basename(f).lower())
+        )
 
         entries: list[str | None] = [None] + py_files + ["__browse__"]
 
@@ -4905,6 +4985,7 @@ class IDOL(Tk):
             picker.destroy()
             if entry == "__browse__":
                 from tkinter.filedialog import askopenfilename
+
                 path = askopenfilename(
                     title="Select Entry File",
                     filetypes=[("Python files", "*.py"), ("All files", "*.*")],
@@ -4939,18 +5020,28 @@ class IDOL(Tk):
 
         # Header
         tk.Label(
-            picker, text="Select Python Interpreter",
-            bg="#252526", fg="#cccccc",
-            font=("Segoe UI", 9, "bold"), pady=6, padx=10, anchor="w",
+            picker,
+            text="Select Python Interpreter",
+            bg="#252526",
+            fg="#cccccc",
+            font=("Segoe UI", 9, "bold"),
+            pady=6,
+            padx=10,
+            anchor="w",
         ).pack(fill="x")
         ttk.Separator(picker, orient="horizontal").pack(fill="x")
 
         lb = tk.Listbox(
             picker,
-            bg="#1e1e1e", fg="#cccccc",
-            selectbackground="#094771", selectforeground="#ffffff",
-            borderwidth=0, highlightthickness=0,
-            font=("Consolas", 9), relief="flat", activestyle="none",
+            bg="#1e1e1e",
+            fg="#cccccc",
+            selectbackground="#094771",
+            selectforeground="#ffffff",
+            borderwidth=0,
+            highlightthickness=0,
+            font=("Consolas", 9),
+            relief="flat",
+            activestyle="none",
         )
         lb.pack(fill="both", expand=True, padx=1, pady=(1, 1))
         lb.insert("end", "  Detecting interpreters…")
@@ -4999,7 +5090,12 @@ class IDOL(Tk):
         lb.bind("<Double-Button-1>", _select)
         lb.bind("<Button-1>", lambda e: lb.after(10, _select))
         lb.bind("<Escape>", lambda _: picker.destroy())
-        picker.bind("<FocusOut>", lambda e: picker.after(100, lambda: picker.destroy() if picker.winfo_exists() else None))
+        picker.bind(
+            "<FocusOut>",
+            lambda e: picker.after(
+                100, lambda: picker.destroy() if picker.winfo_exists() else None
+            ),
+        )
 
         # Initial position before data loads
         ax, ay = self._statusbar.get_interp_anchor()
@@ -5013,6 +5109,7 @@ class IDOL(Tk):
         """Return the site-packages dir containing IDOL's bundled debugpy, or None."""
         try:
             import importlib.util
+
             spec = importlib.util.find_spec("debugpy")
             if spec and spec.origin:
                 return os.path.dirname(os.path.dirname(spec.origin))
@@ -5035,7 +5132,7 @@ class IDOL(Tk):
         if not filepath or not filepath.endswith(".py"):
             return
 
-        python_exe   = self._active_python
+        python_exe = self._active_python
         debugpy_site = self._get_debugpy_site()
 
         self._debugger = DebugManager(after_fn=self._safe_after)
@@ -5068,7 +5165,13 @@ class IDOL(Tk):
                     self._switch_to_terminal_debug
                 )
 
-    def _debug_in_terminal(self, filepath: str, python_exe: str, bp_dict: dict, debugpy_site: str | None = None) -> None:
+    def _debug_in_terminal(
+        self,
+        filepath: str,
+        python_exe: str,
+        bp_dict: dict,
+        debugpy_site: str | None = None,
+    ) -> None:
         """Launch debugpy in the terminal and attach our DAP client to it."""
         from editor.debug_manager import _find_free_port
 
@@ -5079,6 +5182,7 @@ class IDOL(Tk):
             self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
 
         import platform as _pl
+
         is_win = _pl.system() == "Windows"
         prefix = "& " if is_win else ""
         base = f'{prefix}"{python_exe}" -Xfrozen_modules=off -m debugpy --listen 127.0.0.1:{port} --wait-for-client "{filepath}"'
@@ -5429,7 +5533,7 @@ class IDOL(Tk):
         ).pack()
         tk.Label(
             dlg,
-            text="created by gitPIDE — GitHub's Python IDE",
+            text="gitPIDE — GitHub's Python IDE",
             bg="#0d1117",
             fg="#569cd6",
             font=("Segoe UI", 9),
