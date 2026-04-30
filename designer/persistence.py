@@ -117,15 +117,22 @@ def extract_init_user_zones(py_path: Path) -> tuple[str, str]:
     if tree is None:
         return "", ""
 
-    # Find __init__ line bounds
+    # Find __init__ line bounds.
+    # Use the *next sibling method's* start line as the end boundary rather than
+    # item.end_lineno — AST end_lineno stops at the last statement and excludes
+    # trailing comments (e.g. the closing IDOL:END marker after self._build_ui()).
     init_start = init_end = None
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        for item in node.body:
+        siblings = node.body
+        for i, item in enumerate(siblings):
             if isinstance(item, ast.FunctionDef) and item.name == "__init__":
                 init_start = item.lineno - 1   # 0-indexed inclusive
-                init_end   = item.end_lineno    # 0-indexed exclusive
+                if i + 1 < len(siblings):
+                    init_end = siblings[i + 1].lineno - 1   # 0-indexed exclusive
+                else:
+                    init_end = len(lines)
 
     if init_start is None:
         return "", ""
