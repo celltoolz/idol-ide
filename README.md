@@ -221,16 +221,29 @@ IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applica
 - **Visual canvas** — a dotted-grid design surface showing your form at real size with a simulated title bar and drop shadow; widgets render with realistic visuals (raised buttons, sunken entries, filled progress bars, checked checkboxes, and more)
 - **Widget palette** — 14 widget types in a scrollable toolbox with canvas-drawn mini-previews: Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, Scale, Spinbox, Progressbar, Separator
 - **Drag, move & resize** — click to select any widget (blue dashed border + 8 white handles); drag to reposition; drag any handle to resize — all snapped to an 8px grid
+- **Multi-select** — rubber-band drag to select multiple widgets; Ctrl+Click to toggle; drag the group to move all at once
+- **Copy / Paste** — Ctrl+C / Ctrl+V to duplicate widgets; right-click context menu with Copy, Paste, Delete, Bring to Front, Send to Back
 - **Properties panel** — right-side panel with Property and Value columns; click any value to edit inline; geometry (x, y, width, height) updates live as you drag
+  - **Color picker** — bg and fg properties open `tkinter.colorchooser`; the row tints immediately and the canvas widget updates live
+  - **Variable binding** — supported widgets (Entry, Label, Checkbutton, Radiobutton, Scale, Spinbox, Combobox) expose a Variable section: set a name, type (StringVar / IntVar / DoubleVar / BooleanVar), and initial value; codegen emits the declaration and wires `textvariable=` / `variable=` automatically
+  - **Form properties** — click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), and maximize box; border style and maximize stay in sync automatically
 - **Events tab** — every widget exposes its full event list (click, dblclick, keypress, focusin, change, and more); click an event name to auto-wire a default handler; type a custom method name to override
 - **Code generation** — `Designer → Generate Code` (Ctrl+Shift+G) writes clean, class-based Python from the canvas model:
   ```python
   class Form1(tk.Tk):
       def __init__(self):
+          # ── IDOL:BEGIN ────── (generated — do not edit inside markers)
           super().__init__()
           self.title("My App")
           self.geometry("800x600")
+          self.result_var = tk.StringVar()
+          # ── IDOL:END ──────
+
+          # Your __init__ code here is preserved across regeneration
+
+          # ── IDOL:BEGIN ──────
           self._build_ui()
+          # ── IDOL:END ──────
 
       def _build_ui(self):
           self.btn1 = tk.Button(self, text="Click Me", command=self._btn1_click)
@@ -240,9 +253,16 @@ IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applica
 
       def _btn1_click(self, *args):
           pass  # TODO
+
+      # ── Functions ────────────────────────────────────────────────────────────
+      # Methods defined here are preserved across code generation.
   ```
-- **Event body preservation** — regenerating code splices your existing handler bodies back in; code you wrote is never overwritten
-- **Manual edits detection** — if you edit the generated `.py` by hand and return to the Designer, IDOL detects the change via checksum and prompts before discarding your edits
+- **Full user code preservation** — regenerating code never discards what you wrote:
+  - Event handler bodies are extracted and spliced back in
+  - Helper methods in the `# ── Functions ──` section survive verbatim
+  - Code in the two `__init__` user zones (between the IDOL marker blocks) is preserved
+- **Manual edits detection** — if you edit the generated `.py` by hand, IDOL detects the change via SHA-256 checksum when you click Generate Code and warns you; event handlers, helpers, and `__init__` code are always preserved regardless
+- **Run prompt** — clicking ▶ Run while the designer has ungenerated changes asks if you want to generate first; Yes generates then runs, No runs the existing file, Cancel aborts
 - **[Editor] | [Designer] mode bar** — a toggle strip above the editor switches the main area between code and canvas; the left panel swaps from File Explorer to the Widget Palette automatically
 - **Project type gating** — the Designer only appears for **Tkinter GUI App** projects; Command Line projects see only the standard editor with no extra UI
 - **Persistent form model** — the canvas state is stored in a `.form.json` sidecar file next to the generated `.py`; fully version-control friendly
