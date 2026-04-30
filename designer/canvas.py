@@ -838,53 +838,62 @@ def _text(c, x, y, x2, y2, txt, anchor="center", color="#111111", bold=False):
 
 @_tag
 def _draw_button(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2,     fill="#e1e1e1", outline="#adadad", width=1)
-    c.create_rectangle(x+1, y+1, x2, y2, fill="",        outline="#ffffff", width=1)
-    _text(c, x, y, x2, y2, text or "Button")
+    bg = props.get("bg", "#e1e1e1") or "#e1e1e1"
+    fg = props.get("fg", "#111111") or "#111111"
+    c.create_rectangle(x, y, x2, y2,     fill=bg, outline="#adadad", width=1)
+    c.create_rectangle(x+1, y+1, x2, y2, fill="", outline="#ffffff", width=1)
+    _text(c, x, y, x2, y2, text or "Button", color=fg)
 
 
 @_tag
 def _draw_label(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#f5f5f5", outline="")
-    _text(c, x, y, x2, y2, text or "Label", anchor="w", color="#111111")
+    bg = props.get("bg", "#f5f5f5") or "#f5f5f5"
+    fg = props.get("fg", "#111111") or "#111111"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
+    _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
 
 
 @_tag
 def _draw_entry(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#ffffff", outline="#abadb3", width=1)
-    c.create_line(x+1, y+1, x2-1, y+1, fill="#c2c2c2")  # inner top shadow
+    bg = props.get("bg", "#ffffff") or "#ffffff"
+    fg = props.get("fg", "#111111") or "#111111"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3", width=1)
+    c.create_line(x+1, y+1, x2-1, y+1, fill="#c2c2c2")
     placeholder = props.get("placeholder", "")
-    display = placeholder if placeholder else ""
-    if display:
-        _text(c, x, y, x2, y2, display, anchor="w", color="#aaaaaa")
-    # cursor
-    c.create_line(x+6, y+4, x+6, y2-4, fill="#111111", width=1)
+    if placeholder:
+        _text(c, x, y, x2, y2, placeholder, anchor="w", color="#aaaaaa")
+    c.create_line(x+6, y+4, x+6, y2-4, fill=fg, width=1)
 
 
 @_tag
 def _draw_text(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#ffffff", outline="#abadb3")
+    bg = props.get("bg", "#ffffff") or "#ffffff"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3")
     c.create_line(x+1, y+1, x2-1, y+1, fill="#c2c2c2")
     _text(c, x, y, x2, y2, "Text", anchor="w", color="#aaaaaa")
 
 
 @_tag
 def _draw_checkbutton(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#f5f5f5", outline="")
+    bg = props.get("bg", "#f5f5f5") or "#f5f5f5"
+    fg = props.get("fg", "#111111") or "#111111"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     bx, by = x + 2, (y + y2) // 2 - 6
     c.create_rectangle(bx, by, bx + 12, by + 12, fill="#ffffff", outline="#abadb3")
     c.create_line(bx+2, by+6, bx+5, by+10, fill="#0078d4", width=2)
     c.create_line(bx+5, by+10, bx+11, by+2, fill="#0078d4", width=2)
-    _text(c, bx + 18, y, x2, y2, text or "Check", anchor="w")
+    _text(c, bx + 18, y, x2, y2, text or "Check", anchor="w", color=fg)
 
 
 @_tag
 def _draw_radiobutton(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#f5f5f5", outline="")
+    bg = props.get("bg", "#f5f5f5") or "#f5f5f5"
+    fg = props.get("fg", "#111111") or "#111111"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     cx2, cy2 = x + 8, (y + y2) // 2
     c.create_oval(cx2-6, cy2-6, cx2+6, cy2+6, fill="#ffffff", outline="#abadb3")
     c.create_oval(cx2-3, cy2-3, cx2+3, cy2+3, fill="#0078d4", outline="")
-    _text(c, cx2 + 12, y, x2, y2, text or "Radio", anchor="w")
+    _text(c, cx2 + 12, y, x2, y2, text or "Radio", anchor="w", color=fg)
 
 
 @_tag
@@ -899,7 +908,9 @@ def _draw_combobox(c, x, y, x2, y2, text, props):
 
 @_tag
 def _draw_listbox(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#ffffff", outline="#abadb3")
+    bg = props.get("bg", "#ffffff") or "#ffffff"
+    fg = props.get("fg", "#555555") or "#555555"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3")
     row_h = 18
     for i in range(min(3, (y2 - y) // row_h)):
         ry = y + i * row_h
@@ -909,29 +920,33 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
                           fill="#ffffff", font=("Segoe UI", 8))
         else:
             c.create_text(x+5, ry+row_h//2, text=f"Item {i+1}", anchor="w",
-                          fill="#555555", font=("Segoe UI", 8))
+                          fill=fg, font=("Segoe UI", 8))
 
 
 @_tag
 def _draw_frame(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#f0f0f0", outline="#abadb3",
+    bg = props.get("bg", "#f0f0f0") or "#f0f0f0"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3",
                         dash=(4, 4), width=1)
 
 
 @_tag
 def _draw_labelframe(c, x, y, x2, y2, text, props):
+    bg = props.get("bg", "#f0f0f0") or "#f0f0f0"
+    fg = props.get("fg", "#333333") or "#333333"
     label = text or "Group"
-    c.create_rectangle(x, y+8, x2, y2, fill="#f0f0f0", outline="#abadb3",
+    c.create_rectangle(x, y+8, x2, y2, fill=bg, outline="#abadb3",
                         dash=(4, 4))
     lw = len(label) * 6 + 8
-    c.create_rectangle(x+8, y, x+8+lw, y+16, fill="#f5f5f5", outline="")
+    c.create_rectangle(x+8, y, x+8+lw, y+16, fill=bg, outline="")
     c.create_text(x+12, y+8, text=label, anchor="w",
-                  fill="#333333", font=("Segoe UI", 8))
+                  fill=fg, font=("Segoe UI", 8))
 
 
 @_tag
 def _draw_scale(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2, fill="#f5f5f5", outline="")
+    bg = props.get("bg", "#f5f5f5") or "#f5f5f5"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     orient = props.get("orient", "horizontal")
     if orient == "horizontal":
         cy2 = (y + y2) // 2
@@ -947,13 +962,15 @@ def _draw_scale(c, x, y, x2, y2, text, props):
 
 @_tag
 def _draw_spinbox(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2,      fill="#ffffff", outline="#abadb3")
+    bg = props.get("bg", "#ffffff") or "#ffffff"
+    fg = props.get("fg", "#333333") or "#333333"
+    c.create_rectangle(x, y, x2, y2,      fill=bg, outline="#abadb3")
     c.create_rectangle(x2-16, y, x2, y2,  fill="#e1e1e1", outline="#abadb3")
     mid = (y + y2) // 2
     c.create_text(x2-8, mid-4, text="▲", fill="#555555", font=("Segoe UI", 6))
     c.create_text(x2-8, mid+4, text="▼", fill="#555555", font=("Segoe UI", 6))
     val = str(props.get("from_", "0"))
-    _text(c, x, y, x2-16, y2, val, anchor="w", color="#333333")
+    _text(c, x, y, x2-16, y2, val, anchor="w", color=fg)
 
 
 @_tag
