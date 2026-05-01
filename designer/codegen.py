@@ -193,7 +193,7 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
     for k, v in w.props.items():
         if k in _all_color_props and v == "":
             continue
-        if k in _SKIP_IF_EMPTY and v == "":
+        if k in _SKIP_IF_EMPTY and (v == "" or v == ()):
             continue
         if k == "state" and v == "normal":
             continue

@@ -569,38 +569,53 @@ class DesignerProperties(tk.Frame):
     def _open_font_picker(self, row_iid: str) -> None:
         """Open the font chooser dialog for a font property cell."""
         from tkfontchooser import askfont
-        current = self._props_tree.set(row_iid, "#1").strip()
-        # Parse current string "Family size bold italic" → dict for pre-population
+        d = self._current_widget
+        if d is None:
+            return
+
+        # Build pre-population dict from current value (tuple or legacy string)
+        current = d.props.get("font", "")
         init: dict = {}
-        if current:
+        if isinstance(current, tuple) and current:
+            init["family"] = current[0] if len(current) > 0 else ""
+            init["size"]   = current[1] if len(current) > 1 else 10
+            styles = set((current[2] if len(current) > 2 else "").split())
+            if "bold"       in styles: init["weight"]     = "bold"
+            if "italic"     in styles: init["slant"]      = "italic"
+            if "underline"  in styles: init["underline"]  = 1
+            if "overstrike" in styles: init["overstrike"] = 1
+        elif isinstance(current, str) and current:
             parts = current.split()
-            if parts:
-                init["family"] = parts[0]
+            if parts: init["family"] = parts[0]
             if len(parts) > 1:
-                try:
-                    init["size"] = int(parts[1])
-                except ValueError:
-                    pass
+                try: init["size"] = int(parts[1])
+                except ValueError: pass
             tags = {p.lower() for p in parts[2:]}
-            if "bold"      in tags: init["weight"]     = "bold"
-            if "italic"    in tags: init["slant"]      = "italic"
-            if "underline" in tags: init["underline"]  = 1
+            if "bold"       in tags: init["weight"]     = "bold"
+            if "italic"     in tags: init["slant"]      = "italic"
+            if "underline"  in tags: init["underline"]  = 1
             if "overstrike" in tags: init["overstrike"] = 1
 
         result = askfont(self.winfo_toplevel(), title="Choose Font", font=init)
         if not result:
             return
 
-        # Build readable string: "Family size [bold] [italic] [underline] [overstrike]"
-        parts = [result.get("family", "TkDefaultFont"), str(result.get("size", 10))]
-        if result.get("weight")     == "bold":    parts.append("bold")
-        if result.get("slant")      == "italic":  parts.append("italic")
-        if result.get("underline"):               parts.append("underline")
-        if result.get("overstrike"):              parts.append("overstrike")
-        font_str = " ".join(parts)
+        # Build tuple: ("Family", size, "bold italic") — unambiguous for any family name
+        family = result.get("family", "TkDefaultFont")
+        size   = result.get("size", 10)
+        styles = []
+        if result.get("weight")     == "bold":   styles.append("bold")
+        if result.get("slant")      == "italic":  styles.append("italic")
+        if result.get("underline"):               styles.append("underline")
+        if result.get("overstrike"):              styles.append("overstrike")
+        font_tuple = (family, size, " ".join(styles)) if styles else (family, size)
 
-        self._props_tree.set(row_iid, "#1", font_str)
-        self._commit_prop(row_iid, font_str)
+        # Display as "Family, size, style" in the panel; store tuple in props
+        display = f"{family}, {size}" + (f", {' '.join(styles)}" if styles else "")
+        self._props_tree.set(row_iid, "#1", display)
+        d.props["font"] = font_tuple
+        if self._on_prop_change:
+            self._on_prop_change(d.id, "font", font_tuple)
 
     def _apply_color_swatch(self, row_iid: str, color: str) -> None:
         """Tint the treeview row to preview the color."""
