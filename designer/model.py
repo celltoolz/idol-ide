@@ -68,6 +68,38 @@ class WidgetDescriptor:
 
 
 @dataclass
+class MenuItemDescriptor:
+    """One row in the Menu Editor — a top-level menu, menu item, or separator."""
+    caption:  str  = ""     # display text; "-" = separator line
+    name:     str  = ""     # code identifier, e.g. "open_form2"
+    indent:   int  = 0      # 0 = top-level cascade, 1 = item/separator, 2 = sub-item
+    enabled:  bool = True
+    visible:  bool = True
+    shortcut: str  = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "caption":  self.caption,
+            "name":     self.name,
+            "indent":   self.indent,
+            "enabled":  self.enabled,
+            "visible":  self.visible,
+            "shortcut": self.shortcut,
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "MenuItemDescriptor":
+        return MenuItemDescriptor(
+            caption  = d.get("caption",  ""),
+            name     = d.get("name",     ""),
+            indent   = d.get("indent",   0),
+            enabled  = d.get("enabled",  True),
+            visible  = d.get("visible",  True),
+            shortcut = d.get("shortcut", ""),
+        )
+
+
+@dataclass
 class FormModel:
     """Canonical description of one form (one .form.json / one generated .py)."""
     name: str = "Form1"
@@ -77,8 +109,9 @@ class FormModel:
     border_style: str = "sizable"         # "sizable" | "fixed" | "none"
     maximize_box: bool = True
     bg: str = ""                         # "" = system default
-    form_type: str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel, v2)
-    widgets: list[WidgetDescriptor] = field(default_factory=list)
+    form_type:  str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel, v2)
+    widgets:    list[WidgetDescriptor]    = field(default_factory=list)
+    menu_items: list[MenuItemDescriptor]  = field(default_factory=list)
 
     # ── widget lookup helpers ──────────────────────────────────────────────────
 
@@ -117,7 +150,8 @@ class FormModel:
             "maximize_box": self.maximize_box,
             "bg": self.bg,
             "form_type": self.form_type,
-            "widgets": [w.to_dict() for w in self.widgets],
+            "widgets":    [w.to_dict() for w in self.widgets],
+            "menu_items": [m.to_dict() for m in self.menu_items],
         }
 
     @staticmethod
@@ -138,7 +172,8 @@ class FormModel:
             maximize_box=d.get("maximize_box", True),
             bg=d.get("bg", ""),
             form_type=d.get("form_type", "main"),
-            widgets=[WidgetDescriptor.from_dict(w) for w in d.get("widgets", [])],
+            widgets    =[WidgetDescriptor.from_dict(w)    for w in d.get("widgets",    [])],
+            menu_items =[MenuItemDescriptor.from_dict(m)  for m in d.get("menu_items", [])],
         )
 
 

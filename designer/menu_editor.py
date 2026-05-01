@@ -1,0 +1,378 @@
+from __future__ import annotations
+
+import copy
+import tkinter as tk
+from tkinter import ttk
+from typing import Callable
+
+from .model import MenuItemDescriptor
+
+_BG       = "#1e1e1e"
+_BG2      = "#2d2d2d"
+_BG3      = "#3c3c3c"
+_FG       = "#cccccc"
+_FG_DIM   = "#858585"
+_ACCENT   = "#569cd6"
+_BTN_BG   = "#3a3a3a"
+_ENTRY_BG = "#3c3c3c"
+_SEL_BG   = "#094771"
+
+_SHORTCUTS = [
+    "(None)", "Ctrl+A", "Ctrl+C", "Ctrl+D", "Ctrl+E", "Ctrl+F",
+    "Ctrl+G", "Ctrl+H", "Ctrl+I", "Ctrl+K", "Ctrl+L", "Ctrl+M",
+    "Ctrl+N", "Ctrl+O", "Ctrl+P", "Ctrl+Q", "Ctrl+R", "Ctrl+S",
+    "Ctrl+T", "Ctrl+U", "Ctrl+V", "Ctrl+W", "Ctrl+X", "Ctrl+Y",
+    "Ctrl+Z", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8",
+    "F9", "F10", "F11", "F12", "Del", "Ins",
+]
+
+
+class MenuEditor(tk.Toplevel):
+    """VB6-style Menu Editor dialog.
+
+    Parameters
+    ----------
+    parent      : tk widget — owner window
+    items       : current menu items list (will be deep-copied internally)
+    on_save     : called with the new list when the user clicks OK
+    """
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        items: list[MenuItemDescriptor],
+        on_save: Callable[[list[MenuItemDescriptor]], None],
+    ) -> None:
+        super().__init__(parent)
+        self.title("Menu Editor")
+        self.resizable(False, False)
+        self.configure(bg=_BG)
+        self.grab_set()
+
+        self._on_save = on_save
+        self._items: list[MenuItemDescriptor] = copy.deepcopy(items)
+        self._selected_idx: int | None = None
+        self._updating = False
+
+        self._build_ui()
+        self._refresh_listbox()
+        if self._items:
+            self._select(0)
+
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        pw = parent.winfo_rootx() + parent.winfo_width() // 2
+        ph = parent.winfo_rooty() + parent.winfo_height() // 2
+        self.geometry(f"{w}x{h}+{pw - w // 2}+{ph - h // 2}")
+
+    # ── UI construction ───────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        pad = {"padx": 8, "pady": 4}
+
+        # ── fields frame ──────────────────────────────────────────────────────
+        fields = tk.Frame(self, bg=_BG)
+        fields.pack(fill="x", **pad)
+
+        def _label(parent, text, row, col):
+            tk.Label(parent, text=text, bg=_BG, fg=_FG_DIM,
+                     font=("Segoe UI", 9), anchor="w"
+                     ).grid(row=row, column=col, sticky="w", padx=(0, 4), pady=3)
+
+        def _entry(parent, row, col, width=24):
+            e = tk.Entry(parent, bg=_ENTRY_BG, fg=_FG, insertbackground=_FG,
+                         relief="flat", font=("Segoe UI", 9), width=width,
+                         highlightthickness=1, highlightcolor=_ACCENT,
+                         highlightbackground=_BG3)
+            e.grid(row=row, column=col, sticky="ew", padx=(0, 12), pady=3)
+            return e
+
+        _label(fields, "Caption:", 0, 0)
+        self._caption_var = tk.StringVar()
+        self._caption_entry = _entry(fields, 0, 1)
+        self._caption_entry.config(textvariable=self._caption_var)
+
+        _label(fields, "Name:", 1, 0)
+        self._name_var = tk.StringVar()
+        self._name_entry = _entry(fields, 1, 1)
+        self._name_entry.config(textvariable=self._name_var)
+
+        _label(fields, "Shortcut:", 0, 2)
+        self._shortcut_var = tk.StringVar(value="(None)")
+        sc_frame = tk.Frame(fields, bg=_BG)
+        sc_frame.grid(row=0, column=3, sticky="w", pady=3)
+        self._shortcut_cb = ttk.Combobox(
+            sc_frame, textvariable=self._shortcut_var,
+            values=_SHORTCUTS, state="readonly",
+            width=12, font=("Segoe UI", 9),
+        )
+        _style_combobox(self._shortcut_cb)
+        self._shortcut_cb.pack()
+
+        # checkboxes row
+        chk_frame = tk.Frame(fields, bg=_BG)
+        chk_frame.grid(row=1, column=2, columnspan=2, sticky="w", pady=3)
+        self._enabled_var = tk.BooleanVar(value=True)
+        self._visible_var = tk.BooleanVar(value=True)
+        for text, var, col in [("Enabled", self._enabled_var, 0),
+                                ("Visible", self._visible_var, 1)]:
+            tk.Checkbutton(
+                chk_frame, text=text, variable=var,
+                bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
+                activeforeground=_FG, font=("Segoe UI", 9),
+                command=self._on_field_change,
+            ).grid(row=0, column=col, padx=(0, 12))
+
+        fields.columnconfigure(1, weight=1)
+
+        # ── arrow / action buttons ────────────────────────────────────────────
+        btn_frame = tk.Frame(self, bg=_BG)
+        btn_frame.pack(fill="x", padx=8, pady=(0, 4))
+
+        arrow_frame = tk.Frame(btn_frame, bg=_BG)
+        arrow_frame.pack(side="left")
+
+        for sym, tip, cmd in [
+            ("←", "Promote (unindent)",    self._promote),
+            ("→", "Demote (make submenu)", self._demote),
+            ("↑", "Move up",               self._move_up),
+            ("↓", "Move down",             self._move_down),
+        ]:
+            b = tk.Button(
+                arrow_frame, text=sym, width=3,
+                bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
+                relief="flat", font=("Segoe UI", 10), cursor="hand2",
+                command=cmd,
+            )
+            b.pack(side="left", padx=2)
+            _bind_tooltip(b, tip)
+
+        action_frame = tk.Frame(btn_frame, bg=_BG)
+        action_frame.pack(side="right")
+
+        for text, cmd in [("Next", self._next), ("Insert", self._insert),
+                          ("Delete", self._delete)]:
+            tk.Button(
+                action_frame, text=text, width=7,
+                bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
+                relief="flat", font=("Segoe UI", 9), cursor="hand2",
+                command=cmd,
+            ).pack(side="left", padx=2)
+
+        # ── listbox ───────────────────────────────────────────────────────────
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8)
+        lb_frame = tk.Frame(self, bg=_BG)
+        lb_frame.pack(fill="both", expand=True, padx=8, pady=6)
+
+        sb = tk.Scrollbar(lb_frame, orient="vertical", bg=_BG2, troughcolor=_BG,
+                          width=10, relief="flat", borderwidth=0)
+        self._listbox = tk.Listbox(
+            lb_frame, bg=_BG2, fg=_FG,
+            selectbackground=_SEL_BG, selectforeground="#ffffff",
+            font=("Segoe UI", 9), relief="flat", borderwidth=0,
+            activestyle="none", height=10, width=48,
+            yscrollcommand=sb.set,
+        )
+        sb.config(command=self._listbox.yview)
+        sb.pack(side="right", fill="y")
+        self._listbox.pack(side="left", fill="both", expand=True)
+        self._listbox.bind("<<ListboxSelect>>", self._on_listbox_select)
+
+        # ── OK / Cancel ───────────────────────────────────────────────────────
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8)
+        ok_frame = tk.Frame(self, bg=_BG)
+        ok_frame.pack(fill="x", padx=8, pady=6)
+
+        tk.Button(
+            ok_frame, text="OK", width=9,
+            bg=_ACCENT, fg="#ffffff", activebackground="#4a8ec2",
+            activeforeground="#ffffff", relief="flat",
+            font=("Segoe UI", 9, "bold"), cursor="hand2",
+            command=self._ok,
+        ).pack(side="right", padx=(4, 0))
+        tk.Button(
+            ok_frame, text="Cancel", width=9,
+            bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
+            relief="flat", font=("Segoe UI", 9), cursor="hand2",
+            command=self.destroy,
+        ).pack(side="right")
+
+        # wire field-change callbacks after all widgets exist
+        self._caption_var.trace_add("write", lambda *_: self._on_field_change())
+        self._name_var.trace_add("write", lambda *_: self._on_field_change())
+        self._shortcut_var.trace_add("write", lambda *_: self._on_field_change())
+
+    # ── Listbox helpers ───────────────────────────────────────────────────────
+
+    def _refresh_listbox(self) -> None:
+        self._listbox.delete(0, "end")
+        for item in self._items:
+            prefix = "    " * item.indent
+            label = item.caption if item.caption else "(new item)"
+            if item.caption == "-":
+                label = "  ─────────────────"
+                prefix = "    " * item.indent + " "
+            self._listbox.insert("end", f"{prefix}{label}")
+        if self._selected_idx is not None and self._items:
+            idx = min(self._selected_idx, len(self._items) - 1)
+            self._listbox.selection_clear(0, "end")
+            self._listbox.selection_set(idx)
+            self._listbox.see(idx)
+
+    def _select(self, idx: int) -> None:
+        self._selected_idx = idx
+        self._listbox.selection_clear(0, "end")
+        self._listbox.selection_set(idx)
+        self._listbox.see(idx)
+        self._load_fields(self._items[idx])
+
+    def _load_fields(self, item: MenuItemDescriptor) -> None:
+        self._updating = True
+        self._caption_var.set(item.caption)
+        self._name_var.set(item.name)
+        sc = item.shortcut if item.shortcut else "(None)"
+        self._shortcut_var.set(sc if sc in _SHORTCUTS else "(None)")
+        self._enabled_var.set(item.enabled)
+        self._visible_var.set(item.visible)
+        self._updating = False
+
+    def _current_item(self) -> MenuItemDescriptor | None:
+        if self._selected_idx is None or not self._items:
+            return None
+        return self._items[self._selected_idx]
+
+    # ── Field-change callback ─────────────────────────────────────────────────
+
+    def _on_field_change(self) -> None:
+        if self._updating:
+            return
+        item = self._current_item()
+        if item is None:
+            return
+        item.caption  = self._caption_var.get()
+        item.name     = self._name_var.get()
+        sc = self._shortcut_var.get()
+        item.shortcut = "" if sc == "(None)" else sc
+        item.enabled  = self._enabled_var.get()
+        item.visible  = self._visible_var.get()
+        self._refresh_listbox()
+
+    # ── Listbox selection ─────────────────────────────────────────────────────
+
+    def _on_listbox_select(self, _event: tk.Event) -> None:
+        sel = self._listbox.curselection()
+        if not sel:
+            return
+        self._selected_idx = sel[0]
+        self._load_fields(self._items[self._selected_idx])
+
+    # ── Arrow / action buttons ────────────────────────────────────────────────
+
+    def _promote(self) -> None:
+        item = self._current_item()
+        if item and item.indent > 0:
+            item.indent -= 1
+            self._refresh_listbox()
+
+    def _demote(self) -> None:
+        item = self._current_item()
+        if item is None:
+            return
+        idx = self._selected_idx
+        max_indent = (self._items[idx - 1].indent + 1) if idx and idx > 0 else 0
+        if item.indent < max_indent:
+            item.indent += 1
+            self._refresh_listbox()
+
+    def _move_up(self) -> None:
+        idx = self._selected_idx
+        if idx is None or idx == 0:
+            return
+        self._items[idx], self._items[idx - 1] = self._items[idx - 1], self._items[idx]
+        self._selected_idx = idx - 1
+        self._refresh_listbox()
+
+    def _move_down(self) -> None:
+        idx = self._selected_idx
+        if idx is None or idx >= len(self._items) - 1:
+            return
+        self._items[idx], self._items[idx + 1] = self._items[idx + 1], self._items[idx]
+        self._selected_idx = idx + 1
+        self._refresh_listbox()
+
+    def _next(self) -> None:
+        idx = self._selected_idx
+        if idx is None:
+            return
+        next_idx = idx + 1
+        if next_idx >= len(self._items):
+            self._insert()
+        else:
+            self._select(next_idx)
+
+    def _insert(self) -> None:
+        indent = 0
+        if self._selected_idx is not None and self._items:
+            indent = self._items[self._selected_idx].indent
+        new_item = MenuItemDescriptor(caption="", name="", indent=indent)
+        insert_at = (self._selected_idx + 1) if self._selected_idx is not None else len(self._items)
+        self._items.insert(insert_at, new_item)
+        self._selected_idx = insert_at
+        self._refresh_listbox()
+        self._load_fields(new_item)
+        self._caption_entry.focus_set()
+
+    def _delete(self) -> None:
+        idx = self._selected_idx
+        if idx is None or not self._items:
+            return
+        self._items.pop(idx)
+        if not self._items:
+            self._selected_idx = None
+            self._listbox.delete(0, "end")
+            self._caption_var.set("")
+            self._name_var.set("")
+            return
+        new_idx = min(idx, len(self._items) - 1)
+        self._selected_idx = new_idx
+        self._refresh_listbox()
+        self._load_fields(self._items[new_idx])
+
+    # ── OK ────────────────────────────────────────────────────────────────────
+
+    def _ok(self) -> None:
+        self._on_save(self._items)
+        self.destroy()
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _style_combobox(cb: ttk.Combobox) -> None:
+    style = ttk.Style()
+    name = f"MenuEd.TCombobox"
+    style.configure(name, fieldbackground=_ENTRY_BG, background=_BTN_BG,
+                    foreground=_FG, selectbackground=_SEL_BG,
+                    selectforeground="#ffffff", arrowcolor=_FG_DIM)
+    cb.configure(style=name)
+
+
+def _bind_tooltip(widget: tk.Widget, text: str) -> None:
+    tip: tk.Toplevel | None = None
+
+    def _show(e):
+        nonlocal tip
+        tip = tk.Toplevel(widget)
+        tip.overrideredirect(True)
+        tip.configure(bg="#252526")
+        tk.Label(tip, text=text, bg="#252526", fg=_FG,
+                 font=("Segoe UI", 8), padx=4, pady=2).pack()
+        tip.geometry(f"+{e.x_root + 12}+{e.y_root + 16}")
+
+    def _hide(_e):
+        nonlocal tip
+        if tip:
+            tip.destroy()
+            tip = None
+
+    widget.bind("<Enter>", _show)
+    widget.bind("<Leave>", _hide)

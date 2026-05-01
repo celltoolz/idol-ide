@@ -4106,6 +4106,8 @@ class IDOL(Tk):
                 form.border_style = str(value).lower().strip()
             elif key == "maximize_box":
                 form.maximize_box = str(value).lower() in ("true", "1", "yes")
+            elif key == "menu_bar":
+                pass  # model already mutated by properties panel via _form ref
             return
         if key == "__variable__":
             return  # model already mutated by properties panel; no canvas redraw needed

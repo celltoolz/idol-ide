@@ -166,6 +166,13 @@ class DesignerProperties(tk.Frame):
                                     text=label, values=(str(val),))
         # Tint the background row with the current color
         self._apply_color_swatch("form__bg", (form.bg or "#f5f5f5").upper())
+        # Menu bar row
+        n = len(form.menu_items)
+        menu_val = f"{n} item{'s' if n != 1 else ''}" if n else "(none)"
+        self._props_tree.insert("", "end", iid="form__menu_bar",
+                                text="menu bar", values=(menu_val,))
+        self._props_tree.tag_configure("menu_bar_link", foreground="#569cd6")
+        self._props_tree.item("form__menu_bar", tags=("menu_bar_link",))
 
         self._events_tree.delete(*self._events_tree.get_children())
         for ev in ("load", "activate", "deactivate", "unload"):
@@ -450,7 +457,9 @@ class DesignerProperties(tk.Frame):
             return
         if row == "var__section":
             return  # section header — not editable
-        if row == "form__bg" or self._is_color_row(row):
+        if row == "form__menu_bar":
+            self._open_menu_editor()
+        elif row == "form__bg" or self._is_color_row(row):
             self._open_color_picker(row)
         elif row == "form__border_style":
             self._open_dropdown(self._props_tree, row, col,
@@ -626,6 +635,21 @@ class DesignerProperties(tk.Frame):
         self._props_tree.set(row_iid, "#1", color)
         self._apply_color_swatch(row_iid, color)
         self._commit_prop(row_iid, color)
+
+    def _open_menu_editor(self) -> None:
+        if self._form is None:
+            return
+        from designer.menu_editor import MenuEditor
+
+        def _save(items):
+            self._form.menu_items = items
+            n = len(items)
+            val = f"{n} item{'s' if n != 1 else ''}" if n else "(none)"
+            self._props_tree.set("form__menu_bar", "#1", val)
+            if self._on_prop_change:
+                self._on_prop_change("__form__", "menu_bar", items)
+
+        MenuEditor(self.winfo_toplevel(), self._form.menu_items, _save)
 
     def _open_font_picker(self, row_iid: str) -> None:
         """Open the font chooser dialog for a font property cell."""
@@ -1041,6 +1065,7 @@ _PROP_HINTS: dict[str, str] = {
     "title":              "Window title shown in the title bar",
     "border_style":       "Window border: sizable (resizable), fixed, or none (no chrome)",
     "maximize_box":       "Whether the maximize / restore button is visible",
+    "menu_bar":           "Click to open the Menu Editor and build a menu bar for this form",
 }
 
 _VCMD_ARG_PRESETS: list[str] = [

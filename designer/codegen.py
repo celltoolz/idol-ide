@@ -117,9 +117,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
 
     # ── _build_ui ─────────────────────────────────────────────────────────────
     out.append("    def _build_ui(self):")
-    if not form.widgets:
+    if not form.widgets and not form.menu_items:
         out.append(f"        {_STUB}")
     else:
+        if form.menu_items:
+            out.extend(_menu_lines(form.menu_items))
+            out.append("")
         for w in form.widgets:
             out.extend(_widget_lines(w))
             out.append("")
@@ -253,6 +256,27 @@ def _collect_methods(form: FormModel) -> list[str]:
             if method_name and method_name.startswith("_") and method_name not in seen:
                 seen.add(method_name)
                 methods.append(method_name)
+    for method_name in _menu_command_methods(form.menu_items):
+        if method_name not in seen:
+            seen.add(method_name)
+            methods.append(method_name)
+    return methods
+
+
+def _menu_command_methods(items) -> list[str]:
+    """Return the _click method names that _menu_lines will wire as commands."""
+    methods: list[str] = []
+    for i, item in enumerate(items):
+        if not item.name or item.caption == "-" or item.indent == 0:
+            continue
+        # Cascade items (those that have direct children) get no command
+        is_cascade = any(
+            items[j].indent == item.indent + 1
+            for j in range(i + 1, len(items))
+            if items[j].indent <= item.indent + 1
+        )
+        if not is_cascade:
+            methods.append(f"_{item.name}_click")
     return methods
 
 
@@ -288,6 +312,63 @@ def _coerce_initial(var_type: str, initial: str):
     if var_type == "BooleanVar":
         return initial.strip().lower() in ("true", "1", "yes")
     return initial  # StringVar — keep as string
+
+
+def _menu_lines(items) -> list[str]:
+    """Generate _build_ui lines for a tk.Menu hierarchy from MenuItemDescriptor list."""
+    from .model import MenuItemDescriptor  # local import avoids circular at module level
+    lines: list[str] = []
+    lines.append("        self._menu_bar = tk.Menu(self)")
+    lines.append("        self.configure(menu=self._menu_bar)")
+
+    # Stack tracks (indent_level, var_name) of open cascade menus
+    # index 0 = top-level bar, index 1+ = sub-menus
+    stack: list[str] = ["self._menu_bar"]
+
+    for item in items:
+        # Ensure stack depth matches item indent (indent 0 = child of bar = stack depth 1)
+        target_depth = item.indent + 1
+        # Trim stack if we've gone back up
+        while len(stack) > target_depth:
+            stack.pop()
+
+        parent = stack[-1]
+        disabled = "" if item.enabled else ', state="disabled"'
+
+        if item.caption == "-":
+            lines.append(f"        {parent}.add_separator()")
+            continue
+
+        label = item.caption.replace('"', '\\"')
+        name  = item.name or ""
+
+        # Check if any later item is a direct child of this one (i.e. it's a cascade)
+        idx = items.index(item)
+        is_cascade = any(
+            items[j].indent == item.indent + 1
+            for j in range(idx + 1, len(items))
+            if items[j].indent <= item.indent + 1
+        )
+
+        if item.indent == 0:
+            # Top-level: always a cascade on the menu bar
+            var = f"self._m_{name}" if name else f"self._menu_bar_menu{idx}"
+            lines.append(f"        {var} = tk.Menu({parent}, tearoff=0)")
+            lines.append(f'        {parent}.add_cascade(label="{label}", menu={var}{disabled})')
+            stack.append(var)
+        elif is_cascade:
+            # Sub-menu item that has children — emit as cascade
+            var = f"self._m_{name}" if name else f"self._submenu{idx}"
+            lines.append(f"        {var} = tk.Menu({parent}, tearoff=0)")
+            lines.append(f'        {parent}.add_cascade(label="{label}", menu={var}{disabled})')
+            stack.append(var)
+        else:
+            # Leaf command
+            cmd = f", command=self._{name}_click" if name else ""
+            sc  = f', accelerator="{item.shortcut}"' if item.shortcut else ""
+            lines.append(f'        {parent}.add_command(label="{label}"{cmd}{sc}{disabled})')
+
+    return lines
 
 
 def _body_lines(method_name: str, bodies: dict[str, str]) -> list[str]:
