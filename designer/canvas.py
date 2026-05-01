@@ -119,6 +119,10 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Control-v>",       lambda _: self.paste())
         self.bind("<Control-a>",       lambda _: self.select_all())
         self.bind("<Configure>",       lambda _: self._reposition())
+        self.bind("<Left>",            lambda _: self._nudge(-1,  0))
+        self.bind("<Right>",           lambda _: self._nudge( 1,  0))
+        self.bind("<Up>",              lambda _: self._nudge( 0, -1))
+        self.bind("<Down>",            lambda _: self._nudge( 0,  1))
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -174,6 +178,28 @@ class DesignerCanvas(tk.Canvas):
             self._on_deselect()
         if self._on_structure_changed:
             self._on_structure_changed()
+
+    def _nudge(self, dx: int, dy: int) -> None:
+        """Move all selected widgets by (dx, dy) pixels, clamped to form bounds."""
+        if not self._selected_ids or self._form is None:
+            return
+        for wid in self._selected_ids:
+            w = self._form.get_widget(wid)
+            if w is None:
+                continue
+            w.x = max(0,            min(w.x + dx, self._form.width  - w.width))
+            w.y = max(self._min_y, min(w.y + dy, self._form.height - w.height))
+            self.delete(f"widget:{wid}")
+            self._render_widget(w)
+        self.delete("handle")
+        self.delete("fhandle")
+        self._draw_all_handles()
+        self.tag_raise("handle")
+        # Notify properties panel via the primary widget
+        if self._primary_id:
+            w = self._form.get_widget(self._primary_id)
+            if w and self._on_widget_changed:
+                self._on_widget_changed(w)
 
     def update_widget(self, descriptor: WidgetDescriptor) -> None:
         was_selected = descriptor.id in self._selected_ids
