@@ -213,6 +213,7 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 <img src="screenshots/designer-canvas-palette-properties.png" width="100%">
 <p align="center">
+  <img src="screenshots/designer-calculator-running-history.png" width="50%">
   <img src="screenshots/designer-calculator-running.png" width="30%">
 </p>
 
