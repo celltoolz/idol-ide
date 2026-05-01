@@ -6,6 +6,7 @@ from tkinter import ttk
 from typing import Callable
 
 from .model import MenuItemDescriptor
+from widgets.guide_window import GuideWindow, GuidePage
 
 _BG       = "#1e1e1e"
 _BG2      = "#2d2d2d"
@@ -196,6 +197,11 @@ class MenuEditor(tk.Toplevel):
             relief="flat", font=("Segoe UI", 9), cursor="hand2",
             command=self.destroy,
         ).pack(side="right")
+        tk.Label(
+            ok_frame, text="? Menu Editor", bg=_BG, fg=_ACCENT,
+            font=("Segoe UI", 9), cursor="hand2",
+        ).pack(side="left")
+        ok_frame.winfo_children()[-1].bind("<Button-1>", lambda _: self._open_guide())
 
         # wire field-change callbacks after all widgets exist
         self._caption_var.trace_add("write", lambda *_: self._on_field_change())
@@ -337,6 +343,96 @@ class MenuEditor(tk.Toplevel):
         self._selected_idx = new_idx
         self._refresh_listbox()
         self._load_fields(self._items[new_idx])
+
+    # ── Guide ─────────────────────────────────────────────────────────────────
+
+    def _open_guide(self) -> None:
+        GuideWindow(self, "Menu Editor Guide", [
+            GuidePage(
+                title="Building a Menu Bar",
+                sections=[
+                    ("THE IDEA",
+                     "A menu bar sits at the top of your form window and gives users a standard "
+                     "way to access commands — File → Open, Edit → Cut, Help → About, etc. "
+                     "IDOL generates the full tk.Menu hierarchy and stubs out every command handler "
+                     "automatically so you can jump straight to writing the logic.",
+                     "#569cd6"),
+                    ("STRUCTURE",
+                     "Menus are a flat list with an indent level:\n"
+                     "  indent 0 — top-level menu name on the bar (e.g. File, Edit, Help)\n"
+                     "  indent 1 — item inside that menu (e.g. Open, Save, Exit)\n"
+                     "  indent 2 — sub-menu item nested one level deeper\n\n"
+                     "Use → to demote an item (increase indent) and ← to promote it. "
+                     "You can only demote an item one level deeper than the item above it.",
+                     "#73c991"),
+                    ("SEPARATORS",
+                     "Set Caption to  -  (a single hyphen) to insert a separator line. "
+                     "Separators don't need a Name and won't generate a handler.",
+                     "#e2c08d"),
+                ],
+                plain_english=(
+                    "Think of the indent levels like a tree: the trunk is the menu bar, "
+                    "the branches are the top-level menus (File, Edit…), and the leaves "
+                    "are the clickable items. Leaves get handler stubs; branches don't."
+                ),
+            ),
+            GuidePage(
+                title="Fields Reference",
+                sections=[
+                    ("CAPTION",
+                     "The text the user sees in the menu. Use & before a letter to set an "
+                     "access key (e.g. &File underlines the F on Windows). "
+                     "Set to  -  for a separator line.", "#569cd6"),
+                    ("NAME",
+                     "The code identifier for this item. IDOL generates "
+                     "self._m_<name> for cascade menus and calls self._<name>_click "
+                     "for leaf commands. Keep it lowercase with underscores (e.g. open_file, exit). "
+                     "Leave blank for separators.", "#73c991"),
+                    ("SHORTCUT",
+                     "Optional keyboard accelerator shown on the right of the menu item "
+                     "(e.g. Ctrl+S). This only displays the label — you still need to add "
+                     "the actual key binding in your code.", "#e2c08d"),
+                    ("ENABLED / VISIBLE",
+                     "Enabled controls whether the item is greyed out at startup. "
+                     "Visible controls whether it appears at all. "
+                     "Both can be toggled at runtime from your handler code.", "#cccccc"),
+                ],
+                plain_english=(
+                    "Name is the most important field — it drives both the variable name "
+                    "in _build_ui and the handler method name in the Events section. "
+                    "A good name is short, lowercase, and describes the action: save, open_file, about."
+                ),
+            ),
+            GuidePage(
+                title="Tips & Generated Code",
+                sections=[
+                    ("ARROW BUTTONS",
+                     "←  Promote — moves item one indent level up (e.g. sub-item → item)\n"
+                     "→  Demote  — moves item one indent level down (makes a sub-menu)\n"
+                     "↑  Move Up   — swap with the item above\n"
+                     "↓  Move Down — swap with the item below\n\n"
+                     "Insert adds a new item below the current one. "
+                     "Next moves to the next item or inserts if you're at the end.", "#569cd6"),
+                    ("WHAT GETS GENERATED",
+                     "For each top-level menu IDOL emits:\n"
+                     "    self._m_file = tk.Menu(self._menu_bar, tearoff=0)\n"
+                     "    self._menu_bar.add_cascade(label='File', menu=self._m_file)\n\n"
+                     "For each leaf command:\n"
+                     "    self._m_file.add_command(label='Exit', command=self._exit_click)\n\n"
+                     "And in the Events section:\n"
+                     "    def _exit_click(self, *args):\n"
+                     "        pass  # TODO", "#73c991"),
+                    ("CANVAS PREVIEW",
+                     "After closing this editor the menu bar appears live on the designer canvas "
+                     "below the title bar. Click any top-level menu name to see the dropdown — "
+                     "clicking a leaf item navigates straight to its handler in the editor.", "#e2c08d"),
+                ],
+                plain_english=(
+                    "Generate Code (Ctrl+Shift+G) after building your menu and all the stubs "
+                    "will be waiting for you in the Events section — just fill in the logic."
+                ),
+            ),
+        ])
 
     # ── OK ────────────────────────────────────────────────────────────────────
 
