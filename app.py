@@ -801,6 +801,7 @@ class IDOL(Tk):
             on_multi_select=self._on_designer_multi_select,
             on_structure_changed=self._on_designer_structure_changed,
             on_double_click=self._on_designer_double_click,
+            on_menu_navigate=self._on_designer_menu_navigate,
         )
         self._design_canvas.pack(fill="both", expand=True)
 
@@ -4107,7 +4108,7 @@ class IDOL(Tk):
             elif key == "maximize_box":
                 form.maximize_box = str(value).lower() in ("true", "1", "yes")
             elif key == "menu_bar":
-                pass  # model already mutated by properties panel via _form ref
+                self._design_canvas.redraw()  # refresh menu bar strip on canvas
             return
         if key == "__variable__":
             return  # model already mutated by properties panel; no canvas redraw needed
@@ -4199,6 +4200,19 @@ class IDOL(Tk):
 
         first_handler = next(iter(w.events.values()))
         self._designer_jump_to_handler(first_handler)
+
+    def _on_designer_menu_navigate(self, method_name: str) -> None:
+        """Click on a menu item in the designer → jump to its event handler."""
+        form = self._design_canvas.form
+        if form is None:
+            return
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if root:
+            from pathlib import Path as _Path
+            py_path = _Path(root) / f"{form.name}.py"
+            if self._designer_dirty or not py_path.exists():
+                self.designer_generate_code()
+        self._designer_jump_to_handler(method_name)
 
     def _designer_jump_to_handler(self, method_name: str) -> None:
         """Switch to editor mode and navigate to the named method in the generated .py."""
