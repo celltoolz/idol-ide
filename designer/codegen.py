@@ -35,7 +35,7 @@ _BINDINGS: dict[str, str] = {
 _STUB = "pass  # TODO"
 
 # Props that are optional — skip codegen when value is empty string
-_SKIP_IF_EMPTY = {"show", "font", "justify", "relief", "bd", "borderwidth", "insertbackground"}
+_SKIP_IF_EMPTY = {"show", "font", "justify", "relief", "borderwidth", "insertbackground"}
 
 # IDOL marker lines — must contain the tokens persistence.py detects
 _IMPORT_B = "# ── IDOL:IMPORTS:BEGIN " + "─" * 49
