@@ -93,7 +93,12 @@ class DesignerProperties(tk.Frame):
         self._props_frame = tk.Frame(self._nb, bg="#1e1e1e")
         self._nb.add(self._props_frame, text="  Properties  ")
         self._props_tree = _make_tree(self._props_frame)
+        self._props_tree.tag_configure("hover", foreground="#ffffff")
         self._props_tree.bind("<Button-1>", self._on_prop_click)
+        self._props_tree.bind("<Motion>",   self._on_prop_hover)
+        self._props_tree.bind("<Leave>",    self._on_prop_leave)
+        self._prop_hover_row:        str | None = None
+        self._prop_hover_saved_tags: tuple      = ()
 
         # Events tab
         self._events_frame = tk.Frame(self._nb, bg="#1e1e1e")
@@ -663,6 +668,31 @@ class DesignerProperties(tk.Frame):
         bw = 18
         self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
         self._ev_clear_btn.lift()
+
+    def _on_prop_hover(self, event: tk.Event) -> None:
+        tree = self._props_tree
+        row  = tree.identify_row(event.y)
+        if row == self._prop_hover_row:
+            return
+        self._clear_prop_hover()
+        if not row or row == "var__section":
+            return
+        self._prop_hover_saved_tags = tuple(tree.item(row, "tags") or ())
+        self._prop_hover_row = row
+        tree.item(row, tags=(*self._prop_hover_saved_tags, "hover"))
+
+    def _on_prop_leave(self, event: tk.Event) -> None:
+        self._clear_prop_hover()
+
+    def _clear_prop_hover(self) -> None:
+        if self._prop_hover_row:
+            try:
+                self._props_tree.item(self._prop_hover_row,
+                                      tags=self._prop_hover_saved_tags)
+            except Exception:
+                pass
+            self._prop_hover_row = None
+            self._prop_hover_saved_tags = ()
 
     def _on_event_leave(self, event: tk.Event) -> None:
         self._ev_hover_row = None
