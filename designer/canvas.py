@@ -134,6 +134,11 @@ class DesignerCanvas(tk.Canvas):
     def form(self) -> FormModel | None:
         return self._form
 
+    @property
+    def _min_y(self) -> int:
+        """Minimum widget y when a menu bar is present, so widgets can't cover it."""
+        return _MENUBAR if (self._form and self._form.menu_items) else 0
+
     def set_tool(self, type_key: str | None) -> None:
         self._active_tool = type_key
         self.config(cursor="crosshair" if type_key else "arrow")
@@ -269,8 +274,8 @@ class DesignerCanvas(tk.Canvas):
             fy = src.y + self._paste_offset
 
         # Clamp to form bounds
-        fx = max(0, min(fx, self._form.width  - src.width))
-        fy = max(0, min(fy, self._form.height - src.height))
+        fx = max(0,          min(fx, self._form.width  - src.width))
+        fy = max(self._min_y, min(fy, self._form.height - src.height))
 
         desc = WidgetDescriptor(
             id=new_id, type=src.type,
@@ -516,8 +521,8 @@ class DesignerCanvas(tk.Canvas):
             if reg:
                 fx = _snap(event.x - self._ox)
                 fy = _snap(event.y - self._oy)
-                fx = max(0, min(fx, self._form.width  - reg["default_size"][0]))
-                fy = max(0, min(fy, self._form.height - reg["default_size"][1]))
+                fx = max(0,            min(fx, self._form.width  - reg["default_size"][0]))
+                fy = max(self._min_y, min(fy, self._form.height - reg["default_size"][1]))
                 w, h = reg["default_size"]
                 wid  = self._form.next_id(self._active_tool)
                 desc = WidgetDescriptor(
@@ -683,8 +688,8 @@ class DesignerCanvas(tk.Canvas):
         if d["mode"] == "move":
             new_x = _snap(d["orig_x"] + dx)
             new_y = _snap(d["orig_y"] + dy)
-            new_x = max(0, min(new_x, self._form.width  - w.width))
-            new_y = max(0, min(new_y, self._form.height - w.height))
+            new_x = max(0,            min(new_x, self._form.width  - w.width))
+            new_y = max(self._min_y, min(new_y, self._form.height - w.height))
             # Actual snapped delta (may differ from raw dx/dy due to clamping)
             actual_dx = new_x - d["orig_x"]
             actual_dy = new_y - d["orig_y"]
@@ -693,8 +698,8 @@ class DesignerCanvas(tk.Canvas):
                 sw = self._form.get_widget(sid)
                 if sw is None:
                     continue
-                sw.x = max(0, min(ox + actual_dx, self._form.width  - sw.width))
-                sw.y = max(0, min(oy + actual_dy, self._form.height - sw.height))
+                sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
+                sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
                 self.delete(f"widget:{sid}")
                 self._render_widget(sw)
 
@@ -712,7 +717,9 @@ class DesignerCanvas(tk.Canvas):
                 nw = _snap(ow + dx)
             if "N" in handle:
                 nh = _snap(oh - dy)
-                ny = _snap(oy + dy)
+                ny = max(self._min_y, _snap(oy + dy))
+                nh = oy + oh - ny  # recalculate height after ny clamp
+                nh = max(GRID * 2, nh)
             if "S" in handle:
                 nh = _snap(oh + dy)
 

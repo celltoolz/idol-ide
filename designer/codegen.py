@@ -32,7 +32,8 @@ _BINDINGS: dict[str, str] = {
     "change":      "<<Modified>>",
 }
 
-_STUB = "pass  # TODO"
+_STUB    = "pass  # TODO"
+_MENUBAR = 20  # menu bar strip height in canvas coords (matches canvas._MENUBAR)
 
 # Props that are optional — skip codegen when value is empty string
 _SKIP_IF_EMPTY = {"show", "font", "justify", "relief", "borderwidth", "insertbackground"}
@@ -123,8 +124,9 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         if form.menu_items:
             out.extend(_menu_lines(form.menu_items))
             out.append("")
+        y_offset = _MENUBAR if form.menu_items else 0
         for w in form.widgets:
-            out.extend(_widget_lines(w))
+            out.extend(_widget_lines(w, y_offset=y_offset))
             out.append("")
 
     # ── event methods ─────────────────────────────────────────────────────────
@@ -178,7 +180,7 @@ def _prop_str(key: str, val: Any) -> str:
     return f"{key}={repr(val)}"
 
 
-def _widget_lines(w: WidgetDescriptor) -> list[str]:
+def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     reg = REGISTRY.get(w.type)
     if not reg:
         return [f"        # Unknown widget type: {w.type}"]
@@ -223,7 +225,7 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
     kw_str = (", " + ", ".join(kw_parts)) if kw_parts else ""
     lines = [f"        self.{w.id} = {tk_class}(self{kw_str})"]
     lines.append(
-        f"        self.{w.id}.place(x={w.x}, y={w.y},"
+        f"        self.{w.id}.place(x={w.x}, y={w.y - y_offset},"
         f" width={w.width}, height={w.height})"
     )
 
