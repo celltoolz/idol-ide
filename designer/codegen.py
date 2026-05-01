@@ -86,7 +86,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     out.append(_INIT_B)
     out.append("        super().__init__()")
     out.append(f'        self.title("{form.title}")')
-    out.append(f'        self.geometry("{form.width}x{form.height}")')
+    geom_h = form.height - (_MENUBAR if form.menu_items else 0)
+    out.append(f'        self.geometry("{form.width}x{geom_h}")')
     if form.border_style == "none":
         out.append("        self.overrideredirect(True)")
     elif form.border_style == "fixed" or not form.maximize_box:
