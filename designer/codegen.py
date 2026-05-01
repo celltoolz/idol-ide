@@ -34,6 +34,9 @@ _BINDINGS: dict[str, str] = {
 
 _STUB = "pass  # TODO"
 
+# Props that are optional — skip codegen when value is empty string
+_SKIP_IF_EMPTY = {"show", "font", "justify", "relief", "bd", "borderwidth", "insertbackground"}
+
 # IDOL marker lines — must contain the tokens persistence.py detects
 _IMPORT_B = "# ── IDOL:IMPORTS:BEGIN " + "─" * 49
 _IMPORT_E = "# ── IDOL:IMPORTS:END "   + "─" * 51
@@ -189,6 +192,8 @@ def _widget_lines(w: WidgetDescriptor) -> list[str]:
     kw_parts: list[str] = []
     for k, v in w.props.items():
         if k in _all_color_props and v == "":
+            continue
+        if k in _SKIP_IF_EMPTY and v == "":
             continue
         if k == "state" and v == "normal":
             continue

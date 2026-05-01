@@ -428,6 +428,15 @@ class DesignerProperties(tk.Frame):
                                 self._commit_prop)
         elif row == "prop__vcmd_args":
             self._open_dropdown(tree, row, col, _VCMD_ARG_PRESETS, self._commit_prop)
+        elif row.startswith("prop__") and self._current_widget:
+            key = row[6:]
+            reg = REGISTRY.get(self._current_widget.type, {})
+            choices = reg.get("prop_choices", {}).get(key)
+            if choices:
+                self._open_dropdown(tree, row, col, choices, self._commit_prop)
+                return
+            self._open_editor(tree, row, col, self._commit_prop)
+            return
         elif row == "var__type":
             d = self._current_widget
             if d is None:
@@ -765,8 +774,9 @@ class DesignerProperties(tk.Frame):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _PROP_LABELS: dict[str, str] = {
-    "bg": "Background",
-    "fg": "Foreground",
+    "bg":               "Background",
+    "fg":               "Foreground",
+    "insertbackground": "Insert Cursor",
 }
 
 _VALIDATE_LABELS: dict[str, str] = {
