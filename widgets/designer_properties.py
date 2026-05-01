@@ -430,6 +430,9 @@ class DesignerProperties(tk.Frame):
             self._open_dropdown(tree, row, col, _VCMD_ARG_PRESETS, self._commit_prop)
         elif row.startswith("prop__") and self._current_widget:
             key = row[6:]
+            if key == "font":
+                self._open_font_picker(row)
+                return
             reg = REGISTRY.get(self._current_widget.type, {})
             choices = reg.get("prop_choices", {}).get(key)
             if choices:
@@ -562,6 +565,42 @@ class DesignerProperties(tk.Frame):
         self._props_tree.set(row_iid, "#1", color)
         self._apply_color_swatch(row_iid, color)
         self._commit_prop(row_iid, color)
+
+    def _open_font_picker(self, row_iid: str) -> None:
+        """Open the font chooser dialog for a font property cell."""
+        from tkfontchooser import askfont
+        current = self._props_tree.set(row_iid, "#1").strip()
+        # Parse current string "Family size bold italic" → dict for pre-population
+        init: dict = {}
+        if current:
+            parts = current.split()
+            if parts:
+                init["family"] = parts[0]
+            if len(parts) > 1:
+                try:
+                    init["size"] = int(parts[1])
+                except ValueError:
+                    pass
+            tags = {p.lower() for p in parts[2:]}
+            if "bold"      in tags: init["weight"]     = "bold"
+            if "italic"    in tags: init["slant"]      = "italic"
+            if "underline" in tags: init["underline"]  = 1
+            if "overstrike" in tags: init["overstrike"] = 1
+
+        result = askfont(self.winfo_toplevel(), title="Choose Font", font=init)
+        if not result:
+            return
+
+        # Build readable string: "Family size [bold] [italic] [underline] [overstrike]"
+        parts = [result.get("family", "TkDefaultFont"), str(result.get("size", 10))]
+        if result.get("weight")     == "bold":    parts.append("bold")
+        if result.get("slant")      == "italic":  parts.append("italic")
+        if result.get("underline"):               parts.append("underline")
+        if result.get("overstrike"):              parts.append("overstrike")
+        font_str = " ".join(parts)
+
+        self._props_tree.set(row_iid, "#1", font_str)
+        self._commit_prop(row_iid, font_str)
 
     def _apply_color_swatch(self, row_iid: str, color: str) -> None:
         """Tint the treeview row to preview the color."""
