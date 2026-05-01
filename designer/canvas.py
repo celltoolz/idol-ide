@@ -101,7 +101,7 @@ class DesignerCanvas(tk.Canvas):
         self._form_selected: bool                    = False
         self._hover_id:      str | None              = None
         self._active_tool:   str | None              = None
-        self._clipboard:     WidgetDescriptor | None = None
+        self._clipboard:     list[WidgetDescriptor] | None = None
         self._paste_offset:  int                     = 0
         self._ox = _MARGIN
         self._oy = _MARGIN + _TITLE
@@ -212,8 +212,9 @@ class DesignerCanvas(tk.Canvas):
     def select(self, widget_id: str) -> None:
         if self._form is None or self._form.get_widget(widget_id) is None:
             return
-        self._selected_ids = {widget_id}
-        self._primary_id = widget_id
+        self._paste_offset  = 0
+        self._selected_ids  = {widget_id}
+        self._primary_id    = widget_id
         self._form_selected = False
         self.delete("handle")
         self.delete("fhandle")
@@ -259,17 +260,19 @@ class DesignerCanvas(tk.Canvas):
             self._on_deselect()
 
     def copy_selected(self) -> None:
-        if self._primary_id is None or self._form is None:
+        if not self._selected_ids or self._form is None:
             return
-        w = self._form.get_widget(self._primary_id)
-        if w:
-            self._clipboard = WidgetDescriptor(
-                id=w.id, type=w.type,
-                x=w.x, y=w.y, width=w.width, height=w.height,
-                props=dict(w.props),
-                events={},
-            )
-            self._paste_offset = 0
+        self._clipboard = []
+        for wid in self._selected_ids:
+            w = self._form.get_widget(wid)
+            if w:
+                self._clipboard.append(WidgetDescriptor(
+                    id=w.id, type=w.type,
+                    x=w.x, y=w.y, width=w.width, height=w.height,
+                    props=dict(w.props),
+                    events={},
+                ))
+        self._paste_offset = 0
 
     def _notify_selection(self) -> None:
         n = len(self._selected_ids)
@@ -284,32 +287,46 @@ class DesignerCanvas(tk.Canvas):
                 self._on_multi_select(list(self._selected_ids))
 
     def paste(self, canvas_x: int | None = None, canvas_y: int | None = None) -> None:
-        if self._clipboard is None or self._form is None:
+        if not self._clipboard or self._form is None:
             return
-        src = self._clipboard
-        new_id = self._form.next_id(src.type)
 
         if canvas_x is not None and canvas_y is not None:
-            # Paste at mouse position (right-click), snapped to grid
-            fx = _snap(canvas_x - self._ox)
-            fy = _snap(canvas_y - self._oy)
+            # Right-click paste: anchor the group's top-left corner to the mouse
+            min_x = min(s.x for s in self._clipboard)
+            min_y = min(s.y for s in self._clipboard)
+            ox = _snap(canvas_x - self._ox) - min_x
+            oy = _snap(canvas_y - self._oy) - min_y
         else:
-            # Ctrl+V: offset from the original so repeated pastes don't stack
+            # Ctrl+V: nudge the group each time so repeated pastes don't stack
             self._paste_offset += GRID * 2
-            fx = src.x + self._paste_offset
-            fy = src.y + self._paste_offset
+            ox = oy = self._paste_offset
 
-        # Clamp to form bounds
-        fx = max(0,          min(fx, self._form.width  - src.width))
-        fy = max(self._min_y, min(fy, self._form.height - src.height))
+        new_ids: list[str] = []
+        for src in self._clipboard:
+            new_id = self._form.next_id(src.type)
+            fx = max(0,            min(src.x + ox, self._form.width  - src.width))
+            fy = max(self._min_y, min(src.y + oy, self._form.height - src.height))
+            desc = WidgetDescriptor(
+                id=new_id, type=src.type,
+                x=fx, y=fy, width=src.width, height=src.height,
+                props=dict(src.props),
+                events={},
+            )
+            self._form.add_widget(desc)
+            self._render_widget(desc)
+            new_ids.append(new_id)
 
-        desc = WidgetDescriptor(
-            id=new_id, type=src.type,
-            x=fx, y=fy, width=src.width, height=src.height,
-            props=dict(src.props),
-            events={},
-        )
-        self.add_widget(desc)
+        # Select all pasted widgets
+        self._selected_ids  = set(new_ids)
+        self._primary_id    = new_ids[0]
+        self._form_selected = False
+        self.delete("handle")
+        self.delete("fhandle")
+        self._draw_all_handles()
+        self.tag_raise("handle")
+        self._notify_selection()
+        if self._on_structure_changed:
+            self._on_structure_changed()
 
     def select_form(self) -> None:
         if self._form is None:
