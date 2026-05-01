@@ -93,7 +93,7 @@ class DesignerProperties(tk.Frame):
         self._props_frame = tk.Frame(self._nb, bg="#1e1e1e")
         self._nb.add(self._props_frame, text="  Properties  ")
         self._props_tree = _make_tree(self._props_frame)
-        self._props_tree.tag_configure("hover", foreground="#ffffff")
+        self._props_tree.tag_configure("hover", foreground="#569cd6")
         self._props_tree.bind("<Button-1>", self._on_prop_click)
         self._props_tree.bind("<Motion>",   self._on_prop_hover)
         self._props_tree.bind("<Leave>",    self._on_prop_leave)
