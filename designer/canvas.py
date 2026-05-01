@@ -406,7 +406,7 @@ class DesignerCanvas(tk.Canvas):
                              fill="#d0d0d0", tags="menu_bar")
             mx = ox + 4
             for idx, item in top_items:
-                label = item.caption or "(menu)"
+                label = item.display_caption or "(menu)"
                 tw = len(label) * 7 + 12
                 self.create_rectangle(mx, oy + 2, mx + tw, oy + _MENUBAR - 2,
                                       fill="#f0f0f0", outline="", tags="menu_bar")
@@ -807,6 +807,10 @@ class DesignerCanvas(tk.Canvas):
                        activebackground="#0078d4", activeforeground="#ffffff",
                        relief="flat", bd=1, font=("Segoe UI", 9))
 
+        def _ul(item):
+            u = item.underline_index
+            return {"underline": u} if u >= 0 else {}
+
         i = top_idx + 1
         while i < len(items) and items[i].indent > 0:
             item = items[i]
@@ -825,19 +829,21 @@ class DesignerCanvas(tk.Canvas):
                         if si.caption == "-":
                             sub.add_separator()
                         elif si.name:
-                            sub.add_command(label=si.caption,
-                                            command=lambda m=f"_{si.name}_click": self._navigate_menu(m))
+                            sub.add_command(label=si.display_caption,
+                                            command=lambda m=f"_{si.name}_click": self._navigate_menu(m),
+                                            **_ul(si))
                         else:
-                            sub.add_command(label=si.caption, state="disabled")
+                            sub.add_command(label=si.display_caption, state="disabled", **_ul(si))
                         j += 1
-                    menu.add_cascade(label=item.caption, menu=sub)
+                    menu.add_cascade(label=item.display_caption, menu=sub, **_ul(item))
                     i = j
                     continue
                 elif item.name:
-                    menu.add_command(label=item.caption,
-                                     command=lambda m=f"_{item.name}_click": self._navigate_menu(m))
+                    menu.add_command(label=item.display_caption,
+                                     command=lambda m=f"_{item.name}_click": self._navigate_menu(m),
+                                     **_ul(item))
                 else:
-                    menu.add_command(label=item.caption, state="disabled")
+                    menu.add_command(label=item.display_caption, state="disabled", **_ul(item))
             i += 1
 
         # Position popup directly below the menu title button

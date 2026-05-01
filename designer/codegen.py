@@ -339,8 +339,9 @@ def _menu_lines(items) -> list[str]:
             lines.append(f"        {parent}.add_separator()")
             continue
 
-        label = item.caption.replace('"', '\\"')
+        label = item.display_caption.replace('"', '\\"')
         name  = item.name or ""
+        ul    = f", underline={item.underline_index}" if item.underline_index >= 0 else ""
 
         # Check if any later item is a direct child of this one (i.e. it's a cascade)
         idx = items.index(item)
@@ -354,19 +355,19 @@ def _menu_lines(items) -> list[str]:
             # Top-level: always a cascade on the menu bar
             var = f"self._m_{name}" if name else f"self._menu_bar_menu{idx}"
             lines.append(f"        {var} = tk.Menu({parent}, tearoff=0)")
-            lines.append(f'        {parent}.add_cascade(label="{label}", menu={var}{disabled})')
+            lines.append(f'        {parent}.add_cascade(label="{label}", menu={var}{ul}{disabled})')
             stack.append(var)
         elif is_cascade:
             # Sub-menu item that has children — emit as cascade
             var = f"self._m_{name}" if name else f"self._submenu{idx}"
             lines.append(f"        {var} = tk.Menu({parent}, tearoff=0)")
-            lines.append(f'        {parent}.add_cascade(label="{label}", menu={var}{disabled})')
+            lines.append(f'        {parent}.add_cascade(label="{label}", menu={var}{ul}{disabled})')
             stack.append(var)
         else:
             # Leaf command
             cmd = f", command=self._{name}_click" if name else ""
             sc  = f', accelerator="{item.shortcut}"' if item.shortcut else ""
-            lines.append(f'        {parent}.add_command(label="{label}"{cmd}{sc}{disabled})')
+            lines.append(f'        {parent}.add_command(label="{label}"{cmd}{sc}{ul}{disabled})')
 
     return lines
 

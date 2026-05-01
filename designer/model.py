@@ -77,6 +77,22 @@ class MenuItemDescriptor:
     visible:  bool = True
     shortcut: str  = ""
 
+    @property
+    def display_caption(self) -> str:
+        """Caption with the & access-key marker stripped for display."""
+        idx = self.caption.find("&")
+        if idx == -1 or idx >= len(self.caption) - 1:
+            return self.caption
+        return self.caption[:idx] + self.caption[idx + 1:]
+
+    @property
+    def underline_index(self) -> int:
+        """0-based index of the underlined character, or -1 if none."""
+        idx = self.caption.find("&")
+        if idx == -1 or idx >= len(self.caption) - 1:
+            return -1
+        return idx
+
     def to_dict(self) -> dict:
         return {
             "caption":  self.caption,

@@ -214,7 +214,7 @@ class MenuEditor(tk.Toplevel):
         self._listbox.delete(0, "end")
         for item in self._items:
             prefix = "    " * item.indent
-            label = item.caption if item.caption else "(new item)"
+            label = item.display_caption if item.caption else "(new item)"
             if item.caption == "-":
                 label = "  ─────────────────"
                 prefix = "    " * item.indent + " "
