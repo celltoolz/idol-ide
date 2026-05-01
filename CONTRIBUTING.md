@@ -168,7 +168,7 @@ Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `co
 | `persistence.py` | `.form.json` save/load with SHA-256 checksum for manual-edit detection; `extract_event_bodies`, `extract_init_user_zones`, `extract_helper_methods`, `extract_user_imports` — AST + marker-based extraction used during regeneration to splice user code back in |
 | `canvas.py` | Dotted-grid drag/drop surface — canvas-primitive widget rendering (bg/fg from props applied live), click-to-select, drag-to-move, resize handles, multi-select rubber band, copy/paste, bring-to-front/send-to-back. Fires `on_structure_changed` on add/remove/reorder. Fires `on_double_click(widget_id)` on double-click. |
 | `palette.py` | Widget toolbox panel — canvas-drawn mini previews, click-to-place |
-| `widgets/designer_properties.py` | Property grid + Events tab — inline text editor for most props; `tk.Menu` popup for enum props; color swatch + `tkinter.colorchooser` for color props; state dropdown with conditional state-color rows; validate dropdown with `--vcmd`/`--args`/`--ivcmd` rows; variable binding section; control selector dropdown at top; red `name_warn` tag on non-underscore handler names; `? Events` guide row at bottom of Events tab |
+| `widgets/designer_properties.py` | Property grid + Events tab — inline text editor for most props; `tk.Menu` popup for enum props; color swatch + `tkinter.colorchooser` for color props; state dropdown with conditional state-color rows; validate dropdown with `--vcmd`/`--args`/`--ivcmd` rows; variable binding section; control selector dropdown at top; red `name_warn` tag on non-underscore handler names; `? Events` guide row at bottom of Events tab; blue hover highlight on all rows in both tabs; `×` clear button on hover for color/optional props and wired event handlers; status-bar property/event hints on hover (wrapping label, grey, defers to timed errors) |
 
 **Designer layout (when active):**
 ```
@@ -286,6 +286,7 @@ Implemented and stable:
 - **State property** with conditional state-color rows (`readonlybackground`, `disabledbackground`, `disabledforeground`) that appear only when state is readonly/disabled; auto-fills default colors on state change
 - **Validate support** for Entry/Spinbox — `validatecommand` / `--args` / `invalidcommand` rows; `--args` dropdown with common substitution code presets (`%P`, `%P, %S`, etc.)
 - **Red `name_warn` tag** on event handler names and vcmd method names that don't start with `_`
+- **Hover interactions** — blue `#569cd6` highlight on all rows in both Properties and Events tabs; `×` clear button on hover for color/optional props and wired event handlers; status-bar hints (grey, wrapping, defers to timed errors) describe each property/event on hover
 - Events tab: click event name to auto-wire handler; edit handler name inline; `? Events` guide row opens paginated GuideWindow
 - **Double-click widget** → auto-generates code if dirty, then switches to editor and navigates to first event handler; double-click with no events → switches to Events tab
 - Code generation: `IDOL:BEGIN/END` markers preserve user `__init__` zones; `IDOL:IMPORTS:BEGIN/END` markers preserve user imports; helper methods and event bodies survive regeneration

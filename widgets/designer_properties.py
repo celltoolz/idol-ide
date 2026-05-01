@@ -82,9 +82,14 @@ class DesignerProperties(tk.Frame):
         # Status bar — shown briefly when a validation error occurs
         self._status_label = tk.Label(
             self, text="", bg="#252526", fg="#ff6b6b",
-            font=("Segoe UI", 8), anchor="w", padx=6, pady=2,
+            font=("Segoe UI", 8), anchor="nw", padx=6, pady=4,
+            justify="left", wraplength=200,
         )
         self._status_label.pack(fill="x", side="bottom")
+        self._status_label.bind(
+            "<Configure>",
+            lambda e: self._status_label.config(wraplength=max(1, e.width - 12)),
+        )
 
         self._nb = ttk.Notebook(self, style="Props.TNotebook")
         self._nb.pack(fill="both", expand=True)
@@ -99,6 +104,14 @@ class DesignerProperties(tk.Frame):
         self._props_tree.bind("<Leave>",    self._on_prop_leave)
         self._prop_hover_row:        str | None = None
         self._prop_hover_saved_tags: tuple      = ()
+        self._prop_clear_btn = tk.Label(
+            self._props_tree, text="×",
+            bg="#3a3a3a", fg="#888888",
+            font=("Segoe UI", 9), cursor="hand2", padx=2,
+        )
+        self._prop_clear_btn.bind("<Enter>",    lambda e: self._prop_clear_btn.config(fg="#ff6b6b"))
+        self._prop_clear_btn.bind("<Leave>",    lambda e: self._prop_clear_btn.config(fg="#888888"))
+        self._prop_clear_btn.bind("<Button-1>", self._on_prop_clear_click)
 
         # Events tab
         self._events_frame = tk.Frame(self._nb, bg="#1e1e1e")
@@ -229,10 +242,20 @@ class DesignerProperties(tk.Frame):
         """Briefly show an error message in the status bar at the bottom of the panel."""
         if self._status_after:
             self.after_cancel(self._status_after)
-        self._status_label.config(text=message)
-        self._status_after = self.after(
-            duration_ms, lambda: self._status_label.config(text="")
-        )
+        self._status_label.config(text=message, fg="#ff6b6b")
+        def _clear():
+            self._status_after = None
+            self._status_label.config(text="")
+        self._status_after = self.after(duration_ms, _clear)
+
+    def _show_hint(self, text: str) -> None:
+        """Show a grey informational hint while hovering — only when no timed error is active."""
+        if self._status_after is None:
+            self._status_label.config(text=text, fg="#888888")
+
+    def _clear_hint(self) -> None:
+        if self._status_after is None:
+            self._status_label.config(text="")
 
     def flash_events_tab(self) -> None:
         """Switch to the Events tab."""
@@ -552,6 +575,18 @@ class DesignerProperties(tk.Frame):
                 return True
         return False
 
+    # Props that can be cleared back to "" (optional / skippable in codegen)
+    _CLEARABLE_PROPS = {"show", "font", "justify", "relief", "borderwidth", "insertbackground"}
+
+    def _is_prop_clearable(self, row_iid: str) -> bool:
+        """Return True if this prop row has a value that can be cleared to empty."""
+        if not row_iid.startswith("prop__"):
+            return False
+        key = row_iid[6:]
+        if key in self._CLEARABLE_PROPS:
+            return True
+        return self._is_color_row(row_iid)
+
     def _open_dropdown(self, tree: ttk.Treeview, row: str, col: str,
                        values: list[str], commit_fn) -> None:
         self._dismiss_editor()
@@ -671,6 +706,10 @@ class DesignerProperties(tk.Frame):
             return
         self._ev_hover_saved_tags = tuple(tree.item(row, "tags") or ())
         tree.item(row, tags=(*self._ev_hover_saved_tags, "hover"))
+        ev_name = row[4:] if row.startswith("ev__") else row[8:] if row.startswith("form_ev__") else ""
+        hint = _EVENT_DESCRIPTIONS.get(ev_name, ("", ""))[1]
+        if hint:
+            self._show_hint(hint)
         if not tree.set(row, "#1").strip():
             self._ev_clear_btn.place_forget()
             return
@@ -694,11 +733,24 @@ class DesignerProperties(tk.Frame):
         self._prop_hover_saved_tags = tuple(tree.item(row, "tags") or ())
         self._prop_hover_row = row
         tree.item(row, tags=(*self._prop_hover_saved_tags, "hover"))
+        if self._is_prop_clearable(row) and tree.set(row, "#1").strip():
+            bbox = tree.bbox(row, "#1")
+            if bbox:
+                x, y, w, h = bbox
+                bw = 18
+                self._prop_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+                self._prop_clear_btn.lift()
+        key = row.split("__", 1)[-1] if "__" in row else row
+        hint = _PROP_HINTS.get(key)
+        if hint:
+            self._show_hint(hint)
 
     def _on_prop_leave(self, event: tk.Event) -> None:
         self._clear_prop_hover()
 
     def _clear_prop_hover(self) -> None:
+        self._prop_clear_btn.place_forget()
+        self._clear_hint()
         if self._prop_hover_row:
             try:
                 self._props_tree.item(self._prop_hover_row,
@@ -717,6 +769,7 @@ class DesignerProperties(tk.Frame):
         self._ev_hover_row = None
         self._ev_hover_saved_tags = ()
         self._ev_clear_btn.place_forget()
+        self._clear_hint()
 
     def _on_ev_clear_click(self, event: tk.Event) -> None:
         row = self._ev_hover_row
@@ -726,6 +779,16 @@ class DesignerProperties(tk.Frame):
         self._ev_hover_row = None
         self._events_tree.set(row, "#1", "")
         self._commit_event(row, "")
+
+    def _on_prop_clear_click(self, event: tk.Event) -> None:
+        row = self._prop_hover_row
+        if not row:
+            return
+        self._clear_prop_hover()
+        self._props_tree.set(row, "#1", "")
+        if self._is_color_row(row):
+            self._props_tree.item(row, tags=())
+        self._commit_prop(row, "")
 
     def _dismiss_editor(self) -> None:
         if self._entry_editor:
@@ -927,6 +990,57 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "keydown":     ("<KeyPress>",         "Key pressed while focused"),
     "keyup":       ("<KeyRelease>",       "Key released while focused"),
     "change":      ("<<Modified>>",       "Content changed"),
+}
+
+_PROP_HINTS: dict[str, str] = {
+    # Widget identity & geometry
+    "name":               "Unique identifier for this control in generated code",
+    "x":                  "Horizontal position in pixels from the left edge of the form",
+    "y":                  "Vertical position in pixels from the top edge of the form",
+    "width":              "Width of the control in pixels",
+    "height":             "Height of the control in pixels",
+    # Common appearance
+    "text":               "Text displayed on the control",
+    "bg":                 "Background fill color",
+    "fg":                 "Text / foreground color",
+    "font":               "Font family, size, and style (click to open font picker)",
+    "state":              "Interaction state: normal, disabled, or readonly",
+    "relief":             "Border style: flat, sunken, raised, groove, ridge, or solid",
+    "borderwidth":        "Border thickness in pixels",
+    "justify":            "Text alignment when content spans multiple lines",
+    "anchor":             "Position of text or image within the control",
+    "padx":               "Horizontal internal padding in pixels",
+    "pady":               "Vertical internal padding in pixels",
+    # Entry / Text
+    "show":               "Mask character for password fields (e.g. *)",
+    "insertbackground":   "Color of the blinking text insertion cursor",
+    "selectbackground":   "Background color of selected text",
+    "selectforeground":   "Text color of selected text",
+    "exportselection":    "Copy selection to clipboard automatically when text is selected",
+    # Active / state colors
+    "activebackground":   "Background color when the control is hovered or pressed",
+    "activeforeground":   "Text color when the control is hovered or pressed",
+    "disabledforeground": "Text color when the control is disabled",
+    "readonlybackground": "Background color when the control is in read-only state",
+    # Focus ring
+    "highlightbackground": "Focus ring color when the control does not have keyboard focus",
+    "highlightcolor":      "Focus ring color when the control has keyboard focus",
+    # Spinbox / Scale / OptionMenu
+    "from_":              "Minimum allowed value",
+    "to":                 "Maximum allowed value",
+    "increment":          "Amount to increase or decrease per step click",
+    "wrap":               "Whether values wrap around when reaching min or max",
+    "values":             "Comma-separated list of selectable options",
+    "orient":             "Layout direction: horizontal or vertical",
+    # Validation
+    "validate":           "When to run the validation function",
+    "validatecommand":    "Method called to validate input — must start with _",
+    "vcmd_args":          "Substitution codes passed to validator (%P = new value, %s = current)",
+    "invalidcommand":     "Method called when validation fails — must start with _",
+    # Form props
+    "title":              "Window title shown in the title bar",
+    "border_style":       "Window border: sizable (resizable), fixed, or none (no chrome)",
+    "maximize_box":       "Whether the maximize / restore button is visible",
 }
 
 _VCMD_ARG_PRESETS: list[str] = [
