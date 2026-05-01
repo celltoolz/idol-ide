@@ -34,8 +34,10 @@ class DesignerProperties(tk.Frame):
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Entry | None           = None
+        self._form:           FormModel | None          = None
         # (display_label, widget_id | None)  — None means the form itself
         self._selector_items: list[tuple[str, str | None]] = []
+        self._status_after:   str | None                = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -76,6 +78,13 @@ class DesignerProperties(tk.Frame):
         nb_style.map("Props.TNotebook.Tab",
                      background=[("selected", "#252526")],
                      foreground=[("selected", "#cccccc")])
+
+        # Status bar — shown briefly when a validation error occurs
+        self._status_label = tk.Label(
+            self, text="", bg="#252526", fg="#ff6b6b",
+            font=("Segoe UI", 8), anchor="w", padx=6, pady=2,
+        )
+        self._status_label.pack(fill="x", side="bottom")
 
         self._nb = ttk.Notebook(self, style="Props.TNotebook")
         self._nb.pack(fill="both", expand=True)
@@ -170,6 +179,7 @@ class DesignerProperties(tk.Frame):
 
     def set_form(self, form: FormModel) -> None:
         """Rebuild the control selector dropdown from the current form."""
+        self._form = form
         self._selector_items = [(f"{form.name}  (Form)", None)]
         for w in form.widgets:
             self._selector_items.append((f"{w.id}  ({w.type})", w.id))
@@ -207,6 +217,15 @@ class DesignerProperties(tk.Frame):
             menu.tk_popup(rx, ry)
         finally:
             menu.grab_release()
+
+    def _show_status(self, message: str, duration_ms: int = 2000) -> None:
+        """Briefly show an error message in the status bar at the bottom of the panel."""
+        if self._status_after:
+            self.after_cancel(self._status_after)
+        self._status_label.config(text=message)
+        self._status_after = self.after(
+            duration_ms, lambda: self._status_label.config(text="")
+        )
 
     def flash_events_tab(self) -> None:
         """Switch to the Events tab."""
@@ -705,8 +724,12 @@ class DesignerProperties(tk.Frame):
                 return
             new_name = raw.strip()
             if not new_name or not new_name.isidentifier() or new_name == d.id:
-                # Restore original if invalid
                 self._props_tree.set(row_iid, "#1", d.id)
+                return
+            if self._form and any(w.id == new_name for w in self._form.widgets
+                                  if w.id != d.id):
+                self._props_tree.set(row_iid, "#1", d.id)
+                self._show_status(f'"{new_name}" is already in use')
                 return
             old_id = d.id
             if self._on_prop_change:
