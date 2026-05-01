@@ -37,8 +37,9 @@ _DOT    = "#3a3a3a" # grid dot color
 _SEL    = "#007acc" # selection / handle color
 _HIT    = "#1a9fd4" # hover highlight
 _HW     = 7         # handle width/height (px)
-_TITLE  = 24        # form title bar height (px)
-_SHADOW = 4         # form drop-shadow offset (px)
+_TITLE   = 24       # form title bar height (px)
+_MENUBAR = 20       # menu bar strip height (px)
+_SHADOW  = 4        # form drop-shadow offset (px)
 
 
 # ── Handle positions ──────────────────────────────────────────────────────────
@@ -80,6 +81,7 @@ class DesignerCanvas(tk.Canvas):
         on_multi_select:      Optional[Callable[[list],              None]] = None,
         on_structure_changed: Optional[Callable[[],                  None]] = None,
         on_double_click:      Optional[Callable[[str],               None]] = None,
+        on_menu_navigate:     Optional[Callable[[str],               None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
@@ -90,6 +92,8 @@ class DesignerCanvas(tk.Canvas):
         self._on_multi_select      = on_multi_select
         self._on_structure_changed = on_structure_changed
         self._on_double_click      = on_double_click
+        self._on_menu_navigate     = on_menu_navigate
+        self._menu_hitboxes: list[tuple[int, int, int, int, int]] = []
 
         self._form:          FormModel | None        = None
         self._selected_ids:  set[str]                = set()
@@ -385,12 +389,32 @@ class DesignerCanvas(tk.Canvas):
         self.create_rectangle(ox, oy, x2, y2,
                                fill=bg, outline="#aaaaaa", tags="form_bg")
 
-        # Dot grid (drawn over form body — canvas order keeps them behind widgets)
+        # Dot grid
         for gx in range(0, f.width + 1, GRID):
             for gy in range(0, f.height + 1, GRID):
                 px, py = ox + gx, oy + gy
                 self.create_rectangle(px, py, px + 1, py + 1,
                                       fill=_DOT, outline="", tags="grid")
+
+        # Menu bar strip — drawn after form body so it sits on top
+        self._menu_hitboxes = []
+        top_items = [(i, item) for i, item in enumerate(f.menu_items) if item.indent == 0]
+        if top_items:
+            self.create_rectangle(ox, oy, x2, oy + _MENUBAR,
+                                  fill="#f0f0f0", outline="", tags="menu_bar")
+            self.create_line(ox, oy + _MENUBAR, x2, oy + _MENUBAR,
+                             fill="#d0d0d0", tags="menu_bar")
+            mx = ox + 4
+            for idx, item in top_items:
+                label = item.caption or "(menu)"
+                tw = len(label) * 7 + 12
+                self.create_rectangle(mx, oy + 2, mx + tw, oy + _MENUBAR - 2,
+                                      fill="#f0f0f0", outline="", tags="menu_bar")
+                self.create_text(mx + tw // 2, oy + _MENUBAR // 2,
+                                 text=label, fill="#111111",
+                                 font=("Segoe UI", 9), tags="menu_bar")
+                self._menu_hitboxes.append((mx, oy, mx + tw, oy + _MENUBAR, idx))
+                mx += tw + 4
 
     # ── Widget rendering ──────────────────────────────────────────────────────
 
@@ -508,6 +532,12 @@ class DesignerCanvas(tk.Canvas):
                     pass                # palette resets via app.py callback
             return
 
+        # Menu bar hitbox check (before regular hit testing)
+        for (hx1, hy1, hx2, hy2, item_idx) in self._menu_hitboxes:
+            if hx1 <= event.x <= hx2 and hy1 <= event.y <= hy2:
+                self._show_menu_popup(event, item_idx)
+                return
+
         item = self._topmost_at(event.x, event.y)
         if item is None:
             self.deselect()
@@ -575,8 +605,8 @@ class DesignerCanvas(tk.Canvas):
                     }
             return
 
-        # Clicked form body, title bar, or grid → select form or start rubber-band
-        if any(t in ("form_bg", "titlebar", "grid") for t in tags):
+        # Clicked form body, title bar, grid, or menu bar background → select form or rubber-band
+        if any(t in ("form_bg", "titlebar", "grid", "menu_bar") for t in tags):
             if not ctrl:
                 self._selected_ids.clear()
                 self._primary_id = None
@@ -768,6 +798,63 @@ class DesignerCanvas(tk.Canvas):
     def _clear_hover(self) -> None:
         self._hover_id = None
         self.config(cursor="arrow")
+
+    def _show_menu_popup(self, event: tk.Event, top_idx: int) -> None:
+        """Show a dropdown for the top-level menu item at top_idx."""
+        items = self._form.menu_items
+        menu = tk.Menu(self, tearoff=0,
+                       bg="#ffffff", fg="#111111",
+                       activebackground="#0078d4", activeforeground="#ffffff",
+                       relief="flat", bd=1, font=("Segoe UI", 9))
+
+        i = top_idx + 1
+        while i < len(items) and items[i].indent > 0:
+            item = items[i]
+            if item.indent == 1:
+                if item.caption == "-":
+                    menu.add_separator()
+                elif i + 1 < len(items) and items[i + 1].indent > 1:
+                    # Sub-cascade: collect indent=2 children
+                    sub = tk.Menu(menu, tearoff=0,
+                                  bg="#ffffff", fg="#111111",
+                                  activebackground="#0078d4", activeforeground="#ffffff",
+                                  relief="flat", bd=1, font=("Segoe UI", 9))
+                    j = i + 1
+                    while j < len(items) and items[j].indent > 1:
+                        si = items[j]
+                        if si.caption == "-":
+                            sub.add_separator()
+                        elif si.name:
+                            sub.add_command(label=si.caption,
+                                            command=lambda m=f"_{si.name}_click": self._navigate_menu(m))
+                        else:
+                            sub.add_command(label=si.caption, state="disabled")
+                        j += 1
+                    menu.add_cascade(label=item.caption, menu=sub)
+                    i = j
+                    continue
+                elif item.name:
+                    menu.add_command(label=item.caption,
+                                     command=lambda m=f"_{item.name}_click": self._navigate_menu(m))
+                else:
+                    menu.add_command(label=item.caption, state="disabled")
+            i += 1
+
+        # Position popup directly below the menu title button
+        rx, ry = event.x_root, event.y_root
+        for (hx1, hy1, hx2, hy2, idx) in self._menu_hitboxes:
+            if idx == top_idx:
+                rx = self.winfo_rootx() + hx1
+                ry = self.winfo_rooty() + hy2
+                break
+        try:
+            menu.tk_popup(rx, ry)
+        finally:
+            menu.grab_release()
+
+    def _navigate_menu(self, method_name: str) -> None:
+        if self._on_menu_navigate:
+            self._on_menu_navigate(method_name)
 
     def _on_right_click(self, event: tk.Event) -> None:
         import tkinter as _tk
