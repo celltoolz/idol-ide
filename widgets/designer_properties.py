@@ -105,11 +105,13 @@ class DesignerProperties(tk.Frame):
         self._nb.add(self._events_frame, text="  Events  ")
 
         self._events_tree = _make_tree(self._events_frame, value_col_name="Handler")
+        self._events_tree.tag_configure("hover", foreground="#569cd6")
         self._events_tree.bind("<Button-1>", self._on_event_click)
         self._events_tree.bind("<Motion>",   self._on_event_hover)
         self._events_tree.bind("<Leave>",    self._on_event_leave)
 
-        self._ev_hover_row: str | None = None
+        self._ev_hover_row:        str | None = None
+        self._ev_hover_saved_tags: tuple      = ()
         self._ev_clear_btn = tk.Label(
             self._events_tree, text="×",
             bg="#3a3a3a", fg="#888888",
@@ -656,8 +658,20 @@ class DesignerProperties(tk.Frame):
         row  = tree.identify_row(event.y)
         if row == self._ev_hover_row:
             return
+        # restore previous row's tags
+        if self._ev_hover_row:
+            try:
+                tree.item(self._ev_hover_row, tags=self._ev_hover_saved_tags)
+            except Exception:
+                pass
         self._ev_hover_row = row
-        if not row or not tree.set(row, "#1").strip():
+        self._ev_hover_saved_tags = ()
+        if not row:
+            self._ev_clear_btn.place_forget()
+            return
+        self._ev_hover_saved_tags = tuple(tree.item(row, "tags") or ())
+        tree.item(row, tags=(*self._ev_hover_saved_tags, "hover"))
+        if not tree.set(row, "#1").strip():
             self._ev_clear_btn.place_forget()
             return
         bbox = tree.bbox(row, "#1")
@@ -695,7 +709,13 @@ class DesignerProperties(tk.Frame):
             self._prop_hover_saved_tags = ()
 
     def _on_event_leave(self, event: tk.Event) -> None:
+        if self._ev_hover_row:
+            try:
+                self._events_tree.item(self._ev_hover_row, tags=self._ev_hover_saved_tags)
+            except Exception:
+                pass
         self._ev_hover_row = None
+        self._ev_hover_saved_tags = ()
         self._ev_clear_btn.place_forget()
 
     def _on_ev_clear_click(self, event: tk.Event) -> None:
