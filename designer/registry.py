@@ -235,7 +235,7 @@ REGISTRY: dict[str, dict] = {
         "tk_class":     "ttk.Combobox",
         "default_size": (120, 25),
         "default_props": {"values": []},
-        "events":       _SIMPLE_EVENTS + _CHANGE_EVENTS + _KEY_EVENTS,
+        "events":       ["comboselected"] + _SIMPLE_EVENTS + _CHANGE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_combobox,
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar"],

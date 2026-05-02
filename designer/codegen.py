@@ -29,7 +29,8 @@ _BINDINGS: dict[str, str] = {
     "keypress":    "<KeyPress>",
     "keydown":     "<KeyPress>",
     "keyup":       "<KeyRelease>",
-    "change":      "<<Modified>>",
+    "change":        "<<Modified>>",
+    "comboselected": "<<ComboboxSelected>>",
 }
 
 _STUB    = "pass  # TODO"

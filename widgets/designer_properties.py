@@ -33,7 +33,7 @@ class DesignerProperties(tk.Frame):
         self._on_select_widget = on_select_widget
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
-        self._entry_editor:   tk.Entry | None           = None
+        self._entry_editor:   tk.Widget | None          = None
         self._form:           FormModel | None          = None
         # (display_label, widget_id | None)  — None means the form itself
         self._selector_items: list[tuple[str, str | None]] = []
@@ -507,6 +507,9 @@ class DesignerProperties(tk.Frame):
             if key == "font":
                 self._open_font_picker(row)
                 return
+            if isinstance(self._current_widget.props.get(key), list):
+                self._open_list_editor(row)
+                return
             reg = REGISTRY.get(self._current_widget.type, {})
             choices = reg.get("prop_choices", {}).get(key)
             if choices:
@@ -584,6 +587,129 @@ class DesignerProperties(tk.Frame):
         entry.bind("<Tab>",      commit)
         entry.bind("<Escape>",   lambda _: self._dismiss_editor())
         entry.bind("<FocusOut>", commit)
+
+    def _open_list_editor(self, row: str) -> None:
+        """Inline list editor for array-type props (e.g. Combobox values).
+
+        Enter adds an item and keeps the entry focused; × removes an item.
+        Clicking outside (FocusOut to a widget outside the panel) dismisses.
+        """
+        self._dismiss_editor()
+        d = self._current_widget
+        if d is None:
+            return
+        key = row[6:]  # strip "prop__"
+        current_list: list = list(d.props.get(key, []))
+
+        bbox = self._props_tree.bbox(row, "#1")
+        if not bbox:
+            return
+        _, by, _, _ = bbox
+        tree_w = self._props_tree.winfo_width() - 4
+
+        panel = tk.Frame(self._props_tree, bg="#2d2d2d",
+                         highlightthickness=1,
+                         highlightbackground="#007acc")
+        items_frame = tk.Frame(panel, bg="#2d2d2d")
+        items_frame.pack(fill="x", padx=2, pady=(2, 0))
+
+        def _do_commit():
+            d.props[key] = list(current_list)
+            self._props_tree.set(row, "#1", _display(current_list))
+            if self._on_prop_change:
+                self._on_prop_change(d.id, key, list(current_list))
+
+        entry_holder: list = []
+
+        def _resize():
+            panel.update_idletasks()
+            h = panel.winfo_reqheight()
+            panel.place(x=0, y=by, width=tree_w, height=max(h, 40))
+
+        def _refresh_items():
+            for child in items_frame.winfo_children():
+                child.destroy()
+            for i, item in enumerate(current_list):
+                rf = tk.Frame(items_frame, bg="#2d2d2d")
+                rf.pack(fill="x")
+                tk.Label(rf, text=item, bg="#2d2d2d", fg="#cccccc",
+                         font=("TkDefaultFont", 8), anchor="w").pack(
+                             side="left", fill="x", expand=True, padx=(4, 0))
+                xl = tk.Label(rf, text="×", bg="#2d2d2d", fg="#858585",
+                              font=("TkDefaultFont", 8), cursor="hand2", padx=4)
+                xl.pack(side="right")
+                def _remove(idx=i):
+                    del current_list[idx]
+                    _refresh_items()
+                    _do_commit()
+                    if entry_holder:
+                        entry_holder[0].focus_force()
+                xl.bind("<Button-1>", lambda e, r=_remove: r())
+            _resize()
+
+        ttk.Separator(panel, orient="horizontal").pack(fill="x", pady=(2, 0))
+        entry = tk.Entry(panel, font=("TkDefaultFont", 8),
+                         bg="#3c3c3c", fg="#cccccc",
+                         insertbackground="#cccccc",
+                         relief="flat", bd=0,
+                         highlightthickness=0)
+        entry.pack(fill="x", padx=2, pady=2, ipady=2)
+        entry_holder.append(entry)
+
+        _refresh_items()
+        panel.place(x=0, y=by, width=tree_w)
+        self._entry_editor = panel
+
+        def _add_item(_=None):
+            text = entry.get().strip()
+            if text:
+                current_list.append(text)
+                entry.delete(0, "end")
+                _refresh_items()
+                _do_commit()
+            entry.focus_force()
+            return "break"
+
+        _pending: list = []
+
+        def _on_focus_out(_=None):
+            aid = self._props_tree.after(100, _maybe_dismiss)
+            _pending.append(aid)
+
+        def _maybe_dismiss():
+            try:
+                fw = self._props_tree.winfo_toplevel().focus_get()
+            except Exception:
+                fw = None
+            # Stay open if focus is still inside the panel
+            if fw is not None:
+                w = fw
+                while w is not None:
+                    if w is panel:
+                        return
+                    try:
+                        w = w.master
+                    except Exception:
+                        break
+            _do_dismiss()
+
+        def _do_dismiss(_=None):
+            for aid in _pending:
+                try:
+                    self._props_tree.after_cancel(aid)
+                except Exception:
+                    pass
+            try:
+                panel.destroy()
+            except Exception:
+                pass
+            if self._entry_editor is panel:
+                self._entry_editor = None
+
+        entry.bind("<Return>",   _add_item)
+        entry.bind("<Escape>",   _do_dismiss)
+        entry.bind("<FocusOut>", _on_focus_out)
+        self._props_tree.after_idle(entry.focus_force)
 
     def _is_color_row(self, row_iid: str) -> bool:
         if not row_iid.startswith("prop__"):
@@ -1049,7 +1175,8 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "keypress":    ("<KeyPress>",         "Key pressed while focused"),
     "keydown":     ("<KeyPress>",         "Key pressed while focused"),
     "keyup":       ("<KeyRelease>",       "Key released while focused"),
-    "change":      ("<<Modified>>",       "Content changed"),
+    "change":        ("<<Modified>>",           "Content changed"),
+    "comboselected": ("<<ComboboxSelected>>",   "Item selected from dropdown"),
 }
 
 _PROP_HINTS: dict[str, str] = {
@@ -1165,7 +1292,7 @@ def _make_tree(parent: tk.Widget, value_col_name: str = "Value") -> ttk.Treeview
 def _display(val: Any) -> str:
     """Human-readable string for a prop value shown in the tree."""
     if isinstance(val, list):
-        return ", ".join(str(v) for v in val)
+        return ", ".join(str(v) for v in val) if val else "(empty)"
     return str(val)
 
 
