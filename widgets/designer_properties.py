@@ -811,7 +811,7 @@ class DesignerProperties(tk.Frame):
                 lbl.bind("<Leave>",    _leave)
                 lbl.bind("<Button-1>", _click)
 
-            overlay.place(x=0, y=y + h, width=tree.winfo_width() - 4)
+            overlay.place(x=x, y=y + h, width=max(w, 80))
             self._entry_editor = overlay
 
             # Dismiss when clicking anywhere outside the overlay
