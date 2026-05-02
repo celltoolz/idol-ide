@@ -3189,42 +3189,31 @@ class IDOL(Tk):
         # quit() triggers another destroy() before the process exits.
         self.file_exit()
 
-    def workspace_new(self, *_) -> None:
-        """Close the current workspace (with save prompt) and open a fresh one."""
-        answer = askyesnocancel(
-            "New Workspace",
-            "Creating a new workspace will close the current one.\n\nWould you like to save the current workspace before closing?",
-        )
-        if answer is None:
-            return  # Cancel
-        if answer:
-            self.workspace_save()
-        # Check for dirty tabs
-        for tab_id in list(self.notebook.tabs()):
-            if not self._confirm_close_tab(tab_id):
-                return
-        # Close all tabs without auto-opening Untitled yet
-        for tab_id in list(self.notebook.tabs()):
-            self._files.pop(tab_id, None)
-            self._titles.pop(tab_id, None)
-            self._dirty.pop(tab_id, None)
-            self._indent_sizes.pop(tab_id, None)
-            self._codeviews.pop(tab_id, None)
-            self._key_handlers.pop(tab_id, None)
-        mc = self._multi_cursors.pop(tab_id, None)
-        if mc:
-            mc.clear()
-            self.notebook.forget(tab_id)
-        self._new_tab("Untitled", "")
-        root = str(self._sidebar.explorer._root or os.getcwd())
-        self._set_explorer_root(root)
+    def _has_dirty_tabs(self) -> bool:
+        """Return True if any open tab has unsaved changes."""
+        return any(self._dirty.get(tid) for tid in self.notebook.tabs())
 
-    def _teardown_project(self) -> None:
+    def workspace_new(self, *_) -> None:
+        """Close the current workspace and open a fresh one."""
+        if self._has_dirty_tabs():
+            answer = askyesnocancel(
+                "New Workspace",
+                "You have unsaved changes.\n\nSave before creating a new workspace?",
+            )
+            if answer is None:
+                return
+            if answer:
+                self.workspace_save()
+        session_utils.save(self)
+        self._teardown_project()
+
+    def _teardown_project(self, add_untitled: bool = True) -> None:
         """Close all tabs and reset to a clean blank state (no save prompt)."""
         for tab_id in list(self.notebook.tabs()):
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)
+            self._clean_crcs.pop(tab_id, None)
             self._indent_sizes.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
             self._key_handlers.pop(tab_id, None)
@@ -3237,7 +3226,11 @@ class IDOL(Tk):
                 for srv in self._each_lsp():
                     srv.close_file(closed_path)
             self.notebook.forget(tab_id)
-        self._new_tab("Untitled", "")
+        # Clear LSP diagnostics from the old project
+        self._lsp_diagnostics.clear()
+        self._output.update_problems([])
+        if add_untitled:
+            self._new_tab("Untitled", "")
         if "(.venv)" in getattr(self, "_active_python_label", ""):
             term = self._output.terminal
             if term._running and term._venv_active:
@@ -3250,7 +3243,7 @@ class IDOL(Tk):
         self._set_explorer_root(str(Path.home()))
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
-        # Reset designer state for the new project
+        # Reset designer state
         self.designer_close_form()
         if self._designer_mode:
             self._enter_editor_mode()
@@ -3258,17 +3251,17 @@ class IDOL(Tk):
         self._designer_project_type = "cli"
 
     def workspace_close(self, *_) -> None:
-        """Close the current project (with save prompt) leaving a blank state."""
-        answer = askyesnocancel(
-            "Close Project",
-            "You are about to close your current project.\n\nWould you like to save before closing?",
-        )
-        if answer is None:
-            return  # Cancel
-        if answer:
-            self.workspace_save()
-        else:
-            session_utils.save(self)
+        """Close the current project, prompting only when there are unsaved changes."""
+        if self._has_dirty_tabs():
+            answer = askyesnocancel(
+                "Close Project",
+                "You have unsaved changes.\n\nSave before closing?",
+            )
+            if answer is None:
+                return
+            if answer:
+                self.workspace_save()
+        session_utils.save(self)
         self._teardown_project()
 
     def workspace_save(self, *_) -> None:
@@ -3286,31 +3279,17 @@ class IDOL(Tk):
         )
         if not path or not os.path.isfile(path):
             return
-        # Deactivate any active venv from the previous project before loading
-        if "(.venv)" in getattr(self, "_active_python_label", ""):
-            term = self._output.terminal
-            if term._running and term._venv_active:
-                term.send("deactivate\r")
-            import sys as _sys
-
-            self._set_active_interpreter(_sys.executable, "Python")
-        # Close all tabs cleanly (bypass the auto-Untitled fallback)
-        for tab_id in list(self.notebook.tabs()):
-            closed_path = self._files.pop(tab_id, None)
-            self._titles.pop(tab_id, None)
-            self._dirty.pop(tab_id, None)
-            self._indent_sizes.pop(tab_id, None)
-            self._codeviews.pop(tab_id, None)
-            self._key_handlers.pop(tab_id, None)
-            self._breadcrumbs.pop(tab_id, None)
-            self._temp_files.pop(tab_id, None)
-            mc = self._multi_cursors.pop(tab_id, None)
-            if mc:
-                mc.clear()
-            if closed_path and closed_path.endswith(".py"):
-                for srv in self._each_lsp():
-                    srv.close_file(closed_path)
-            self.notebook.forget(tab_id)
+        if self._has_dirty_tabs():
+            answer = askyesnocancel(
+                "Open Project",
+                "You have unsaved changes.\n\nSave before opening a new project?",
+            )
+            if answer is None:
+                return
+            if answer:
+                self.workspace_save()
+        # Full teardown of the current project (designer, LSP diags, tabs, etc.)
+        self._teardown_project(add_untitled=False)
         if not session_utils.restore(self, path):
             self._new_tab("Untitled", "")
 
