@@ -790,7 +790,7 @@ class DesignerProperties(tk.Frame):
         if item_hints:
             def _on_motion(e):
                 try:
-                    idx = menu.index(f"@{e.y}")
+                    idx = menu.index("active")
                     hint = item_hints.get(values[idx], "")
                     if hint:
                         self._show_hint(hint)
