@@ -245,6 +245,7 @@ class CodeView(Text):
             self.on_undo_restore(extra)
         self.after_idle(self.highlight_all)
         self.after_idle(self.scroll_line_update)
+        self.event_generate("<<ContentChanged>>", when="tail")
         return "break"
 
     def _redo(self, event: Event | None = None) -> str:
@@ -270,6 +271,7 @@ class CodeView(Text):
             self.on_undo_restore(extra)
         self.after_idle(self.highlight_all)
         self.after_idle(self.scroll_line_update)
+        self.event_generate("<<ContentChanged>>", when="tail")
         return "break"
 
     def _clear_undo_pending(self) -> None:

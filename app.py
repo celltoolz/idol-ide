@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import threading
+import zlib
 import tkinter as tk
 from pathlib import Path
 from tkinter import BooleanVar, Label, StringVar, Tk, ttk
@@ -277,6 +278,7 @@ class IDOL(Tk):
         self._files: dict[str, str | None] = {}
         self._titles: dict[str, str] = {}
         self._dirty: dict[str, bool] = {}
+        self._clean_crcs: dict[str, int] = {}  # CRC32 of last saved/loaded content
         self._temp_files: dict[str, str] = {}  # tab_id → temp file path
         self._indent_sizes: dict[str, int] = {}
         self._codeviews: dict[str, CodeView] = {}
@@ -1512,6 +1514,7 @@ class IDOL(Tk):
         closed_path = self._files.pop(tab_id, None)
         self._titles.pop(tab_id, None)
         self._dirty.pop(tab_id, None)
+        self._clean_crcs.pop(tab_id, None)
         self._indent_sizes.pop(tab_id, None)
         self._codeviews.pop(tab_id, None)
         self._key_handlers.pop(tab_id, None)
@@ -1627,6 +1630,13 @@ class IDOL(Tk):
         if tab_id in self._dirty:
             self._dirty[tab_id] = False
             self._refresh_tab_title(tab_id)
+        # Snapshot the clean CRC so subsequent identical-content edits don't dirty the tab.
+        cv = self._codeviews.get(tab_id)
+        if cv:
+            try:
+                self._clean_crcs[tab_id] = zlib.crc32(cv.get("1.0", "end-1c").encode())
+            except Exception:
+                pass
         self.after_idle(lambda tid=tab_id: self._reset_dirty_final(tid))
 
     def _reset_dirty_final(self, tab_id: str) -> None:
@@ -1639,8 +1649,10 @@ class IDOL(Tk):
         if cv is None:
             return
         try:
-            if cv.get("1.0", "end-1c") == Path(fp).read_text(encoding="utf-8"):
+            text = cv.get("1.0", "end-1c")
+            if text == Path(fp).read_text(encoding="utf-8"):
                 self._dirty[tab_id] = False
+                self._clean_crcs[tab_id] = zlib.crc32(text.encode())
                 self._refresh_tab_title(tab_id)
         except Exception:
             pass
@@ -1650,14 +1662,33 @@ class IDOL(Tk):
         if getattr(self, "_restoring", False):
             return
         tab_id = self._current_tab_id
-        if tab_id and not self._dirty.get(tab_id):
-            self._dirty[tab_id] = True
-            self._refresh_tab_title(tab_id)
         cv = self._current_codeview
+        text: str | None = None
+
+        if tab_id:
+            clean_crc = self._clean_crcs.get(tab_id)
+            if clean_crc is not None and cv:
+                # Fetch text once — reused below for outline/LSP too.
+                text = cv.get("1.0", "end-1c")
+                current_crc = zlib.crc32(text.encode())
+                if current_crc == clean_crc:
+                    # Content matches the saved baseline — revert dirty flag if set.
+                    if self._dirty.get(tab_id):
+                        self._dirty[tab_id] = False
+                        self._refresh_tab_title(tab_id)
+                else:
+                    if not self._dirty.get(tab_id):
+                        self._dirty[tab_id] = True
+                        self._refresh_tab_title(tab_id)
+            elif not self._dirty.get(tab_id):
+                self._dirty[tab_id] = True
+                self._refresh_tab_title(tab_id)
+
         if cv and isinstance(
             cv._lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)
         ):
-            text = cv.get("1.0", "end-1c")
+            if text is None:
+                text = cv.get("1.0", "end-1c")
             self._outline.schedule_refresh(text)
             # LSP: debounced change notification
             path = self._files.get(tab_id)
@@ -3080,6 +3111,7 @@ class IDOL(Tk):
             title = os.path.basename(filepath)
             self._titles[tab_id] = title
             self._dirty[tab_id] = False
+            self._clean_crcs[tab_id] = zlib.crc32(text.encode())
             _tmp = self._temp_files.pop(tab_id, None)
             if _tmp:
                 # Transfer any breakpoints registered against the temp path
