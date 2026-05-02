@@ -51,6 +51,7 @@ class AiChatPanel(tk.Frame):
         self._scroll_job = None
         self._render_job = None
         self._pending_render_text: str = ""
+        self._thinking_job = None
         self._pin_to_bottom: bool = False
         self._pin_release_job = None
         self._session_restore_active: bool = False
@@ -655,6 +656,40 @@ class AiChatPanel(tk.Frame):
         self._input.insert("1.0", text)
         self._send()
 
+    def _start_thinking_anim(self) -> None:
+        """Animate 'Thinking...' dots in the current AI bubble until first chunk."""
+        _states = ("Thinking", "Thinking.", "Thinking..", "Thinking...")
+        _idx = [0]
+
+        def _tick():
+            if not self._generating or self._pending_render_text:
+                return
+            bubble = self._current_ai_label
+            if not bubble:
+                return
+            txt = getattr(bubble, "_stream_txt", None)
+            if not txt:
+                return
+            try:
+                txt.config(state="normal")
+                txt.delete("1.0", "end")
+                txt.insert("1.0", _states[_idx[0] % len(_states)])
+                txt.config(state="disabled")
+            except Exception:
+                return
+            _idx[0] += 1
+            self._thinking_job = self.after(400, _tick)
+
+        self._thinking_job = self.after(0, _tick)
+
+    def _stop_thinking_anim(self) -> None:
+        if self._thinking_job:
+            try:
+                self.after_cancel(self._thinking_job)
+            except Exception:
+                pass
+            self._thinking_job = None
+
     def _send(self) -> None:
         if self._generating:
             return
@@ -682,7 +717,9 @@ class AiChatPanel(tk.Frame):
             return
 
         self._generating = True
+        self._pending_render_text = ""
         self._current_ai_label = self._append_ai_bubble()
+        self._start_thinking_anim()
 
         # Build prompt from full history
         prompt = self._build_prompt()
@@ -724,7 +761,8 @@ class AiChatPanel(tk.Frame):
         def _on_error(msg: str) -> None:
             self._generating = False
             try:
-                self.after(0, lambda: self._append_system(f"Error: {msg}", _WARN_FG))
+                self.after(0, lambda: (self._stop_thinking_anim(),
+                                       self._append_system(f"Error: {msg}", _WARN_FG)))
             except Exception:
                 pass
 
@@ -762,7 +800,9 @@ class AiChatPanel(tk.Frame):
         idol_settings.set("ai_introduced", True)
 
         self._generating = True
+        self._pending_render_text = ""
         self._current_ai_label = self._append_ai_bubble()
+        self._start_thinking_anim()
 
         _INTRO_PROMPT = (
             "You are Qwen, a friendly AI assistant built into IDOL "
@@ -876,6 +916,7 @@ class AiChatPanel(tk.Frame):
 
     def _schedule_render(self) -> None:
         """Stream update — just update the plain-text widget, no rebuilding."""
+        self._stop_thinking_anim()
         text = self._pending_render_text
         bubble = self._current_ai_label
         if not bubble:
