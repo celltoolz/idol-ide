@@ -2795,9 +2795,9 @@ class IDOL(Tk):
                     cv.see("insert")
                     self._scroll_clear_sticky(cv, line)
                 return
-        # Otherwise open as a new tab
+        # Otherwise open as a new tab — navigation must not reset the explorer root
         if os.path.isfile(path):
-            self._open_file(path)
+            self._open_file(path, update_explorer=False)
             cv = self._current_codeview
             if cv:
                 cv.mark_set("insert", f"{line}.{col}")
