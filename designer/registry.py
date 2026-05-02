@@ -246,7 +246,8 @@ REGISTRY: dict[str, dict] = {
         "label":        "Listbox",
         "tk_class":     "tk.Listbox",
         "default_size": (120, 80),
-        "default_props": {"values": [], "bg": "#FFFFFF", "fg": "#000000",
+        "default_props": {"values": [], "colorize": False, "colorize_altbg": "",
+                          "bg": "#FFFFFF", "fg": "#000000",
                           "font": "", "relief": "", "borderwidth": ""},
         "events":       ["listselect"] + _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_listbox,
@@ -255,6 +256,7 @@ REGISTRY: dict[str, dict] = {
         "state_values": ["normal", "disabled"],
         "prop_choices": {"relief": _RELIEF},
         "list_insert_props": ["values"],
+        "colorize_prop": True,
     },
     "Frame": {
         "label":        "Frame",

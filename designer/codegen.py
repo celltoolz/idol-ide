@@ -249,6 +249,13 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
             lines.append(f"        for _item in {repr(vals)}:")
             lines.append(f"            self.{w.id}.insert(tk.END, _item)")
 
+    # Alternate-row colorize
+    if w.props.get("colorize"):
+        alt_bg = w.props.get("colorize_altbg", "")
+        if alt_bg:
+            lines.append(f"        for i in range(0, self.{w.id}.size(), 2):")
+            lines.append(f'            self.{w.id}.itemconfigure(i, background="{alt_bg}")')
+
     # .bind() for every wired event — skip keys handled as constructor kwargs
     for event_key, method_name in w.events.items():
         if event_key == "command":

@@ -375,9 +375,14 @@ class DesignerProperties(tk.Frame):
             {"validate", "validatecommand", "vcmd_args", "invalidcommand"}
             if reg.get("validate_prop") else set()
         )
+        _colorize_reserved = (
+            {"colorize", "colorize_altbg"}
+            if reg.get("colorize_prop") else set()
+        )
         seen: set[str] = set()
         for key in list(defaults) + [k for k in d.props if k not in defaults]:
-            if key in seen or key in _state_reserved or key in _validate_reserved:
+            if key in seen or key in _state_reserved or key in _validate_reserved \
+                    or key in _colorize_reserved:
                 continue
             seen.add(key)
             val = d.props.get(key, defaults.get(key, ""))
@@ -431,6 +436,20 @@ class DesignerProperties(tk.Frame):
                                                 text="  --args",
                                                 values=(d.props.get("vcmd_args", "%P"),))
                 seen.update({"validatecommand", "vcmd_args", "invalidcommand"})
+
+        # Colorize row + conditional alt-bg color row
+        if reg.get("colorize_prop"):
+            current_colorize = bool(d.props.get("colorize", False))
+            self._props_tree.insert("", "end", iid="prop__colorize",
+                                    text="colorize", values=(str(current_colorize),))
+            seen.add("colorize")
+            if current_colorize:
+                alt_bg = d.props.get("colorize_altbg", "")
+                self._props_tree.insert("", "end", iid="prop__colorize_altbg",
+                                        text="  --alt bg", values=(alt_bg,))
+                seen.add("colorize_altbg")
+                if alt_bg:
+                    self._apply_color_swatch("prop__colorize_altbg", alt_bg.upper())
 
         # Variable binding section (only for widgets that support it)
         if reg.get("variable_prop"):
@@ -502,6 +521,8 @@ class DesignerProperties(tk.Frame):
                                 self._commit_prop)
         elif row == "prop__vcmd_args":
             self._open_dropdown(tree, row, col, _VCMD_ARG_PRESETS, self._commit_prop)
+        elif row == "prop__colorize":
+            self._open_dropdown(tree, row, col, ["True", "False"], self._commit_prop)
         elif row.startswith("prop__") and self._current_widget:
             key = row[6:]
             if key == "font":
@@ -724,6 +745,8 @@ class DesignerProperties(tk.Frame):
         for color_list in reg.get("state_color_props", {}).values():
             if key in color_list:
                 return True
+        if key == "colorize_altbg" and reg.get("colorize_prop"):
+            return True
         return False
 
     # Props that can be cleared back to "" (optional / skippable in codegen)
@@ -1073,6 +1096,8 @@ class DesignerProperties(tk.Frame):
                     if self._on_prop_change:
                         self._on_prop_change(d.id, "validatecommand", auto)
                 self.load_widget(d)
+            elif key == "colorize":
+                self.load_widget(d)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
 
@@ -1219,6 +1244,8 @@ _PROP_HINTS: dict[str, str] = {
     "increment":          "Amount to increase or decrease per step click",
     "wrap":               "Whether values wrap around when reaching min or max",
     "values":             "Comma-separated list of selectable options",
+    "colorize":           "Alternate-row shading: True applies --alt bg color to every even row via itemconfigure()",
+    "colorize_altbg":     "Background color applied to even-numbered rows when colorize is True",
     "orient":             "Layout direction: horizontal or vertical",
     # Validation
     "validate":           "When to run the validation function",
