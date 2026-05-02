@@ -1225,7 +1225,7 @@ _PROP_HINTS: dict[str, str] = {
     "relief":             "Border style: flat, sunken, raised, groove, ridge, or solid",
     "borderwidth":        "Border thickness in pixels",
     "justify":            "Text alignment when content spans multiple lines",
-    "anchor":             "Position of text or image within the control",
+    "anchor":             "Alignment of content within the widget bounds: w pins indicator+text to the left edge (recommended for Checkbutton/Radiobutton)",
     "padx":               "Horizontal internal padding in pixels",
     "pady":               "Vertical internal padding in pixels",
     # Entry / Text
