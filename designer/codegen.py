@@ -219,9 +219,13 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
         var_kwarg = reg.get("variable_prop", "textvariable")
         kw_parts.append(f"{var_kwarg}=self.{w.variable.name}")
 
-    click_method = w.events.get("click")
-    if w.type == "Button" and click_method:
-        kw_parts.append(f"command=self.{click_method}")
+    # command event → kwarg (all command-capable widgets)
+    # Prefer explicit "command" key; fall back to Button's "click" legacy mapping.
+    command_method = w.events.get("command") or (
+        w.events.get("click") if w.type == "Button" else None
+    )
+    if command_method:
+        kw_parts.append(f"command=self.{command_method}")
 
     parent_arg = f"self.{w.parent_id}" if w.parent_id else "self"
     kw_str = (", " + ", ".join(kw_parts)) if kw_parts else ""
@@ -233,8 +237,10 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
         f" width={w.width}, height={w.height})"
     )
 
-    # .bind() for every wired event that isn't a Button command
+    # .bind() for every wired event — skip keys handled as constructor kwargs
     for event_key, method_name in w.events.items():
+        if event_key == "command":
+            continue
         if w.type == "Button" and event_key == "click":
             continue
         binding = _BINDINGS.get(event_key)

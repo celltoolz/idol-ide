@@ -843,17 +843,9 @@ class DesignerCanvas(tk.Canvas):
         if d["mode"] == "move":
             new_x = _snap(d["orig_x"] + dx)
             new_y = _snap(d["orig_y"] + dy)
-            # Clamp primary widget based on its parent (or form)
-            if w.parent_id:
-                parent = self._form.get_widget(w.parent_id)
-                if parent:
-                    lh = _LF_LABEL_H if parent.type == "LabelFrame" else 0
-                    new_x = max(0, min(new_x, parent.width  - w.width))
-                    new_y = max(0, min(new_y, parent.height - lh - w.height))
-                else:
-                    new_x = max(0,            min(new_x, self._form.width  - w.width))
-                    new_y = max(self._min_y, min(new_y, self._form.height - w.height))
-            else:
+            # Parented widgets move freely during drag so they can escape the
+            # container — _try_reparent on release handles final clamping.
+            if not w.parent_id:
                 new_x = max(0,            min(new_x, self._form.width  - w.width))
                 new_y = max(self._min_y, min(new_y, self._form.height - w.height))
             # Actual snapped delta (may differ from raw dx/dy due to clamping)
@@ -866,14 +858,8 @@ class DesignerCanvas(tk.Canvas):
                 if sw is None:
                     continue
                 if sw.parent_id:
-                    par = self._form.get_widget(sw.parent_id)
-                    if par:
-                        lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
-                        sw.x = max(0, min(ox + actual_dx, par.width  - sw.width))
-                        sw.y = max(0, min(oy + actual_dy, par.height - lh - sw.height))
-                    else:
-                        sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
-                        sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
+                    sw.x = ox + actual_dx
+                    sw.y = oy + actual_dy
                 else:
                     sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
                     sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
