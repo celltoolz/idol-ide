@@ -459,8 +459,8 @@ class DesignerProperties(tk.Frame):
         col  = tree.identify_column(event.x)
         if not row or col != "#1":
             return
-        if row == "var__section":
-            return  # section header — not editable
+        if row in ("var__section", "geo__parent"):
+            return  # not editable
         if row == "form__menu_bar":
             self._open_menu_editor()
         elif row == "form__bg" or self._is_color_row(row):
