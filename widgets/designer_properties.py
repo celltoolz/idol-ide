@@ -771,7 +771,10 @@ class DesignerProperties(tk.Frame):
         rx = tree.winfo_rootx() + x
         ry = tree.winfo_rooty() + y + h
 
-        current = tree.set(row, col)
+        # Per-item hints for this prop key (e.g. anchor)
+        prop_key = row.split("__", 1)[-1] if "__" in row else ""
+        item_hints = _DROPDOWN_ITEM_HINTS.get(prop_key, {})
+
         menu = tk.Menu(tree.winfo_toplevel(), tearoff=0,
                        bg="#2d2d2d", fg="#cccccc",
                        activebackground="#094771", activeforeground="#ffffff",
@@ -783,6 +786,18 @@ class DesignerProperties(tk.Frame):
             menu.add_command(label=val, command=_cmd,
                              font=("Segoe UI", 9),
                              columnbreak=False)
+
+        if item_hints:
+            def _on_motion(e):
+                try:
+                    idx = menu.index(f"@{e.y}")
+                    hint = item_hints.get(values[idx], "")
+                    if hint:
+                        self._show_hint(hint)
+                except Exception:
+                    pass
+            menu.bind("<Motion>", _on_motion)
+
         try:
             menu.tk_popup(rx, ry)
         finally:
@@ -1261,6 +1276,20 @@ _PROP_HINTS: dict[str, str] = {
     "border_style":       "Window border: sizable (resizable), fixed, or none (no chrome)",
     "maximize_box":       "Whether the maximize / restore button is visible",
     "menu_bar":           "Click to open the Menu Editor and build a menu bar for this form",
+}
+
+_DROPDOWN_ITEM_HINTS: dict[str, dict[str, str]] = {
+    "anchor": {
+        "w":      "West — indicator + text flush to the left edge (recommended)",
+        "e":      "East — indicator + text flush to the right edge",
+        "n":      "North — content pushed to the top edge",
+        "s":      "South — content pushed to the bottom edge",
+        "center": "Center — content centered within the widget bounds (tkinter default)",
+        "nw":     "North-West — top-left corner",
+        "ne":     "North-East — top-right corner",
+        "sw":     "South-West — bottom-left corner",
+        "se":     "South-East — bottom-right corner",
+    },
 }
 
 _VCMD_ARG_PRESETS: list[str] = [

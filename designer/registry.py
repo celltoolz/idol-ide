@@ -118,6 +118,7 @@ def _draw_separator(c, x, y, w, h):
 
 _JUSTIFY = ["left", "center", "right"]
 _RELIEF  = ["flat", "sunken", "raised", "groove", "ridge", "solid"]
+_ANCHOR  = ["w", "e", "n", "s", "center", "nw", "ne", "sw", "se"]
 
 
 # ── Common event sets ──────────────────────────────────────────────────────────
@@ -213,7 +214,7 @@ REGISTRY: dict[str, dict] = {
         "state_prop":   True,
         "state_values": ["normal", "disabled"],
         "state_color_props": {"disabled": ["disabledforeground"]},
-        "prop_choices": {"justify": _JUSTIFY},
+        "prop_choices": {"justify": _JUSTIFY, "anchor": _ANCHOR},
     },
     "Radiobutton": {
         "label":        "Radiobutton",
@@ -230,7 +231,7 @@ REGISTRY: dict[str, dict] = {
         "state_prop":   True,
         "state_values": ["normal", "disabled"],
         "state_color_props": {"disabled": ["disabledforeground"]},
-        "prop_choices": {"justify": _JUSTIFY},
+        "prop_choices": {"justify": _JUSTIFY, "anchor": _ANCHOR},
     },
     "Combobox": {
         "label":        "Combobox",
