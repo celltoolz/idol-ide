@@ -31,6 +31,7 @@ _BINDINGS: dict[str, str] = {
     "keyup":       "<KeyRelease>",
     "change":        "<<Modified>>",
     "comboselected": "<<ComboboxSelected>>",
+    "listselect":    "<<ListboxSelect>>",
 }
 
 _STUB    = "pass  # TODO"
@@ -196,6 +197,7 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     }
     _all_color_props = _color_props | _state_color_props
     _vcmd_keys = {"validatecommand", "invalidcommand"}
+    _list_insert_props = set(reg.get("list_insert_props", []))
     kw_parts: list[str] = []
     for k, v in w.props.items():
         if k in _all_color_props and v == "":
@@ -208,6 +210,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
             continue
         if k == "vcmd_args":
             continue  # consumed when building validatecommand/invalidcommand
+        if k in _list_insert_props:
+            continue  # emitted as insert() calls after place()
         if k in _vcmd_keys:
             if v:
                 args_raw = w.props.get("vcmd_args", "%P")
@@ -237,6 +241,13 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
         f"        self.{w.id}.place(x={w.x}, y={place_y},"
         f" width={w.width}, height={w.height})"
     )
+
+    # list_insert_props — populate widget with insert() calls after place()
+    for prop_key in reg.get("list_insert_props", []):
+        vals = w.props.get(prop_key, [])
+        if vals:
+            lines.append(f"        for _item in {repr(vals)}:")
+            lines.append(f"            self.{w.id}.insert(tk.END, _item)")
 
     # .bind() for every wired event — skip keys handled as constructor kwargs
     for event_key, method_name in w.events.items():

@@ -1177,6 +1177,7 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "keyup":       ("<KeyRelease>",       "Key released while focused"),
     "change":        ("<<Modified>>",           "Content changed"),
     "comboselected": ("<<ComboboxSelected>>",   "Item selected from dropdown"),
+    "listselect":    ("<<ListboxSelect>>",      "Item selected from listbox"),
 }
 
 _PROP_HINTS: dict[str, str] = {
