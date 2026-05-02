@@ -18,6 +18,18 @@ _BTN_BG   = "#3a3a3a"
 _ENTRY_BG = "#3c3c3c"
 _SEL_BG   = "#094771"
 
+_FIELD_HINTS: dict[str, str] = {
+    "caption":  "Text displayed in the menu. Use & before a letter for an access key (e.g. &File). Set to  -  for a separator line.",
+    "name":     "Code identifier. Cascade menus → self._m_<name>. Leaf commands → self._<name>_click handler stub. Keep lowercase with underscores.",
+    "shortcut": "Keyboard accelerator label shown on the right side of the item (e.g. Ctrl+S). Display only — add the actual key binding in your code.",
+    "enabled":  "When unchecked the item is greyed out at startup. Can be toggled at runtime via your handler code.",
+    "visible":  "When unchecked the item is hidden at startup. Can be toggled at runtime via your handler code.",
+    "type":     "Item style: Command = standard action, Checkbutton = toggle with checkmark indicator, Radiobutton = exclusive selection with bullet indicator. Only available for indent ≥ 1.",
+    "variable": "Variable name tracking check/radio state. IDOL declares self.<name> = tk.BooleanVar() for checkbuttons or tk.StringVar() for radiobuttons.",
+    "command":  "Optional handler name for check/radiobutton items. Generates command=self._<name>_click and a stub in the Events section.",
+    "value":    "The string written to the variable when this radiobutton is selected (e.g. 'left', 'center', 'right'). All radiobuttons sharing the same Variable are mutually exclusive.",
+}
+
 _SHORTCUTS = [
     "(None)", "Ctrl+A", "Ctrl+C", "Ctrl+D", "Ctrl+E", "Ctrl+F",
     "Ctrl+G", "Ctrl+H", "Ctrl+I", "Ctrl+K", "Ctrl+L", "Ctrl+M",
@@ -115,14 +127,20 @@ class MenuEditor(tk.Toplevel):
         chk_frame.grid(row=1, column=2, columnspan=2, sticky="w", pady=3)
         self._enabled_var = tk.BooleanVar(value=True)
         self._visible_var = tk.BooleanVar(value=True)
-        for text, var, col in [("Enabled", self._enabled_var, 0),
-                                ("Visible", self._visible_var, 1)]:
-            tk.Checkbutton(
-                chk_frame, text=text, variable=var,
-                bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
-                activeforeground=_FG, font=("Segoe UI", 9),
-                command=self._on_field_change,
-            ).grid(row=0, column=col, padx=(0, 12))
+        self._enabled_chk = tk.Checkbutton(
+            chk_frame, text="Enabled", variable=self._enabled_var,
+            bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
+            activeforeground=_FG, font=("Segoe UI", 9),
+            command=self._on_field_change,
+        )
+        self._enabled_chk.grid(row=0, column=0, padx=(0, 12))
+        self._visible_chk = tk.Checkbutton(
+            chk_frame, text="Visible", variable=self._visible_var,
+            bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
+            activeforeground=_FG, font=("Segoe UI", 9),
+            command=self._on_field_change,
+        )
+        self._visible_chk.grid(row=0, column=1, padx=(0, 12))
 
         # type / variable / value row
         _label(fields, "Type:", 2, 0)
@@ -231,6 +249,18 @@ class MenuEditor(tk.Toplevel):
         ).pack(side="left")
         ok_frame.winfo_children()[-1].bind("<Button-1>", lambda _: self._open_guide())
 
+        # ── hint bar ──────────────────────────────────────────────────────────
+        self._hint_label = tk.Label(
+            self, text="", bg=_BG2, fg="#888888",
+            font=("Segoe UI", 8), anchor="nw", padx=8, pady=4,
+            wraplength=460, justify="left", height=3,
+        )
+        self._hint_label.pack(fill="x", padx=8, pady=(0, 8))
+        self._hint_label.bind(
+            "<Configure>",
+            lambda e: self._hint_label.config(wraplength=max(1, e.width - 16)),
+        )
+
         # wire field-change callbacks after all widgets exist
         self._caption_var.trace_add("write", lambda *_: self._on_field_change())
         self._name_var.trace_add("write", lambda *_: self._on_field_change())
@@ -239,6 +269,31 @@ class MenuEditor(tk.Toplevel):
         self._variable_var.trace_add("write", lambda *_: self._on_field_change())
         self._command_handler_var.trace_add("write", lambda *_: self._on_field_change())
         self._value_var.trace_add("write", lambda *_: self._on_field_change())
+
+        # hover hints
+        _h = self._bind_hint
+        _h(self._caption_entry,         "caption")
+        _h(self._name_entry,            "name")
+        _h(self._shortcut_cb,           "shortcut")
+        _h(self._enabled_chk,           "enabled")
+        _h(self._visible_chk,           "visible")
+        _h(self._kind_cb,               "type")
+        _h(self._variable_entry,        "variable")
+        _h(self._command_handler_entry, "command")
+        _h(self._value_entry,           "value")
+
+    # ── Hint bar ──────────────────────────────────────────────────────────────
+
+    def _show_hint(self, text: str) -> None:
+        self._hint_label.config(text=text)
+
+    def _clear_hint(self) -> None:
+        self._hint_label.config(text="")
+
+    def _bind_hint(self, widget: tk.Widget, key: str) -> None:
+        text = _FIELD_HINTS.get(key, "")
+        widget.bind("<Enter>", lambda _: self._show_hint(text), add=True)
+        widget.bind("<Leave>", lambda _: self._clear_hint(),    add=True)
 
     # ── Listbox helpers ───────────────────────────────────────────────────────
 
@@ -452,11 +507,30 @@ class MenuEditor(tk.Toplevel):
                      "Enabled controls whether the item is greyed out at startup. "
                      "Visible controls whether it appears at all. "
                      "Both can be toggled at runtime from your handler code.", "#cccccc"),
+                    ("TYPE",
+                     "Controls what kind of menu item is generated (enabled for indent ≥ 1 only):\n\n"
+                     "  Command     — standard clickable item, generates command=self._<name>_click\n"
+                     "  Checkbutton — toggleable on/off item with a checkmark indicator\n"
+                     "  Radiobutton — mutually exclusive selection item with a bullet indicator\n\n"
+                     "Type is disabled for top-level cascade items (indent 0) and separators.",
+                     "#bd93f9"),
+                    ("VARIABLE  /  VALUE  /  COMMAND",
+                     "These three fields activate when Type is Checkbutton or Radiobutton:\n\n"
+                     "  Variable — name of the tk variable on self that tracks the state, e.g. "
+                     "word_wrap_var. IDOL declares self.word_wrap_var = tk.BooleanVar() for "
+                     "checkbuttons and tk.StringVar() for radiobuttons.\n\n"
+                     "  Value    — (radiobutton only) the string written to the variable when this "
+                     "item is selected, e.g. 'left', 'center', 'right'.\n\n"
+                     "  Command  — optional handler name. If set, IDOL generates "
+                     "command=self._<name>_click and a stub in the Events section. "
+                     "Leave blank if you only need the variable.",
+                     "#ff79c6"),
                 ],
                 plain_english=(
-                    "Name is the most important field — it drives both the variable name "
-                    "in _build_ui and the handler method name in the Events section. "
-                    "A good name is short, lowercase, and describes the action: save, open_file, about."
+                    "For a group of radiobuttons give them all the same Variable and different "
+                    "Values — tkinter keeps them in sync automatically. "
+                    "A Command is only needed when you want to run extra logic the moment the "
+                    "selection changes; otherwise just read the variable whenever you need it."
                 ),
             ),
             GuidePage(
@@ -473,15 +547,24 @@ class MenuEditor(tk.Toplevel):
                      "For each top-level menu IDOL emits:\n"
                      "    self._m_file = tk.Menu(self._menu_bar, tearoff=0)\n"
                      "    self._menu_bar.add_cascade(label='File', menu=self._m_file)\n\n"
-                     "For each leaf command:\n"
+                     "For a checkbutton item:\n"
+                     "    self.word_wrap_var = tk.BooleanVar()          # in __init__\n"
+                     "    self._m_view.add_checkbutton(label='Word Wrap',\n"
+                     "        variable=self.word_wrap_var)\n\n"
+                     "For a radiobutton group:\n"
+                     "    self.align_var = tk.StringVar()               # in __init__\n"
+                     "    self._m_format.add_radiobutton(label='Left',\n"
+                     "        variable=self.align_var, value='left')\n\n"
+                     "For a leaf command:\n"
                      "    self._m_file.add_command(label='Exit', command=self._exit_click)\n\n"
                      "And in the Events section:\n"
                      "    def _exit_click(self, *args):\n"
                      "        pass  # TODO", "#73c991"),
                     ("CANVAS PREVIEW",
                      "After closing this editor the menu bar appears live on the designer canvas "
-                     "below the title bar. Click any top-level menu name to see the dropdown — "
-                     "clicking a leaf item navigates straight to its handler in the editor.", "#e2c08d"),
+                     "below the title bar. Click any top-level menu name to see the dropdown. "
+                     "Command items and check/radiobutton items with a Command set will navigate "
+                     "straight to their handler stub when clicked.", "#e2c08d"),
                 ],
                 plain_english=(
                     "Generate Code (Ctrl+Shift+G) after building your menu and all the stubs "
