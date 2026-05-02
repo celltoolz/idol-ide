@@ -212,6 +212,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
             continue  # consumed when building validatecommand/invalidcommand
         if k in _list_insert_props:
             continue  # emitted as insert() calls after place()
+        if reg.get("colorize_prop") and k in ("colorize", "colorize_altbg"):
+            continue  # handled as itemconfigure loop after place()
         if k in _vcmd_keys:
             if v:
                 args_raw = w.props.get("vcmd_args", "%P")
