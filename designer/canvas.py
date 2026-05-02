@@ -37,9 +37,10 @@ _DOT    = "#3a3a3a" # grid dot color
 _SEL    = "#007acc" # selection / handle color
 _HIT    = "#1a9fd4" # hover highlight
 _HW     = 7         # handle width/height (px)
-_TITLE   = 24       # form title bar height (px)
-_MENUBAR = 20       # menu bar strip height (px)
-_SHADOW  = 4        # form drop-shadow offset (px)
+_TITLE      = 24    # form title bar height (px)
+_MENUBAR    = 20    # menu bar strip height (px)
+_SHADOW     = 4     # form drop-shadow offset (px)
+_LF_LABEL_H = 17    # LabelFrame label area height — measured: child y=0 appears 17px below outer top
 
 
 # ── Handle positions ──────────────────────────────────────────────────────────
@@ -194,8 +195,18 @@ class DesignerCanvas(tk.Canvas):
             w = self._form.get_widget(wid)
             if w is None:
                 continue
-            w.x = max(0,            min(w.x + dx, self._form.width  - w.width))
-            w.y = max(self._min_y, min(w.y + dy, self._form.height - w.height))
+            if w.parent_id:
+                par = self._form.get_widget(w.parent_id)
+                if par:
+                    lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                    w.x = max(0, min(w.x + dx, par.width  - w.width))
+                    w.y = max(0, min(w.y + dy, par.height - lh - w.height))
+                else:
+                    w.x = max(0,            min(w.x + dx, self._form.width  - w.width))
+                    w.y = max(self._min_y, min(w.y + dy, self._form.height - w.height))
+            else:
+                w.x = max(0,            min(w.x + dx, self._form.width  - w.width))
+                w.y = max(self._min_y, min(w.y + dy, self._form.height - w.height))
             self.delete(f"widget:{wid}")
             self._render_widget(w)
             self._restore_z_order(wid)
@@ -476,12 +487,18 @@ class DesignerCanvas(tk.Canvas):
     # ── Container helpers ─────────────────────────────────────────────────────
 
     def _abs_xy(self, w: WidgetDescriptor) -> tuple[int, int]:
-        """Absolute canvas (x, y) for a widget's top-left, honouring parent offset."""
+        """Absolute canvas (x, y) for a widget's top-left, honouring parent offset.
+
+        LabelFrame children are offset by _LF_LABEL_H so the designer matches
+        the actual tkinter placement (children are measured from the content area,
+        not the widget's outer top-left).
+        """
         if w.parent_id and self._form:
             p = self._form.get_widget(w.parent_id)
             if p:
                 px, py = self._abs_xy(p)
-                return px + w.x, py + w.y
+                label_h = _LF_LABEL_H if p.type == "LabelFrame" else 0
+                return px + w.x, py + label_h + w.y
         return self._ox + w.x, self._oy + w.y
 
     def _children_of(self, parent_id: str) -> list[WidgetDescriptor]:
@@ -644,10 +661,11 @@ class DesignerCanvas(tk.Canvas):
                 container = self._container_at(event.x, event.y)
                 if container:
                     ax, ay = self._abs_xy(container)
+                    label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
                     fx = _snap(event.x - ax)
-                    fy = _snap(event.y - ay)
+                    fy = _snap(event.y - ay - label_h)
                     fx = max(0, min(fx, container.width  - w))
-                    fy = max(0, min(fy, container.height - h))
+                    fy = max(0, min(fy, container.height - label_h - h))
                     parent_id = container.id
                 else:
                     fx = _snap(event.x - self._ox)
@@ -825,8 +843,9 @@ class DesignerCanvas(tk.Canvas):
             if w.parent_id:
                 parent = self._form.get_widget(w.parent_id)
                 if parent:
+                    lh = _LF_LABEL_H if parent.type == "LabelFrame" else 0
                     new_x = max(0, min(new_x, parent.width  - w.width))
-                    new_y = max(0, min(new_y, parent.height - w.height))
+                    new_y = max(0, min(new_y, parent.height - lh - w.height))
                 else:
                     new_x = max(0,            min(new_x, self._form.width  - w.width))
                     new_y = max(self._min_y, min(new_y, self._form.height - w.height))
@@ -845,8 +864,9 @@ class DesignerCanvas(tk.Canvas):
                 if sw.parent_id:
                     par = self._form.get_widget(sw.parent_id)
                     if par:
+                        lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
                         sw.x = max(0, min(ox + actual_dx, par.width  - sw.width))
-                        sw.y = max(0, min(oy + actual_dy, par.height - sw.height))
+                        sw.y = max(0, min(oy + actual_dy, par.height - lh - sw.height))
                     else:
                         sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
                         sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
@@ -956,10 +976,12 @@ class DesignerCanvas(tk.Canvas):
         abs_y = ay - self._oy
 
         if new_pid:
-            # Moving into a container: make coords relative to it
+            # Moving into a container: make coords relative to its content area
             p = self._form.get_widget(new_pid)
-            w.x = max(0, min(abs_x - p.x, p.width  - w.width))
-            w.y = max(0, min(abs_y - p.y, p.height - w.height))
+            label_h = _LF_LABEL_H if p.type == "LabelFrame" else 0
+            p_abs_x, p_abs_y = self._abs_xy(p)
+            w.x = max(0, min(abs_x - (p_abs_x - self._ox), p.width  - w.width))
+            w.y = max(0, min(abs_y - (p_abs_y - self._oy) - label_h, p.height - label_h - w.height))
         else:
             # Dropping onto the form
             w.x = max(0,            min(abs_x, self._form.width  - w.width))
