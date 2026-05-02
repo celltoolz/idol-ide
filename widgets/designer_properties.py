@@ -329,10 +329,12 @@ class DesignerProperties(tk.Frame):
                      "auto-fill a handler name based on the widget name. "
                      "You can also type any name directly in the Handler column.",
                      "#cccccc"),
-                    ("BUTTON COMMAND",
-                     "For Button widgets, the click event is wired as command= in the constructor "
-                     "rather than a .bind() call — this is the standard tkinter pattern and "
-                     "behaves identically from your handler's perspective.", "#e2c08d"),
+                    ("COMMAND EVENT",
+                     "The command event (Button, Checkbutton, Radiobutton, Scale, Spinbox) is wired "
+                     "as command= in the widget constructor rather than a .bind() call — "
+                     "this is the standard tkinter pattern. Scale passes the current value "
+                     "as an argument; use *args in the handler signature to receive it.",
+                     "#e2c08d"),
                 ],
                 plain_english=(
                     "Each event maps to a tkinter binding string shown in the middle column. "
@@ -1033,6 +1035,7 @@ _VALIDATE_LABELS: dict[str, str] = {
 }
 
 _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "command":     ("command=",           "Fired on activation — wired as constructor kwarg, not .bind()"),
     "click":       ("<Button-1>",         "Left mouse button click"),
     "dblclick":    ("<Double-Button-1>",  "Double click"),
     "rightclick":  ("<Button-3>",         "Right mouse button click"),
