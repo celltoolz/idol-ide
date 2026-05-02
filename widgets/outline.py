@@ -68,6 +68,8 @@ class OutlinePanel(ttk.Frame):
         self.tree.tag_configure("local",    foreground="#abb2bf")  # soft grey
 
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.tree.bind("<Button-1>", self._on_tree_click, add=True)
+        self._last_click_region = "nothing"
 
     def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
         """Update outline colours to match the active editor theme."""
@@ -361,7 +363,14 @@ class OutlinePanel(ttk.Frame):
         """Return local symbols inside the function/method that starts at *func_start*."""
         return self._locals.get(func_start, [])
 
+    def _on_tree_click(self, event) -> None:
+        self._last_click_region = self.tree.identify_element(event.x, event.y)
+
     def _on_select(self, _) -> None:
+        region = self._last_click_region
+        self._last_click_region = "nothing"
+        if region == "Treeitem.indicator":
+            return
         selected = self.tree.selection()
         if selected and self._on_navigate:
             values = self.tree.item(selected[0], "values")

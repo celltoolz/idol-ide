@@ -336,8 +336,8 @@ class TkLineNumbers(Canvas):
         cy = y + size / 2
         arm = size * 0.28
 
-        # Square
-        self.create_rectangle(x, y, x + size, y + size, fill=bg, outline=fg, width=1)
+        # Square — tagged so click_see can hit-test without pixel math
+        self.create_rectangle(x, y, x + size, y + size, fill=bg, outline=fg, width=1, tags=("fold_marker",))
 
         # Horizontal bar (always — the minus part)
         self.create_line(cx - arm, cy, cx + arm + _ARM_PAD, cy, fill=fg, width=1)
@@ -400,9 +400,10 @@ class TkLineNumbers(Canvas):
             return
 
         actual_marker = self._fold_tag_at_line(int(line))
+        items_at_click = self.find_overlapping(event.x - 1, event.y - 1, event.x + 1, event.y + 1)
         in_fold_zone = (
             actual_marker is not None
-            and event.x > self.winfo_reqwidth() - (self.font_size + 5)
+            and any("fold_marker" in self.gettags(i) for i in items_at_click)
         )
         if in_fold_zone:
             if not getboolean(self.textwidget.tag_cget(actual_marker, "elide") or "false"):
@@ -414,6 +415,8 @@ class TkLineNumbers(Canvas):
                 self._hide_dots(actual_marker)
                 self.textwidget.tag_delete(actual_marker)
                 self.textwidget.mark_unset(actual_marker)
+            self.redraw()
+            return "break"
 
         self.textwidget.mark_set("insert", click_pos)
         self.textwidget.see("insert")
