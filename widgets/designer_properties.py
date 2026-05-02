@@ -134,6 +134,15 @@ class DesignerProperties(tk.Frame):
         self._ev_clear_btn.bind("<Leave>",    lambda e: self._ev_clear_btn.config(fg="#888888"))
         self._ev_clear_btn.bind("<Button-1>", self._on_ev_clear_click)
 
+        self._ev_wire_btn = tk.Label(
+            self._events_tree, text="✦",
+            bg="#3a3a3a", fg="#555555",
+            font=("Segoe UI", 9), cursor="hand2", padx=2,
+        )
+        self._ev_wire_btn.bind("<Enter>",    lambda e: self._ev_wire_btn.config(fg="#569cd6"))
+        self._ev_wire_btn.bind("<Leave>",    lambda e: self._ev_wire_btn.config(fg="#555555"))
+        self._ev_wire_btn.bind("<Button-1>", self._on_ev_wire_click)
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def load_widget(self, descriptor: WidgetDescriptor) -> None:
@@ -316,8 +325,9 @@ class DesignerProperties(tk.Frame):
                     ("EVENT REFERENCE",
                      events_text, "#569cd6"),
                     ("AUTO-WIRE",
-                     "Click the ✦ icon next to an event row to auto-fill a handler name based on "
-                     "the widget name. You can also type any name directly in the Handler column.",
+                     "Hover over an unwired event row and click the ✦ icon that appears to "
+                     "auto-fill a handler name based on the widget name. "
+                     "You can also type any name directly in the Handler column.",
                      "#cccccc"),
                     ("BUTTON COMMAND",
                      "For Button widgets, the click event is wired as command= in the constructor "
@@ -738,17 +748,26 @@ class DesignerProperties(tk.Frame):
         hint = _EVENT_DESCRIPTIONS.get(ev_name, ("", ""))[1]
         if hint:
             self._show_hint(hint)
-        if not tree.set(row, "#1").strip():
-            self._ev_clear_btn.place_forget()
-            return
         bbox = tree.bbox(row, "#1")
         if not bbox:
             self._ev_clear_btn.place_forget()
+            self._ev_wire_btn.place_forget()
             return
         x, y, w, h = bbox
         bw = 18
-        self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
-        self._ev_clear_btn.lift()
+        if tree.set(row, "#1").strip():
+            # Wired row — show × to clear
+            self._ev_wire_btn.place_forget()
+            self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+            self._ev_clear_btn.lift()
+        else:
+            # Unwired row — show ✦ to auto-wire
+            self._ev_clear_btn.place_forget()
+            if row.startswith("ev__") and self._current_widget:
+                self._ev_wire_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+                self._ev_wire_btn.lift()
+            else:
+                self._ev_wire_btn.place_forget()
 
     def _on_prop_hover(self, event: tk.Event) -> None:
         tree = self._props_tree
@@ -797,6 +816,7 @@ class DesignerProperties(tk.Frame):
         self._ev_hover_row = None
         self._ev_hover_saved_tags = ()
         self._ev_clear_btn.place_forget()
+        self._ev_wire_btn.place_forget()
         self._clear_hint()
 
     def _on_ev_clear_click(self, event: tk.Event) -> None:
@@ -807,6 +827,13 @@ class DesignerProperties(tk.Frame):
         self._ev_hover_row = None
         self._events_tree.set(row, "#1", "")
         self._commit_event(row, "")
+
+    def _on_ev_wire_click(self, event: tk.Event) -> None:
+        row = self._ev_hover_row
+        if not row or not row.startswith("ev__"):
+            return
+        self._ev_wire_btn.place_forget()
+        self._auto_wire_event(row)
 
     def _on_prop_clear_click(self, event: tk.Event) -> None:
         row = self._prop_hover_row
