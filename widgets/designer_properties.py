@@ -1095,6 +1095,10 @@ class DesignerProperties(tk.Frame):
                     d.props["validatecommand"] = auto
                     if self._on_prop_change:
                         self._on_prop_change(d.id, "validatecommand", auto)
+                elif parsed == "none":
+                    for vk in ("validatecommand", "vcmd_args", "invalidcommand"):
+                        if d.props.pop(vk, None) is not None and self._on_prop_change:
+                            self._on_prop_change(d.id, vk, "")
                 self.load_widget(d)
             elif key == "colorize":
                 self.load_widget(d)
