@@ -1,6 +1,5 @@
 # IDOL
 ### Integrated Development and Objective Learning
-**created by [gitPIDE](https://github.com/celltoolz/notepad-ide)** — GitHub's Python IDE
 
 <p align="center">
   <img src="images/gitPIDE.jfif" width="65%">
