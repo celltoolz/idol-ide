@@ -124,6 +124,34 @@ class MenuEditor(tk.Toplevel):
                 command=self._on_field_change,
             ).grid(row=0, column=col, padx=(0, 12))
 
+        # type / variable / value row
+        _label(fields, "Type:", 2, 0)
+        self._kind_var = tk.StringVar(value="Command")
+        kind_frame = tk.Frame(fields, bg=_BG)
+        kind_frame.grid(row=2, column=1, sticky="w", pady=3)
+        self._kind_cb = ttk.Combobox(
+            kind_frame, textvariable=self._kind_var,
+            values=["Command", "Checkbutton", "Radiobutton"],
+            state="readonly", width=13, font=("Segoe UI", 9),
+        )
+        _style_combobox(self._kind_cb)
+        self._kind_cb.pack()
+
+        _label(fields, "Variable:", 2, 2)
+        self._variable_var = tk.StringVar()
+        self._variable_entry = _entry(fields, 2, 3, width=14)
+        self._variable_entry.config(textvariable=self._variable_var)
+
+        _label(fields, "Command:", 3, 0)
+        self._command_handler_var = tk.StringVar()
+        self._command_handler_entry = _entry(fields, 3, 1, width=24)
+        self._command_handler_entry.config(textvariable=self._command_handler_var)
+
+        _label(fields, "Value:", 3, 2)
+        self._value_var = tk.StringVar()
+        self._value_entry = _entry(fields, 3, 3, width=14)
+        self._value_entry.config(textvariable=self._value_var)
+
         fields.columnconfigure(1, weight=1)
 
         # ── arrow / action buttons ────────────────────────────────────────────
@@ -207,6 +235,10 @@ class MenuEditor(tk.Toplevel):
         self._caption_var.trace_add("write", lambda *_: self._on_field_change())
         self._name_var.trace_add("write", lambda *_: self._on_field_change())
         self._shortcut_var.trace_add("write", lambda *_: self._on_field_change())
+        self._kind_var.trace_add("write", lambda *_: self._on_field_change())
+        self._variable_var.trace_add("write", lambda *_: self._on_field_change())
+        self._command_handler_var.trace_add("write", lambda *_: self._on_field_change())
+        self._value_var.trace_add("write", lambda *_: self._on_field_change())
 
     # ── Listbox helpers ───────────────────────────────────────────────────────
 
@@ -240,7 +272,12 @@ class MenuEditor(tk.Toplevel):
         self._shortcut_var.set(sc if sc in _SHORTCUTS else "(None)")
         self._enabled_var.set(item.enabled)
         self._visible_var.set(item.visible)
+        self._kind_var.set(item.kind.capitalize() if item.kind else "Command")
+        self._variable_var.set(item.variable)
+        self._command_handler_var.set(item.command_handler)
+        self._value_var.set(item.value)
         self._updating = False
+        self._update_kind_state(item)
 
     def _current_item(self) -> MenuItemDescriptor | None:
         if self._selected_idx is None or not self._items:
@@ -248,6 +285,20 @@ class MenuEditor(tk.Toplevel):
         return self._items[self._selected_idx]
 
     # ── Field-change callback ─────────────────────────────────────────────────
+
+    def _update_kind_state(self, item: MenuItemDescriptor) -> None:
+        """Enable/disable Variable, Command, and Value entries based on type and indent."""
+        is_leaf = item.indent > 0 and item.caption != "-"
+        kind = self._kind_var.get().lower()
+        is_check_radio = is_leaf and kind in ("checkbutton", "radiobutton")
+        kind_state = "readonly" if is_leaf else "disabled"
+        var_state  = "normal" if is_check_radio else "disabled"
+        cmd_state  = "normal" if is_check_radio else "disabled"
+        val_state  = "normal" if is_leaf and kind == "radiobutton" else "disabled"
+        self._kind_cb.configure(state=kind_state)
+        self._variable_entry.configure(state=var_state)
+        self._command_handler_entry.configure(state=cmd_state)
+        self._value_entry.configure(state=val_state)
 
     def _on_field_change(self) -> None:
         if self._updating:
@@ -261,6 +312,11 @@ class MenuEditor(tk.Toplevel):
         item.shortcut = "" if sc == "(None)" else sc
         item.enabled  = self._enabled_var.get()
         item.visible  = self._visible_var.get()
+        item.kind            = self._kind_var.get().lower()
+        item.variable        = self._variable_var.get()
+        item.command_handler = self._command_handler_var.get()
+        item.value           = self._value_var.get()
+        self._update_kind_state(item)
         self._refresh_listbox()
 
     # ── Listbox selection ─────────────────────────────────────────────────────

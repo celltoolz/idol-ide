@@ -1053,6 +1053,20 @@ class DesignerCanvas(tk.Canvas):
                         si = items[j]
                         if si.caption == "-":
                             sub.add_separator()
+                        elif si.kind == "checkbutton":
+                            if si.command_handler:
+                                sub.add_checkbutton(label=si.display_caption,
+                                                    command=lambda m=f"_{si.command_handler}_click": self._navigate_menu(m),
+                                                    **_ul(si))
+                            else:
+                                sub.add_checkbutton(label=si.display_caption, state="disabled", **_ul(si))
+                        elif si.kind == "radiobutton":
+                            if si.command_handler:
+                                sub.add_radiobutton(label=si.display_caption,
+                                                    command=lambda m=f"_{si.command_handler}_click": self._navigate_menu(m),
+                                                    **_ul(si))
+                            else:
+                                sub.add_radiobutton(label=si.display_caption, state="disabled", **_ul(si))
                         elif si.name:
                             sub.add_command(label=si.display_caption,
                                             command=lambda m=f"_{si.name}_click": self._navigate_menu(m),
@@ -1063,6 +1077,20 @@ class DesignerCanvas(tk.Canvas):
                     menu.add_cascade(label=item.display_caption, menu=sub, **_ul(item))
                     i = j
                     continue
+                elif item.kind == "checkbutton":
+                    if item.command_handler:
+                        menu.add_checkbutton(label=item.display_caption,
+                                             command=lambda m=f"_{item.command_handler}_click": self._navigate_menu(m),
+                                             **_ul(item))
+                    else:
+                        menu.add_checkbutton(label=item.display_caption, state="disabled", **_ul(item))
+                elif item.kind == "radiobutton":
+                    if item.command_handler:
+                        menu.add_radiobutton(label=item.display_caption,
+                                             command=lambda m=f"_{item.command_handler}_click": self._navigate_menu(m),
+                                             **_ul(item))
+                    else:
+                        menu.add_radiobutton(label=item.display_caption, state="disabled", **_ul(item))
                 elif item.name:
                     menu.add_command(label=item.display_caption,
                                      command=lambda m=f"_{item.name}_click": self._navigate_menu(m),

@@ -98,6 +98,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append(f'        self.configure(bg="{form.bg}")')
     for line in _variable_decls(form):
         out.append(line)
+    for line in _menu_variable_decls(form.menu_items):
+        out.append(line)
     out.append(_INIT_E)
     out.append("")
 
@@ -302,6 +304,10 @@ def _menu_command_methods(items) -> list[str]:
     for i, item in enumerate(items):
         if not item.name or item.caption == "-" or item.indent == 0:
             continue
+        if item.kind in ("checkbutton", "radiobutton"):
+            if item.command_handler:
+                methods.append(f"_{item.command_handler}_click")
+            continue
         # Cascade items (those that have direct children) get no command
         is_cascade = any(
             items[j].indent == item.indent + 1
@@ -311,6 +317,22 @@ def _menu_command_methods(items) -> list[str]:
         if not is_cascade:
             methods.append(f"_{item.name}_click")
     return methods
+
+
+def _menu_variable_decls(items) -> list[str]:
+    """Return self.xxx = tk.BooleanVar()/StringVar() lines for menu check/radiobutton items."""
+    seen: set[str] = set()
+    lines: list[str] = []
+    for item in items:
+        if not item.variable or item.variable in seen:
+            continue
+        if item.kind == "checkbutton":
+            seen.add(item.variable)
+            lines.append(f"        self.{item.variable} = tk.BooleanVar()")
+        elif item.kind == "radiobutton":
+            seen.add(item.variable)
+            lines.append(f"        self.{item.variable} = tk.StringVar()")
+    return lines
 
 
 def _variable_decls(form: FormModel) -> list[str]:
@@ -396,6 +418,17 @@ def _menu_lines(items) -> list[str]:
             lines.append(f"        {var} = tk.Menu({parent}, tearoff=0)")
             lines.append(f'        {parent}.add_cascade(label="{label}", menu={var}{ul}{disabled})')
             stack.append(var)
+        elif item.kind == "checkbutton":
+            vvar = f", variable=self.{item.variable}" if item.variable else ""
+            cmd  = f", command=self._{item.command_handler}_click" if item.command_handler else ""
+            sc   = f', accelerator="{item.shortcut}"' if item.shortcut else ""
+            lines.append(f'        {parent}.add_checkbutton(label="{label}"{vvar}{cmd}{sc}{ul}{disabled})')
+        elif item.kind == "radiobutton":
+            vvar = f", variable=self.{item.variable}" if item.variable else ""
+            val  = f', value="{item.value}"' if item.value else ""
+            cmd  = f", command=self._{item.command_handler}_click" if item.command_handler else ""
+            sc   = f', accelerator="{item.shortcut}"' if item.shortcut else ""
+            lines.append(f'        {parent}.add_radiobutton(label="{label}"{vvar}{val}{cmd}{sc}{ul}{disabled})')
         else:
             # Leaf command
             cmd = f", command=self._{name}_click" if name else ""

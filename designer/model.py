@@ -80,6 +80,10 @@ class MenuItemDescriptor:
     enabled:  bool = True
     visible:  bool = True
     shortcut: str  = ""
+    kind:            str  = "command"  # "command" | "checkbutton" | "radiobutton"
+    variable:        str  = ""         # variable attribute name for check/radiobutton
+    value:           str  = ""         # radiobutton value string
+    command_handler: str  = ""         # optional command handler name for check/radiobutton
 
     @property
     def display_caption(self) -> str:
@@ -105,6 +109,10 @@ class MenuItemDescriptor:
             "enabled":  self.enabled,
             "visible":  self.visible,
             "shortcut": self.shortcut,
+            "kind":            self.kind,
+            "variable":        self.variable,
+            "value":           self.value,
+            "command_handler": self.command_handler,
         }
 
     @staticmethod
@@ -116,6 +124,10 @@ class MenuItemDescriptor:
             enabled  = d.get("enabled",  True),
             visible  = d.get("visible",  True),
             shortcut = d.get("shortcut", ""),
+            kind            = d.get("kind",            "command"),
+            variable        = d.get("variable",        ""),
+            value           = d.get("value",           ""),
+            command_handler = d.get("command_handler", ""),
         )
 
 
