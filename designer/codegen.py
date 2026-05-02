@@ -128,6 +128,10 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     else:
         if form.menu_items:
             out.extend(_menu_lines(form.menu_items))
+            bind_lines = _menu_bind_lines(form.menu_items)
+            if bind_lines:
+                out.append("")
+                out.extend(bind_lines)
             out.append("")
         y_offset = _MENUBAR if form.menu_items else 0
         for w in form.widgets:
@@ -435,6 +439,53 @@ def _menu_lines(items) -> list[str]:
             sc  = f', accelerator="{item.shortcut}"' if item.shortcut else ""
             lines.append(f'        {parent}.add_command(label="{label}"{cmd}{sc}{ul}{disabled})')
 
+    return lines
+
+
+_SHORTCUT_SPECIAL = {"Del": "Delete", "Ins": "Insert"}
+_SHORTCUT_MODS    = {"Ctrl": "Control", "Alt": "Alt", "Shift": "Shift"}
+
+def _shortcut_to_event(shortcut: str) -> str | None:
+    """Convert 'Ctrl+S' → '<Control-s>', 'F5' → '<F5>', 'Del' → '<Delete>', etc."""
+    if not shortcut:
+        return None
+    parts = shortcut.split("+")
+    key = parts[-1]
+    key_mapped = _SHORTCUT_SPECIAL.get(key, key)
+    if len(parts) == 1:
+        # bare key: F-keys stay as-is, everything else lowercased
+        if not key_mapped.startswith("F") or not key_mapped[1:].isdigit():
+            key_mapped = key_mapped.lower()
+        return f"<{key_mapped}>"
+    mods = "-".join(_SHORTCUT_MODS.get(m, m) for m in parts[:-1])
+    # letter keys go lowercase; F-keys and specials keep their case
+    if len(key_mapped) == 1:
+        key_mapped = key_mapped.lower()
+    return f"<{mods}-{key_mapped}>"
+
+
+def _menu_bind_lines(items) -> list[str]:
+    """Generate self.bind(...) lines for menu items that have both a shortcut and a handler."""
+    lines: list[str] = []
+    for i, item in enumerate(items):
+        if not item.shortcut or item.caption == "-" or item.indent == 0:
+            continue
+        # Determine the handler name
+        if item.kind in ("checkbutton", "radiobutton"):
+            handler = item.command_handler
+        else:
+            # Skip cascade items
+            is_cascade = any(
+                items[j].indent == item.indent + 1
+                for j in range(i + 1, len(items))
+                if items[j].indent <= item.indent + 1
+            )
+            handler = item.name if not is_cascade else ""
+        if not handler:
+            continue
+        event = _shortcut_to_event(item.shortcut)
+        if event:
+            lines.append(f'        self.bind("{event}", self._{handler}_click)')
     return lines
 
 
