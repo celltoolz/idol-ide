@@ -6,6 +6,7 @@ from tkinter import ttk
 from typing import Callable
 
 from .model import MenuItemDescriptor
+from .var_picker import VariablePickerEntry, collect_form_variables
 from widgets.guide_window import GuideWindow, GuidePage
 
 _BG       = "#1e1e1e"
@@ -55,6 +56,7 @@ class MenuEditor(tk.Toplevel):
         parent: tk.Widget,
         items: list[MenuItemDescriptor],
         on_save: Callable[[list[MenuItemDescriptor]], None],
+        form=None,
     ) -> None:
         super().__init__(parent)
         self.title("Menu Editor")
@@ -63,6 +65,7 @@ class MenuEditor(tk.Toplevel):
         self.grab_set()
 
         self._on_save = on_save
+        self._form = form
         self._items: list[MenuItemDescriptor] = copy.deepcopy(items)
         self._selected_idx: int | None = None
         self._updating = False
@@ -157,8 +160,15 @@ class MenuEditor(tk.Toplevel):
 
         _label(fields, "Variable:", 2, 2)
         self._variable_var = tk.StringVar()
-        self._variable_entry = _entry(fields, 2, 3, width=14)
-        self._variable_entry.config(textvariable=self._variable_var)
+        self._variable_picker = VariablePickerEntry(
+            fields,
+            get_vars=self._get_form_variables,
+            textvariable=self._variable_var,
+            width=10,
+            entry_bg=_ENTRY_BG, entry_fg=_FG, btn_bg=_BTN_BG,
+        )
+        self._variable_picker.grid(row=2, column=3, sticky="w", pady=3)
+        self._variable_entry = self._variable_picker.entry
 
         _label(fields, "Command:", 3, 0)
         self._command_handler_var = tk.StringVar()
@@ -281,6 +291,18 @@ class MenuEditor(tk.Toplevel):
         _h(self._variable_entry,        "variable")
         _h(self._command_handler_entry, "command")
         _h(self._value_entry,           "value")
+
+    def _get_form_variables(self) -> list[tuple[str, str]]:
+        """Collect all defined variables — from the form (if available) plus current menu items."""
+        base = collect_form_variables(self._form) if self._form is not None else []
+        seen = {name for name, _ in base}
+        extra = []
+        for item in self._items:
+            if item.variable and item.variable not in seen:
+                seen.add(item.variable)
+                var_type = "BooleanVar" if item.kind == "checkbutton" else "StringVar"
+                extra.append((item.variable, var_type))
+        return base + extra
 
     # ── Hint bar ──────────────────────────────────────────────────────────────
 

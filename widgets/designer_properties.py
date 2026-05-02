@@ -538,6 +538,8 @@ class DesignerProperties(tk.Frame):
                 return
             self._open_editor(tree, row, col, self._commit_prop)
             return
+        elif row == "var__name":
+            self._open_variable_picker(tree, row, col)
         elif row == "var__type":
             d = self._current_widget
             if d is None:
@@ -608,6 +610,69 @@ class DesignerProperties(tk.Frame):
         entry.bind("<Tab>",      commit)
         entry.bind("<Escape>",   lambda _: self._dismiss_editor())
         entry.bind("<FocusOut>", commit)
+
+    def _open_variable_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
+        """Inline entry + variable picker popup for the var__name row."""
+        from designer.var_picker import collect_form_variables, show_variable_popup
+        self._dismiss_editor()
+        if self._form is None:
+            return
+        bbox = tree.bbox(row, col)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        entry = tk.Entry(
+            tree,
+            font=("TkDefaultFont", 8),
+            bg="#3c3c3c", fg="#cccccc",
+            insertbackground="#cccccc",
+            relief="flat", bd=0,
+            highlightthickness=1,
+            highlightbackground="#007acc",
+        )
+        entry.insert(0, tree.set(row, col))
+        entry.place(x=x, y=y, width=w, height=h)
+        self._entry_editor = entry
+
+        def _grab_focus():
+            try:
+                entry.focus_force()
+                entry.select_range(0, "end")
+                entry.icursor("end")
+            except Exception:
+                pass
+        tree.after_idle(_grab_focus)
+
+        popup_ref: list = [None]
+
+        def _commit(_=None):
+            val = entry.get()
+            if popup_ref[0] and popup_ref[0].winfo_exists():
+                popup_ref[0].destroy()
+            self._dismiss_editor()
+            tree.set(row, col, val)
+            self._commit_prop(row, val)
+
+        def _on_select(name: str):
+            entry.delete(0, "end")
+            entry.insert(0, name)
+            popup_ref[0] = None
+            _commit()
+
+        entry.bind("<Return>", _commit)
+        entry.bind("<Tab>",    _commit)
+        entry.bind("<Escape>", lambda _: (
+            popup_ref[0].destroy() if popup_ref[0] and popup_ref[0].winfo_exists() else None,
+            self._dismiss_editor(),
+        ))
+
+        variables = collect_form_variables(self._form)
+        popup_ref[0] = show_variable_popup(
+            anchor=entry,
+            variables=variables,
+            on_select=_on_select,
+            entry_ref=entry,
+        )
 
     def _open_list_editor(self, row: str) -> None:
         """Inline list editor for array-type props (e.g. Combobox values).
@@ -854,7 +919,7 @@ class DesignerProperties(tk.Frame):
             if self._on_prop_change:
                 self._on_prop_change("__form__", "menu_bar", items)
 
-        MenuEditor(self.winfo_toplevel(), self._form.menu_items, _save)
+        MenuEditor(self.winfo_toplevel(), self._form.menu_items, _save, form=self._form)
 
     def _open_font_picker(self, row_iid: str) -> None:
         """Open the font chooser dialog for a font property cell."""
