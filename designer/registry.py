@@ -119,6 +119,7 @@ def _draw_separator(c, x, y, w, h):
 _JUSTIFY = ["left", "center", "right"]
 _RELIEF  = ["flat", "sunken", "raised", "groove", "ridge", "solid"]
 _ANCHOR  = ["w", "e", "n", "s", "center", "nw", "ne", "sw", "se"]
+_ORIENT  = ["horizontal", "vertical"]
 
 
 # ── Common event sets ──────────────────────────────────────────────────────────
@@ -297,6 +298,7 @@ REGISTRY: dict[str, dict] = {
         "color_props":  ["bg", "fg"],
         "state_prop":   True,
         "state_values": ["normal", "disabled"],
+        "prop_choices": {"orient": _ORIENT},
     },
     "Spinbox": {
         "label":        "Spinbox",
@@ -327,6 +329,7 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"orient": "horizontal", "mode": "determinate"},
         "events":       _SIMPLE_EVENTS,
         "draw_preview": _draw_progressbar,
+        "prop_choices": {"orient": _ORIENT},
     },
     "Separator": {
         "label":        "Separator",
@@ -335,6 +338,7 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"orient": "horizontal"},
         "events":       [],
         "draw_preview": _draw_separator,
+        "prop_choices": {"orient": _ORIENT},
     },
 }
 

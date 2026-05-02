@@ -769,87 +769,64 @@ class DesignerProperties(tk.Frame):
             return
         x, y, w, h = bbox
 
-        # Props with per-item hints use an inline overlay so _show_hint works
-        # (tk_popup grabs the OS, blocking redraws on other windows)
         prop_key = row.split("__", 1)[-1] if "__" in row else ""
         item_hints = _DROPDOWN_ITEM_HINTS.get(prop_key, {})
 
-        if item_hints:
-            overlay = tk.Frame(tree, bg="#2d2d2d",
-                               highlightthickness=1,
-                               highlightbackground="#007acc")
+        overlay = tk.Frame(tree, bg="#2d2d2d",
+                           highlightthickness=1,
+                           highlightbackground="#007acc")
 
-            def _do_dismiss():
-                try:
-                    overlay.destroy()
-                except Exception:
-                    pass
-                if self._entry_editor is overlay:
-                    self._entry_editor = None
+        def _do_dismiss():
+            try:
+                overlay.destroy()
+            except Exception:
+                pass
+            if self._entry_editor is overlay:
+                self._entry_editor = None
 
-            for val in values:
-                lbl = tk.Label(overlay, text=val, bg="#2d2d2d", fg="#cccccc",
-                               font=("Segoe UI", 9), anchor="w",
-                               padx=6, pady=2, cursor="hand2")
-                lbl.pack(fill="x")
-
-                def _enter(e, v=val, l=lbl):
-                    l.config(bg="#094771", fg="#ffffff")
-                    hint = item_hints.get(v, "")
-                    if hint:
-                        self._show_hint(hint)
-
-                def _leave(e, l=lbl):
-                    l.config(bg="#2d2d2d", fg="#cccccc")
-
-                def _click(e, v=val):
-                    _do_dismiss()
-                    tree.set(row, col, v)
-                    commit_fn(row, v)
-
-                lbl.bind("<Enter>",    _enter)
-                lbl.bind("<Leave>",    _leave)
-                lbl.bind("<Button-1>", _click)
-
-            overlay.place(x=x, y=y + h, width=max(w, 80))
-            self._entry_editor = overlay
-
-            # Dismiss when clicking anywhere outside the overlay
-            top = tree.winfo_toplevel()
-            _bid: list = []
-
-            def _global_click(e):
-                try:
-                    ox, oy = overlay.winfo_rootx(), overlay.winfo_rooty()
-                    ow, oh = overlay.winfo_width(), overlay.winfo_height()
-                    if not (ox <= e.x_root <= ox + ow and oy <= e.y_root <= oy + oh):
-                        _do_dismiss()
-                        if _bid:
-                            top.unbind("<Button-1>", _bid[0])
-                except Exception:
-                    pass
-
-            _bid.append(top.bind("<Button-1>", _global_click, add=True))
-            return
-
-        # No item hints — use standard tk.Menu popup
-        rx = tree.winfo_rootx() + x
-        ry = tree.winfo_rooty() + y + h
-        menu = tk.Menu(tree.winfo_toplevel(), tearoff=0,
-                       bg="#2d2d2d", fg="#cccccc",
-                       activebackground="#094771", activeforeground="#ffffff",
-                       relief="flat", bd=1)
         for val in values:
-            def _cmd(v=val):
+            lbl = tk.Label(overlay, text=val, bg="#2d2d2d", fg="#cccccc",
+                           font=("Segoe UI", 9), anchor="w",
+                           padx=6, pady=2, cursor="hand2")
+            lbl.pack(fill="x")
+
+            def _enter(e, v=val, l=lbl):
+                l.config(bg="#094771", fg="#ffffff")
+                hint = item_hints.get(v, "")
+                if hint:
+                    self._show_hint(hint)
+
+            def _leave(e, l=lbl):
+                l.config(bg="#2d2d2d", fg="#cccccc")
+
+            def _click(e, v=val):
+                _do_dismiss()
                 tree.set(row, col, v)
                 commit_fn(row, v)
-            menu.add_command(label=val, command=_cmd,
-                             font=("Segoe UI", 9),
-                             columnbreak=False)
-        try:
-            menu.tk_popup(rx, ry)
-        finally:
-            menu.grab_release()
+
+            lbl.bind("<Enter>",    _enter)
+            lbl.bind("<Leave>",    _leave)
+            lbl.bind("<Button-1>", _click)
+
+        item_w = max(w, max(len(v) * 7 + 24 for v in values) if values else w)
+        overlay.place(x=x, y=y + h, width=item_w)
+        self._entry_editor = overlay
+
+        top = tree.winfo_toplevel()
+        _bid: list = []
+
+        def _global_click(e):
+            try:
+                ox, oy = overlay.winfo_rootx(), overlay.winfo_rooty()
+                ow, oh = overlay.winfo_width(), overlay.winfo_height()
+                if not (ox <= e.x_root <= ox + ow and oy <= e.y_root <= oy + oh):
+                    _do_dismiss()
+                    if _bid:
+                        top.unbind("<Button-1>", _bid[0])
+            except Exception:
+                pass
+
+        _bid.append(top.bind("<Button-1>", _global_click, add=True))
 
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
@@ -1328,7 +1305,7 @@ _PROP_HINTS: dict[str, str] = {
 
 _DROPDOWN_ITEM_HINTS: dict[str, dict[str, str]] = {
     "anchor": {
-        "w":      "West — indicator + text flush to the left edge (recommended)",
+        "w":      "West — indicator + text flush to the left edge (recommended for radio/check)",
         "e":      "East — indicator + text flush to the right edge",
         "n":      "North — content pushed to the top edge",
         "s":      "South — content pushed to the bottom edge",
@@ -1337,6 +1314,55 @@ _DROPDOWN_ITEM_HINTS: dict[str, dict[str, str]] = {
         "ne":     "North-East — top-right corner",
         "sw":     "South-West — bottom-left corner",
         "se":     "South-East — bottom-right corner",
+    },
+    "state": {
+        "normal":   "Normal — widget is fully interactive",
+        "disabled": "Disabled — widget is greyed out and cannot be interacted with",
+        "readonly": "Read-only — value is visible but cannot be edited by the user",
+    },
+    "validate": {
+        "none":     "None — no input validation",
+        "focus":    "Focus — validate when the widget gains or loses focus",
+        "focusin":  "Focus in — validate only when the widget gains focus",
+        "focusout": "Focus out — validate only when the widget loses focus",
+        "key":      "Key — validate on every keystroke as the user types",
+        "all":      "All — validate on every keystroke and every focus change",
+    },
+    "border_style": {
+        "sizable": "Sizable — standard resizable window with all borders",
+        "fixed":   "Fixed — window has a border but cannot be resized",
+        "none":    "None — no border or title bar (overrideredirect); often used for splash screens",
+    },
+    "maximize_box": {
+        "True":  "True — show the maximize / restore button in the title bar",
+        "False": "False — hide the maximize button; window cannot be maximized",
+    },
+    "type": {
+        "StringVar":  "StringVar — holds a string value; use for text, Entry, Label bindings",
+        "IntVar":     "IntVar — holds an integer; use for Checkbutton, Radiobutton, Spinbox",
+        "DoubleVar":  "DoubleVar — holds a float; use for Scale or any decimal value",
+        "BooleanVar": "BooleanVar — holds True / False; use for Checkbutton toggles",
+    },
+    "colorize": {
+        "True":  "True — apply alternate row background color to every even-numbered row",
+        "False": "False — no alternate row shading; all rows use the default background",
+    },
+    "justify": {
+        "left":   "Left — align text to the left edge of the widget",
+        "center": "Center — center text horizontally within the widget",
+        "right":  "Right — align text to the right edge of the widget",
+    },
+    "relief": {
+        "flat":   "Flat — no visible border decoration (default for most widgets)",
+        "sunken": "Sunken — border appears pressed inward; gives a recessed look",
+        "raised": "Raised — border appears raised outward; gives a raised button look",
+        "groove": "Groove — carved groove border; two-tone inset effect",
+        "ridge":  "Ridge — raised ridge border; two-tone outset effect",
+        "solid":  "Solid — plain solid single-color border",
+    },
+    "orient": {
+        "horizontal": "Horizontal — widget runs left to right",
+        "vertical":   "Vertical — widget runs top to bottom",
     },
 }
 
