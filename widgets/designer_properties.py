@@ -768,13 +768,73 @@ class DesignerProperties(tk.Frame):
         if not bbox:
             return
         x, y, w, h = bbox
-        rx = tree.winfo_rootx() + x
-        ry = tree.winfo_rooty() + y + h
 
-        # Per-item hints for this prop key (e.g. anchor)
+        # Props with per-item hints use an inline overlay so _show_hint works
+        # (tk_popup grabs the OS, blocking redraws on other windows)
         prop_key = row.split("__", 1)[-1] if "__" in row else ""
         item_hints = _DROPDOWN_ITEM_HINTS.get(prop_key, {})
 
+        if item_hints:
+            overlay = tk.Frame(tree, bg="#2d2d2d",
+                               highlightthickness=1,
+                               highlightbackground="#007acc")
+
+            def _do_dismiss():
+                try:
+                    overlay.destroy()
+                except Exception:
+                    pass
+                if self._entry_editor is overlay:
+                    self._entry_editor = None
+
+            for val in values:
+                lbl = tk.Label(overlay, text=val, bg="#2d2d2d", fg="#cccccc",
+                               font=("Segoe UI", 9), anchor="w",
+                               padx=6, pady=2, cursor="hand2")
+                lbl.pack(fill="x")
+
+                def _enter(e, v=val, l=lbl):
+                    l.config(bg="#094771", fg="#ffffff")
+                    hint = item_hints.get(v, "")
+                    if hint:
+                        self._show_hint(hint)
+
+                def _leave(e, l=lbl):
+                    l.config(bg="#2d2d2d", fg="#cccccc")
+
+                def _click(e, v=val):
+                    _do_dismiss()
+                    tree.set(row, col, v)
+                    commit_fn(row, v)
+
+                lbl.bind("<Enter>",    _enter)
+                lbl.bind("<Leave>",    _leave)
+                lbl.bind("<Button-1>", _click)
+
+            overlay.place(x=0, y=y + h, width=tree.winfo_width() - 4)
+            self._entry_editor = overlay
+
+            # Dismiss when clicking anywhere outside the overlay
+            top = tree.winfo_toplevel()
+            _bid: list = []
+
+            def _global_click(e):
+                try:
+                    ox, oy = overlay.winfo_rootx(), overlay.winfo_rooty()
+                    ow, oh = overlay.winfo_width(), overlay.winfo_height()
+                    if not (ox <= e.x_root <= ox + ow and oy <= e.y_root <= oy + oh):
+                        _do_dismiss()
+                        if _bid:
+                            top.unbind("<Button-1>", _bid[0])
+                except Exception:
+                    pass
+
+            _bid.append(top.bind("<Button-1>", _global_click, add=True))
+            return
+
+        # No item hints — use standard tk.Menu popup
+        rx = tree.winfo_rootx() + x
+        ry = tree.winfo_rooty() + y + h
         menu = tk.Menu(tree.winfo_toplevel(), tearoff=0,
                        bg="#2d2d2d", fg="#cccccc",
                        activebackground="#094771", activeforeground="#ffffff",
@@ -786,18 +846,6 @@ class DesignerProperties(tk.Frame):
             menu.add_command(label=val, command=_cmd,
                              font=("Segoe UI", 9),
                              columnbreak=False)
-
-        if item_hints:
-            def _on_motion(e):
-                try:
-                    idx = menu.index("active")
-                    hint = item_hints.get(values[idx], "")
-                    if hint:
-                        self._show_hint(hint)
-                except Exception:
-                    pass
-            menu.bind("<Motion>", _on_motion)
-
         try:
             menu.tk_popup(rx, ry)
         finally:
