@@ -1,4 +1,5 @@
 # IDOL
+### Integrated Development and Objective Learning
 
 <p align="center">
   <img src="images/gitPIDE.jfif" width="65%">
@@ -15,7 +16,6 @@
   <img src="https://img.shields.io/badge/Status-Active%20Development-brightgreen?style=flat-square" alt="Active Development">
 </p>
 
-### Integrated Development and Objective Learning
 IDOL is what IDLE could have been — a full Python IDE with professional-grade tools (LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
 
 Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
