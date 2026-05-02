@@ -191,6 +191,7 @@ class DesignerCanvas(tk.Canvas):
             w.y = max(self._min_y, min(w.y + dy, self._form.height - w.height))
             self.delete(f"widget:{wid}")
             self._render_widget(w)
+            self._restore_z_order(wid)
         self.delete("handle")
         self.delete("fhandle")
         self._draw_all_handles()
@@ -205,6 +206,7 @@ class DesignerCanvas(tk.Canvas):
         was_selected = descriptor.id in self._selected_ids
         self.delete(f"widget:{descriptor.id}")
         self._render_widget(descriptor)
+        self._restore_z_order(descriptor.id)
         if was_selected:
             self._draw_all_handles()
         self.tag_raise("handle")
@@ -465,6 +467,27 @@ class DesignerCanvas(tk.Canvas):
                 mx += tw + 4
 
     # ── Widget rendering ──────────────────────────────────────────────────────
+
+    def _restore_z_order(self, widget_id: str) -> None:
+        """Lower a freshly re-rendered widget back to its correct z-position.
+
+        Canvas items are drawn in creation order (later = on top). After a
+        delete+re-render the new items land at the top of the stack. Lower
+        them to just below the next widget in form.widgets so stacking order
+        matches the model list.
+        """
+        if self._form is None:
+            return
+        ids = [w.id for w in self._form.widgets]
+        try:
+            idx = ids.index(widget_id)
+        except ValueError:
+            return
+        if idx == len(ids) - 1:
+            return  # already the topmost widget — correct
+        next_id = ids[idx + 1]
+        if self.find_withtag(f"widget:{next_id}"):
+            self.tag_lower(f"widget:{widget_id}", f"widget:{next_id}")
 
     def _render_widget(self, w: WidgetDescriptor) -> None:
         tag   = f"widget:{w.id}"
@@ -745,6 +768,7 @@ class DesignerCanvas(tk.Canvas):
                 sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
                 self.delete(f"widget:{sid}")
                 self._render_widget(sw)
+                self._restore_z_order(sid)
 
         elif d["mode"] == "resize":
             handle = d["handle"]
@@ -771,6 +795,7 @@ class DesignerCanvas(tk.Canvas):
             w.x, w.y, w.width, w.height = nx, ny, nw, nh
             self.delete(f"widget:{w.id}")
             self._render_widget(w)
+            self._restore_z_order(w.id)
 
         self.delete("handle")
         self._draw_all_handles()
