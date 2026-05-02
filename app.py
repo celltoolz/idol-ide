@@ -823,6 +823,10 @@ class IDOL(Tk):
         )
         self._designer_palette.configure(width=180)
 
+        # Last-used designer pane widths (persisted in session.json)
+        self._designer_palette_width: int = 180
+        self._designer_props_width: int   = 230
+
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
         )
@@ -4050,6 +4054,10 @@ class IDOL(Tk):
                 self._h_pane.forget(self._ai_panel_frame)
             except Exception:
                 pass
+        # Apply stored widths before add() — PanedWindow uses the widget's
+        # requested width as the initial sash position, no timing tricks needed.
+        self._designer_palette.configure(width=self._designer_palette_width)
+        self._props_panel.configure(width=self._designer_props_width)
         self._h_pane.add(self._designer_palette, minsize=160, stretch="never")
         self._h_pane.add(self._v_pane, stretch="always")
         self._h_pane.add(self._props_panel, minsize=200, stretch="never")
@@ -4091,6 +4099,20 @@ class IDOL(Tk):
         self._designer_mode = False
         self._designer_frame.pack_forget()
         self.notebook.pack(fill="both", expand=True)
+
+        # Snapshot pane widths before removing them from the layout.
+        try:
+            w = self._designer_palette.winfo_width()
+            if w > 50:
+                self._designer_palette_width = w
+        except Exception:
+            pass
+        try:
+            w = self._props_panel.winfo_width()
+            if w > 50:
+                self._designer_props_width = w
+        except Exception:
+            pass
 
         # Rebuild h_pane order: sidebar | v_pane  (remove palette + props)
         try:
