@@ -223,10 +223,13 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     if w.type == "Button" and click_method:
         kw_parts.append(f"command=self.{click_method}")
 
+    parent_arg = f"self.{w.parent_id}" if w.parent_id else "self"
     kw_str = (", " + ", ".join(kw_parts)) if kw_parts else ""
-    lines = [f"        self.{w.id} = {tk_class}(self{kw_str})"]
+    lines = [f"        self.{w.id} = {tk_class}({parent_arg}{kw_str})"]
+    # Children use coords relative to their parent frame — no menu-bar offset needed
+    place_y = w.y if w.parent_id else w.y - y_offset
     lines.append(
-        f"        self.{w.id}.place(x={w.x}, y={w.y - y_offset},"
+        f"        self.{w.id}.place(x={w.x}, y={place_y},"
         f" width={w.width}, height={w.height})"
     )
 

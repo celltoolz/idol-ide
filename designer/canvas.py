@@ -168,6 +168,13 @@ class DesignerCanvas(tk.Canvas):
         if not self._selected_ids or self._form is None:
             return
         for wid in list(self._selected_ids):
+            # Un-parent any children so they stay on the form
+            for child in self._children_of(wid):
+                p = self._form.get_widget(wid)
+                if p:
+                    child.x = max(0, child.x + p.x)
+                    child.y = max(self._min_y, child.y + p.y)
+                child.parent_id = None
             self._form.remove_widget(wid)
             self.delete(f"widget:{wid}")
         self.delete("handle")
@@ -466,6 +473,55 @@ class DesignerCanvas(tk.Canvas):
                 self._menu_hitboxes.append((mx, oy, mx + tw, oy + _MENUBAR, idx))
                 mx += tw + 4
 
+    # ── Container helpers ─────────────────────────────────────────────────────
+
+    def _abs_xy(self, w: WidgetDescriptor) -> tuple[int, int]:
+        """Absolute canvas (x, y) for a widget's top-left, honouring parent offset."""
+        if w.parent_id and self._form:
+            p = self._form.get_widget(w.parent_id)
+            if p:
+                px, py = self._abs_xy(p)
+                return px + w.x, py + w.y
+        return self._ox + w.x, self._oy + w.y
+
+    def _children_of(self, parent_id: str) -> list[WidgetDescriptor]:
+        if not self._form:
+            return []
+        return [w for w in self._form.widgets if w.parent_id == parent_id]
+
+    def _container_at(self, cx: int, cy: int,
+                      exclude_id: str | None = None) -> WidgetDescriptor | None:
+        """Return the innermost Frame/LabelFrame whose canvas rect contains (cx, cy)."""
+        if not self._form:
+            return None
+        result = None
+        for w in self._form.widgets:
+            if w.id == exclude_id:
+                continue
+            if not REGISTRY.get(w.type, {}).get("is_container"):
+                continue
+            ax, ay = self._abs_xy(w)
+            if ax <= cx < ax + w.width and ay <= cy < ay + w.height:
+                result = w  # keep last match = topmost drawn
+        return result
+
+    def _reorder_after_parent(self, widget_id: str, parent_id: str) -> None:
+        """Move widget to just after the last existing child of parent in form.widgets."""
+        widgets = self._form.widgets
+        w = self._form.get_widget(widget_id)
+        if w is None:
+            return
+        widgets.remove(w)
+        parent_idx = next((i for i, x in enumerate(widgets) if x.id == parent_id), -1)
+        if parent_idx == -1:
+            widgets.append(w)
+            return
+        insert_at = parent_idx
+        for i, x in enumerate(widgets):
+            if i > parent_idx and x.parent_id == parent_id:
+                insert_at = i
+        widgets.insert(insert_at + 1, w)
+
     # ── Widget rendering ──────────────────────────────────────────────────────
 
     def _restore_z_order(self, widget_id: str) -> None:
@@ -491,8 +547,7 @@ class DesignerCanvas(tk.Canvas):
 
     def _render_widget(self, w: WidgetDescriptor) -> None:
         tag   = f"widget:{w.id}"
-        x     = self._ox + w.x
-        y     = self._oy + w.y
+        x, y  = self._abs_xy(w)
         x2    = x + w.width
         y2    = y + w.height
         props = w.props
@@ -513,8 +568,7 @@ class DesignerCanvas(tk.Canvas):
 
     def _draw_handles(self, w: WidgetDescriptor) -> None:
         self.delete("handle")
-        x  = self._ox + w.x
-        y  = self._oy + w.y
+        x, y = self._abs_xy(w)
         hw = w.width
         hh = w.height
         h  = _HW // 2
@@ -548,8 +602,7 @@ class DesignerCanvas(tk.Canvas):
                 self._draw_handles(w)
             else:
                 # Multi-select: dashed border only (no resize handles)
-                x  = self._ox + w.x
-                y  = self._oy + w.y
+                x, y = self._abs_xy(w)
                 self.create_rectangle(x - 1, y - 1, x + w.width + 1, y + w.height + 1,
                                        outline=_SEL, width=1, dash=(4, 3),
                                        fill="", tags="handle")
@@ -585,18 +638,32 @@ class DesignerCanvas(tk.Canvas):
         if self._active_tool and self._form:
             reg = REGISTRY.get(self._active_tool)
             if reg:
-                fx = _snap(event.x - self._ox)
-                fy = _snap(event.y - self._oy)
-                fx = max(0,            min(fx, self._form.width  - reg["default_size"][0]))
-                fy = max(self._min_y, min(fy, self._form.height - reg["default_size"][1]))
                 w, h = reg["default_size"]
                 wid  = self._form.next_id(self._active_tool)
+                # Check if dropping onto a container
+                container = self._container_at(event.x, event.y)
+                if container:
+                    ax, ay = self._abs_xy(container)
+                    fx = _snap(event.x - ax)
+                    fy = _snap(event.y - ay)
+                    fx = max(0, min(fx, container.width  - w))
+                    fy = max(0, min(fy, container.height - h))
+                    parent_id = container.id
+                else:
+                    fx = _snap(event.x - self._ox)
+                    fy = _snap(event.y - self._oy)
+                    fx = max(0,            min(fx, self._form.width  - w))
+                    fy = max(self._min_y, min(fy, self._form.height - h))
+                    parent_id = None
                 desc = WidgetDescriptor(
                     id=wid, type=self._active_tool,
                     x=fx, y=fy, width=w, height=h,
                     props=dict(reg["default_props"]),
+                    parent_id=parent_id,
                 )
                 self.add_widget(desc)
+                if parent_id:
+                    self._reorder_after_parent(wid, parent_id)
                 self._active_tool = None
                 self.config(cursor="arrow")
                 if self._on_deselect:   # signal palette to reset to pointer
@@ -754,21 +821,49 @@ class DesignerCanvas(tk.Canvas):
         if d["mode"] == "move":
             new_x = _snap(d["orig_x"] + dx)
             new_y = _snap(d["orig_y"] + dy)
-            new_x = max(0,            min(new_x, self._form.width  - w.width))
-            new_y = max(self._min_y, min(new_y, self._form.height - w.height))
+            # Clamp primary widget based on its parent (or form)
+            if w.parent_id:
+                parent = self._form.get_widget(w.parent_id)
+                if parent:
+                    new_x = max(0, min(new_x, parent.width  - w.width))
+                    new_y = max(0, min(new_y, parent.height - w.height))
+                else:
+                    new_x = max(0,            min(new_x, self._form.width  - w.width))
+                    new_y = max(self._min_y, min(new_y, self._form.height - w.height))
+            else:
+                new_x = max(0,            min(new_x, self._form.width  - w.width))
+                new_y = max(self._min_y, min(new_y, self._form.height - w.height))
             # Actual snapped delta (may differ from raw dx/dy due to clamping)
             actual_dx = new_x - d["orig_x"]
             actual_dy = new_y - d["orig_y"]
             # Move all selected widgets by the same delta
+            rendered: set[str] = set()
             for sid, (ox, oy) in d["orig_positions"].items():
                 sw = self._form.get_widget(sid)
                 if sw is None:
                     continue
-                sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
-                sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
+                if sw.parent_id:
+                    par = self._form.get_widget(sw.parent_id)
+                    if par:
+                        sw.x = max(0, min(ox + actual_dx, par.width  - sw.width))
+                        sw.y = max(0, min(oy + actual_dy, par.height - sw.height))
+                    else:
+                        sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
+                        sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
+                else:
+                    sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
+                    sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
                 self.delete(f"widget:{sid}")
                 self._render_widget(sw)
                 self._restore_z_order(sid)
+                rendered.add(sid)
+                # If moving a container, visually update its children too
+                for child in self._children_of(sid):
+                    if child.id not in rendered:
+                        self.delete(f"widget:{child.id}")
+                        self._render_widget(child)
+                        self._restore_z_order(child.id)
+                        rendered.add(child.id)
 
         elif d["mode"] == "resize":
             handle = d["handle"]
@@ -816,11 +911,11 @@ class DesignerCanvas(tk.Canvas):
             y1 = max(d["start_cy"], event.y)
             if x1 - x0 > 4 or y1 - y0 > 4:
                 # Select all widgets intersecting the band
-                hit = {
-                    w.id for w in self._form.widgets
-                    if (self._ox + w.x) < x1 and (self._ox + w.x + w.width)  > x0
-                    and (self._oy + w.y) < y1 and (self._oy + w.y + w.height) > y0
-                }
+                hit = set()
+                for w in self._form.widgets:
+                    ax, ay = self._abs_xy(w)
+                    if ax < x1 and ax + w.width > x0 and ay < y1 and ay + w.height > y0:
+                        hit.add(w.id)
                 self._selected_ids = d["prev_ids"] | hit
                 self._primary_id   = next(iter(self._selected_ids), None)
                 self._form_selected = False
@@ -839,8 +934,51 @@ class DesignerCanvas(tk.Canvas):
                 self._on_form_changed(self._form)
         elif d["mode"] in ("move", "resize"):
             w = self._form.get_widget(d["id"])
-            if w and self._on_widget_changed:
-                self._on_widget_changed(w)
+            if w:
+                if d["mode"] == "move":
+                    self._try_reparent(w)
+                if self._on_widget_changed:
+                    self._on_widget_changed(w)
+
+    def _try_reparent(self, w: WidgetDescriptor) -> None:
+        """After a move drag, reparent w if it was dropped onto a different container."""
+        ax, ay   = self._abs_xy(w)
+        cx       = ax + w.width  // 2
+        cy       = ay + w.height // 2
+        container = self._container_at(cx, cy, exclude_id=w.id)
+        new_pid   = container.id if container else None
+
+        if new_pid == w.parent_id:
+            return  # no change
+
+        # Convert current position to form-relative absolute coords
+        abs_x = ax - self._ox
+        abs_y = ay - self._oy
+
+        if new_pid:
+            # Moving into a container: make coords relative to it
+            p = self._form.get_widget(new_pid)
+            w.x = max(0, min(abs_x - p.x, p.width  - w.width))
+            w.y = max(0, min(abs_y - p.y, p.height - w.height))
+        else:
+            # Dropping onto the form
+            w.x = max(0,            min(abs_x, self._form.width  - w.width))
+            w.y = max(self._min_y, min(abs_y, self._form.height - w.height))
+
+        w.parent_id = new_pid
+        if new_pid:
+            self._reorder_after_parent(w.id, new_pid)
+
+        # Redraw to reflect new position / z-order
+        self.delete(f"widget:{w.id}")
+        self._render_widget(w)
+        self._restore_z_order(w.id)
+        self.delete("handle")
+        self._draw_all_handles()
+        self.tag_raise("handle")
+
+        if self._on_structure_changed:
+            self._on_structure_changed()
 
     def _on_hover(self, event: tk.Event) -> None:
         item = self._topmost_at(event.x, event.y)

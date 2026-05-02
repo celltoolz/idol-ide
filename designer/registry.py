@@ -264,6 +264,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_frame,
         "color_props":  ["bg"],
         "prop_choices": {"relief": _RELIEF},
+        "is_container": True,
     },
     "LabelFrame": {
         "label":        "LabelFrame",
@@ -275,6 +276,7 @@ REGISTRY: dict[str, dict] = {
         "draw_preview": _draw_labelframe,
         "color_props":  ["bg", "fg"],
         "prop_choices": {"relief": _RELIEF},
+        "is_container": True,
     },
     "Scale": {
         "label":        "Scale",

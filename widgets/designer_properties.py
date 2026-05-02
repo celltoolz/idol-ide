@@ -347,6 +347,10 @@ class DesignerProperties(tk.Frame):
         for key in ("x", "y", "width", "height"):
             self._props_tree.insert("", "end", iid=f"geo__{key}",
                                     text=key, values=(str(getattr(d, key)),))
+        # Parent container (read-only — drag to reparent)
+        parent_val = d.parent_id if d.parent_id else "(form)"
+        self._props_tree.insert("", "end", iid="geo__parent",
+                                text="parent", values=(parent_val,))
         # Widget-specific props — exclude state/validate (handled in dedicated blocks)
         defaults = reg.get("default_props", {})
         color_props = reg.get("color_props", [])
@@ -875,6 +879,8 @@ class DesignerProperties(tk.Frame):
         d = self._current_widget
         if d is None:
             return
+        if row_iid == "geo__parent":
+            return  # read-only — drag to reparent
         if row_iid.startswith("geo__"):
             key = row_iid[5:]
             try:

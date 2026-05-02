@@ -35,6 +35,7 @@ class WidgetDescriptor:
     props: dict[str, Any] = field(default_factory=dict)    # text, bg, fg, font, ...
     events: dict[str, str] = field(default_factory=dict)   # {"click": "_btn_submit_click"}
     variable: VariableBinding | None = field(default=None) # optional tkinter variable
+    parent_id: str | None = field(default=None)            # Frame/LabelFrame container, or None = form
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -49,6 +50,8 @@ class WidgetDescriptor:
         }
         if self.variable is not None:
             d["variable"] = self.variable.to_dict()
+        if self.parent_id is not None:
+            d["parent_id"] = self.parent_id
         return d
 
     @staticmethod
@@ -64,6 +67,7 @@ class WidgetDescriptor:
             props=d.get("props", {}),
             events=d.get("events", {}),
             variable=VariableBinding.from_dict(var_data) if var_data else None,
+            parent_id=d.get("parent_id", None),
         )
 
 
