@@ -1529,10 +1529,17 @@ class IDOL(Tk):
         if closed_path and closed_path.endswith(".py"):
             for srv in self._each_lsp():
                 srv.close_file(closed_path)
-            # Drop diagnostics for this file so problems panel stays clean
-            closed_uri = Path(closed_path).as_uri()
-            if closed_uri in self._lsp_diagnostics:
-                del self._lsp_diagnostics[closed_uri]
+            # Drop diagnostics for this file so problems panel stays clean.
+            # Match by normalized path because the LSP server may echo back a URI
+            # with different drive-letter case or encoding than Path.as_uri() produces.
+            closed_norm = os.path.normcase(os.path.normpath(closed_path))
+            stale_uris = [
+                u for u in self._lsp_diagnostics
+                if os.path.normcase(os.path.normpath(uri_to_path(u))) == closed_norm
+            ]
+            if stale_uris:
+                for u in stale_uris:
+                    del self._lsp_diagnostics[u]
                 entries = self._build_problem_entries()
                 self._output.update_problems(entries)
                 errors   = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
