@@ -11,7 +11,7 @@ _LOGO_WIDTH = 520  # display width of the logo image
 
 def _show_splash(app: tk.Tk) -> None:
     """Display a frameless splash screen; reveal *app* when it closes."""
-    logo_path = Path(__file__).parent / "images" / "gitPIDE.png"
+    logo_path = Path(__file__).parent / "images" / "gitPIDE.jfif"
 
     splash = tk.Toplevel(app)
     splash.overrideredirect(True)
@@ -31,7 +31,7 @@ def _show_splash(app: tk.Tk) -> None:
     except Exception:
         lbl = tk.Label(
             splash,
-            text="IDOL\nIntegrated Development and Objective Learning\n\ncreated by gitPIDE",
+            text="IDOL\nIntegrated Development and Objective Learning\n",
             bg="#0d1117",
             fg="#cccccc",
             font=("Segoe UI", 18, "bold"),

@@ -372,6 +372,9 @@ class IDOL(Tk):
             False  # True when model changed since last Generate Code
         )
         self._designer_project_type: str = "cli"  # "cli" | "gui"
+        self._designer_menu_had_items: bool = (
+            False  # tracks prev menu_bar state for shift logic
+        )
         self._zen_pill: object = None  # floating toast Toplevel
 
         self._build_layout()
@@ -825,7 +828,7 @@ class IDOL(Tk):
 
         # Last-used designer pane widths (persisted in session.json)
         self._designer_palette_width: int = 180
-        self._designer_props_width: int   = 230
+        self._designer_props_width: int = 230
 
         self.notebook = CustomNotebook(
             nb_frame, on_close=self._close_tab, on_split=self._open_in_split
@@ -1541,7 +1544,8 @@ class IDOL(Tk):
             # with different drive-letter case or encoding than Path.as_uri() produces.
             closed_norm = os.path.normcase(os.path.normpath(closed_path))
             stale_uris = [
-                u for u in self._lsp_diagnostics
+                u
+                for u in self._lsp_diagnostics
                 if os.path.normcase(os.path.normpath(uri_to_path(u))) == closed_norm
             ]
             if stale_uris:
@@ -1549,7 +1553,7 @@ class IDOL(Tk):
                     del self._lsp_diagnostics[u]
                 entries = self._build_problem_entries()
                 self._output.update_problems(entries)
-                errors   = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
+                errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
                 warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
                 self._statusbar.set_diagnostics(errors, warnings)
         nb.forget(index)
@@ -4088,6 +4092,7 @@ class IDOL(Tk):
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
+            self._designer_menu_had_items = bool(form.menu_items)
         except Exception:
             pass
 
@@ -4161,8 +4166,6 @@ class IDOL(Tk):
             elif key in ("width", "height"):
                 try:
                     v = int(value)
-                    if key == "height" and form.menu_items:
-                        v += 20
                     setattr(form, key, v)
                     self._design_canvas._reposition()
                 except ValueError:
@@ -4172,7 +4175,20 @@ class IDOL(Tk):
             elif key == "maximize_box":
                 form.maximize_box = str(value).lower() in ("true", "1", "yes")
             elif key == "menu_bar":
-                self._design_canvas.redraw()  # refresh menu bar strip on canvas
+                has_menu = bool(form.menu_items)
+                if has_menu != self._designer_menu_had_items:
+                    dy = 20 if has_menu else -20
+                    form.height += dy  # canvas grows by 20 when menu bar added, shrinks when removed
+                    self._design_canvas._reposition()
+                    for w in form.widgets:
+                        if w.parent_id is None:
+                            w.y = max(
+                                20 if has_menu else 0,
+                                min(w.y + dy, form.height - w.height),
+                            )
+                self._designer_menu_had_items = has_menu
+                self._design_canvas.redraw()
+                self._props_panel.load_form(form)
             return
         if key == "__variable__":
             return  # model already mutated by properties panel; no canvas redraw needed
@@ -4273,6 +4289,7 @@ class IDOL(Tk):
         root = getattr(self._sidebar.explorer, "_root", None)
         if root:
             from pathlib import Path as _Path
+
             py_path = _Path(root) / f"{form.name}.py"
             if self._designer_dirty or not py_path.exists():
                 self.designer_generate_code()
@@ -4281,6 +4298,7 @@ class IDOL(Tk):
     def _designer_jump_to_handler(self, method_name: str) -> None:
         """Switch to editor mode and navigate to the named method in the generated .py."""
         from pathlib import Path as _Path
+
         form = self._design_canvas.form
         root = getattr(self._sidebar.explorer, "_root", None)
         if not form or not root:
@@ -4403,13 +4421,20 @@ class IDOL(Tk):
                 pass
 
         if py_path.exists():
-            event_bodies  = _bodies(py_path)
-            event_sigs    = _sigs(py_path)
+            event_bodies = _bodies(py_path)
+            event_sigs = _sigs(py_path)
             pre_init, post_init = _init_zones(py_path)
-            helpers       = _helpers(py_path)
-            user_imports  = _user_imports(py_path)
+            helpers = _helpers(py_path)
+            user_imports = _user_imports(py_path)
         else:
-            event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = {}, {}, "", "", "", ""
+            event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = (
+                {},
+                {},
+                "",
+                "",
+                "",
+                "",
+            )
         code = _gen(
             form,
             event_bodies=event_bodies,
@@ -5684,7 +5709,7 @@ class IDOL(Tk):
         dlg.attributes("-topmost", True)
 
         # Logo
-        logo_path = _Path(__file__).parent / "images" / "gitPIDE.png"
+        logo_path = _Path(__file__).parent / "images" / "gitPIDE.jfif"
         try:
             from PIL import Image, ImageTk
 
@@ -5711,13 +5736,6 @@ class IDOL(Tk):
             fg="#858585",
             font=("Segoe UI", 9),
         ).pack()
-        tk.Label(
-            dlg,
-            text="gitPIDE — GitHub's Python IDE",
-            bg="#0d1117",
-            fg="#569cd6",
-            font=("Segoe UI", 9),
-        ).pack(pady=(2, 12))
 
         tk.Frame(dlg, bg="#3c3c3c", height=1).pack(fill="x", padx=24)
 
@@ -5727,7 +5745,7 @@ class IDOL(Tk):
             bg="#0d1117",
             fg="#858585",
             font=("Segoe UI", 8),
-        ).pack(pady=(10, 2))
+        ).pack(pady=(10, 10))
 
         # Close button
         btn = tk.Label(

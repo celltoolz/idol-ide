@@ -166,7 +166,7 @@ class DesignerProperties(tk.Frame):
         for key, label, val in [
             ("title",        "title",        form.title),
             ("width",        "width",        form.width),
-            ("height",       "height",       form.height - (20 if form.menu_items else 0)),
+            ("height",       "height",       form.height),
             ("border_style", "border style", form.border_style),
             ("maximize_box", "maximize",     form.maximize_box),
             ("bg",           "background",   form.bg),
