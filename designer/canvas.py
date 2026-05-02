@@ -210,6 +210,10 @@ class DesignerCanvas(tk.Canvas):
             self.delete(f"widget:{wid}")
             self._render_widget(w)
             self._restore_z_order(wid)
+            for child in self._children_of(wid):
+                self.delete(f"widget:{child.id}")
+                self._render_widget(child)
+                self._restore_z_order(child.id)
         self.delete("handle")
         self.delete("fhandle")
         self._draw_all_handles()
