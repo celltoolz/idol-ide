@@ -38,6 +38,8 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
 IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applications — the only Python IDE with a visual form designer built in.
 
+> **Getting started:** The Designer activates automatically for **Tkinter GUI App** projects. To create one, use [**File → New Project…**](#project-wizard) and select **Tkinter GUI App** as the project type — the wizard scaffolds the starter files and drops you straight into the canvas.
+
 - **Visual canvas** — a dotted-grid design surface showing your form at real size with a simulated title bar and drop shadow; widgets render with realistic visuals (raised buttons, sunken entries, filled progress bars, checked checkboxes, and more)
 - **Widget palette** — 14 widget types in a scrollable toolbox with canvas-drawn mini-previews: Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, Scale, Spinbox, Progressbar, Separator
 - **Drag, move & resize** — click to select any widget (blue dashed border + 8 white handles); drag to reposition; drag any handle to resize — all snapped to an 8px grid
