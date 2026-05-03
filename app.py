@@ -5699,7 +5699,7 @@ class IDOL(Tk):
         dlg.attributes("-topmost", True)
 
         # Logo
-        logo_path = _Path(__file__).parent / "images" / "gitPIDE.jfif"
+        logo_path = _Path(__file__).parent / "images" / "gitPIDE.png"
         try:
             from PIL import Image, ImageTk
 

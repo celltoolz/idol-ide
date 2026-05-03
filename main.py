@@ -11,7 +11,7 @@ _LOGO_WIDTH = 520  # display width of the logo image
 
 def _show_splash(app: tk.Tk) -> None:
     """Display a frameless splash screen; reveal *app* when it closes."""
-    logo_path = Path(__file__).parent / "images" / "gitPIDE.jfif"
+    logo_path = Path(__file__).parent / "images" / "gitPIDE.png"
 
     splash = tk.Toplevel(app)
     splash.overrideredirect(True)
