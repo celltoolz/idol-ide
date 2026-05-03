@@ -188,8 +188,8 @@ class MenuEditor(tk.Toplevel):
         btn_frame.pack(fill="x", padx=8, pady=(0, 4))
 
         def _wire_hover(b: tk.Button) -> None:
-            b.bind("<Enter>", lambda _: b.config(fg="#ffffff"))
-            b.bind("<Leave>", lambda _: b.config(fg=_FG))
+            b.bind("<Enter>", lambda _: b.config(fg="#ffffff"), add=True)
+            b.bind("<Leave>", lambda _: b.config(fg=_FG),       add=True)
 
         arrow_frame = tk.Frame(btn_frame, bg=_BG)
         arrow_frame.pack(side="left")
