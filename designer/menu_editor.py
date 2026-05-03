@@ -242,8 +242,7 @@ class MenuEditor(tk.Toplevel):
         lb_frame = tk.Frame(self, bg=_BG)
         lb_frame.pack(fill="both", expand=True, padx=8, pady=6)
 
-        sb = tk.Scrollbar(lb_frame, orient="vertical", bg=_BG2, troughcolor=_BG,
-                          width=10, relief="flat", borderwidth=0)
+        sb = ttk.Scrollbar(lb_frame, orient="vertical")
         self._listbox = tk.Listbox(
             lb_frame, bg=_BG2, fg=_FG,
             selectbackground=_SEL_BG, selectforeground="#ffffff",
