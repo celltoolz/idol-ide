@@ -352,13 +352,15 @@ class MenuEditor(tk.Toplevel):
 
     def _refresh_listbox(self) -> None:
         self._listbox.delete(0, "end")
-        for item in self._items:
+        for i, item in enumerate(self._items):
             prefix = "    " * item.indent
             label = item.display_caption if item.caption else "(new item)"
             if item.caption == "-":
                 label = "  ─────────────────"
                 prefix = "    " * item.indent + " "
             self._listbox.insert("end", f"{prefix}{label}")
+            if item.caption == "-":
+                self._listbox.itemconfig(i, fg=_FG_DIM, selectforeground=_FG_DIM)
         if self._selected_idx is not None and self._items:
             idx = min(self._selected_idx, len(self._items) - 1)
             self._listbox.selection_clear(0, "end")
