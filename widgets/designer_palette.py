@@ -30,10 +30,12 @@ class DesignerPalette(tk.Frame):
         self,
         master,
         on_tool_select: Optional[Callable[[str | None], None]] = None,
+        on_place: Optional[Callable[[str], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, **kwargs)
         self._on_tool_select = on_tool_select
+        self._on_place = on_place
         self._selected: str | None = None   # None = pointer tool
         self._items:    dict[str | None, tk.Frame] = {}
         self._build_ui()
@@ -97,7 +99,8 @@ class DesignerPalette(tk.Frame):
 
         # Bind click on all child widgets
         for widget in (row, prev, lbl, accent):
-            widget.bind("<Button-1>", lambda _, k=type_key: self._select(k))
+            widget.bind("<Button-1>",        lambda _, k=type_key: self._select(k))
+            widget.bind("<Double-Button-1>",  lambda _, k=type_key: self._place(k))
             widget.bind("<Enter>",    lambda _, r=row, a=accent, k=type_key:
                         self._on_enter(r, a, k))
             widget.bind("<Leave>",    lambda _, r=row, a=accent, k=type_key:
@@ -121,6 +124,13 @@ class DesignerPalette(tk.Frame):
         self._apply_selection(type_key)
         if self._on_tool_select:
             self._on_tool_select(type_key)
+
+    def _place(self, type_key: str | None) -> None:
+        if type_key is None:
+            return
+        self._apply_selection(None)
+        if self._on_place:
+            self._on_place(type_key)
 
     def _apply_selection(self, type_key: str | None) -> None:
         # Clear old selection

@@ -148,6 +148,27 @@ class DesignerCanvas(tk.Canvas):
         self._active_tool = type_key
         self.config(cursor="crosshair" if type_key else "arrow")
 
+    def place_at_default(self, type_key: str) -> None:
+        """Place *type_key* widget at the centre of the form and select it."""
+        if self._form is None:
+            return
+        reg = REGISTRY.get(type_key)
+        if not reg:
+            return
+        w, h   = reg["default_size"]
+        usable = self._form.height - self._min_y
+        fx = max(0, min(self._form.width  // 2 - w // 2, self._form.width  - w))
+        fy = max(self._min_y, min(self._min_y + usable // 2 - h // 2, self._form.height - h))
+        wid  = self._form.next_id(type_key)
+        desc = WidgetDescriptor(
+            id=wid, type=type_key,
+            x=fx, y=fy, width=w, height=h,
+            props=dict(reg["default_props"]),
+        )
+        self.add_widget(desc)
+        self._active_tool = None
+        self.config(cursor="arrow")
+
     def load_form(self, form: FormModel) -> None:
         self._form = form
         self._selected_ids.clear()

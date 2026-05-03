@@ -823,6 +823,7 @@ class IDOL(Tk):
         self._designer_palette = DesignerPalette(
             self._h_pane,
             on_tool_select=self._on_palette_tool_select,
+            on_place=self._on_palette_place,
         )
         self._designer_palette.configure(width=180)
 
@@ -4184,6 +4185,11 @@ class IDOL(Tk):
     def _on_palette_tool_select(self, type_key: str | None) -> None:
         """Palette click → arm canvas with placement tool."""
         self._design_canvas.set_tool(type_key)
+
+    def _on_palette_place(self, type_key: str) -> None:
+        """Palette double-click → place widget at form centre immediately."""
+        self._design_canvas.place_at_default(type_key)
+        self._designer_palette.reset_to_pointer()
 
     def _on_designer_select(self, widget_id: str) -> None:
         """Canvas selection → populate properties panel, reset palette to pointer."""
