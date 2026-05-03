@@ -20,15 +20,16 @@ _ENTRY_BG = "#3c3c3c"
 _SEL_BG   = "#094771"
 
 _FIELD_HINTS: dict[str, str] = {
-    "caption":  "Text displayed in the menu. Use & before a letter for an access key (e.g. &File). Set to  -  for a separator line.",
-    "name":     "Code identifier. Cascade menus → self._m_<name>. Leaf commands → self._<name>_click handler stub. Keep lowercase with underscores.",
-    "shortcut": "Keyboard accelerator label shown on the right side of the item (e.g. Ctrl+S). Display only — add the actual key binding in your code.",
-    "enabled":  "When unchecked the item is greyed out at startup. Can be toggled at runtime via your handler code.",
-    "visible":  "When unchecked the item is hidden at startup. Can be toggled at runtime via your handler code.",
-    "type":     "Item style: Command = standard action, Checkbutton = toggle with checkmark indicator, Radiobutton = exclusive selection with bullet indicator. Only available for indent ≥ 1.",
-    "variable": "Variable name tracking check/radio state. IDOL declares self.<name> = tk.BooleanVar() for checkbuttons or tk.StringVar() for radiobuttons.",
-    "command":  "Optional handler name for check/radiobutton items. Generates command=self._<name>_click and a stub in the Events section.",
-    "value":    "The string written to the variable when this radiobutton is selected (e.g. 'left', 'center', 'right'). All radiobuttons sharing the same Variable are mutually exclusive.",
+    "caption":   "Text displayed in the menu. Use & before a letter for an access key (e.g. &File). Set to  -  for a separator line.",
+    "name":      "Code identifier. Cascade menus → self._m_<name>. Leaf commands → self._<name>_click handler stub. Keep lowercase with underscores.",
+    "shortcut":  "Keyboard accelerator label shown on the right side of the item (e.g. Ctrl+S). Display only — add the actual key binding in your code.",
+    "enabled":   "When unchecked the item is greyed out at startup. Can be toggled at runtime via your handler code.",
+    "visible":   "When unchecked the item is hidden at startup. Can be toggled at runtime via your handler code.",
+    "type":      "Item style: Command = standard action, Checkbutton = toggle with checkmark indicator, Radiobutton = exclusive selection with bullet indicator. Only available for indent ≥ 1.",
+    "variable":  "Variable name tracking check/radio state. IDOL declares self.<name> = tk.BooleanVar() for checkbuttons or tk.StringVar() for radiobuttons.",
+    "command":   "Optional handler name for check/radiobutton items. Generates command=self._<name>_click and a stub in the Events section.",
+    "value":     "The string written to the variable when this radiobutton is selected (e.g. 'left', 'center', 'right'). All radiobuttons sharing the same Variable are mutually exclusive.",
+    "separator": "Insert a horizontal divider line below the selected item. Separators visually group related menu items and don't require a Name or handler.",
 }
 
 _SHORTCUTS = [
@@ -186,6 +187,10 @@ class MenuEditor(tk.Toplevel):
         btn_frame = tk.Frame(self, bg=_BG)
         btn_frame.pack(fill="x", padx=8, pady=(0, 4))
 
+        def _wire_hover(b: tk.Button) -> None:
+            b.bind("<Enter>", lambda _: b.config(fg="#ffffff"))
+            b.bind("<Leave>", lambda _: b.config(fg=_FG))
+
         arrow_frame = tk.Frame(btn_frame, bg=_BG)
         arrow_frame.pack(side="left")
 
@@ -203,18 +208,27 @@ class MenuEditor(tk.Toplevel):
             )
             b.pack(side="left", padx=2)
             _bind_tooltip(b, tip)
+            _wire_hover(b)
 
         action_frame = tk.Frame(btn_frame, bg=_BG)
         action_frame.pack(side="right")
 
-        for text, cmd in [("Next", self._next), ("Insert", self._insert),
-                          ("Delete", self._delete)]:
-            tk.Button(
-                action_frame, text=text, width=7,
+        for text, width, cmd in [
+            ("Next",      7, self._next),
+            ("Insert",    7, self._insert),
+            ("Delete",    7, self._delete),
+            ("Separator", 9, self._insert_separator),
+        ]:
+            b = tk.Button(
+                action_frame, text=text, width=width,
                 bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
                 relief="flat", font=("Segoe UI", 9), cursor="hand2",
                 command=cmd,
-            ).pack(side="left", padx=2)
+            )
+            b.pack(side="left", padx=2)
+            _wire_hover(b)
+            if text == "Separator":
+                self._sep_btn = b
 
         # ── listbox ───────────────────────────────────────────────────────────
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8)
@@ -234,6 +248,8 @@ class MenuEditor(tk.Toplevel):
         sb.pack(side="right", fill="y")
         self._listbox.pack(side="left", fill="both", expand=True)
         self._listbox.bind("<<ListboxSelect>>", self._on_listbox_select)
+        self._listbox.bind("<Button-3>",        self._on_listbox_right_click)
+        self._listbox.bind("<Button-2>",        self._on_listbox_right_click)
 
         # ── OK / Cancel ───────────────────────────────────────────────────────
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8)
@@ -291,6 +307,7 @@ class MenuEditor(tk.Toplevel):
         _h(self._variable_entry,        "variable")
         _h(self._command_handler_entry, "command")
         _h(self._value_entry,           "value")
+        _h(self._sep_btn,               "separator")
 
     def _get_form_variables(self) -> list[tuple[str, str]]:
         """Collect all defined variables — from the form (if available) plus current menu items."""
@@ -494,6 +511,62 @@ class MenuEditor(tk.Toplevel):
         self._selected_idx = new_idx
         self._refresh_listbox()
         self._load_fields(self._items[new_idx])
+
+    def _insert_separator(self) -> None:
+        indent = 0
+        if self._selected_idx is not None and self._items:
+            indent = self._items[self._selected_idx].indent
+        sep = MenuItemDescriptor(caption="-", indent=indent)
+        insert_at = (self._selected_idx + 1) if self._selected_idx is not None else len(self._items)
+        self._items.insert(insert_at, sep)
+        self._selected_idx = insert_at
+        self._refresh_listbox()
+        self._load_fields(sep)
+
+    def _toggle_enabled(self) -> None:
+        item = self._current_item()
+        if item is None:
+            return
+        item.enabled = not item.enabled
+        self._enabled_var.set(item.enabled)
+
+    def _toggle_visible(self) -> None:
+        item = self._current_item()
+        if item is None:
+            return
+        item.visible = not item.visible
+        self._visible_var.set(item.visible)
+
+    def _on_listbox_right_click(self, event: tk.Event) -> None:
+        idx = self._listbox.nearest(event.y)
+        if 0 <= idx < len(self._items):
+            self._select(idx)
+        item = self._current_item()
+
+        m = tk.Menu(self, tearoff=0,
+                    bg=_BG2, fg=_FG,
+                    activebackground=_SEL_BG, activeforeground="#ffffff",
+                    relief="flat", bd=1, font=("Segoe UI", 9))
+
+        m.add_command(label="← Promote",   command=self._promote)
+        m.add_command(label="→ Demote",    command=self._demote)
+        m.add_separator()
+        m.add_command(label="↑ Move Up",   command=self._move_up)
+        m.add_command(label="↓ Move Down", command=self._move_down)
+        m.add_separator()
+        m.add_command(label="Next",        command=self._next)
+        m.add_command(label="Insert",      command=self._insert)
+        m.add_command(label="Delete",      command=self._delete)
+        m.add_separator()
+        if item is not None:
+            en_label = "Disable item" if item.enabled else "Enable item"
+            vi_label = "Hide item"    if item.visible else "Show item"
+            m.add_command(label=en_label,  command=self._toggle_enabled)
+            m.add_command(label=vi_label,  command=self._toggle_visible)
+            m.add_separator()
+        m.add_command(label="Add Separator", command=self._insert_separator)
+
+        m.tk_popup(event.x_root, event.y_root)
 
     # ── Guide ─────────────────────────────────────────────────────────────────
 
