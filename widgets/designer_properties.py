@@ -907,6 +907,9 @@ class DesignerProperties(tk.Frame):
         self._commit_prop(row_iid, color)
 
     def _open_menu_editor(self) -> None:
+        self.open_menu_editor()
+
+    def open_menu_editor(self, flash_item_idx: int | None = None) -> None:
         if self._form is None:
             return
         from designer.menu_editor import MenuEditor
@@ -919,7 +922,12 @@ class DesignerProperties(tk.Frame):
             if self._on_prop_change:
                 self._on_prop_change("__form__", "menu_bar", items)
 
-        MenuEditor(self.winfo_toplevel(), self._form.menu_items, _save, form=self._form)
+        editor = MenuEditor(self.winfo_toplevel(), self._form.menu_items, _save, form=self._form)
+        if flash_item_idx is not None:
+            def _flash():
+                editor.select_item(flash_item_idx)
+                editor.flash_command_field()
+            editor.after(60, _flash)
 
     def _open_font_picker(self, row_iid: str) -> None:
         """Open the font chooser dialog for a font property cell."""

@@ -807,6 +807,7 @@ class IDOL(Tk):
             on_structure_changed=self._on_designer_structure_changed,
             on_double_click=self._on_designer_double_click,
             on_menu_navigate=self._on_designer_menu_navigate,
+            on_menu_item_no_command=self._on_designer_menu_item_no_command,
         )
         self._design_canvas.pack(fill="both", expand=True)
 
@@ -4265,6 +4266,10 @@ class IDOL(Tk):
 
         first_handler = next(iter(w.events.values()))
         self._designer_jump_to_handler(first_handler)
+
+    def _on_designer_menu_item_no_command(self, item_idx: int) -> None:
+        """Click on a no-command check/radio menu item → open editor and flash Command field."""
+        self._props_panel.open_menu_editor(flash_item_idx=item_idx)
 
     def _on_designer_menu_navigate(self, method_name: str) -> None:
         """Click on a menu item in the designer → jump to its event handler."""

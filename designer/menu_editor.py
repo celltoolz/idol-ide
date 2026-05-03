@@ -341,6 +341,24 @@ class MenuEditor(tk.Toplevel):
         self._listbox.see(idx)
         self._load_fields(self._items[idx])
 
+    def select_item(self, idx: int) -> None:
+        if 0 <= idx < len(self._items):
+            self._select(idx)
+
+    def flash_command_field(self) -> None:
+        entry = self._command_handler_entry
+        orig  = entry.cget("bg")
+
+        def _toggle(n: int, on: bool) -> None:
+            if n == 0:
+                entry.config(bg=orig)
+                return
+            entry.config(bg="#7a1a1a" if on else orig)
+            self.after(180, lambda: _toggle(n - 1, not on))
+
+        _toggle(6, True)
+        entry.focus_set()
+
     def _load_fields(self, item: MenuItemDescriptor) -> None:
         self._updating = True
         self._caption_var.set(item.caption)

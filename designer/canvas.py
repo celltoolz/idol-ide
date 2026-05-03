@@ -82,7 +82,8 @@ class DesignerCanvas(tk.Canvas):
         on_multi_select:      Optional[Callable[[list],              None]] = None,
         on_structure_changed: Optional[Callable[[],                  None]] = None,
         on_double_click:      Optional[Callable[[str],               None]] = None,
-        on_menu_navigate:     Optional[Callable[[str],               None]] = None,
+        on_menu_navigate:         Optional[Callable[[str],               None]] = None,
+        on_menu_item_no_command:  Optional[Callable[[int],               None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
@@ -94,6 +95,7 @@ class DesignerCanvas(tk.Canvas):
         self._on_structure_changed = on_structure_changed
         self._on_double_click      = on_double_click
         self._on_menu_navigate     = on_menu_navigate
+        self._on_menu_item_no_command = on_menu_item_no_command
         self._menu_hitboxes: list[tuple[int, int, int, int, int]] = []
 
         self._form:          FormModel | None        = None
@@ -1082,14 +1084,20 @@ class DesignerCanvas(tk.Canvas):
                                                     command=lambda m=f"_{si.command_handler}_click": self._navigate_menu(m),
                                                     **_ul(si))
                             else:
-                                sub.add_checkbutton(label=si.display_caption, state="disabled", **_ul(si))
+                                sub.add_checkbutton(label=si.display_caption,
+                                                    foreground="#888888", activeforeground="#cccccc",
+                                                    command=lambda idx=j: self._navigate_menu_no_command(idx),
+                                                    **_ul(si))
                         elif si.kind == "radiobutton":
                             if si.command_handler:
                                 sub.add_radiobutton(label=si.display_caption,
                                                     command=lambda m=f"_{si.command_handler}_click": self._navigate_menu(m),
                                                     **_ul(si))
                             else:
-                                sub.add_radiobutton(label=si.display_caption, state="disabled", **_ul(si))
+                                sub.add_radiobutton(label=si.display_caption,
+                                                    foreground="#888888", activeforeground="#cccccc",
+                                                    command=lambda idx=j: self._navigate_menu_no_command(idx),
+                                                    **_ul(si))
                         elif si.name:
                             sub.add_command(label=si.display_caption,
                                             command=lambda m=f"_{si.name}_click": self._navigate_menu(m),
@@ -1106,14 +1114,20 @@ class DesignerCanvas(tk.Canvas):
                                              command=lambda m=f"_{item.command_handler}_click": self._navigate_menu(m),
                                              **_ul(item))
                     else:
-                        menu.add_checkbutton(label=item.display_caption, state="disabled", **_ul(item))
+                        menu.add_checkbutton(label=item.display_caption,
+                                             foreground="#888888", activeforeground="#cccccc",
+                                             command=lambda idx=i: self._navigate_menu_no_command(idx),
+                                             **_ul(item))
                 elif item.kind == "radiobutton":
                     if item.command_handler:
                         menu.add_radiobutton(label=item.display_caption,
                                              command=lambda m=f"_{item.command_handler}_click": self._navigate_menu(m),
                                              **_ul(item))
                     else:
-                        menu.add_radiobutton(label=item.display_caption, state="disabled", **_ul(item))
+                        menu.add_radiobutton(label=item.display_caption,
+                                             foreground="#888888", activeforeground="#cccccc",
+                                             command=lambda idx=i: self._navigate_menu_no_command(idx),
+                                             **_ul(item))
                 elif item.name:
                     menu.add_command(label=item.display_caption,
                                      command=lambda m=f"_{item.name}_click": self._navigate_menu(m),
@@ -1137,6 +1151,10 @@ class DesignerCanvas(tk.Canvas):
     def _navigate_menu(self, method_name: str) -> None:
         if self._on_menu_navigate:
             self._on_menu_navigate(method_name)
+
+    def _navigate_menu_no_command(self, item_idx: int) -> None:
+        if self._on_menu_item_no_command:
+            self._on_menu_item_no_command(item_idx)
 
     def _on_right_click(self, event: tk.Event) -> None:
         import tkinter as _tk
