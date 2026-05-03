@@ -30,6 +30,13 @@ _FIELD_HINTS: dict[str, str] = {
     "command":   "Optional handler name for check/radiobutton items. Generates command=self._<name>_click and a stub in the Events section.",
     "value":     "The string written to the variable when this radiobutton is selected (e.g. 'left', 'center', 'right'). All radiobuttons sharing the same Variable are mutually exclusive.",
     "separator": "Insert a horizontal divider line below the selected item. Separators visually group related menu items and don't require a Name or handler.",
+    "btn_promote":  "Move the selected item one indent level up — turns a sub-menu item back into a top-level item or a sub-sub-item back into a sub-item.",
+    "btn_demote":   "Move the selected item one indent level down — nests it inside the item above, creating a sub-menu.",
+    "btn_move_up":  "Swap the selected item with the one above it.",
+    "btn_move_down":"Swap the selected item with the one below it.",
+    "btn_next":     "Move to the next item in the list. If the selected item is last, a new blank item is inserted automatically.",
+    "btn_insert":   "Insert a new blank item directly below the selected item, inheriting its indent level.",
+    "btn_delete":   "Remove the selected item from the list permanently.",
 }
 
 _SHORTCUTS = [
@@ -194,11 +201,11 @@ class MenuEditor(tk.Toplevel):
         arrow_frame = tk.Frame(btn_frame, bg=_BG)
         arrow_frame.pack(side="left")
 
-        for sym, tip, cmd in [
-            ("←", "Promote (unindent)",    self._promote),
-            ("→", "Demote (make submenu)", self._demote),
-            ("↑", "Move up",               self._move_up),
-            ("↓", "Move down",             self._move_down),
+        for sym, tip, hint_key, cmd in [
+            ("←", "Promote (unindent)",    "btn_promote",   self._promote),
+            ("→", "Demote (make submenu)", "btn_demote",    self._demote),
+            ("↑", "Move up",               "btn_move_up",   self._move_up),
+            ("↓", "Move down",             "btn_move_down", self._move_down),
         ]:
             b = tk.Button(
                 arrow_frame, text=sym, width=3,
@@ -209,15 +216,16 @@ class MenuEditor(tk.Toplevel):
             b.pack(side="left", padx=2)
             _bind_tooltip(b, tip)
             _wire_hover(b)
+            setattr(self, f"_{hint_key}_btn", b)
 
         action_frame = tk.Frame(btn_frame, bg=_BG)
         action_frame.pack(side="right")
 
-        for text, width, cmd in [
-            ("Next",      7, self._next),
-            ("Insert",    7, self._insert),
-            ("Delete",    7, self._delete),
-            ("Separator", 9, self._insert_separator),
+        for text, width, hint_key, cmd in [
+            ("Next",      7, "btn_next",    self._next),
+            ("Insert",    7, "btn_insert",  self._insert),
+            ("Delete",    7, "btn_delete",  self._delete),
+            ("Separator", 9, "separator",   self._insert_separator),
         ]:
             b = tk.Button(
                 action_frame, text=text, width=width,
@@ -227,8 +235,7 @@ class MenuEditor(tk.Toplevel):
             )
             b.pack(side="left", padx=2)
             _wire_hover(b)
-            if text == "Separator":
-                self._sep_btn = b
+            setattr(self, f"_{hint_key}_btn", b)
 
         # ── listbox ───────────────────────────────────────────────────────────
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8)
@@ -307,7 +314,14 @@ class MenuEditor(tk.Toplevel):
         _h(self._variable_entry,        "variable")
         _h(self._command_handler_entry, "command")
         _h(self._value_entry,           "value")
-        _h(self._sep_btn,               "separator")
+        _h(self._btn_promote_btn,   "btn_promote")
+        _h(self._btn_demote_btn,    "btn_demote")
+        _h(self._btn_move_up_btn,   "btn_move_up")
+        _h(self._btn_move_down_btn, "btn_move_down")
+        _h(self._btn_next_btn,      "btn_next")
+        _h(self._btn_insert_btn,    "btn_insert")
+        _h(self._btn_delete_btn,    "btn_delete")
+        _h(self._separator_btn,     "separator")
 
     def _get_form_variables(self) -> list[tuple[str, str]]:
         """Collect all defined variables — from the form (if available) plus current menu items."""
