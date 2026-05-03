@@ -1061,6 +1061,9 @@ class DesignerCanvas(tk.Canvas):
             u = item.underline_index
             return {"underline": u} if u >= 0 else {}
 
+        def _sc(item):
+            return {"accelerator": item.shortcut} if item.shortcut else {}
+
         i = top_idx + 1
         while i < len(items) and items[i].indent > 0:
             item = items[i]
@@ -1082,26 +1085,26 @@ class DesignerCanvas(tk.Canvas):
                             if si.command_handler:
                                 sub.add_checkbutton(label=si.display_caption,
                                                     command=lambda m=f"_{si.command_handler}_click": self._navigate_menu(m),
-                                                    **_ul(si))
+                                                    **_ul(si), **_sc(si))
                             else:
                                 sub.add_checkbutton(label=si.display_caption,
                                                     foreground="#888888", activeforeground="#cccccc",
                                                     command=lambda idx=j: self._navigate_menu_no_command(idx),
-                                                    **_ul(si))
+                                                    **_ul(si), **_sc(si))
                         elif si.kind == "radiobutton":
                             if si.command_handler:
                                 sub.add_radiobutton(label=si.display_caption,
                                                     command=lambda m=f"_{si.command_handler}_click": self._navigate_menu(m),
-                                                    **_ul(si))
+                                                    **_ul(si), **_sc(si))
                             else:
                                 sub.add_radiobutton(label=si.display_caption,
                                                     foreground="#888888", activeforeground="#cccccc",
                                                     command=lambda idx=j: self._navigate_menu_no_command(idx),
-                                                    **_ul(si))
+                                                    **_ul(si), **_sc(si))
                         elif si.name:
                             sub.add_command(label=si.display_caption,
                                             command=lambda m=f"_{si.name}_click": self._navigate_menu(m),
-                                            **_ul(si))
+                                            **_ul(si), **_sc(si))
                         else:
                             sub.add_command(label=si.display_caption, state="disabled", **_ul(si))
                         j += 1
@@ -1112,26 +1115,26 @@ class DesignerCanvas(tk.Canvas):
                     if item.command_handler:
                         menu.add_checkbutton(label=item.display_caption,
                                              command=lambda m=f"_{item.command_handler}_click": self._navigate_menu(m),
-                                             **_ul(item))
+                                             **_ul(item), **_sc(item))
                     else:
                         menu.add_checkbutton(label=item.display_caption,
                                              foreground="#888888", activeforeground="#cccccc",
                                              command=lambda idx=i: self._navigate_menu_no_command(idx),
-                                             **_ul(item))
+                                             **_ul(item), **_sc(item))
                 elif item.kind == "radiobutton":
                     if item.command_handler:
                         menu.add_radiobutton(label=item.display_caption,
                                              command=lambda m=f"_{item.command_handler}_click": self._navigate_menu(m),
-                                             **_ul(item))
+                                             **_ul(item), **_sc(item))
                     else:
                         menu.add_radiobutton(label=item.display_caption,
                                              foreground="#888888", activeforeground="#cccccc",
                                              command=lambda idx=i: self._navigate_menu_no_command(idx),
-                                             **_ul(item))
+                                             **_ul(item), **_sc(item))
                 elif item.name:
                     menu.add_command(label=item.display_caption,
                                      command=lambda m=f"_{item.name}_click": self._navigate_menu(m),
-                                     **_ul(item))
+                                     **_ul(item), **_sc(item))
                 else:
                     menu.add_command(label=item.display_caption, state="disabled", **_ul(item))
             i += 1
