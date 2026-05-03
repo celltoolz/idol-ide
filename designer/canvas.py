@@ -626,9 +626,9 @@ class DesignerCanvas(tk.Canvas):
                                    fill="#ffffff", outline=_SEL, width=1,
                                    tags=("handle", f"handle:{name}"))
             self.tag_bind(f"handle:{name}", "<Enter>",
-                          lambda e, n=name: self.config(cursor=_handle_cursor(n)))
+                          lambda e, n=name: None if self._active_tool else self.config(cursor=_handle_cursor(n)))
             self.tag_bind(f"handle:{name}", "<Leave>",
-                          lambda e: self.config(cursor="arrow"))
+                          lambda e: None if self._active_tool else self.config(cursor="arrow"))
 
     def _draw_all_handles(self) -> None:
         """Draw selection handles for all selected widgets."""
@@ -668,9 +668,9 @@ class DesignerCanvas(tk.Canvas):
                                    fill="#ffffff", outline=_SEL, width=1,
                                    tags=("fhandle", f"fhandle:{name}"))
             self.tag_bind(f"fhandle:{name}", "<Enter>",
-                          lambda e, n=name: self.config(cursor=_handle_cursor(n)))
+                          lambda e, n=name: None if self._active_tool else self.config(cursor=_handle_cursor(n)))
             self.tag_bind(f"fhandle:{name}", "<Leave>",
-                          lambda e: self.config(cursor="arrow"))
+                          lambda e: None if self._active_tool else self.config(cursor="arrow"))
 
     # ── Mouse events ──────────────────────────────────────────────────────────
 
@@ -1026,7 +1026,8 @@ class DesignerCanvas(tk.Canvas):
             if wid != self._hover_id:
                 self._clear_hover()
                 self._hover_id = wid
-                self.config(cursor="fleur")
+                if not self._active_tool:
+                    self.config(cursor="fleur")
         elif not any(t.startswith("handle:") or t.startswith("fhandle:") for t in tags):
             self._clear_hover()
 
@@ -1034,16 +1035,17 @@ class DesignerCanvas(tk.Canvas):
         pass  # handled by _on_click via tag binding
 
     def _widget_enter(self, event: tk.Event, wid: str) -> None:
-        if wid not in self._selected_ids:
+        if wid not in self._selected_ids and not self._active_tool:
             self.config(cursor="fleur")
 
     def _widget_leave(self, event: tk.Event, wid: str) -> None:
-        if self._drag is None:
+        if self._drag is None and not self._active_tool:
             self.config(cursor="arrow")
 
     def _clear_hover(self) -> None:
         self._hover_id = None
-        self.config(cursor="arrow")
+        if not self._active_tool:
+            self.config(cursor="arrow")
 
     def _show_menu_popup(self, event: tk.Event, top_idx: int) -> None:
         """Show a dropdown for the top-level menu item at top_idx."""
