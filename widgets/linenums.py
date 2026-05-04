@@ -154,9 +154,27 @@ class TkLineNumbers(Canvas):
             getboolean(self.textwidget.tag_cget(t, "elide") or "false") for t in tags
         )
 
+    _SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
+
     def _get_fold_range(self, lineno: int, last_line: int) -> tuple[int, int] | None:
         """Return (lineno, end_lineno) if this line starts a foldable block."""
         line_text = self._line_text(lineno)
+
+        # Section-marker fold: # ── Name ─────────
+        if self._SECTION_MARKER.match(line_text):
+            indent = len(line_text) - len(line_text.lstrip())
+            end = lineno
+            for n in range(lineno + 1, last_line + 1):
+                t = self._line_text(n)
+                if t.strip() and self._SECTION_MARKER.match(t) and (len(t) - len(t.lstrip())) <= indent:
+                    break
+                if t.startswith("if __name__"):
+                    break
+                end = n
+            while end > lineno and not self._line_text(end).strip():
+                end -= 1
+            return (lineno, end) if end > lineno else None
+
         if not line_text.rstrip().endswith((":", "(", "[", "{")):
             return None
 
