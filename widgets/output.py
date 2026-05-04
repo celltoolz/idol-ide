@@ -4,7 +4,7 @@ import queue
 import re
 import tempfile
 import tkinter as tk
-from tkinter import Entry, Frame, Label, Menu, Text, ttk
+from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
@@ -86,12 +86,8 @@ class OutputPanel(ttk.Frame):
         self._text.tag_configure("warning", foreground="#f1fa8c")
         self._text.tag_configure("stdin",   foreground=self._STDIN_FG)
 
-        # Right-click context menu
-        self._ctx_menu = Menu(self._text, tearoff=0)
-        self._ctx_menu.add_command(label="Copy Selection", command=self._copy_selection)
-        self._ctx_menu.add_command(label="Copy All",       command=self._copy_all)
-        self._text.bind("<Button-3>",        self._show_ctx)
-        self._text.bind("<Button-2>",        self._show_ctx)  # macOS two-finger tap
+        self._text.bind("<Button-3>", self._show_ctx)
+        self._text.bind("<Button-2>", self._show_ctx)  # macOS two-finger tap
 
         # ── Stdin input bar ────────────────────────────────────────────────
         self._stdin_bar = Frame(self, bg=self._BAR_BG)
@@ -198,9 +194,72 @@ class OutputPanel(ttk.Frame):
 
     def _show_ctx(self, event) -> None:
         has_sel = bool(self._text.tag_ranges(tk.SEL))
-        self._ctx_menu.entryconfigure("Copy Selection",
-                                      state="normal" if has_sel else "disabled")
-        self._ctx_menu.tk_popup(event.x_root, event.y_root)
+        items = [
+            ("Copy Selection", self._copy_selection, has_sel),
+            ("Copy All",       self._copy_all,       True),
+        ]
+        self._show_overlay(event.x_root, event.y_root, items)
+
+    def _show_overlay(self, x_root: int, y_root: int, items: list) -> None:
+        existing = getattr(self, "_ctx_overlay", None)
+        if existing:
+            try:
+                existing.destroy()
+            except Exception:
+                pass
+        self._ctx_overlay = None
+
+        top = self.winfo_toplevel()
+        rel_x = x_root - top.winfo_rootx()
+        rel_y = y_root - top.winfo_rooty()
+
+        overlay = tk.Frame(top, bg="#2d2d2d",
+                           highlightthickness=1, highlightbackground="#007acc")
+        self._ctx_overlay = overlay
+
+        bid: list = []
+
+        def _dismiss():
+            self._ctx_overlay = None
+            try:
+                overlay.destroy()
+            except Exception:
+                pass
+            if bid:
+                try:
+                    top.unbind("<Button-1>", bid[0])
+                except Exception:
+                    pass
+
+        def _global_click(e):
+            w = e.widget
+            while w is not None:
+                if w is overlay:
+                    return
+                try:
+                    w = w.master
+                except AttributeError:
+                    break
+            _dismiss()
+
+        for label, cmd, enabled in items:
+            fg = "#cccccc" if enabled else "#555555"
+            lbl = tk.Label(overlay, text=label, bg="#2d2d2d", fg=fg,
+                           font=("Segoe UI", 9), anchor="w", padx=12, pady=3)
+            lbl.pack(fill="x")
+            if enabled:
+                def _enter(e, l=lbl):  l.config(bg="#094771", fg="#ffffff")
+                def _leave(e, l=lbl):  l.config(bg="#2d2d2d", fg="#cccccc")
+                def _click(e, c=cmd):
+                    _dismiss()
+                    c()
+                lbl.bind("<Enter>",    _enter)
+                lbl.bind("<Leave>",    _leave)
+                lbl.bind("<Button-1>", _click)
+
+        overlay.place(x=rel_x, y=rel_y)
+        overlay.lift()
+        bid.append(top.bind("<Button-1>", _global_click, add=True))
 
     # ── Public API ────────────────────────────────────────────────────────────
 

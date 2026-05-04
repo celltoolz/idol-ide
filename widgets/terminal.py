@@ -738,6 +738,9 @@ class TerminalPanel(ttk.Frame):
         return "break"
 
     def _on_click(self, event) -> str:
+        dismiss = getattr(self, "_ctx_overlay_dismiss", None)
+        if dismiss:
+            dismiss()
         self._text.focus_set()
         # Clear existing selection and set the drag anchor
         self._sel_start = None
@@ -779,24 +782,72 @@ class TerminalPanel(ttk.Frame):
         except Exception:
             pass
 
-        menu = tk.Menu(self._text, tearoff=0,
-                       bg="#252526", fg="#cccccc",
-                       activebackground="#094771", activeforeground="#ffffff",
-                       relief="flat", bd=0)
-        menu.add_command(
-            label="Copy          Ctrl+Shift+C",
-            command=self._copy_selection,
-            state="normal" if has_sel else "disabled",
-        )
-        menu.add_command(
-            label="Paste        Ctrl+Shift+V",
-            command=self._on_paste,
-        )
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
+        items = [
+            ("Copy          Ctrl+Shift+C", self._copy_selection, has_sel),
+            ("Paste        Ctrl+Shift+V",  self._on_paste,       True),
+        ]
+        self._show_overlay(event.x_root, event.y_root, items)
         return "break"
+
+    def _show_overlay(self, x_root: int, y_root: int, items: list) -> None:
+        existing_dismiss = getattr(self, "_ctx_overlay_dismiss", None)
+        if existing_dismiss:
+            existing_dismiss()
+
+        top = self._text.winfo_toplevel()
+        rel_x = x_root - top.winfo_rootx()
+        rel_y = y_root - top.winfo_rooty()
+
+        overlay = tk.Frame(top, bg="#2d2d2d",
+                           highlightthickness=1, highlightbackground="#007acc")
+        self._ctx_overlay = overlay
+
+        top_bid: list = []
+
+        def _dismiss():
+            self._ctx_overlay = None
+            self._ctx_overlay_dismiss = None
+            try:
+                overlay.destroy()
+            except Exception:
+                pass
+            if top_bid:
+                try:
+                    top.unbind("<Button-1>", top_bid[0])
+                except Exception:
+                    pass
+
+        self._ctx_overlay_dismiss = _dismiss
+
+        def _global_click(e):
+            w = e.widget
+            while w is not None:
+                if w is overlay:
+                    return
+                try:
+                    w = w.master
+                except AttributeError:
+                    break
+            _dismiss()
+
+        for label, cmd, enabled in items:
+            fg = "#cccccc" if enabled else "#555555"
+            lbl = tk.Label(overlay, text=label, bg="#2d2d2d", fg=fg,
+                           font=("Segoe UI", 9), anchor="w", padx=12, pady=3)
+            lbl.pack(fill="x")
+            if enabled:
+                def _enter(e, l=lbl):  l.config(bg="#094771", fg="#ffffff")
+                def _leave(e, l=lbl):  l.config(bg="#2d2d2d", fg="#cccccc")
+                def _click(e, c=cmd):
+                    _dismiss()
+                    c()
+                lbl.bind("<Enter>",    _enter)
+                lbl.bind("<Leave>",    _leave)
+                lbl.bind("<Button-1>", _click)
+
+        overlay.place(x=rel_x, y=rel_y)
+        overlay.lift()
+        top_bid.append(top.bind("<Button-1>", _global_click, add=True))
 
     def _on_restart(self) -> None:
         cmd = self.SHELLS.get(self._shell_var.get())
