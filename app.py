@@ -3337,9 +3337,11 @@ class IDOL(Tk):
     # ── View operations ───────────────────────────────────────────────────────
 
     def view_change_theme(self) -> None:
+        scheme = self.theme_var.get()
+        for cv in self._codeviews.values():
+            cv.set_color_scheme(scheme)
         cv = self._current_codeview
         if cv:
-            cv.set_color_scheme(self.theme_var.get())
             self._active_line_color = cv.cget("inactiveselectbackground")
             self._sidebar.apply_theme(
                 bg=cv.cget("bg"),
