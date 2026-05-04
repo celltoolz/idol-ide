@@ -45,6 +45,18 @@ class KeyHandler:
                 self._home_toggle = False
                 return self._handle_unindent(codeview)
 
+            case "Left" | "KP_Left" | "Right" | "KP_Right":
+                self._home_toggle = False
+                if not shift and codeview.tag_ranges("sel"):
+                    sel = codeview.tag_ranges("sel")
+                    if event.keysym in ("Left", "KP_Left"):
+                        codeview.mark_set("insert", sel[0])
+                    else:
+                        codeview.mark_set("insert", sel[1])
+                    codeview.tag_remove("sel", "1.0", "end")
+                    codeview.see("insert")
+                    return "break"
+
             case "End" | "KP_End":
                 self._home_toggle = False
                 if shift:
