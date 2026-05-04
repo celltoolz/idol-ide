@@ -116,10 +116,12 @@ def _draw_separator(c, x, y, w, h):
 
 # ── Common prop choice lists ──────────────────────────────────────────────────
 
-_JUSTIFY = ["left", "center", "right"]
-_RELIEF  = ["flat", "sunken", "raised", "groove", "ridge", "solid"]
-_ANCHOR  = ["w", "e", "n", "s", "center", "nw", "ne", "sw", "se"]
-_ORIENT  = ["horizontal", "vertical"]
+_JUSTIFY    = ["left", "center", "right"]
+_RELIEF     = ["flat", "sunken", "raised", "groove", "ridge", "solid"]
+_ANCHOR     = ["w", "e", "n", "s", "center", "nw", "ne", "sw", "se"]
+_ORIENT     = ["horizontal", "vertical"]
+_SCROLLBAR  = ["None", "Vertical", "Horizontal", "Both"]
+_WRAP       = ["none", "char", "word"]
 
 
 # ── Common event sets ──────────────────────────────────────────────────────────
@@ -192,13 +194,14 @@ REGISTRY: dict[str, dict] = {
         "tk_class":     "tk.Text",
         "default_size": (180, 80),
         "default_props": {"wrap": "word", "bg": "#FFFFFF", "fg": "#000000",
-                          "font": "", "relief": "", "insertbackground": "", "borderwidth": ""},
+                          "font": "", "relief": "", "insertbackground": "", "borderwidth": "",
+                          "scrollbar": "None"},
         "events":       _WIDGET_EVENTS,
         "draw_preview": _draw_text,
         "color_props":  ["bg", "fg", "insertbackground"],
         "state_prop":   True,
         "state_values": ["normal", "disabled"],
-        "prop_choices": {"relief": _RELIEF},
+        "prop_choices": {"relief": _RELIEF, "scrollbar": _SCROLLBAR, "wrap": _WRAP},
     },
     "Checkbutton": {
         "label":        "Checkbutton",
@@ -252,13 +255,14 @@ REGISTRY: dict[str, dict] = {
         "default_size": (120, 80),
         "default_props": {"values": [], "colorize": False, "colorize_altbg": "",
                           "bg": "#FFFFFF", "fg": "#000000",
-                          "font": "", "relief": "", "borderwidth": ""},
+                          "font": "", "relief": "", "borderwidth": "",
+                          "scrollbar": "None"},
         "events":       ["listselect"] + _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_listbox,
         "color_props":  ["bg", "fg"],
         "state_prop":   True,
         "state_values": ["normal", "disabled"],
-        "prop_choices": {"relief": _RELIEF},
+        "prop_choices": {"relief": _RELIEF, "scrollbar": _SCROLLBAR},
         "list_insert_props": ["values"],
         "colorize_prop": True,
     },

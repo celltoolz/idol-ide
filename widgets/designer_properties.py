@@ -1215,6 +1215,12 @@ class DesignerProperties(tk.Frame):
                 self.load_widget(d)
             elif key == "colorize":
                 self.load_widget(d)
+            elif key == "scrollbar" and d.type == "Text":
+                if parsed in ("Horizontal", "Both") and d.props.get("wrap") != "none":
+                    d.props["wrap"] = "none"
+                    self._props_tree.set("prop__wrap", "#1", "none")
+                    if self._on_prop_change:
+                        self._on_prop_change(d.id, "wrap", "none")
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
 

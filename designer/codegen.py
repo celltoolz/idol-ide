@@ -195,6 +195,10 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
         return [f"        # Unknown widget type: {w.type}"]
 
     tk_class = reg["tk_class"]
+    scrollbar = w.props.get("scrollbar", "None")
+    use_vsb = scrollbar in ("Vertical", "Both")
+    use_hsb = scrollbar in ("Horizontal", "Both")
+    use_scrollbar = use_vsb or use_hsb
 
     # Build ordered kwargs: props first, then variable binding, then command
     _color_props = set(reg.get("color_props", []))
@@ -206,6 +210,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     _list_insert_props = set(reg.get("list_insert_props", []))
     kw_parts: list[str] = []
     for k, v in w.props.items():
+        if k == "scrollbar":
+            continue  # structural prop — handled below, not a tkinter kwarg
         if k in _all_color_props and v == "":
             continue
         if k in _SKIP_IF_EMPTY and (v == "" or v == ()):
@@ -240,17 +246,50 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     if command_method:
         kw_parts.append(f"command=self.{command_method}")
 
-    parent_arg = f"self.{w.parent_id}" if w.parent_id else "self"
-    kw_str = (", " + ", ".join(kw_parts)) if kw_parts else ""
-    lines = [f"        self.{w.id} = {tk_class}({parent_arg}{kw_str})"]
-    # Children use coords relative to their parent frame — no menu-bar offset needed
+    original_parent = f"self.{w.parent_id}" if w.parent_id else "self"
     place_y = w.y if w.parent_id else w.y - y_offset
-    lines.append(
-        f"        self.{w.id}.place(x={w.x}, y={place_y},"
-        f" width={w.width}, height={w.height})"
-    )
+    lines: list[str] = []
 
-    # list_insert_props — populate widget with insert() calls after place()
+    if use_scrollbar:
+        # Wrap in a Frame so scrollbar(s) and widget pack cleanly inside it
+        frame_id = f"self.{w.id}_frame"
+        lines.append(f"        {frame_id} = tk.Frame({original_parent})")
+        lines.append(
+            f"        {frame_id}.place(x={w.x}, y={place_y},"
+            f" width={w.width}, height={w.height})"
+        )
+        if use_vsb:
+            lines.append(
+                f"        self.{w.id}_vsb = ttk.Scrollbar({frame_id}, orient='vertical')"
+            )
+        if use_hsb:
+            lines.append(
+                f"        self.{w.id}_hsb = ttk.Scrollbar({frame_id}, orient='horizontal')"
+            )
+        if use_vsb:
+            kw_parts.append(f"yscrollcommand=self.{w.id}_vsb.set")
+        if use_hsb:
+            kw_parts.append(f"xscrollcommand=self.{w.id}_hsb.set")
+        kw_str = (", " + ", ".join(kw_parts)) if kw_parts else ""
+        lines.append(f"        self.{w.id} = {tk_class}({frame_id}{kw_str})")
+        if use_vsb:
+            lines.append(f"        self.{w.id}_vsb.config(command=self.{w.id}.yview)")
+        if use_hsb:
+            lines.append(f"        self.{w.id}_hsb.config(command=self.{w.id}.xview)")
+        if use_vsb:
+            lines.append(f"        self.{w.id}_vsb.pack(side='right', fill='y')")
+        if use_hsb:
+            lines.append(f"        self.{w.id}_hsb.pack(side='bottom', fill='x')")
+        lines.append(f"        self.{w.id}.pack(side='left', fill='both', expand=True)")
+    else:
+        kw_str = (", " + ", ".join(kw_parts)) if kw_parts else ""
+        lines.append(f"        self.{w.id} = {tk_class}({original_parent}{kw_str})")
+        lines.append(
+            f"        self.{w.id}.place(x={w.x}, y={place_y},"
+            f" width={w.width}, height={w.height})"
+        )
+
+    # list_insert_props — populate widget with insert() calls after place()/pack()
     for prop_key in reg.get("list_insert_props", []):
         vals = w.props.get(prop_key, [])
         if vals:
