@@ -3413,6 +3413,34 @@ class IDOL(Tk):
         else:
             self._open_in_split(self._current_tab_id)
 
+    def view_fold_all(self) -> None:
+        cv = self._current_codeview
+        if not cv:
+            return
+        ln = cv._line_numbers
+        last_line = int(cv.index("end-1c").split(".")[0])
+        for lineno in range(1, last_line + 1):
+            result = ln._get_fold_range(lineno, last_line)
+            if result is None:
+                continue
+            _, end_lineno = result
+            marker = ln._register_fold_tag(lineno, end_lineno)
+            cv.tag_config(marker, elide=True)
+            ln._show_dots(marker, str(lineno))
+        ln.redraw()
+
+    def view_unfold_all(self) -> None:
+        cv = self._current_codeview
+        if not cv:
+            return
+        ln = cv._line_numbers
+        for marker in list(cv.mark_names()):
+            if marker.startswith("fold_"):
+                ln._hide_dots(marker)
+                cv.tag_delete(marker)
+                cv.mark_unset(marker)
+        ln.redraw()
+
     def _refresh_nav_bar(self) -> None:
         """Sync nav bar toggle button colors with current view state."""
         pairs = [
@@ -5800,6 +5828,11 @@ class IDOL(Tk):
                     "rrt",
                 ]
             ],
+            # Designer
+            ("Generate Code", "Ctrl+Shift+G", self.designer_generate_code),
+            # Editor
+            ("Fold All", "", self.view_fold_all),
+            ("Unfold All", "", self.view_unfold_all),
             # Run
             ("Debug", "F5", self.debug_file),
             ("Run", "Ctrl+F5", self._nav_run),
