@@ -1860,9 +1860,16 @@ class IDOL(Tk):
     def _outline_navigate(self, lineno: int) -> None:
         cv = self._current_codeview
         if cv:
-            cv.see(f"{lineno}.0")
             cv.mark_set("insert", f"{lineno}.0")
             cv.focus_set()
+            total = int(cv.index("end-1c").split(".")[0])
+            if total > 1:
+                top, bot = cv.yview()
+                visible = bot - top
+                fraction = (lineno - 1) / total
+                cv.yview_moveto(max(0.0, fraction - visible / 2))
+            else:
+                cv.see(f"{lineno}.0")
             self._scroll_clear_sticky(cv, lineno)
 
     def _scroll_clear_sticky(self, cv, lineno: int) -> None:
