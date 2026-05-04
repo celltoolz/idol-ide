@@ -4032,6 +4032,7 @@ class IDOL(Tk):
         else:
             self._mode_btn_editor.config(fg=act)
             self._mode_btn_designer.config(fg=dim)
+        self._refresh_generate_code_state()
 
     def _enter_designer_mode(self) -> None:
         """Switch the main content area to the designer canvas."""
@@ -4088,6 +4089,7 @@ class IDOL(Tk):
             self._designer_menu_had_items = bool(form.menu_items)
         except Exception:
             pass
+        self._refresh_generate_code_state()
 
     def _enter_editor_mode(self) -> None:
         """Switch the main content area back to the code editor."""
