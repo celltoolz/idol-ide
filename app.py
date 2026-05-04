@@ -3197,11 +3197,11 @@ class IDOL(Tk):
         return any(self._dirty.get(tid) for tid in self.notebook.tabs())
 
     def workspace_new(self, *_) -> None:
-        """Close the current project and open a fresh one."""
+        """Close the current workspace and open a fresh one."""
         if self._has_dirty_tabs():
             answer = askyesnocancel(
-                "New Project",
-                "You have unsaved changes.\n\nSave before creating a new project?",
+                "New Workspace",
+                "You have unsaved changes.\n\nSave before creating a new workspace?",
             )
             if answer is None:
                 return
@@ -5747,10 +5747,10 @@ class IDOL(Tk):
             ("Save", "Ctrl+S", self.file_save),
             ("Save As...", "Ctrl+Shift+S", self.file_save_as),
             ("Close Tab", "Ctrl+W", self.file_close),
-            ("New Project", "", self.workspace_new),
-            ("Close Project", "", self.workspace_close),
-            ("Save Project", "", self.workspace_save),
-            ("Open Project...", "", self.workspace_open),
+            ("New Workspace", "", self.workspace_new),
+            ("Close Workspace", "", self.workspace_close),
+            ("Save Workspace", "", self.workspace_save),
+            ("Open Workspace...", "", self.workspace_open),
             ("Exit", "Ctrl+Q", self.file_exit),
             # Edit
             ("Undo", "Ctrl+Z", self.edit_undo),
