@@ -19,7 +19,7 @@
 IDOL is what IDLE could have been — a full Python IDE with professional-grade tools (LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
 
 Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
-**Designer** still needs to undergo proper macOS/Linux debugging. Should have it up within the week (todays date: 5/2/26)
+**Designer** still needs to undergo proper macOS/Linux debugging. Should have it done within the week (todays date: 5/2/26)
 
 <p align="center">
   <img src="screenshots/editor-main.png" width="100%">
