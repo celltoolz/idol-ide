@@ -4189,6 +4189,8 @@ class IDOL(Tk):
             elif key in ("width", "height"):
                 try:
                     v = int(value)
+                    if key == "height" and form.menu_items:
+                        v += 20
                     setattr(form, key, v)
                     self._design_canvas._reposition()
                 except ValueError:

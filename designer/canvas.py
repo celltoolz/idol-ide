@@ -875,10 +875,16 @@ class DesignerCanvas(tk.Canvas):
             actual_dx = new_x - d["orig_x"]
             actual_dy = new_y - d["orig_y"]
             # Move all selected widgets by the same delta
+            selected_ids = set(d["orig_positions"].keys())
             rendered: set[str] = set()
             for sid, (ox, oy) in d["orig_positions"].items():
                 sw = self._form.get_widget(sid)
                 if sw is None:
+                    continue
+                # If this widget's parent is also selected, skip the delta update —
+                # the parent's movement already carries it.  It will be re-rendered
+                # by the parent's _children_of loop below.
+                if sw.parent_id and sw.parent_id in selected_ids:
                     continue
                 if sw.parent_id:
                     sw.x = ox + actual_dx
