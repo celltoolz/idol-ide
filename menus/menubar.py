@@ -157,7 +157,9 @@ def build_menubar(app) -> Menu:
     designer_menu.add_separator()
     designer_menu.add_command(label="Generate Code",
                               command=app.designer_generate_code,
-                              accelerator="Ctrl+Shift+G")
+                              accelerator="Ctrl+Shift+G",
+                              state="disabled")
+    app._designer_menu = designer_menu
     menubar.add_cascade(label="Designer", menu=designer_menu)
 
     # ── Help ─────────────────────────────────────────────────────────────────

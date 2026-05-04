@@ -2928,6 +2928,7 @@ class IDOL(Tk):
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
+            self._refresh_generate_code_state()
         else:
             self._hide_mode_bar()
         self._set_explorer_root(project_path)
@@ -4004,6 +4005,14 @@ class IDOL(Tk):
 
     # ── Designer mode ─────────────────────────────────────────────────────────
 
+    def _refresh_generate_code_state(self) -> None:
+        menu = getattr(self, "_designer_menu", None)
+        if menu is None:
+            return
+        form_loaded = getattr(self._design_canvas, "_form", None) is not None
+        menu.entryconfigure("Generate Code",
+                            state="normal" if form_loaded else "disabled")
+
     def _show_mode_bar(self) -> None:
         """Pack the [Editor] | [Designer] strip above the notebook."""
         self._mode_bar.pack(fill="x", side="top", before=self.notebook)
@@ -4344,6 +4353,7 @@ class IDOL(Tk):
         self._design_canvas._form = None
         self._design_canvas.delete("all")
         self._props_panel.clear()
+        self._refresh_generate_code_state()
 
     def designer_open_form(self) -> None:
         """Open a .form.json file and load it into the designer canvas."""
@@ -4364,6 +4374,7 @@ class IDOL(Tk):
             self._props_panel.load_form(form)
             self._designer_dirty = False
             self._show_mode_bar()
+            self._refresh_generate_code_state()
             if not self._designer_mode:
                 self._enter_designer_mode()
         except Exception as exc:
