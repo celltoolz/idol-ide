@@ -641,6 +641,9 @@ class DesignerProperties(tk.Frame):
 
         popup_ref: list = [None]
 
+        variables = collect_form_variables(self._form)
+        var_type_map = {n: vt for n, vt in variables}
+
         def _commit(_=None):
             val = entry.get()
             if popup_ref[0] and popup_ref[0].winfo_exists():
@@ -654,6 +657,10 @@ class DesignerProperties(tk.Frame):
             entry.insert(0, name)
             popup_ref[0] = None
             _commit()
+            var_type = var_type_map.get(name)
+            if var_type and self._props_tree.exists("var__type"):
+                self._props_tree.set("var__type", "#1", var_type)
+                self._commit_prop("var__type", var_type)
 
         entry.bind("<Return>", _commit)
         entry.bind("<Tab>",    _commit)
@@ -677,7 +684,6 @@ class DesignerProperties(tk.Frame):
             if d is not None:
                 self._populate_props(d, REGISTRY.get(d.type, {}))
 
-        variables = collect_form_variables(self._form)
         popup_ref[0] = show_variable_popup(
             anchor=entry,
             variables=variables,
@@ -782,7 +788,8 @@ class DesignerProperties(tk.Frame):
         bbox = self._props_tree.bbox(row, "#1")
         if not bbox:
             return
-        _, by, _, _ = bbox
+        _, by, _, bh = bbox
+        by = by + bh
         tree_w = self._props_tree.winfo_width() - 4
 
         panel = tk.Frame(self._props_tree, bg="#2d2d2d",
@@ -907,10 +914,17 @@ class DesignerProperties(tk.Frame):
         return False
 
     # Props that can be cleared back to "" (optional / skippable in codegen)
-    _CLEARABLE_PROPS = {"show", "font", "justify", "relief", "borderwidth", "insertbackground"}
+    _CLEARABLE_PROPS = {
+        "show", "font", "justify", "relief", "borderwidth", "insertbackground",
+        "wraplength", "resolution", "tickinterval", "increment", "maximum",
+        "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
+        "selectmode", "wrap", "exportselection",
+    }
 
     def _is_prop_clearable(self, row_iid: str) -> bool:
         """Return True if this prop row has a value that can be cleared to empty."""
+        if row_iid in ("var__name", "var__initial"):
+            return True
         if not row_iid.startswith("prop__"):
             return False
         key = row_iid[6:]
@@ -1462,6 +1476,19 @@ _PROP_HINTS: dict[str, str] = {
     "colorize":           "Alternate-row shading: True applies --alt bg color to every even row via itemconfigure()",
     "colorize_altbg":     "Background color applied to even-numbered rows when colorize is True",
     "orient":             "Layout direction: horizontal or vertical",
+    # New additions
+    "wraplength":         "Maximum line length in pixels before text wraps to the next line; 0 or empty means no wrapping",
+    "selectmode":         "How many list items the user can select at once",
+    "resolution":         "Smallest increment the slider snaps to; values are rounded to the nearest multiple",
+    "tickinterval":       "Spacing between tick marks drawn along the slider; 0 or empty means no ticks",
+    "maximum":            "Maximum value for the progress bar (default 100)",
+    "char_width":         "Width of the widget in characters — sizes the content area independently of canvas pixel width",
+    "char_height":        "Height of the widget in lines — sizes the content area independently of canvas pixel height",
+    "onvalue":            "Value written to the variable when the checkbutton is checked (default 1)",
+    "offvalue":           "Value written to the variable when the checkbutton is unchecked (default 0)",
+    "labelanchor":        "Position of the label text on the LabelFrame border (compass direction)",
+    "disabledbackground": "Background color when the widget is in the disabled state",
+    "mode":               "Determinate tracks a known quantity; Indeterminate animates without a fixed end",
     # Validation
     "validate":           "When to run the validation function",
     "validatecommand":    "Method called to validate input — must start with _",
@@ -1534,6 +1561,38 @@ _DROPDOWN_ITEM_HINTS: dict[str, dict[str, str]] = {
     "orient": {
         "horizontal": "Horizontal — widget runs left to right",
         "vertical":   "Vertical — widget runs top to bottom",
+    },
+    "selectmode": {
+        "single":   "Single — only one item can be selected; clicking a new item deselects the previous",
+        "browse":   "Browse — like single, but selection follows the mouse as it moves (tkinter default)",
+        "multiple": "Multiple — any number of items can be selected; clicking toggles individual items",
+        "extended": "Extended — range selection with Shift+click and Ctrl+click; most common for file lists",
+    },
+    "wrap": {
+        "True":  "True — values wrap around: stepping past the max returns to the min, and vice versa",
+        "False": "False — values stop at the min and max boundaries; no wrap-around",
+    },
+    "exportselection": {
+        "True":  "True — selected text or items are automatically copied to the system clipboard",
+        "False": "False — selections stay local to the widget and are not exported to the clipboard",
+    },
+    "labelanchor": {
+        "nw": "nw — top-left corner of the border (tkinter default)",
+        "n":  "n  — top center of the border",
+        "ne": "ne — top-right corner",
+        "en": "en — right side, upper",
+        "e":  "e  — right side, center",
+        "es": "es — right side, lower",
+        "se": "se — bottom-right corner",
+        "s":  "s  — bottom center",
+        "sw": "sw — bottom-left corner",
+        "ws": "ws — left side, lower",
+        "w":  "w  — left side, center",
+        "wn": "wn — left side, upper",
+    },
+    "mode": {
+        "determinate":   "Determinate — fills from left to right to show measurable progress toward a known goal",
+        "indeterminate": "Indeterminate — bounces back and forth to show activity when progress can't be measured",
     },
 }
 

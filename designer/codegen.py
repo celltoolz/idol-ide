@@ -38,7 +38,18 @@ _STUB    = "pass  # TODO"
 _MENUBAR = 20  # menu bar strip height in canvas coords (matches canvas._MENUBAR)
 
 # Props that are optional — skip codegen when value is empty string
-_SKIP_IF_EMPTY = {"show", "font", "justify", "relief", "borderwidth", "insertbackground"}
+_SKIP_IF_EMPTY = {
+    "show", "font", "justify", "relief", "borderwidth", "insertbackground",
+    "wraplength", "resolution", "tickinterval", "increment", "maximum",
+    "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
+    "selectmode", "wrap", "exportselection",
+}
+
+# Props stored as "True"/"False" strings (dropdown) that must become Python booleans
+_BOOL_PROPS = {"wrap", "exportselection"}
+
+# Prop names that must be renamed when emitting constructor kwargs
+_PROP_RENAMES = {"char_width": "width", "char_height": "height"}
 
 # IDOL marker lines — must contain the tokens persistence.py detects
 _IMPORT_B = "# ── IDOL:IMPORTS:BEGIN " + "─" * 49
@@ -178,15 +189,20 @@ def _uses_ttk(form: FormModel) -> bool:
 
 def _prop_str(key: str, val: Any) -> str:
     """Format one kwarg for the widget constructor."""
+    emit_key = _PROP_RENAMES.get(key, key)
+    if isinstance(val, str) and key in _BOOL_PROPS:
+        if val in ("True", "False"):
+            return f"{emit_key}={val}"
+        return f'{emit_key}="{val}"'
     if isinstance(val, str):
         escaped = val.replace("\\", "\\\\").replace('"', '\\"')
-        return f'{key}="{escaped}"'
+        return f'{emit_key}="{escaped}"'
     if isinstance(val, bool):
-        return f"{key}={val}"
+        return f"{emit_key}={val}"
     if isinstance(val, (int, float)):
-        return f"{key}={val}"
+        return f"{emit_key}={val}"
     # list / tuple / other — safe repr
-    return f"{key}={repr(val)}"
+    return f"{emit_key}={repr(val)}"
 
 
 def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
@@ -216,6 +232,10 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
             continue
         if k in _SKIP_IF_EMPTY and (v == "" or v == ()):
             continue
+        if k in ("char_width", "char_height") and (v == "" or v == 0):
+            continue
+        if k in ("from_", "to") and w.props.get("values"):
+            continue  # values= list mode; from_/to are irrelevant
         if k == "state" and v == "normal":
             continue
         if k == "validate" and v == "none":
