@@ -6,7 +6,7 @@ from tkinter import ttk
 from typing import Callable
 
 from .model import MenuItemDescriptor
-from .var_picker import VariablePickerEntry, collect_form_variables
+from .var_picker import VariablePickerEntry, HandlerPickerEntry, collect_form_variables
 from widgets.guide_window import GuideWindow, GuidePage
 
 _BG       = "#1e1e1e"
@@ -180,8 +180,15 @@ class MenuEditor(tk.Toplevel):
 
         _label(fields, "Command:", 3, 0)
         self._command_handler_var = tk.StringVar()
-        self._command_handler_entry = _entry(fields, 3, 1, width=24)
-        self._command_handler_entry.config(textvariable=self._command_handler_var)
+        self._handler_picker = HandlerPickerEntry(
+            fields,
+            get_handlers=self._get_form_handlers,
+            textvariable=self._command_handler_var,
+            width=20,
+            entry_bg=_ENTRY_BG, entry_fg=_FG, btn_bg=_BTN_BG,
+        )
+        self._handler_picker.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=3)
+        self._command_handler_entry = self._handler_picker.entry
 
         _label(fields, "Value:", 3, 2)
         self._value_var = tk.StringVar()
@@ -332,6 +339,18 @@ class MenuEditor(tk.Toplevel):
                 seen.add(item.variable)
                 var_type = "BooleanVar" if item.kind == "checkbutton" else "StringVar"
                 extra.append((item.variable, var_type))
+        return base + extra
+
+    def _get_form_handlers(self) -> list[str]:
+        """Collect all defined handler names from the form plus current menu items."""
+        from .var_picker import collect_form_handlers
+        base = collect_form_handlers(self._form) if self._form is not None else []
+        seen = set(base)
+        extra = []
+        for item in self._items:
+            if item.command_handler and item.command_handler not in seen:
+                seen.add(item.command_handler)
+                extra.append(item.command_handler)
         return base + extra
 
     # ── Hint bar ──────────────────────────────────────────────────────────────

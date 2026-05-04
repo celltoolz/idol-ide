@@ -1,4 +1,4 @@
-"""Variable picker — shared popup for selecting or typing a tkinter variable name.
+"""Variable / handler picker — shared popups for the GUI Designer.
 
 Used by both the properties panel (inline treeview editor) and the menu editor
 (standalone Entry + button widget).
@@ -6,6 +6,7 @@ Used by both the properties panel (inline treeview editor) and the menu editor
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
 from typing import Callable
 
 _BG      = "#1e1e1e"
@@ -16,6 +17,60 @@ _FG_DIM  = "#858585"
 _FG_TYPE = "#569cd6"
 _BORDER  = "#3a3a3a"
 
+_ROW_H   = 26   # approximate px per row
+_MAX_VIS = 10   # rows visible before scrollbar appears
+_LIST_W  = 220  # popup list width in px
+
+
+# ── Scrollable list helper ────────────────────────────────────────────────────
+
+def _scrollable_list(inner: tk.Frame, num_rows: int):
+    """Build a canvas+scrollbar inside *inner*.  Returns (scroll_frame, canvas, wheel_fn)."""
+    vis_h  = min(num_rows, _MAX_VIS) * _ROW_H
+    canvas = tk.Canvas(inner, bg=_BG2, highlightthickness=0,
+                       height=vis_h, width=_LIST_W, bd=0)
+    sf  = tk.Frame(canvas, bg=_BG2)
+    win = canvas.create_window((0, 0), window=sf, anchor="nw")
+
+    sf.bind("<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>",
+                lambda e: canvas.itemconfig(win, width=e.width))
+
+    def _wheel(e):
+        canvas.yview_scroll(-1 * (1 if e.delta > 0 else -1), "units")
+
+    canvas.bind("<MouseWheel>", _wheel)
+    sf.bind("<MouseWheel>", _wheel)
+
+    if num_rows > _MAX_VIS:
+        sb = ttk.Scrollbar(inner, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+
+    canvas.pack(side="left", fill="both", expand=True)
+    return sf, canvas, _wheel
+
+
+def _place_popup(popup: tk.Toplevel, anchor: tk.Widget, num_rows: int) -> None:
+    """Position popup below anchor; when maximized flip above and right-align to screen."""
+    anchor.update_idletasks()
+    ax    = anchor.winfo_rootx()
+    ay    = anchor.winfo_rooty() + anchor.winfo_height()
+    est_h = min(num_rows, _MAX_VIS) * _ROW_H + 4
+    root  = anchor.winfo_toplevel()
+
+    if root.state() == 'zoomed':
+        # Right-align to IDOL's right edge, open above anchor
+        sb_w = 18 if num_rows > _MAX_VIS else 0   # ttk scrollbar width
+        ax = root.winfo_rootx() + root.winfo_width() - _LIST_W - sb_w - 4
+        above = anchor.winfo_rooty() - est_h
+        ay = above if above >= 4 else ay
+
+    popup.geometry(f"+{ax}+{ay}")
+
+
+# ── Variable picker ───────────────────────────────────────────────────────────
 
 def collect_form_variables(form) -> list[tuple[str, str]]:
     """Return [(name, var_type), ...] for every variable defined on *form*.
@@ -60,12 +115,6 @@ def show_variable_popup(
     popup.overrideredirect(True)
     popup.configure(bg=_BORDER)
 
-    # Position below anchor
-    anchor.update_idletasks()
-    ax = anchor.winfo_rootx()
-    ay = anchor.winfo_rooty() + anchor.winfo_height()
-    popup.geometry(f"+{ax}+{ay}")
-
     inner = tk.Frame(popup, bg=_BG2, bd=0)
     inner.pack(fill="both", expand=True, padx=1, pady=1)
 
@@ -73,13 +122,15 @@ def show_variable_popup(
         tk.Label(inner, text="(no variables defined yet)",
                  bg=_BG2, fg=_FG_DIM, font=("Segoe UI", 8),
                  padx=10, pady=6).pack(fill="x")
+        _place_popup(popup, anchor, 1)
         _bind_dismiss(popup, anchor)
         return popup
 
-    row_widgets: list[tk.Frame] = []
+    sf, canvas, _wheel = _scrollable_list(inner, len(variables))
+    _place_popup(popup, anchor, len(variables))
 
     def _make_row(name: str, var_type: str) -> tk.Frame:
-        row = tk.Frame(inner, bg=_BG2, cursor="hand2")
+        row = tk.Frame(sf, bg=_BG2, cursor="hand2")
         tk.Label(row, text=name, bg=_BG2, fg=_FG,
                  font=("Segoe UI", 9), anchor="w", padx=8, pady=4).pack(side="left")
         tk.Label(row, text=f"({var_type})", bg=_BG2, fg=_FG_TYPE,
@@ -89,6 +140,9 @@ def show_variable_popup(
             row.config(bg=_BG_HOV)
             for child in row.winfo_children():
                 child.config(bg=_BG_HOV)
+            if entry_ref is not None:
+                entry_ref.delete(0, "end")
+                entry_ref.insert(0, name)
 
         def _leave(_):
             row.config(bg=_BG2)
@@ -99,11 +153,13 @@ def show_variable_popup(
             popup.destroy()
             on_select(name)
 
-        row.bind("<Enter>",   _enter)
-        row.bind("<Leave>",   _leave)
-        row.bind("<Button-1>", _click)
+        row.bind("<Enter>",      _enter)
+        row.bind("<Leave>",      _leave)
+        row.bind("<Button-1>",   _click)
+        row.bind("<MouseWheel>", _wheel)
         for child in row.winfo_children():
-            child.bind("<Button-1>", _click)
+            child.bind("<Button-1>",   _click)
+            child.bind("<MouseWheel>", _wheel)
         row.pack(fill="x")
         return row
 
@@ -112,24 +168,164 @@ def show_variable_popup(
         fr = _make_row(name, var_type)
         all_rows.append((name, var_type, fr))
 
-    # Live filter when entry_ref is supplied
     if entry_ref is not None:
-        def _on_key(*_):
+        def _on_key_var(*_):
+            try:
+                if not popup.winfo_exists():
+                    return
+            except Exception:
+                return
             term = entry_ref.get().lower()
-            for name, var_type, fr in all_rows:
-                if term in name.lower():
-                    fr.pack(fill="x")
-                else:
-                    fr.pack_forget()
-        entry_ref.bind("<KeyRelease>", _on_key, add=True)
+            for _name, _vtype, fr in all_rows:
+                try:
+                    if term in _name.lower():
+                        fr.pack(fill="x")
+                    else:
+                        fr.pack_forget()
+                except Exception:
+                    pass
+            try:
+                sf.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+        entry_ref.bind("<KeyRelease>", _on_key_var, add=True)
 
-    # Re-focus the entry after the popup renders so typing works immediately
     if entry_ref is not None:
         popup.after(10, lambda: entry_ref.focus_force() if entry_ref.winfo_exists() else None)
 
     _bind_dismiss(popup, anchor)
     return popup
 
+
+# ── Handler picker ────────────────────────────────────────────────────────────
+
+def collect_form_handlers(form) -> list[str]:
+    """Return [handler_name, ...] for every event handler defined on *form*.
+
+    Pulls from widget events first (in widget order), then from menu item
+    command handlers. Deduped by name; first occurrence wins.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for w in form.widgets:
+        for handler in w.events.values():
+            if handler and handler not in seen:
+                seen.add(handler)
+                result.append(handler)
+
+    for item in form.menu_items:
+        if item.command_handler and item.command_handler not in seen:
+            seen.add(item.command_handler)
+            result.append(item.command_handler)
+
+    return result
+
+
+def show_handler_popup(
+    anchor: tk.Widget,
+    handlers: list[str],
+    on_select: Callable[[str], None],
+    entry_ref: tk.Entry | None = None,
+) -> tk.Toplevel | None:
+    """Show a dark-themed popup below *anchor* listing *handlers*.
+
+    anchor    : widget whose bottom-left sets the popup position.
+    handlers  : [handler_name, ...] list to display.
+    on_select : called with the chosen handler name.
+    entry_ref : if given, typing in this Entry filters the popup list live.
+
+    Returns the Toplevel (caller may close it), or None if list is empty.
+    """
+    popup = tk.Toplevel(anchor)
+    popup.overrideredirect(True)
+    popup.configure(bg=_BORDER)
+
+    inner = tk.Frame(popup, bg=_BG2, bd=0)
+    inner.pack(fill="both", expand=True, padx=1, pady=1)
+
+    if not handlers:
+        tk.Label(inner, text="(no handlers defined yet)",
+                 bg=_BG2, fg=_FG_DIM, font=("Segoe UI", 8),
+                 padx=10, pady=6).pack(fill="x")
+        _place_popup(popup, anchor, 1)
+        _bind_dismiss(popup, anchor)
+        return popup
+
+    sf, canvas, _wheel = _scrollable_list(inner, len(handlers))
+    _place_popup(popup, anchor, len(handlers))
+
+    def _make_row(name: str) -> tk.Frame:
+        row = tk.Frame(sf, bg=_BG2, cursor="hand2")
+        tk.Label(row, text=name, bg=_BG2, fg=_FG,
+                 font=("Segoe UI", 9), anchor="w", padx=8, pady=4).pack(side="left")
+        tk.Label(row, text="(handler)", bg=_BG2, fg=_FG_DIM,
+                 font=("Segoe UI", 8), anchor="e", padx=8, pady=4).pack(side="right")
+
+        def _enter(_):
+            row.config(bg=_BG_HOV)
+            for child in row.winfo_children():
+                child.config(bg=_BG_HOV)
+            if entry_ref is not None:
+                entry_ref.delete(0, "end")
+                entry_ref.insert(0, name)
+
+        def _leave(_):
+            row.config(bg=_BG2)
+            for child in row.winfo_children():
+                child.config(bg=_BG2)
+
+        def _click(_):
+            popup.destroy()
+            on_select(name)
+
+        row.bind("<Enter>",      _enter)
+        row.bind("<Leave>",      _leave)
+        row.bind("<Button-1>",   _click)
+        row.bind("<MouseWheel>", _wheel)
+        for child in row.winfo_children():
+            child.bind("<Button-1>",   _click)
+            child.bind("<MouseWheel>", _wheel)
+        row.pack(fill="x")
+        return row
+
+    all_rows: list[tuple[str, tk.Frame]] = []
+    for name in handlers:
+        fr = _make_row(name)
+        all_rows.append((name, fr))
+
+    if entry_ref is not None:
+        def _on_key_hdl(*_):
+            try:
+                if not popup.winfo_exists():
+                    return
+            except Exception:
+                return
+            term = entry_ref.get().lower()
+            for _name, fr in all_rows:
+                try:
+                    if term in _name.lower():
+                        fr.pack(fill="x")
+                    else:
+                        fr.pack_forget()
+                except Exception:
+                    pass
+            try:
+                sf.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+        entry_ref.bind("<KeyRelease>", _on_key_hdl, add=True)
+
+    if entry_ref is not None:
+        popup.after(10, lambda: entry_ref.focus_force() if entry_ref.winfo_exists() else None)
+
+    _bind_dismiss(popup, anchor)
+    return popup
+
+
+# ── Dismiss helper ────────────────────────────────────────────────────────────
 
 def _bind_dismiss(popup: tk.Toplevel, anchor: tk.Widget) -> None:
     """Close *popup* when the user clicks outside it and outside *anchor*."""
@@ -138,10 +334,8 @@ def _bind_dismiss(popup: tk.Toplevel, anchor: tk.Widget) -> None:
     def _check_focus(event):
         w = str(event.widget)
         try:
-            # Keep alive: click is inside the popup itself
             if w.startswith(str(popup)):
                 return
-            # Keep alive: click is on the anchor widget or any of its children
             if w == anchor_str or w.startswith(anchor_str + "."):
                 return
             popup.destroy()
@@ -150,6 +344,76 @@ def _bind_dismiss(popup: tk.Toplevel, anchor: tk.Widget) -> None:
 
     popup.bind_all("<Button-1>", _check_focus, add=True)
     popup.bind("<Escape>", lambda _: popup.destroy())
+
+
+# ── Picker entry widgets ──────────────────────────────────────────────────────
+
+class HandlerPickerEntry(tk.Frame):
+    """Entry + ▾ button that opens a handler picker popup.
+
+    Parameters
+    ----------
+    master        : parent widget
+    get_handlers  : callable that returns [handler_name, ...] on demand
+    textvariable  : tk.StringVar to bind to the Entry
+    width         : Entry width in characters
+    """
+
+    def __init__(
+        self,
+        master: tk.Widget,
+        get_handlers: Callable[[], list[str]],
+        textvariable: tk.StringVar | None = None,
+        width: int = 14,
+        entry_bg: str = "#3c3c3c",
+        entry_fg: str = "#cccccc",
+        btn_bg: str = "#3a3a3a",
+        **kwargs,
+    ) -> None:
+        super().__init__(master, bg=entry_bg, **kwargs)
+        self._get_handlers = get_handlers
+        self._popup: tk.Toplevel | None = None
+
+        self.entry = tk.Entry(
+            self,
+            textvariable=textvariable,
+            bg=entry_bg, fg=entry_fg,
+            insertbackground=entry_fg,
+            relief="flat", font=("Segoe UI", 9),
+            width=width,
+            highlightthickness=1,
+            highlightcolor="#569cd6",
+            highlightbackground="#3c3c3c",
+        )
+        self.entry.pack(side="left", fill="x", expand=True)
+
+        self._btn = tk.Button(
+            self,
+            text="▾", width=2,
+            bg=btn_bg, fg="#888888",
+            activebackground="#4a4a4a", activeforeground="#cccccc",
+            relief="flat", font=("Segoe UI", 8),
+            cursor="hand2",
+            command=self._open_picker,
+        )
+        self._btn.pack(side="left")
+
+    def _open_picker(self) -> None:
+        if self._popup and self._popup.winfo_exists():
+            self._popup.destroy()
+            return
+        handlers = self._get_handlers()
+        self._popup = show_handler_popup(
+            anchor=self,
+            handlers=handlers,
+            on_select=self._on_select,
+            entry_ref=self.entry,
+        )
+
+    def _on_select(self, name: str) -> None:
+        self.entry.delete(0, "end")
+        self.entry.insert(0, name)
+        self._popup = None
 
 
 class VariablePickerEntry(tk.Frame):

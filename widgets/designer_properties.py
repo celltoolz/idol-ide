@@ -560,11 +560,7 @@ class DesignerProperties(tk.Frame):
             self._open_event_guide()
             return
         if col == "#1":
-            # If no handler set yet, auto-wire on click; otherwise open editor
-            if tree.set(row, "#1").strip():
-                self._open_editor(tree, row, col, self._commit_event)
-            else:
-                self._auto_wire_event(row)
+            self._open_handler_picker(tree, row, col)
         elif col == "#0":
             self._auto_wire_event(row)
 
@@ -670,6 +666,69 @@ class DesignerProperties(tk.Frame):
         popup_ref[0] = show_variable_popup(
             anchor=entry,
             variables=variables,
+            on_select=_on_select,
+            entry_ref=entry,
+        )
+
+    def _open_handler_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
+        """Inline entry + handler picker popup for event handler rows."""
+        from designer.var_picker import collect_form_handlers, show_handler_popup
+        if not row.startswith("ev__"):
+            return
+        self._dismiss_editor()
+        bbox = tree.bbox(row, col)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        entry = tk.Entry(
+            tree,
+            font=("TkDefaultFont", 8),
+            bg="#3c3c3c", fg="#cccccc",
+            insertbackground="#cccccc",
+            relief="flat", bd=0,
+            highlightthickness=1,
+            highlightbackground="#007acc",
+        )
+        entry.insert(0, tree.set(row, col))
+        entry.place(x=x, y=y, width=w, height=h)
+        self._entry_editor = entry
+
+        def _grab_focus():
+            try:
+                entry.focus_force()
+                entry.select_range(0, "end")
+                entry.icursor("end")
+            except Exception:
+                pass
+        tree.after_idle(_grab_focus)
+
+        popup_ref: list = [None]
+
+        def _commit(_=None):
+            val = entry.get()
+            if popup_ref[0] and popup_ref[0].winfo_exists():
+                popup_ref[0].destroy()
+            self._dismiss_editor()
+            tree.set(row, col, val)
+            self._commit_event(row, val)
+
+        def _on_select(name: str):
+            entry.delete(0, "end")
+            entry.insert(0, name)
+            popup_ref[0] = None
+            _commit()
+
+        entry.bind("<Return>", _commit)
+        entry.bind("<Tab>",    _commit)
+        entry.bind("<Escape>", lambda _: (
+            popup_ref[0].destroy() if popup_ref[0] and popup_ref[0].winfo_exists() else None,
+            self._dismiss_editor(),
+        ))
+
+        handlers = collect_form_handlers(self._form) if self._form is not None else []
+        popup_ref[0] = show_handler_popup(
+            anchor=entry,
+            handlers=handlers,
             on_select=_on_select,
             entry_ref=entry,
         )
