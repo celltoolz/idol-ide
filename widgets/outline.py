@@ -364,7 +364,12 @@ class OutlinePanel(ttk.Frame):
         return self._locals.get(func_start, [])
 
     def _on_tree_click(self, event) -> None:
-        self._last_click_region = self.tree.identify_element(event.x, event.y)
+        region = self.tree.identify_element(event.x, event.y)
+        self._last_click_region = region
+        if region == "Treeitem.indicator":
+            prev = self.tree.focus_get()
+            if prev and prev is not self.tree:
+                self.after_idle(lambda w=prev: w.focus_set())
 
     def _on_select(self, _) -> None:
         region = self._last_click_region
