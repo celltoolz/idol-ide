@@ -174,6 +174,7 @@ class MenuEditor(tk.Toplevel):
             textvariable=self._variable_var,
             width=10,
             entry_bg=_ENTRY_BG, entry_fg=_FG, btn_bg=_BTN_BG,
+            on_remove=self._on_variable_remove,
         )
         self._variable_picker.grid(row=2, column=3, sticky="w", pady=3)
         self._variable_entry = self._variable_picker.entry
@@ -186,6 +187,7 @@ class MenuEditor(tk.Toplevel):
             textvariable=self._command_handler_var,
             width=20,
             entry_bg=_ENTRY_BG, entry_fg=_FG, btn_bg=_BTN_BG,
+            on_remove=self._on_handler_remove,
         )
         self._handler_picker.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=3)
         self._command_handler_entry = self._handler_picker.entry
@@ -352,6 +354,35 @@ class MenuEditor(tk.Toplevel):
                 seen.add(item.command_handler)
                 extra.append(item.command_handler)
         return base + extra
+
+    def _on_handler_remove(self, name: str) -> None:
+        for item in self._items:
+            if item.command_handler == name:
+                item.command_handler = ""
+        if self._form is not None:
+            for w in self._form.widgets:
+                for ev_key in list(w.events.keys()):
+                    if w.events.get(ev_key) == name:
+                        del w.events[ev_key]
+            for item in self._form.menu_items:
+                if item.command_handler == name:
+                    item.command_handler = ""
+        if self._command_handler_var.get() == name:
+            self._command_handler_var.set("")
+
+    def _on_variable_remove(self, name: str) -> None:
+        for item in self._items:
+            if item.variable == name:
+                item.variable = ""
+        if self._form is not None:
+            for w in self._form.widgets:
+                if w.variable and w.variable.name == name:
+                    w.variable.name = ""
+            for item in self._form.menu_items:
+                if item.variable == name:
+                    item.variable = ""
+        if self._variable_var.get() == name:
+            self._variable_var.set("")
 
     # ── Hint bar ──────────────────────────────────────────────────────────────
 

@@ -101,6 +101,7 @@ def show_variable_popup(
     variables: list[tuple[str, str]],
     on_select: Callable[[str], None],
     entry_ref: tk.Entry | None = None,
+    on_remove: Callable[[str], None] | None = None,
 ) -> tk.Toplevel | None:
     """Show a dark-themed popup below *anchor* listing *variables*.
 
@@ -135,31 +136,50 @@ def show_variable_popup(
                  font=("Segoe UI", 9), anchor="w", padx=8, pady=4).pack(side="left")
         tk.Label(row, text=f"({var_type})", bg=_BG2, fg=_FG_TYPE,
                  font=("Segoe UI", 8), anchor="e", padx=8, pady=4).pack(side="right")
+        x_lbl = None
+        if on_remove is not None:
+            x_lbl = tk.Label(row, text="×", bg=_BG2, fg=_BG2,
+                             font=("Segoe UI", 10, "bold"), cursor="hand2", padx=6)
+            x_lbl.pack(side="right")
 
-        def _enter(_):
-            row.config(bg=_BG_HOV)
+        def _set_hover(active: bool):
+            bg = _BG_HOV if active else _BG2
+            row.config(bg=bg)
             for child in row.winfo_children():
-                child.config(bg=_BG_HOV)
-            if entry_ref is not None:
+                child.config(bg=bg)
+            if x_lbl is not None:
+                x_lbl.config(fg=("#cc5555" if active else _BG2))
+            if active and entry_ref is not None:
                 entry_ref.delete(0, "end")
                 entry_ref.insert(0, name)
-
-        def _leave(_):
-            row.config(bg=_BG2)
-            for child in row.winfo_children():
-                child.config(bg=_BG2)
 
         def _click(_):
             popup.destroy()
             on_select(name)
 
-        row.bind("<Enter>",      _enter)
-        row.bind("<Leave>",      _leave)
+        def _remove_click(e):
+            if on_remove:
+                on_remove(name)
+            row.pack_forget()
+            try:
+                sf.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+            return "break"
+
+        row.bind("<Enter>",      lambda e: _set_hover(True))
+        row.bind("<Leave>",      lambda e: _set_hover(False))
         row.bind("<Button-1>",   _click)
         row.bind("<MouseWheel>", _wheel)
         for child in row.winfo_children():
-            child.bind("<Button-1>",   _click)
+            child.bind("<Enter>",      lambda e: _set_hover(True))
+            child.bind("<Leave>",      lambda e: _set_hover(False))
             child.bind("<MouseWheel>", _wheel)
+            if child is not x_lbl:
+                child.bind("<Button-1>", _click)
+        if x_lbl is not None:
+            x_lbl.bind("<Button-1>", _remove_click)
         row.pack(fill="x")
         return row
 
@@ -228,6 +248,7 @@ def show_handler_popup(
     handlers: list[str],
     on_select: Callable[[str], None],
     entry_ref: tk.Entry | None = None,
+    on_remove: Callable[[str], None] | None = None,
 ) -> tk.Toplevel | None:
     """Show a dark-themed popup below *anchor* listing *handlers*.
 
@@ -262,31 +283,50 @@ def show_handler_popup(
                  font=("Segoe UI", 9), anchor="w", padx=8, pady=4).pack(side="left")
         tk.Label(row, text="(handler)", bg=_BG2, fg=_FG_DIM,
                  font=("Segoe UI", 8), anchor="e", padx=8, pady=4).pack(side="right")
+        x_lbl = None
+        if on_remove is not None:
+            x_lbl = tk.Label(row, text="×", bg=_BG2, fg=_BG2,
+                             font=("Segoe UI", 10, "bold"), cursor="hand2", padx=6)
+            x_lbl.pack(side="right")
 
-        def _enter(_):
-            row.config(bg=_BG_HOV)
+        def _set_hover(active: bool):
+            bg = _BG_HOV if active else _BG2
+            row.config(bg=bg)
             for child in row.winfo_children():
-                child.config(bg=_BG_HOV)
-            if entry_ref is not None:
+                child.config(bg=bg)
+            if x_lbl is not None:
+                x_lbl.config(fg=("#cc5555" if active else _BG2))
+            if active and entry_ref is not None:
                 entry_ref.delete(0, "end")
                 entry_ref.insert(0, name)
-
-        def _leave(_):
-            row.config(bg=_BG2)
-            for child in row.winfo_children():
-                child.config(bg=_BG2)
 
         def _click(_):
             popup.destroy()
             on_select(name)
 
-        row.bind("<Enter>",      _enter)
-        row.bind("<Leave>",      _leave)
+        def _remove_click(e):
+            if on_remove:
+                on_remove(name)
+            row.pack_forget()
+            try:
+                sf.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+            return "break"
+
+        row.bind("<Enter>",      lambda e: _set_hover(True))
+        row.bind("<Leave>",      lambda e: _set_hover(False))
         row.bind("<Button-1>",   _click)
         row.bind("<MouseWheel>", _wheel)
         for child in row.winfo_children():
-            child.bind("<Button-1>",   _click)
+            child.bind("<Enter>",      lambda e: _set_hover(True))
+            child.bind("<Leave>",      lambda e: _set_hover(False))
             child.bind("<MouseWheel>", _wheel)
+            if child is not x_lbl:
+                child.bind("<Button-1>", _click)
+        if x_lbl is not None:
+            x_lbl.bind("<Button-1>", _remove_click)
         row.pack(fill="x")
         return row
 
@@ -357,6 +397,7 @@ class HandlerPickerEntry(tk.Frame):
     get_handlers  : callable that returns [handler_name, ...] on demand
     textvariable  : tk.StringVar to bind to the Entry
     width         : Entry width in characters
+    on_remove     : optional callback(name) called when × is clicked on a row
     """
 
     def __init__(
@@ -368,10 +409,12 @@ class HandlerPickerEntry(tk.Frame):
         entry_bg: str = "#3c3c3c",
         entry_fg: str = "#cccccc",
         btn_bg: str = "#3a3a3a",
+        on_remove: Callable[[str], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=entry_bg, **kwargs)
         self._get_handlers = get_handlers
+        self._on_remove = on_remove
         self._popup: tk.Toplevel | None = None
 
         self.entry = tk.Entry(
@@ -408,6 +451,7 @@ class HandlerPickerEntry(tk.Frame):
             handlers=handlers,
             on_select=self._on_select,
             entry_ref=self.entry,
+            on_remove=self._on_remove,
         )
 
     def _on_select(self, name: str) -> None:
@@ -425,6 +469,7 @@ class VariablePickerEntry(tk.Frame):
     get_vars     : callable that returns [(name, var_type), ...] on demand
     textvariable : tk.StringVar to bind to the Entry
     width        : Entry width in characters
+    on_remove    : optional callback(name) called when × is clicked on a row
     """
 
     def __init__(
@@ -436,10 +481,12 @@ class VariablePickerEntry(tk.Frame):
         entry_bg: str = "#3c3c3c",
         entry_fg: str = "#cccccc",
         btn_bg: str = "#3a3a3a",
+        on_remove: Callable[[str], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=entry_bg, **kwargs)
         self._get_vars = get_vars
+        self._on_remove = on_remove
         self._popup: tk.Toplevel | None = None
 
         self.entry = tk.Entry(
@@ -476,6 +523,7 @@ class VariablePickerEntry(tk.Frame):
             variables=variables,
             on_select=self._on_select,
             entry_ref=self.entry,
+            on_remove=self._on_remove,
         )
 
     def _on_select(self, name: str) -> None:

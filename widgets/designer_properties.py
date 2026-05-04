@@ -662,12 +662,28 @@ class DesignerProperties(tk.Frame):
             self._dismiss_editor(),
         ))
 
+        def _on_var_remove(name: str):
+            if self._form is None:
+                return
+            for w in self._form.widgets:
+                if w.variable and w.variable.name == name:
+                    w.variable.name = ""
+                    if self._on_prop_change:
+                        self._on_prop_change(w.id, "__variable__", w.variable)
+            for item in self._form.menu_items:
+                if item.variable == name:
+                    item.variable = ""
+            d = self._current_widget
+            if d is not None:
+                self._populate_props(d, REGISTRY.get(d.type, {}))
+
         variables = collect_form_variables(self._form)
         popup_ref[0] = show_variable_popup(
             anchor=entry,
             variables=variables,
             on_select=_on_select,
             entry_ref=entry,
+            on_remove=_on_var_remove,
         )
 
     def _open_handler_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
@@ -725,12 +741,29 @@ class DesignerProperties(tk.Frame):
             self._dismiss_editor(),
         ))
 
+        def _on_handler_remove(name: str):
+            if self._form is None:
+                return
+            for w in self._form.widgets:
+                for ev_key in list(w.events.keys()):
+                    if w.events.get(ev_key) == name:
+                        del w.events[ev_key]
+                        if self._on_event_change:
+                            self._on_event_change(w.id, ev_key, "")
+            for item in self._form.menu_items:
+                if item.command_handler == name:
+                    item.command_handler = ""
+            d = self._current_widget
+            if d is not None:
+                self._populate_events(d, REGISTRY.get(d.type, {}))
+
         handlers = collect_form_handlers(self._form) if self._form is not None else []
         popup_ref[0] = show_handler_popup(
             anchor=entry,
             handlers=handlers,
             on_select=_on_select,
             entry_ref=entry,
+            on_remove=_on_handler_remove,
         )
 
     def _open_list_editor(self, row: str) -> None:
