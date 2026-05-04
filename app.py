@@ -4397,7 +4397,11 @@ class IDOL(Tk):
         if py_path.exists():
             try:
                 _, stored_checksum = _load(json_path)
-                if _modified(py_path, stored_checksum) and not _skip_manual_check and not self._suppress_codegen_prompt:
+                if (
+                    _modified(py_path, stored_checksum)
+                    and not _skip_manual_check
+                    and not self._suppress_codegen_prompt
+                ):
                     answer, suppress = self._codegen_confirm(
                         "Manual Edits Detected",
                         f"{py_path.name} has been manually edited since the last code generation.\n\n"
@@ -4884,7 +4888,9 @@ class IDOL(Tk):
         y = btn.winfo_rooty() + btn.winfo_height()
         self._run_menu.tk_popup(x, y)
 
-    def _codegen_confirm(self, title: str, message: str, has_cancel: bool = False) -> tuple[str, bool]:
+    def _codegen_confirm(
+        self, title: str, message: str, has_cancel: bool = False
+    ) -> tuple[str, bool]:
         """Dark-themed modal dialog for codegen prompts.
 
         Returns (answer, suppress) where answer is 'yes'|'no'|'cancel'.
@@ -4902,18 +4908,28 @@ class IDOL(Tk):
         suppress_var = _tk.BooleanVar(value=False)
 
         _tk.Label(
-            dlg, text=message, bg="#1e1e1e", fg="#cccccc",
-            font=("Segoe UI", 9), justify="left", wraplength=380,
-            padx=16, pady=14,
+            dlg,
+            text=message,
+            bg="#1e1e1e",
+            fg="#cccccc",
+            font=("Segoe UI", 9),
+            justify="left",
+            wraplength=380,
+            padx=16,
+            pady=14,
         ).pack(anchor="w")
 
         _ttk.Separator(dlg, orient="horizontal").pack(fill="x", padx=8)
 
         _tk.Checkbutton(
-            dlg, text="Don't ask again this session",
+            dlg,
+            text="Don't ask again this session",
             variable=suppress_var,
-            bg="#1e1e1e", fg="#858585", selectcolor="#3c3c3c",
-            activebackground="#1e1e1e", activeforeground="#cccccc",
+            bg="#1e1e1e",
+            fg="#858585",
+            selectcolor="#3c3c3c",
+            activebackground="#1e1e1e",
+            activeforeground="#cccccc",
             font=("Segoe UI", 9),
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
@@ -4933,23 +4949,44 @@ class IDOL(Tk):
             dlg.destroy()
 
         _tk.Button(
-            btn_frame, text="Yes", width=9,
-            bg="#569cd6", fg="#ffffff", activebackground="#4a8ec2",
-            activeforeground="#ffffff", relief="flat",
-            font=("Segoe UI", 9, "bold"), cursor="hand2", command=_yes,
+            btn_frame,
+            text="Yes",
+            width=9,
+            bg="#569cd6",
+            fg="#ffffff",
+            activebackground="#4a8ec2",
+            activeforeground="#ffffff",
+            relief="flat",
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2",
+            command=_yes,
         ).pack(side="right", padx=(4, 0))
         _tk.Button(
-            btn_frame, text="No", width=9,
-            bg="#3a3a3a", fg="#cccccc", activebackground="#3c3c3c",
-            activeforeground="#cccccc", relief="flat",
-            font=("Segoe UI", 9), cursor="hand2", command=_no,
+            btn_frame,
+            text="No",
+            width=9,
+            bg="#3a3a3a",
+            fg="#cccccc",
+            activebackground="#3c3c3c",
+            activeforeground="#cccccc",
+            relief="flat",
+            font=("Segoe UI", 9),
+            cursor="hand2",
+            command=_no,
         ).pack(side="right", padx=(4, 0))
         if has_cancel:
             _tk.Button(
-                btn_frame, text="Cancel", width=9,
-                bg="#3a3a3a", fg="#cccccc", activebackground="#3c3c3c",
-                activeforeground="#cccccc", relief="flat",
-                font=("Segoe UI", 9), cursor="hand2", command=_cancel,
+                btn_frame,
+                text="Cancel",
+                width=9,
+                bg="#3a3a3a",
+                fg="#cccccc",
+                activebackground="#3c3c3c",
+                activeforeground="#cccccc",
+                relief="flat",
+                font=("Segoe UI", 9),
+                cursor="hand2",
+                command=_cancel,
             ).pack(side="right", padx=(0, 4))
 
         dlg.update_idletasks()
@@ -4968,7 +5005,10 @@ class IDOL(Tk):
                 self.designer_generate_code(_skip_manual_check=True)
             else:
                 from pathlib import Path as _Path
-                from designer.persistence import load as _load, was_modified as _modified
+                from designer.persistence import (
+                    load as _load,
+                    was_modified as _modified,
+                )
 
                 form = self._design_canvas.form
                 root = getattr(self._sidebar.explorer, "_root", None)
@@ -5819,7 +5859,7 @@ class IDOL(Tk):
             img = img.resize((420, int(img.height * ratio)), Image.LANCZOS)
             photo = ImageTk.PhotoImage(img)
             dlg._photo = photo
-            tk.Label(dlg, image=photo, bg="#0d1117", bd=0).pack(pady=(16, 8))
+            tk.Label(dlg, image=photo, bg="#0d1117", bd=0).pack(pady=(0, 8))
         except Exception:
             tk.Label(
                 dlg,
@@ -5838,15 +5878,37 @@ class IDOL(Tk):
             font=("Segoe UI", 9),
         ).pack()
 
-        tk.Frame(dlg, bg="#3c3c3c", height=1).pack(fill="x", padx=24)
-
         tk.Label(
             dlg,
             text="Alex Fero & Claude Sonnet",
             bg="#0d1117",
             fg="#858585",
             font=("Segoe UI", 8),
-        ).pack(pady=(10, 10))
+        ).pack(pady=(10, 4))
+
+        tk.Frame(dlg, bg="#2a2a2a", height=1).pack(fill="x", padx=32)
+
+        import platform as _platform
+        try:
+            from importlib.metadata import version as _pkg_ver
+            pip_ver = _pkg_ver("pip")
+        except Exception:
+            pip_ver = "unknown"
+        _sys = _platform.system()
+        if _sys == "Windows":
+            os_str = f"Windows {_platform.release()}"
+        elif _sys == "Darwin":
+            os_str = f"macOS {_platform.mac_ver()[0]}"
+        else:
+            os_str = f"{_sys} {_platform.release()}"
+
+        tk.Label(
+            dlg,
+            text=f"Python {sys.version.split()[0]}   •   pip {pip_ver}   •   {os_str}",
+            bg="#0d1117",
+            fg="#555555",
+            font=("Segoe UI", 8),
+        ).pack(pady=(4, 10))
 
         # Close button
         btn = tk.Label(
