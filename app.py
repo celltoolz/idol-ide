@@ -4363,6 +4363,7 @@ class IDOL(Tk):
             self._design_canvas.load_form(form)
             self._props_panel.load_form(form)
             self._designer_dirty = False
+            self._show_mode_bar()
             if not self._designer_mode:
                 self._enter_designer_mode()
         except Exception as exc:
