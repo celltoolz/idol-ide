@@ -129,6 +129,12 @@ class CommandPalette(tk.Toplevel):
         )
         self._list_frame.bind("<Configure>", self._on_frame_configure)
         self._canvas.bind("<Configure>", self._on_canvas_configure)
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind("<Button-4>",   self._on_mousewheel)
+        self._canvas.bind("<Button-5>",   self._on_mousewheel)
+        self._list_frame.bind("<MouseWheel>", self._on_mousewheel)
+        self._list_frame.bind("<Button-4>",   self._on_mousewheel)
+        self._list_frame.bind("<Button-5>",   self._on_mousewheel)
 
         # ── Key bindings ───────────────────────────────────────────────────────
         self._entry.bind("<Up>",        self._on_up)
@@ -191,10 +197,13 @@ class CommandPalette(tk.Toplevel):
                 ).pack(side="right")
 
             idx = i
-            for widget in (row, lbl):
-                widget.bind("<Enter>",    lambda _, r=idx: self._hover(r))
-                widget.bind("<Leave>",    lambda _, r=idx: self._unhover(r))
-                widget.bind("<Button-1>", lambda _, r=idx: self._execute(r))
+            for widget in row.winfo_children() + [row]:
+                widget.bind("<Enter>",      lambda _, r=idx: self._hover(r))
+                widget.bind("<Leave>",      lambda _, r=idx: self._unhover(r))
+                widget.bind("<Button-1>",   lambda _, r=idx: self._execute(r))
+                widget.bind("<MouseWheel>", self._on_mousewheel)
+                widget.bind("<Button-4>",   self._on_mousewheel)
+                widget.bind("<Button-5>",   self._on_mousewheel)
 
         self._highlight(self._selected)
 
@@ -394,7 +403,12 @@ class CommandPalette(tk.Toplevel):
         self.close()
 
     def _on_mousewheel(self, event) -> None:
-        self._canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        if event.num == 4:
+            self._canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            self._canvas.yview_scroll(1, "units")
+        else:
+            self._canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
     def _on_parent_configure(self, _) -> None:
         self._repositioning = True
