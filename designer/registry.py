@@ -222,7 +222,7 @@ REGISTRY: dict[str, dict] = {
         "events":       ["command"] + _SIMPLE_EVENTS + _CHANGE_EVENTS,
         "draw_preview": _draw_checkbutton,
         "variable_prop":  "variable",
-        "variable_types": ["BooleanVar", "IntVar"],
+        "variable_types": ["BooleanVar", "IntVar", "StringVar"],
         "color_props":  ["bg", "fg"],
         "state_prop":   True,
         "state_values": ["normal", "disabled"],

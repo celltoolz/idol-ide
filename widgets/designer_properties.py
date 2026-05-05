@@ -1344,6 +1344,15 @@ class DesignerProperties(tk.Frame):
                     self._props_tree.set("prop__wrap", "#1", "none")
                     if self._on_prop_change:
                         self._on_prop_change(d.id, "wrap", "none")
+            elif key in ("onvalue", "offvalue") and d.variable is not None:
+                inferred = _infer_var_type(str(parsed))
+                reg = REGISTRY.get(d.type, {})
+                if inferred in reg.get("variable_types", []):
+                    d.variable.var_type = inferred
+                    if self._props_tree.exists("var__type"):
+                        self._props_tree.set("var__type", "#1", inferred)
+                    if self._on_prop_change:
+                        self._on_prop_change(d.id, "__variable__", d.variable)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
 
@@ -1688,6 +1697,23 @@ def _contrast_color(hex_color: str) -> str:
         return "#000000" if (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 else "#ffffff"
     except Exception:
         return "#000000"
+
+
+def _infer_var_type(val: str) -> str:
+    """Return the most appropriate tkinter Var type for an on/offvalue string."""
+    if val in ("True", "False"):
+        return "BooleanVar"
+    try:
+        int(val)
+        return "IntVar"
+    except ValueError:
+        pass
+    try:
+        float(val)
+        return "DoubleVar"
+    except ValueError:
+        pass
+    return "StringVar"
 
 
 def _parse_value(raw: str, current: Any) -> Any:
