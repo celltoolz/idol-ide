@@ -5637,7 +5637,10 @@ class IDOL(Tk):
 
     def _debug_stop(self) -> None:
         if self._debugger:
+            in_terminal = self._run_target_var.get() == "terminal"
             self._debugger.disconnect()
+            if in_terminal:
+                self._output.terminal.send_text("\x03")
             self._on_debug_terminated()
 
     def _on_debug_stopped(
