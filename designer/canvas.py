@@ -1354,10 +1354,11 @@ def _draw_combobox(c, x, y, x2, y2, text, props):
 
 @_tag
 def _draw_listbox(c, x, y, x2, y2, text, props):
-    bg  = props.get("bg", "#ffffff") or "#ffffff"
-    fg  = props.get("fg", "#555555") or "#555555"
-    sbg = props.get("selectbackground", "#0078d4") or "#0078d4"
-    sfg = props.get("selectforeground", "#ffffff")  or "#ffffff"
+    bg     = props.get("bg", "#ffffff") or "#ffffff"
+    fg     = props.get("fg", "#555555") or "#555555"
+    sbg    = props.get("selectbackground", "#0078d4") or "#0078d4"
+    sfg    = props.get("selectforeground", "#ffffff")  or "#ffffff"
+    alt_bg = props.get("colorize_altbg", "") if props.get("colorize") else ""
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3")
     row_h = 18
     items = props.get("values", [])
@@ -1371,6 +1372,9 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
             c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
                           fill=sfg, font=("Segoe UI", 8))
         else:
+            row_bg = (alt_bg if (i % 2 == 0 and alt_bg) else bg)
+            if row_bg != bg:
+                c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill=row_bg, outline="")
             c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
                           fill=fg, font=("Segoe UI", 8))
 
@@ -1389,16 +1393,29 @@ def _draw_labelframe(c, x, y, x2, y2, text, props):
     label = text or "Group"
     anchor = props.get("labelanchor", "nw") or "nw"
     lw = len(label) * 6 + 8
-    on_bottom = anchor in ("s", "se", "sw", "es", "ws")
-    if on_bottom:
+    lh = 16
+    # First character is the primary edge: n=top, s=bottom, w=left, e=right
+    edge = anchor[0]
+    align = anchor[1] if len(anchor) > 1 else ""
+    if edge == "s":
         c.create_rectangle(x, y, x2, y2-8, fill=bg, outline="#abadb3", dash=(4, 4))
-        lx = x+8 if anchor in ("sw","ws") else (x2-8-lw if anchor in ("se","es") else (x+x2)//2-lw//2)
-        c.create_rectangle(lx, y2-16, lx+lw, y2, fill=bg, outline="")
+        lx = x+8 if align == "w" else (x2-8-lw if align == "e" else (x+x2)//2-lw//2)
+        c.create_rectangle(lx, y2-lh, lx+lw, y2, fill=bg, outline="")
         c.create_text(lx+4, y2-8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
-    else:
+    elif edge == "w":
+        c.create_rectangle(x+8, y, x2, y2, fill=bg, outline="#abadb3", dash=(4, 4))
+        ly = y+8 if align == "n" else (y2-lh-8 if align == "s" else (y+y2)//2-lh//2)
+        c.create_rectangle(x, ly, x+lw, ly+lh, fill=bg, outline="")
+        c.create_text(x+4, ly+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+    elif edge == "e":
+        c.create_rectangle(x, y, x2-8, y2, fill=bg, outline="#abadb3", dash=(4, 4))
+        ly = y+8 if align == "n" else (y2-lh-8 if align == "s" else (y+y2)//2-lh//2)
+        c.create_rectangle(x2-lw, ly, x2, ly+lh, fill=bg, outline="")
+        c.create_text(x2-lw+4, ly+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+    else:  # n (default)
         c.create_rectangle(x, y+8, x2, y2, fill=bg, outline="#abadb3", dash=(4, 4))
-        lx = x+8 if anchor in ("nw","wn","w") else (x2-8-lw if anchor in ("ne","en","e") else (x+x2)//2-lw//2)
-        c.create_rectangle(lx, y, lx+lw, y+16, fill=bg, outline="")
+        lx = x+8 if align in ("w", "") else (x2-8-lw if align == "e" else (x+x2)//2-lw//2)
+        c.create_rectangle(lx, y, lx+lw, y+lh, fill=bg, outline="")
         c.create_text(lx+4, y+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
 
 
