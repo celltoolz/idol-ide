@@ -348,7 +348,6 @@ REGISTRY: dict[str, dict] = {
         "validate_values": ["none", "focus", "focusin", "focusout", "key", "all"],
         "prop_choices": {"justify": _JUSTIFY, "relief": _RELIEF,
                          "wrap": ["True", "False"]},
-        "list_insert_props": ["values"],
     },
     "Progressbar": {
         "label":        "Progressbar",

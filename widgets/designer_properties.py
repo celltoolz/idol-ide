@@ -34,6 +34,7 @@ class DesignerProperties(tk.Frame):
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
+        self._pending_commit: "Callable[[], None] | None" = None
         self._form:           FormModel | None          = None
         # (display_label, widget_id | None)  — None means the form itself
         self._selector_items: list[tuple[str, str | None]] = []
@@ -597,15 +598,23 @@ class DesignerProperties(tk.Frame):
         tree.after_idle(_grab_focus)
 
         def commit(_=None):
+            if self._entry_editor is not entry:
+                return  # stale FocusOut after editor already replaced
             val = entry.get()
+            self._pending_commit = None
             self._dismiss_editor()
             tree.set(row, col, val)
             commit_fn(row, val)
 
+        def cancel(_=None):
+            self._pending_commit = None
+            self._dismiss_editor()
+
         entry.bind("<Return>",   commit)
         entry.bind("<Tab>",      commit)
-        entry.bind("<Escape>",   lambda _: self._dismiss_editor())
+        entry.bind("<Escape>",   cancel)
         entry.bind("<FocusOut>", commit)
+        self._pending_commit = commit
 
     def _open_variable_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
         """Inline entry + variable picker popup for the var__name row."""
@@ -918,7 +927,7 @@ class DesignerProperties(tk.Frame):
         "show", "font", "justify", "relief", "borderwidth", "insertbackground",
         "wraplength", "resolution", "tickinterval", "increment", "maximum",
         "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
-        "selectmode", "wrap", "exportselection",
+        "selectmode", "wrap", "exportselection", "from_", "to",
     }
 
     def _is_prop_clearable(self, row_iid: str) -> bool:
@@ -1217,6 +1226,14 @@ class DesignerProperties(tk.Frame):
 
     def _dismiss_editor(self) -> None:
         if self._entry_editor:
+            fn = self._pending_commit
+            self._pending_commit = None
+            if fn:
+                try:
+                    fn()
+                    return  # fn calls _dismiss_editor which finishes cleanup
+                except Exception:
+                    pass
             try:
                 self._entry_editor.destroy()
             except Exception:
@@ -1458,7 +1475,7 @@ _PROP_HINTS: dict[str, str] = {
     "insertbackground":   "Color of the blinking text insertion cursor",
     "selectbackground":   "Background color of selected text",
     "selectforeground":   "Text color of selected text",
-    "exportselection":    "Copy selection to clipboard automatically when text is selected",
+    "exportselection":    "Allow selected text/items to be pasted into other widgets via middle-click",
     # Active / state colors
     "activebackground":   "Background color when the control is hovered or pressed",
     "activeforeground":   "Text color when the control is hovered or pressed",

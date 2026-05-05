@@ -42,7 +42,7 @@ _SKIP_IF_EMPTY = {
     "show", "font", "justify", "relief", "borderwidth", "insertbackground",
     "wraplength", "resolution", "tickinterval", "increment", "maximum",
     "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
-    "selectmode", "wrap", "exportselection",
+    "selectmode", "wrap", "exportselection", "values", "from_", "to",
 }
 
 # Props stored as "True"/"False" strings (dropdown) that must become Python booleans
@@ -201,7 +201,8 @@ def _prop_str(key: str, val: Any) -> str:
         return f"{emit_key}={val}"
     if isinstance(val, (int, float)):
         return f"{emit_key}={val}"
-    # list / tuple / other — safe repr
+    if isinstance(val, list):
+        return f"{emit_key}={tuple(val)!r}"
     return f"{emit_key}={repr(val)}"
 
 
@@ -230,7 +231,7 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
             continue  # structural prop — handled below, not a tkinter kwarg
         if k in _all_color_props and v == "":
             continue
-        if k in _SKIP_IF_EMPTY and (v == "" or v == ()):
+        if k in _SKIP_IF_EMPTY and (v == "" or v == () or v == []):
             continue
         if k in ("char_width", "char_height") and (v == "" or v == 0):
             continue
