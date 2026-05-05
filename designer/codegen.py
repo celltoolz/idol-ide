@@ -190,6 +190,11 @@ def _uses_ttk(form: FormModel) -> bool:
 def _prop_str(key: str, val: Any) -> str:
     """Format one kwarg for the widget constructor."""
     emit_key = _PROP_RENAMES.get(key, key)
+    if key in ("char_width", "char_height") and isinstance(val, str):
+        try:
+            return f"{emit_key}={int(val)}"
+        except ValueError:
+            pass
     if isinstance(val, str) and key in _BOOL_PROPS:
         if val in ("True", "False"):
             return f"{emit_key}={val}"
@@ -305,10 +310,12 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     else:
         kw_str = (", " + ", ".join(kw_parts)) if kw_parts else ""
         lines.append(f"        self.{w.id} = {tk_class}({original_parent}{kw_str})")
-        lines.append(
-            f"        self.{w.id}.place(x={w.x}, y={place_y},"
-            f" width={w.width}, height={w.height})"
-        )
+        _place_parts = [f"x={w.x}", f"y={place_y}"]
+        if not w.props.get("char_width"):
+            _place_parts.append(f"width={w.width}")
+        if not w.props.get("char_height"):
+            _place_parts.append(f"height={w.height}")
+        lines.append(f"        self.{w.id}.place({', '.join(_place_parts)})")
 
     # list_insert_props — populate widget with insert() calls after place()/pack()
     for prop_key in reg.get("list_insert_props", []):
