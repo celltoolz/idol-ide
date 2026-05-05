@@ -1344,6 +1344,26 @@ class DesignerProperties(tk.Frame):
                     self._props_tree.set("prop__wrap", "#1", "none")
                     if self._on_prop_change:
                         self._on_prop_change(d.id, "wrap", "none")
+            elif key in ("char_width", "char_height"):
+                try:
+                    count = int(str(parsed))
+                    if count > 0:
+                        if key == "char_width":
+                            new_px = max(30, count * _CHAR_PX_W)
+                            d.width = new_px
+                            if self._props_tree.exists("geo__width"):
+                                self._props_tree.set("geo__width", "#1", str(new_px))
+                            if self._on_prop_change:
+                                self._on_prop_change(d.id, "width", new_px)
+                        else:
+                            new_px = max(20, count * _CHAR_PX_H)
+                            d.height = new_px
+                            if self._props_tree.exists("geo__height"):
+                                self._props_tree.set("geo__height", "#1", str(new_px))
+                            if self._on_prop_change:
+                                self._on_prop_change(d.id, "height", new_px)
+                except (ValueError, TypeError):
+                    pass
             elif key in ("onvalue", "offvalue") and d.variable is not None:
                 inferred = _infer_var_type(str(parsed))
                 reg = REGISTRY.get(d.type, {})
@@ -1621,6 +1641,9 @@ _DROPDOWN_ITEM_HINTS: dict[str, dict[str, str]] = {
         "indeterminate": "Indeterminate — bounces back and forth to show activity when progress can't be measured",
     },
 }
+
+_CHAR_PX_W = 8   # approx px per character (default 9pt font)
+_CHAR_PX_H = 20  # approx px per line
 
 _VCMD_ARG_PRESETS: list[str] = [
     "%P",
