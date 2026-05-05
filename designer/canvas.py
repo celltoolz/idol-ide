@@ -1253,8 +1253,12 @@ def _text(c, x, y, x2, y2, txt, anchor="center", color="#111111", bold=False):
 def _draw_button(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#e1e1e1") or "#e1e1e1"
     fg = props.get("fg", "#111111") or "#111111"
-    c.create_rectangle(x, y, x2, y2,     fill=bg, outline="#adadad", width=1)
-    c.create_rectangle(x+1, y+1, x2, y2, fill="", outline="#ffffff", width=1)
+    disabled = (props.get("state", "normal") == "disabled")
+    if disabled:
+        fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#adadad", width=1)
+    if not disabled:
+        c.create_rectangle(x+1, y+1, x2, y2, fill="", outline="#ffffff", width=1)
     _text(c, x, y, x2, y2, text or "Button", color=fg)
 
 
@@ -1262,6 +1266,8 @@ def _draw_button(c, x, y, x2, y2, text, props):
 def _draw_label(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#f5f5f5") or "#f5f5f5"
     fg = props.get("fg", "#111111") or "#111111"
+    if props.get("state", "normal") == "disabled":
+        fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
 
@@ -1270,31 +1276,45 @@ def _draw_label(c, x, y, x2, y2, text, props):
 def _draw_entry(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#ffffff") or "#ffffff"
     fg = props.get("fg", "#111111") or "#111111"
+    state = props.get("state", "normal")
+    if state == "disabled":
+        bg = props.get("disabledbackground", bg) or bg
+        fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3", width=1)
     c.create_line(x+1, y+1, x2-1, y+1, fill="#c2c2c2")
+    show = props.get("show", "")
     placeholder = props.get("placeholder", "")
-    if placeholder:
+    if show:
+        _text(c, x, y, x2, y2, "•" * 6, anchor="w", color=fg)
+    elif placeholder:
         _text(c, x, y, x2, y2, placeholder, anchor="w", color="#aaaaaa")
-    c.create_line(x+6, y+4, x+6, y2-4, fill=fg, width=1)
+    if state != "disabled":
+        c.create_line(x+6, y+4, x+6, y2-4, fill=fg, width=1)
 
 
 @_tag
 def _draw_text(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#ffffff") or "#ffffff"
+    state = props.get("state", "normal")
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3")
     c.create_line(x+1, y+1, x2-1, y+1, fill="#c2c2c2")
-    _text(c, x, y, x2, y2, "Text", anchor="w", color="#aaaaaa")
+    fg = "#cccccc" if state == "disabled" else "#aaaaaa"
+    _text(c, x, y, x2, y2, "Text", anchor="w", color=fg)
 
 
 @_tag
 def _draw_checkbutton(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#f5f5f5") or "#f5f5f5"
     fg = props.get("fg", "#111111") or "#111111"
+    disabled = (props.get("state", "normal") == "disabled")
+    if disabled:
+        fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     bx, by = x + 2, (y + y2) // 2 - 6
     c.create_rectangle(bx, by, bx + 12, by + 12, fill="#ffffff", outline="#abadb3")
-    c.create_line(bx+2, by+6, bx+5, by+10, fill="#0078d4", width=2)
-    c.create_line(bx+5, by+10, bx+11, by+2, fill="#0078d4", width=2)
+    check_color = "#abadb3" if disabled else "#0078d4"
+    c.create_line(bx+2, by+6, bx+5, by+10, fill=check_color, width=2)
+    c.create_line(bx+5, by+10, bx+11, by+2, fill=check_color, width=2)
     _text(c, bx + 18, y, x2, y2, text or "Check", anchor="w", color=fg)
 
 
@@ -1302,37 +1322,56 @@ def _draw_checkbutton(c, x, y, x2, y2, text, props):
 def _draw_radiobutton(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#f5f5f5") or "#f5f5f5"
     fg = props.get("fg", "#111111") or "#111111"
+    disabled = (props.get("state", "normal") == "disabled")
+    if disabled:
+        fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     cx2, cy2 = x + 8, (y + y2) // 2
     c.create_oval(cx2-6, cy2-6, cx2+6, cy2+6, fill="#ffffff", outline="#abadb3")
-    c.create_oval(cx2-3, cy2-3, cx2+3, cy2+3, fill="#0078d4", outline="")
+    dot_color = "#abadb3" if disabled else "#0078d4"
+    c.create_oval(cx2-3, cy2-3, cx2+3, cy2+3, fill=dot_color, outline="")
     _text(c, cx2 + 12, y, x2, y2, text or "Radio", anchor="w", color=fg)
 
 
 @_tag
 def _draw_combobox(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2,           fill="#ffffff", outline="#abadb3")
-    c.create_rectangle(x2-20, y, x2, y2,       fill="#e1e1e1", outline="#abadb3")
-    c.create_text(x2-10, (y+y2)//2,            text="▾",       fill="#444444", font=("Segoe UI", 8))
+    state = props.get("state", "normal")
+    if state == "disabled":
+        bg = props.get("disabledbackground", "#f0f0f0") or "#f0f0f0"
+        fg = "#aaaaaa"
+    elif state == "readonly":
+        bg = props.get("readonlybackground", "#e8e8e8") or "#e8e8e8"
+        fg = "#333333"
+    else:
+        bg, fg = "#ffffff", "#444444"
+    c.create_rectangle(x, y, x2, y2,     fill=bg,      outline="#abadb3")
+    c.create_rectangle(x2-20, y, x2, y2, fill="#e1e1e1", outline="#abadb3")
+    c.create_text(x2-10, (y+y2)//2,      text="▾",     fill="#444444", font=("Segoe UI", 8))
     vals = props.get("values", [])
     if vals:
-        _text(c, x, y, x2-20, y2, str(vals[0]), anchor="w", color="#444444")
+        _text(c, x, y, x2-20, y2, str(vals[0]), anchor="w", color=fg)
 
 
 @_tag
 def _draw_listbox(c, x, y, x2, y2, text, props):
-    bg = props.get("bg", "#ffffff") or "#ffffff"
-    fg = props.get("fg", "#555555") or "#555555"
+    bg  = props.get("bg", "#ffffff") or "#ffffff"
+    fg  = props.get("fg", "#555555") or "#555555"
+    sbg = props.get("selectbackground", "#0078d4") or "#0078d4"
+    sfg = props.get("selectforeground", "#ffffff")  or "#ffffff"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3")
     row_h = 18
-    for i in range(min(3, (y2 - y) // row_h)):
+    items = props.get("values", [])
+    display = [str(v) for v in items] if items else [f"Item {i+1}" for i in range(3)]
+    for i, label in enumerate(display):
         ry = y + i * row_h
+        if ry + row_h > y2:
+            break
         if i == 0:
-            c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill="#0078d4", outline="")
-            c.create_text(x+5, ry+row_h//2, text=f"Item {i+1}", anchor="w",
-                          fill="#ffffff", font=("Segoe UI", 8))
+            c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill=sbg, outline="")
+            c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
+                          fill=sfg, font=("Segoe UI", 8))
         else:
-            c.create_text(x+5, ry+row_h//2, text=f"Item {i+1}", anchor="w",
+            c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
                           fill=fg, font=("Segoe UI", 8))
 
 
@@ -1345,15 +1384,22 @@ def _draw_frame(c, x, y, x2, y2, text, props):
 
 @_tag
 def _draw_labelframe(c, x, y, x2, y2, text, props):
-    bg = props.get("bg", "#f0f0f0") or "#f0f0f0"
-    fg = props.get("fg", "#333333") or "#333333"
+    bg    = props.get("bg",  "#f0f0f0") or "#f0f0f0"
+    fg    = props.get("fg",  "#333333") or "#333333"
     label = text or "Group"
-    c.create_rectangle(x, y+8, x2, y2, fill=bg, outline="#abadb3",
-                        dash=(4, 4))
+    anchor = props.get("labelanchor", "nw") or "nw"
     lw = len(label) * 6 + 8
-    c.create_rectangle(x+8, y, x+8+lw, y+16, fill=bg, outline="")
-    c.create_text(x+12, y+8, text=label, anchor="w",
-                  fill=fg, font=("Segoe UI", 8))
+    on_bottom = anchor in ("s", "se", "sw", "es", "ws")
+    if on_bottom:
+        c.create_rectangle(x, y, x2, y2-8, fill=bg, outline="#abadb3", dash=(4, 4))
+        lx = x+8 if anchor in ("sw","ws") else (x2-8-lw if anchor in ("se","es") else (x+x2)//2-lw//2)
+        c.create_rectangle(lx, y2-16, lx+lw, y2, fill=bg, outline="")
+        c.create_text(lx+4, y2-8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+    else:
+        c.create_rectangle(x, y+8, x2, y2, fill=bg, outline="#abadb3", dash=(4, 4))
+        lx = x+8 if anchor in ("nw","wn","w") else (x2-8-lw if anchor in ("ne","en","e") else (x+x2)//2-lw//2)
+        c.create_rectangle(lx, y, lx+lw, y+16, fill=bg, outline="")
+        c.create_text(lx+4, y+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
 
 
 @_tag
@@ -1375,22 +1421,39 @@ def _draw_scale(c, x, y, x2, y2, text, props):
 
 @_tag
 def _draw_spinbox(c, x, y, x2, y2, text, props):
-    bg = props.get("bg", "#ffffff") or "#ffffff"
-    fg = props.get("fg", "#333333") or "#333333"
-    c.create_rectangle(x, y, x2, y2,      fill=bg, outline="#abadb3")
-    c.create_rectangle(x2-16, y, x2, y2,  fill="#e1e1e1", outline="#abadb3")
+    bg    = props.get("bg", "#ffffff") or "#ffffff"
+    fg    = props.get("fg", "#333333") or "#333333"
+    state = props.get("state", "normal")
+    if state == "disabled":
+        bg  = props.get("disabledbackground", bg) or bg
+        fg  = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
+    elif state == "readonly":
+        bg  = props.get("readonlybackground", "#e8e8e8") or "#e8e8e8"
+    btn_bg = "#cccccc" if state in ("disabled", "readonly") else "#e1e1e1"
+    btn_fg = "#aaaaaa" if state == "disabled" else "#555555"
+    c.create_rectangle(x, y, x2, y2,      fill=bg,     outline="#abadb3")
+    c.create_rectangle(x2-16, y, x2, y2,  fill=btn_bg, outline="#abadb3")
     mid = (y + y2) // 2
-    c.create_text(x2-8, mid-4, text="▲", fill="#555555", font=("Segoe UI", 6))
-    c.create_text(x2-8, mid+4, text="▼", fill="#555555", font=("Segoe UI", 6))
-    val = str(props.get("from_", "0"))
+    c.create_text(x2-8, mid-4, text="▲", fill=btn_fg, font=("Segoe UI", 6))
+    c.create_text(x2-8, mid+4, text="▼", fill=btn_fg, font=("Segoe UI", 6))
+    values = props.get("values", [])
+    val = str(values[0]) if values else str(props.get("from_", "0"))
     _text(c, x, y, x2-16, y2, val, anchor="w", color=fg)
 
 
 @_tag
 def _draw_progressbar(c, x, y, x2, y2, text, props):
-    c.create_rectangle(x, y, x2, y2,                    fill="#e1e1e1", outline="#abadb3")
-    fill_w = int((x2 - x - 2) * 0.6)
-    c.create_rectangle(x+1, y+1, x+1+fill_w, y2-1,      fill="#0078d4", outline="")
+    c.create_rectangle(x, y, x2, y2, fill="#e1e1e1", outline="#abadb3")
+    mode = props.get("mode", "determinate") or "determinate"
+    if mode == "indeterminate":
+        bw = (x2 - x) // 3
+        bx = (x + x2) // 2 - bw // 2
+        c.create_rectangle(bx, y+1, bx+bw, y2-1, fill="#0078d4", outline="")
+        for sx in range(bx + 6, bx + bw, 8):
+            c.create_line(sx, y+1, sx-6, y2-1, fill="#006ac1", width=1)
+    else:
+        fill_w = int((x2 - x - 2) * 0.6)
+        c.create_rectangle(x+1, y+1, x+1+fill_w, y2-1, fill="#0078d4", outline="")
 
 
 @_tag
