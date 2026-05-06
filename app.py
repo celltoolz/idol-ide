@@ -2132,6 +2132,8 @@ class IDOL(Tk):
         self._git = git
 
         def _on_is_repo(ok: bool) -> None:
+            if self._git is not git:
+                return  # superseded by a later _start_git call — discard
             if not ok:
                 self._git = None
                 self._on_git_branch("")
