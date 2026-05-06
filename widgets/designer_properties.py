@@ -1166,7 +1166,7 @@ class DesignerProperties(tk.Frame):
             # Unwired row — show ✦ to auto-wire
             self._ev_clear_btn.place_forget()
             can_wire = (
-                (row.startswith("ev__") and self._current_widget is not None) or
+                (row.startswith("ev__") and row != "ev__learn_guide" and self._current_widget is not None) or
                 (row.startswith("form_ev__") and self._form is not None)
             )
             if can_wire:
