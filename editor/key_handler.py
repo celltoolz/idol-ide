@@ -122,6 +122,33 @@ class KeyHandler:
                 self.overwrite = not self.overwrite
                 return "break"
 
+            case "Up" | "KP_Up" | "Down" | "KP_Down":
+                self._home_toggle = False
+                if shift:
+                    sel = codeview.tag_ranges("sel")
+                    if sel:
+                        insert = codeview.index("insert")
+                        # Anchor is whichever sel boundary insert is NOT at
+                        if codeview.compare(insert, "==", sel[0]):
+                            anchor = str(sel[1])
+                        else:
+                            anchor = str(sel[0])
+                    else:
+                        anchor = codeview.index("insert")
+
+                    def _fix_sel(a=anchor):
+                        new_insert = codeview.index("insert")
+                        codeview.tag_remove("sel", "1.0", "end")
+                        if codeview.compare(a, "!=", new_insert):
+                            start, end = sorted(
+                                [a, new_insert],
+                                key=lambda x: [int(n) for n in x.split(".")]
+                            )
+                            codeview.tag_add("sel", start, end)
+
+                    codeview.after_idle(_fix_sel)
+                    # Return None so tkinter still moves insert naturally
+
             case _:
                 self._home_toggle = False
                 # Overwrite mode: replace the char under cursor with the typed char
