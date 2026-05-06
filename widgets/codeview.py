@@ -413,6 +413,7 @@ class CodeView(Text):
             if token not in {"Token.Text.Whitespace", "Token.Text", "active_line"}:
                 self.tag_add(token, f"{line_num}.{start_col}", f"{line_num}.{end_col}")
             start_col = end_col
+        self.tag_raise("sel")
         if "mc_cursor" in self.tag_names():
             self.tag_raise("mc_cursor")
 
@@ -446,6 +447,7 @@ class CodeView(Text):
             if token not in {"Token.Text.Whitespace", "Token.Text"}:
                 self.tag_add(token, start_index, end_index)
             start_index = end_index
+        self.tag_raise("sel")
         if "mc_cursor" in self.tag_names():
             self.tag_raise("mc_cursor")
 
@@ -466,6 +468,7 @@ class CodeView(Text):
             if token not in {"Token.Text.Whitespace", "Token.Text"}:
                 self.tag_add(token, start_index, end_index)
             start_index = end_index
+        self.tag_raise("sel")
         if "mc_cursor" in self.tag_names():
             self.tag_raise("mc_cursor")
 
