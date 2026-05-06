@@ -3616,7 +3616,10 @@ class IDOL(Tk):
             except Exception:
                 pass
             try:
-                _sash_set(self._h_pane, 1, max(200, w - self._ai_panel_width))
+                target = max(200, w - self._ai_panel_width)
+                current = _sash_get(self._h_pane, 1)
+                if abs(current - target) > 4:
+                    _sash_set(self._h_pane, 1, target)
             except Exception:
                 pass
             # Notify AI chat so it can re-snap to bottom after this resize
