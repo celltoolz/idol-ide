@@ -824,6 +824,7 @@ class IDOL(Tk):
             on_prop_change=self._on_designer_prop_change,
             on_event_change=self._on_designer_event_change,
             on_select_widget=self._on_designer_selector_pick,
+            on_navigate_handler=self._on_designer_event_navigate,
         )
         self._props_panel.configure(width=230)
 
@@ -4416,6 +4417,20 @@ class IDOL(Tk):
 
         first_handler = next(iter(w.events.values()))
         self._designer_jump_to_handler(first_handler)
+
+    def _on_designer_event_navigate(self, method_name: str) -> None:
+        """Double-click on a wired event row → jump to that handler in the editor."""
+        from pathlib import Path as _Path
+
+        form = self._design_canvas.form
+        if not form:
+            return
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if root:
+            py_path = _Path(root) / f"{form.name}.py"
+            if self._designer_dirty or not py_path.exists():
+                self.designer_generate_code()
+        self._designer_jump_to_handler(method_name)
 
     def _on_designer_menu_item_no_command(self, item_idx: int) -> None:
         """Click on a no-command check/radio menu item → open editor and flash Command field."""

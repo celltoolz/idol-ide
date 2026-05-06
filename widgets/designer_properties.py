@@ -22,15 +22,17 @@ class DesignerProperties(tk.Frame):
     def __init__(
         self,
         master,
-        on_prop_change:   Optional[Callable[[str, str, Any],  None]] = None,
-        on_event_change:  Optional[Callable[[str, str, str], None]] = None,
-        on_select_widget: Optional[Callable[[str | None],    None]] = None,
+        on_prop_change:      Optional[Callable[[str, str, Any],  None]] = None,
+        on_event_change:     Optional[Callable[[str, str, str], None]] = None,
+        on_select_widget:    Optional[Callable[[str | None],    None]] = None,
+        on_navigate_handler: Optional[Callable[[str],           None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
-        self._on_prop_change   = on_prop_change
-        self._on_event_change  = on_event_change
-        self._on_select_widget = on_select_widget
+        self._on_prop_change      = on_prop_change
+        self._on_event_change     = on_event_change
+        self._on_select_widget    = on_select_widget
+        self._on_navigate_handler = on_navigate_handler
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -120,9 +122,10 @@ class DesignerProperties(tk.Frame):
 
         self._events_tree = _make_tree(self._events_frame, value_col_name="Handler")
         self._events_tree.tag_configure("hover", foreground="#569cd6")
-        self._events_tree.bind("<Button-1>", self._on_event_click)
-        self._events_tree.bind("<Motion>",   self._on_event_hover)
-        self._events_tree.bind("<Leave>",    self._on_event_leave)
+        self._events_tree.bind("<Button-1>",        self._on_event_click)
+        self._events_tree.bind("<Double-Button-1>",  self._on_event_double_click)
+        self._events_tree.bind("<Motion>",           self._on_event_hover)
+        self._events_tree.bind("<Leave>",            self._on_event_leave)
 
         self._ev_hover_row:        str | None = None
         self._ev_hover_saved_tags: tuple      = ()
@@ -565,6 +568,17 @@ class DesignerProperties(tk.Frame):
             self._open_handler_picker(tree, row, col)
         elif col == "#0":
             self._auto_wire_event(row)
+
+    def _on_event_double_click(self, event: tk.Event) -> None:
+        if not self._on_navigate_handler:
+            return
+        tree    = self._events_tree
+        row     = tree.identify_row(event.y)
+        if not row or row == "ev__learn_guide":
+            return
+        handler = tree.set(row, "#1").strip()
+        if handler:
+            self._on_navigate_handler(handler)
 
     # ── Inline cell editor ────────────────────────────────────────────────────
 
