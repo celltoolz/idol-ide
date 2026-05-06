@@ -3572,6 +3572,7 @@ class IDOL(Tk):
             self._h_pane.forget(self._ai_panel_frame)
             self._ai_panel_visible = False
         else:
+            self._ai_panel_frame.configure(width=self._ai_panel_width)
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
             self.after(100, self._apply_ai_panel_sash)
@@ -3582,6 +3583,7 @@ class IDOL(Tk):
     def _ensure_ai_panel_open(self) -> None:
         """Open the AI Chat panel if it isn't already visible."""
         if not self._ai_panel_visible:
+            self._ai_panel_frame.configure(width=self._ai_panel_width)
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self._ai_panel_visible = True
             self.after(100, self._apply_ai_panel_sash)
