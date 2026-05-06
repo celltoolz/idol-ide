@@ -210,6 +210,15 @@ class OutlinePanel(ttk.Frame):
         except SyntaxError:
             return  # Keep existing content until the code is valid again
 
+        # Snapshot which expandable items are open before wiping the tree
+        open_state: dict[str, bool] = {}
+        def _save(parent=""):
+            for iid in self.tree.get_children(parent):
+                if self.tree.get_children(iid):
+                    open_state[self.tree.item(iid, "text")] = bool(self.tree.item(iid, "open"))
+                _save(iid)
+        _save()
+
         self.clear()
         ranges: list[tuple[str, str, int, int]] = []
 
@@ -304,6 +313,16 @@ class OutlinePanel(ttk.Frame):
                                      tags=(tv_tag,))
 
         self._symbol_ranges = ranges
+
+        # Restore open state — only overrides items seen before the rebuild
+        def _restore(parent=""):
+            for iid in self.tree.get_children(parent):
+                if self.tree.get_children(iid):
+                    text = self.tree.item(iid, "text")
+                    if text in open_state:
+                        self.tree.item(iid, open=open_state[text])
+                _restore(iid)
+        _restore()
 
     def get_symbols(self) -> list[tuple[str, int]]:
         """Return a flat list of (display_label, lineno) for all symbols in the tree."""
