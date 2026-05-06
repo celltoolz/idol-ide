@@ -282,7 +282,19 @@ def _extract_body(fn: ast.FunctionDef, lines: list[str]) -> str | None:
     if not fn.body:
         return None
     # fn.body[0].lineno is 1-indexed; fn.end_lineno is 1-indexed inclusive
-    start = fn.body[0].lineno - 1   # 0-indexed
-    end = fn.end_lineno             # exclusive upper bound for slice
+    first_stmt = fn.body[0].lineno - 1  # 0-indexed line of first AST statement
+    end = fn.end_lineno                 # exclusive upper bound for slice
+    # AST skips comment lines, so fn.body[0].lineno misses comments that appear
+    # between the def line and the first real statement.  Walk back to include them.
+    body_indent = fn.col_offset + 4
+    start = first_stmt
+    for i in range(first_stmt - 1, fn.lineno - 1, -1):
+        line = lines[i]
+        stripped = line.strip()
+        leading = len(line) - len(line.lstrip())
+        if stripped == "" or (stripped.startswith("#") and leading >= body_indent):
+            start = i
+        else:
+            break
     body_lines = lines[start:end]
     return textwrap.dedent("\n".join(body_lines))
