@@ -378,6 +378,12 @@ class IDOL(Tk):
         )
         self._zen_pill: object = None  # floating toast Toplevel
 
+        # Peek at the saved layout before building so panes can be pre-sized
+        # to their saved dimensions — eliminates the visible sash jump on startup.
+        _saved = session_utils.peek_layout()
+        self._startup_h_sash: int   = int(_saved.get("h_sash") or 0) or 220
+        self._startup_v_sash: int   = int(_saved.get("v_sash") or 0)
+
         self._build_layout()
         build_menubar(self)
         self._bind_shortcuts()
@@ -438,7 +444,7 @@ class IDOL(Tk):
             on_root_change=self._on_explorer_root_change,
             on_file_delete=self._on_explorer_file_delete,
         )
-        self._sidebar.configure(width=220)
+        self._sidebar.configure(width=self._startup_h_sash)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
         self._outline = self._sidebar.outline  # keep existing references working
 
@@ -904,7 +910,8 @@ class IDOL(Tk):
 
         total = self._v_pane.winfo_height()
         if total > 200:
-            self._v_pane.sashpos(0, total - 160)
+            v_target = self._startup_v_sash if self._startup_v_sash > 0 else (total - 160)
+            self._v_pane.sashpos(0, v_target)
 
     def _prewarm_terminal(self) -> None:
         """Start the terminal shell in the background so it's ready on first open."""

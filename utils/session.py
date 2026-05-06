@@ -16,6 +16,19 @@ SESSION_FILE = Path.home() / ".idol" / "session.json"
 TMP_DIR = Path.home() / ".idol" / "tmp"
 
 
+def peek_layout(filepath: str | Path | None = None) -> dict:
+    """Read just the layout block from a session file without any side effects.
+
+    Used at startup to pre-size panes before the layout is built so there is
+    no visible sash jump when the full restore fires 50 ms later.
+    """
+    path = Path(filepath) if filepath else SESSION_FILE
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("layout", {})
+    except Exception:
+        return {}
+
+
 def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     """Serialise open tabs, explorer root, and sash layout to *filepath*.
 
