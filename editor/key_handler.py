@@ -141,18 +141,20 @@ class KeyHandler:
     def _handle_home(self, codeview, shift: bool) -> str:
         line_txt = codeview.get("insert linestart", "insert lineend")
         indent = len(line_txt) - len(line_txt.lstrip())
+        col = int(codeview.index("insert").split(".")[1])
+
+        # Smart home: if cursor is already at the first non-whitespace col,
+        # go to col 0; otherwise go to first non-whitespace.  Purely positional
+        # — no toggle state needed, so it works regardless of prior keypresses.
+        if col == indent:
+            target = codeview.index("insert linestart")
+        else:
+            target = codeview.index(f"insert linestart + {indent}c")
 
         if shift:
-            # Extend selection toward home
             sel = codeview.tag_ranges("sel")
             anchor = sel[1] if sel else codeview.index("insert")
-            if self._home_toggle:
-                target = codeview.index("insert linestart")
-            else:
-                target = codeview.index(f"insert linestart + {indent}c")
-            self._home_toggle = not self._home_toggle
             codeview.mark_set("insert", target)
-            # Rebuild selection between anchor and new insert
             codeview.tag_remove("sel", "1.0", "end")
             start, end = sorted(
                 [codeview.index(anchor), codeview.index(target)],
@@ -160,11 +162,7 @@ class KeyHandler:
             )
             codeview.tag_add("sel", start, end)
         else:
-            if self._home_toggle:
-                codeview.mark_set("insert", "insert linestart")
-            else:
-                codeview.mark_set("insert", f"insert linestart + {indent}c")
-            self._home_toggle = not self._home_toggle
+            codeview.mark_set("insert", target)
             codeview.tag_remove("sel", "1.0", "end")
 
         codeview.see("insert")
