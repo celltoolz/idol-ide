@@ -893,6 +893,14 @@ class IDOL(Tk):
         # Reposition autocomplete popup on window move/resize
         self.bind("<Configure>", self._on_window_configure)
 
+        # Ghost-sash: show drag line during drag, resize only on mouse-up
+        for _pane, _orient in [
+            (self._h_pane,     "horizontal"),
+            (self._v_pane,     "vertical"),
+            (self._split_pane, "horizontal"),
+        ]:
+            self._install_ghost_sash(_pane, _orient)
+
     def _init_sash_pos(self, _=None) -> None:
         """Set default sash positions once the window has real pixel dimensions."""
         self.unbind("<Map>")  # only run once
@@ -912,6 +920,83 @@ class IDOL(Tk):
         if total > 200:
             v_target = self._startup_v_sash if self._startup_v_sash > 0 else (total - 160)
             self._v_pane.sashpos(0, v_target)
+
+    def _install_ghost_sash(self, pane: tk.Widget, orient: str) -> None:
+        """Replace live sash drag with a ghost line + deferred resize.
+
+        A 2px #007acc line tracks the mouse during the drag; the panes only
+        resize on mouse-up — eliminates continuous redraws while dragging.
+        """
+        is_ttk = isinstance(pane, ttk.PanedWindow)
+        ghost = tk.Frame(self, bg="#007acc")
+        _drag: dict = {"active": False, "sash": 0}
+
+        def _sash_hit(x: int, y: int) -> tuple[bool, int]:
+            try:
+                if is_ttk:
+                    if pane.identify(x, y) not in ("sash", "separator"):
+                        return False, 0
+                    coord = y if orient == "vertical" else x
+                    for i in range(len(pane.panes()) - 1):
+                        if abs(coord - pane.sashpos(i)) <= 8:
+                            return True, i
+                    return True, 0
+                else:
+                    r = pane.identify(x, y)
+                    if not r:
+                        return False, 0
+                    parts = list(r) if isinstance(r, (list, tuple)) else str(r).split()
+                    if len(parts) >= 2 and parts[1] in ("sash", "handle"):
+                        return True, int(parts[0])
+                    return False, 0
+            except Exception:
+                return False, 0
+
+        def _show_ghost(ex: int, ey: int) -> None:
+            bx = pane.winfo_rootx() - self.winfo_rootx()
+            by = pane.winfo_rooty() - self.winfo_rooty()
+            pw, ph = pane.winfo_width(), pane.winfo_height()
+            if orient == "vertical":
+                ghost.place(x=bx, y=by + ey - 1, width=pw, height=2)
+            else:
+                ghost.place(x=bx + ex - 1, y=by, width=2, height=ph)
+            ghost.lift()
+
+        def _apply_release(event):
+            if not _drag["active"]:
+                return
+            _drag["active"] = False
+            ghost.place_forget()
+            pos = (event.y_root - pane.winfo_rooty()) if orient == "vertical" \
+                  else (event.x_root - pane.winfo_rootx())
+            try:
+                _sash_set(pane, _drag["sash"], max(0, pos))
+            except Exception:
+                pass
+            if pane is self._h_pane and self._ai_panel_visible and self._ai_chat_panel:
+                self.after(50, self._ai_chat_panel._on_ai_panel_sash_done)
+
+        def _on_press(event):
+            hit, idx = _sash_hit(event.x, event.y)
+            if not hit:
+                return
+            _drag["active"] = True
+            _drag["sash"]   = idx
+            _show_ghost(event.x, event.y)
+            return "break"
+
+        def _on_motion(event):
+            if not _drag["active"]:
+                return
+            _show_ghost(event.x, event.y)
+
+        pane.bind("<ButtonPress-1>",   _on_press)
+        pane.bind("<B1-Motion>",       _on_motion)
+        # Pane-instance binding fires before class handlers (covers SetCapture case).
+        # Toplevel binding fires when mouse is released over a child widget.
+        # Both are idempotent — the second caller hits `if not _drag["active"]: return`.
+        pane.bind("<ButtonRelease-1>", _apply_release)
+        self.bind("<ButtonRelease-1>", _apply_release, add=True)
 
     def _prewarm_terminal(self) -> None:
         """Start the terminal shell in the background so it's ready on first open."""
