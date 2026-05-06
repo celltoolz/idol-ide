@@ -240,6 +240,11 @@ def collect_form_handlers(form) -> list[str]:
             seen.add(item.command_handler)
             result.append(item.command_handler)
 
+    for handler in form.form_events.values():
+        if handler and handler not in seen:
+            seen.add(handler)
+            result.append(handler)
+
     return result
 
 

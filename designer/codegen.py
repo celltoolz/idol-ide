@@ -37,6 +37,16 @@ _BINDINGS: dict[str, str] = {
 _STUB    = "pass  # TODO"
 _MENUBAR = 20  # menu bar strip height in canvas coords (matches canvas._MENUBAR)
 
+# Form-level event defaults: {ev_key: (params, default_body)}
+# params="" means no event argument (load/unload are direct callbacks, not .bind())
+_FORM_EV_DEFAULTS: dict[str, tuple[str, str]] = {
+    "load":       ("",      "pass  # TODO"),
+    "activate":   ("event", "if event.widget is not self:\n    return\npass  # TODO"),
+    "deactivate": ("event", "if event.widget is not self:\n    return\npass  # TODO"),
+    "unload":     ("",      "self.destroy()"),
+    "resize":     ("event", "if event.widget is not self:\n    return\npass  # TODO"),
+}
+
 # Props that are optional — skip codegen when value is empty string
 _SKIP_IF_EMPTY = {
     "show", "font", "justify", "relief", "borderwidth", "insertbackground",
@@ -120,9 +130,15 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(("        " + line) if line.strip() else "")
         out.append("")
 
-    # Generated _build_ui call block
+    # Generated _build_ui call block + form event bindings
     out.append(_INIT_B)
     out.append("        self._build_ui()")
+    for ev_key, method_name in form.form_events.items():
+        if not method_name:
+            continue
+        binding_line = _form_event_binding(ev_key, method_name)
+        if binding_line:
+            out.append(f"        {binding_line}")
     out.append(_INIT_E)
     out.append("")
 
@@ -150,15 +166,26 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append("")
 
     # ── event methods ─────────────────────────────────────────────────────────
+    # Build reverse map: method_name → ev_key, for form-level events
+    form_ev_map: dict[str, str] = {
+        m: k for k, m in form.form_events.items() if m
+    }
     methods = _collect_methods(form)
     if methods:
         out.append("    # ── Events " + "─" * 63)
         out.append("")
         for name in methods:
-            params, ret = sigs.get(name, ("*args", ""))
+            ev_key = form_ev_map.get(name)
+            if ev_key and name not in sigs:
+                defs = _FORM_EV_DEFAULTS.get(ev_key, ("event", ""))
+                default_params, default_body = defs
+            else:
+                default_params, default_body = "*args", ""
+            params, ret = sigs.get(name, (default_params, ""))
             ret_str = f" -> {ret}" if ret else ""
-            out.append(f"    def {name}(self, {params}){ret_str}:")
-            out.extend(_body_lines(name, bodies))
+            sig_params = f", {params}" if params else ""
+            out.append(f"    def {name}(self{sig_params}){ret_str}:")
+            out.extend(_body_lines(name, bodies, default_body))
             out.append("")
 
     # ── helper methods ────────────────────────────────────────────────────────
@@ -366,6 +393,10 @@ def _collect_methods(form: FormModel) -> list[str]:
         if method_name not in seen:
             seen.add(method_name)
             methods.append(method_name)
+    for method_name in form.form_events.values():
+        if method_name and method_name not in seen:
+            seen.add(method_name)
+            methods.append(method_name)
     return methods
 
 
@@ -556,13 +587,34 @@ def _menu_bind_lines(items) -> list[str]:
     return lines
 
 
-def _body_lines(method_name: str, bodies: dict[str, str]) -> list[str]:
+def _form_event_binding(ev_key: str, method_name: str) -> str:
+    """Return the __init__ line that wires a form-level event."""
+    if ev_key == "load":
+        return f"self.after_idle(self.{method_name})"
+    if ev_key == "unload":
+        return f'self.protocol("WM_DELETE_WINDOW", self.{method_name})'
+    _map = {
+        "activate":   "<FocusIn>",
+        "deactivate": "<FocusOut>",
+        "resize":     "<Configure>",
+    }
+    binding = _map.get(ev_key)
+    if binding:
+        return f'self.bind("{binding}", self.{method_name})'
+    return ""
+
+
+def _body_lines(method_name: str, bodies: dict[str, str],
+                default_body: str = "") -> list[str]:
     """Return the 8-space-indented body lines for one event method."""
     raw = bodies.get(method_name, "").strip()
-    if not raw or raw in (_STUB, "pass"):
+    stub = raw if (raw and raw not in (_STUB, "pass")) else ""
+    if not stub:
+        stub = default_body
+    if not stub:
         return [f"        {_STUB}"]
     # Re-indent each line to method body level (8 spaces)
     result: list[str] = []
-    for line in textwrap.dedent(raw).splitlines():
+    for line in textwrap.dedent(stub).splitlines():
         result.append(("        " + line) if line.strip() else "")
     return result or [f"        {_STUB}"]

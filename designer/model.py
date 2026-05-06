@@ -144,6 +144,7 @@ class FormModel:
     form_type:  str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel, v2)
     widgets:    list[WidgetDescriptor]    = field(default_factory=list)
     menu_items: list[MenuItemDescriptor]  = field(default_factory=list)
+    form_events: dict[str, str]           = field(default_factory=dict)  # {ev_key: method_name}
 
     # ── widget lookup helpers ──────────────────────────────────────────────────
 
@@ -184,6 +185,7 @@ class FormModel:
             "form_type": self.form_type,
             "widgets":    [w.to_dict() for w in self.widgets],
             "menu_items": [m.to_dict() for m in self.menu_items],
+            "form_events": dict(self.form_events),
         }
 
     @staticmethod
@@ -206,6 +208,7 @@ class FormModel:
             form_type=d.get("form_type", "main"),
             widgets    =[WidgetDescriptor.from_dict(w)    for w in d.get("widgets",    [])],
             menu_items =[MenuItemDescriptor.from_dict(m)  for m in d.get("menu_items", [])],
+            form_events=dict(d.get("form_events", {})),
         )
 
 

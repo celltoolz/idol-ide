@@ -185,9 +185,10 @@ class DesignerProperties(tk.Frame):
         self._props_tree.item("form__menu_bar", tags=("menu_bar_link",))
 
         self._events_tree.delete(*self._events_tree.get_children())
-        for ev in ("load", "activate", "deactivate", "unload"):
+        for ev in ("load", "activate", "deactivate", "unload", "resize"):
+            handler = form.form_events.get(ev, "")
             self._events_tree.insert("", "end", iid=f"form_ev__{ev}",
-                                     text=ev, values=("",))
+                                     text=ev, values=(handler,))
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
         """Show geometry-only panel for a multi-widget selection."""
@@ -704,7 +705,7 @@ class DesignerProperties(tk.Frame):
     def _open_handler_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
         """Inline entry + handler picker popup for event handler rows."""
         from designer.var_picker import collect_form_handlers, show_handler_popup
-        if not row.startswith("ev__"):
+        if not row.startswith("ev__") and not row.startswith("form_ev__"):
             return
         self._dismiss_editor()
         bbox = tree.bbox(row, col)
@@ -768,6 +769,14 @@ class DesignerProperties(tk.Frame):
             for item in self._form.menu_items:
                 if item.command_handler == name:
                     item.command_handler = ""
+            for ev_key in list(self._form.form_events.keys()):
+                if self._form.form_events.get(ev_key) == name:
+                    del self._form.form_events[ev_key]
+                    iid = f"form_ev__{ev_key}"
+                    if self._events_tree.exists(iid):
+                        self._events_tree.set(iid, "#1", "")
+                    if self._on_event_change:
+                        self._on_event_change("__form__", ev_key, "")
             d = self._current_widget
             if d is not None:
                 self._populate_events(d, REGISTRY.get(d.type, {}))
@@ -1123,7 +1132,7 @@ class DesignerProperties(tk.Frame):
             return
         self._ev_hover_saved_tags = tuple(tree.item(row, "tags") or ())
         tree.item(row, tags=(*self._ev_hover_saved_tags, "hover"))
-        ev_name = row[4:] if row.startswith("ev__") else row[8:] if row.startswith("form_ev__") else ""
+        ev_name = row[4:] if row.startswith("ev__") else row[9:] if row.startswith("form_ev__") else ""
         hint = _EVENT_DESCRIPTIONS.get(ev_name, ("", ""))[1]
         if hint:
             self._show_hint(hint)
@@ -1142,7 +1151,11 @@ class DesignerProperties(tk.Frame):
         else:
             # Unwired row — show ✦ to auto-wire
             self._ev_clear_btn.place_forget()
-            if row.startswith("ev__") and self._current_widget:
+            can_wire = (
+                (row.startswith("ev__") and self._current_widget is not None) or
+                (row.startswith("form_ev__") and self._form is not None)
+            )
+            if can_wire:
                 self._ev_wire_btn.place(x=x + w - bw, y=y, width=bw, height=h)
                 self._ev_wire_btn.lift()
             else:
@@ -1209,7 +1222,7 @@ class DesignerProperties(tk.Frame):
 
     def _on_ev_wire_click(self, event: tk.Event) -> None:
         row = self._ev_hover_row
-        if not row or not row.startswith("ev__"):
+        if not row or (not row.startswith("ev__") and not row.startswith("form_ev__")):
             return
         self._ev_wire_btn.place_forget()
         self._auto_wire_event(row)
@@ -1414,18 +1427,35 @@ class DesignerProperties(tk.Frame):
             self._on_prop_change(d.id, "__variable__", d.variable)
 
     def _commit_event(self, row_iid: str, raw: str) -> None:
+        handler = raw.strip()
+        self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
+
+        if row_iid.startswith("form_ev__"):
+            if self._form is None:
+                return
+            ev_key = row_iid[9:]
+            if handler:
+                self._form.form_events[ev_key] = handler
+            else:
+                self._form.form_events.pop(ev_key, None)
+            if self._on_event_change:
+                self._on_event_change("__form__", ev_key, handler)
+            if handler and not handler.startswith("_"):
+                self._events_tree.item(row_iid, tags=("name_warn",))
+            else:
+                self._events_tree.item(row_iid, tags=())
+            return
+
         d = self._current_widget
         if d is None or not row_iid.startswith("ev__"):
             return
         event_key = row_iid[4:]
-        handler = raw.strip()
         if handler:
             d.events[event_key] = handler
         else:
             d.events.pop(event_key, None)
         if self._on_event_change:
             self._on_event_change(d.id, event_key, handler)
-        self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
         if handler and not handler.startswith("_"):
             self._events_tree.item(row_iid, tags=("name_warn",))
         else:
@@ -1433,6 +1463,19 @@ class DesignerProperties(tk.Frame):
 
     def _auto_wire_event(self, row_iid: str) -> None:
         """Click on event name → fill default handler and commit."""
+        if row_iid.startswith("form_ev__"):
+            if self._form is None:
+                return
+            ev_key = row_iid[9:]
+            if self._form.form_events.get(ev_key):
+                return  # already wired
+            default = f"_on_{ev_key}"
+            self._form.form_events[ev_key] = default
+            self._events_tree.set(row_iid, "#1", default)
+            if self._on_event_change:
+                self._on_event_change("__form__", ev_key, default)
+            return
+
         d = self._current_widget
         if d is None or not row_iid.startswith("ev__"):
             return
@@ -1478,6 +1521,12 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "change":        ("<<Modified>>",           "Content changed"),
     "comboselected": ("<<ComboboxSelected>>",   "Item selected from dropdown"),
     "listselect":    ("<<ListboxSelect>>",      "Item selected from listbox"),
+    # Form-level events
+    "load":       ("after_idle",          "Fired once when the form is fully built and shown"),
+    "activate":   ("<FocusIn>",           "Fired when the form window gains focus (guard skips child focus events)"),
+    "deactivate": ("<FocusOut>",          "Fired when the form window loses focus (guard skips child focus events)"),
+    "unload":     ("WM_DELETE_WINDOW",    "Fired when the user closes the window — stub calls self.destroy()"),
+    "resize":     ("<Configure>",         "Fired when the form is resized (guard skips child resize events)"),
 }
 
 _PROP_HINTS: dict[str, str] = {
