@@ -128,6 +128,8 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Right>",           lambda _: self._nudge( 1,  0))
         self.bind("<Up>",              lambda _: self._nudge( 0, -1))
         self.bind("<Down>",            lambda _: self._nudge( 0,  1))
+        self.bind("<MouseWheel>",      self._on_mousewheel)
+        self.bind("<Shift-MouseWheel>", self._on_mousewheel_h)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -435,14 +437,23 @@ class DesignerCanvas(tk.Canvas):
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
+    def _on_mousewheel(self, event: tk.Event) -> None:
+        self.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    def _on_mousewheel_h(self, event: tk.Event) -> None:
+        self.xview_scroll(-1 if event.delta > 0 else 1, "units")
+
     def _reposition(self) -> None:
-        """Center the form on the canvas and redraw everything."""
+        """Center the form on the canvas (when it fits) and update scrollregion."""
         if self._form is None:
             return
         cw = max(self.winfo_width(),  1)
         ch = max(self.winfo_height(), 1)
         self._ox = max(_MARGIN, (cw - self._form.width)  // 2)
         self._oy = max(_MARGIN + _TITLE, (ch - self._form.height) // 2)
+        sr_w = self._ox + self._form.width  + _MARGIN
+        sr_h = self._oy + self._form.height + _MARGIN
+        self.configure(scrollregion=(0, 0, max(cw, sr_w), max(ch, sr_h)))
         self.redraw()
 
     def redraw(self) -> None:

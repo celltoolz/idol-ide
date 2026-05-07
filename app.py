@@ -805,8 +805,17 @@ class IDOL(Tk):
 
         # ── Designer surface (pre-built, swapped in by _enter_designer_mode) ──
         self._designer_frame = tk.Frame(nb_frame, bg="#1e1e1e")
+
+        _canvas_area = tk.Frame(self._designer_frame, bg="#1e1e1e")
+        _vbar = tk.Scrollbar(_canvas_area, orient="vertical",
+                             bg="#3c3c3c", troughcolor="#252526",
+                             activebackground="#569cd6", relief="flat", bd=0)
+        _hbar = tk.Scrollbar(_canvas_area, orient="horizontal",
+                             bg="#3c3c3c", troughcolor="#252526",
+                             activebackground="#569cd6", relief="flat", bd=0)
+
         self._design_canvas = DesignerCanvas(
-            self._designer_frame,
+            _canvas_area,
             on_select=self._on_designer_select,
             on_deselect=self._on_designer_deselect,
             on_widget_changed=self._on_designer_widget_changed,
@@ -816,10 +825,19 @@ class IDOL(Tk):
             on_double_click=self._on_designer_double_click,
             on_menu_navigate=self._on_designer_menu_navigate,
             on_menu_item_no_command=self._on_designer_menu_item_no_command,
+            xscrollcommand=_hbar.set,
+            yscrollcommand=_vbar.set,
         )
+        _vbar.config(command=self._design_canvas.yview)
+        _hbar.config(command=self._design_canvas.xview)
+
         self._designer_toolbar = DesignerToolbar(self._designer_frame, self._design_canvas)
         self._designer_toolbar.pack(fill="x", side="top")
+
+        _vbar.pack(side="right", fill="y")
+        _hbar.pack(side="bottom", fill="x")
         self._design_canvas.pack(fill="both", expand=True)
+        _canvas_area.pack(fill="both", expand=True)
 
         # ── Properties panel (right pane, added to _h_pane in designer mode) ──
         self._props_panel = DesignerProperties(
