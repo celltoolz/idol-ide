@@ -3091,7 +3091,9 @@ class IDOL(Tk):
         self.after(500, self.workspace_save)
 
     def file_open(self, *_) -> None:
+        root = str(self._sidebar.explorer._root or os.getcwd())
         path = askopenfilename(
+            initialdir=root,
             filetypes=[
                 ("Python Scripts", "*.py"),
                 ("Text Documents", "*.txt"),
@@ -3198,7 +3200,9 @@ class IDOL(Tk):
         tab_id = self._current_tab_id
         if tab_id is None:
             return False
+        root = str(self._sidebar.explorer._root or os.getcwd())
         path = asksaveasfilename(
+            initialdir=root,
             initialfile="Untitled.py",
             defaultextension=".py",
             filetypes=[
