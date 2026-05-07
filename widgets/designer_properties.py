@@ -968,7 +968,7 @@ class DesignerProperties(tk.Frame):
 
     def _is_prop_clearable(self, row_iid: str) -> bool:
         """Return True if this prop row has a value that can be cleared to empty."""
-        if row_iid in ("var__name", "var__initial"):
+        if row_iid in ("var__name", "var__initial", "anchor__value"):
             return True
         if not row_iid.startswith("prop__"):
             return False
@@ -1301,7 +1301,8 @@ class DesignerProperties(tk.Frame):
         self._prop_hover_saved_tags = tuple(tree.item(row, "tags") or ())
         self._prop_hover_row = row
         tree.item(row, tags=(*self._prop_hover_saved_tags, "hover"))
-        if self._is_prop_clearable(row) and tree.set(row, "#1").strip():
+        val = tree.set(row, "#1").strip()
+        if self._is_prop_clearable(row) and val and (row != "anchor__value" or val != "(none)"):
             bbox = tree.bbox(row, "#1")
             if bbox:
                 x, y, w, h = bbox
@@ -1361,6 +1362,10 @@ class DesignerProperties(tk.Frame):
         if not row:
             return
         self._clear_prop_hover()
+        if row == "anchor__value":
+            self._props_tree.set(row, "#1", "(none)")
+            self._commit_prop(row, "")
+            return
         self._props_tree.set(row, "#1", "")
         if self._is_color_row(row):
             self._props_tree.item(row, tags=())
