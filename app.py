@@ -3471,6 +3471,8 @@ class IDOL(Tk):
             cv.event_generate("<Control-a>")
 
     def edit_find_replace(self, *_) -> None:
+        if self._designer_mode:
+            return
         cv = self._current_codeview
         if cv is None:
             return
