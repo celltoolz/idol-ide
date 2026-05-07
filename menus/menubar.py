@@ -56,6 +56,7 @@ def build_menubar(app) -> Menu:
     edit_menu.add_command(
         label="Find & Replace...", command=app.edit_find_replace, accelerator="Ctrl+F"
     )
+    app._edit_menu = edit_menu
     menubar.add_cascade(label="Edit", menu=edit_menu)
 
     # ── View ─────────────────────────────────────────────────────────────────

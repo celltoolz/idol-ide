@@ -4221,6 +4221,7 @@ class IDOL(Tk):
         self._designer_mode = True
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
+        self._edit_menu.entryconfigure("Find & Replace...", state="disabled")
 
         # Swap left pane: sidebar → palette
         # Rebuild h_pane order: palette | v_pane | props
@@ -4279,6 +4280,7 @@ class IDOL(Tk):
         self._designer_mode = False
         self._designer_frame.pack_forget()
         self.notebook.pack(fill="both", expand=True)
+        self._edit_menu.entryconfigure("Find & Replace...", state="normal")
 
         # Snapshot pane widths before removing them from the layout.
         try:
