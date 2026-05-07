@@ -36,6 +36,9 @@ class WidgetDescriptor:
     events: dict[str, str] = field(default_factory=dict)   # {"click": "_btn_submit_click"}
     variable: VariableBinding | None = field(default=None) # optional tkinter variable
     parent_id: str | None = field(default=None)            # Frame/LabelFrame container, or None = form
+    # Resize anchor — one of: "" | "top_left" | "top" | "top_right" | "left" | "all"
+    #                         | "right" | "bottom_left" | "bottom" | "bottom_right"
+    anchor: str = ""
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -52,6 +55,8 @@ class WidgetDescriptor:
             d["variable"] = self.variable.to_dict()
         if self.parent_id is not None:
             d["parent_id"] = self.parent_id
+        if self.anchor:
+            d["anchor"] = self.anchor
         return d
 
     @staticmethod
@@ -68,6 +73,7 @@ class WidgetDescriptor:
             events=d.get("events", {}),
             variable=VariableBinding.from_dict(var_data) if var_data else None,
             parent_id=d.get("parent_id", None),
+            anchor=d.get("anchor", ""),
         )
 
 

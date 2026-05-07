@@ -108,7 +108,7 @@ def extract_event_signatures(py_path: Path) -> dict[str, tuple[str, str]]:
             if not isinstance(item, ast.FunctionDef):
                 continue
             name = item.name
-            if name in ("__init__", "_build_ui") or not name.startswith("_"):
+            if name in ("__init__", "_build_ui", "_apply_anchor_layout") or not name.startswith("_"):
                 continue
             params = _extract_params(item)
             ret    = ast.unparse(item.returns) if item.returns else ""
@@ -157,7 +157,7 @@ def extract_event_bodies(py_path: Path) -> dict[str, str]:
             if not isinstance(item, ast.FunctionDef):
                 continue
             name = item.name
-            if name in ("__init__", "_build_ui") or not name.startswith("_"):
+            if name in ("__init__", "_build_ui", "_apply_anchor_layout") or not name.startswith("_"):
                 continue
             body = _extract_body(item, lines)
             if body is not None:

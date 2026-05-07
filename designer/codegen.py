@@ -131,6 +131,7 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append("")
 
     # Generated _build_ui call block + form event bindings
+    _anchored = [w for w in form.widgets if w.anchor and w.anchor != "top_left"]
     out.append(_INIT_B)
     out.append("        self._build_ui()")
     for ev_key, method_name in form.form_events.items():
@@ -139,6 +140,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         binding_line = _form_event_binding(ev_key, method_name)
         if binding_line:
             out.append(f"        {binding_line}")
+    if _anchored:
+        out.append("        self.bind(\"<Configure>\", self._apply_anchor_layout)")
     out.append(_INIT_E)
     out.append("")
 
@@ -164,6 +167,18 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         for w in form.widgets:
             out.extend(_widget_lines(w, y_offset=y_offset))
             out.append("")
+
+    # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
+    if _anchored:
+        out.append("    def _apply_anchor_layout(self, event):")
+        out.append("        if event.widget is not self:")
+        out.append("            return")
+        out.append("        _fw, _fh = event.width, event.height")
+        for w in _anchored:
+            line = _anchor_resize_line(w, form.width, form.height)
+            if line:
+                out.append(line)
+        out.append("")
 
     # ── event methods ─────────────────────────────────────────────────────────
     # Build reverse map: method_name → ev_key, for form-level events
@@ -618,3 +633,41 @@ def _body_lines(method_name: str, bodies: dict[str, str],
     for line in textwrap.dedent(stub).splitlines():
         result.append(("        " + line) if line.strip() else "")
     return result or [f"        {_STUB}"]
+
+
+# ── Anchor resize codegen ──────────────────────────────────────────────────────
+
+def _anchor_resize_line(w: "WidgetDescriptor", form_w: int, form_h: int) -> str:
+    """Return the self.widget.place(...) line for one anchored widget, or ''."""
+    a = w.anchor
+    x, y, ww, wh = w.x, w.y, w.width, w.height
+    rm = form_w - (x + ww)   # right margin
+    bm = form_h - (y + wh)   # bottom margin
+    kwargs: dict[str, str] = {}
+
+    if a == "all":
+        kwargs = {
+            "x":      f"round({x} * _fw / {form_w})",
+            "y":      f"round({y} * _fh / {form_h})",
+            "width":  f"round({ww} * _fw / {form_w})",
+            "height": f"round({wh} * _fh / {form_h})",
+        }
+    elif a == "top":          # pin top, stretch H
+        kwargs = {"width": f"_fw - {x} - {rm}"}
+    elif a == "bottom":       # pin bottom, stretch H
+        kwargs = {"y": f"_fh - {bm} - {wh}", "width": f"_fw - {x} - {rm}"}
+    elif a == "left":         # pin left, stretch V
+        kwargs = {"height": f"_fh - {y} - {bm}"}
+    elif a == "right":        # pin right, stretch V
+        kwargs = {"x": f"_fw - {rm} - {ww}", "height": f"_fh - {y} - {bm}"}
+    elif a == "top_right":    # pin top-right corner
+        kwargs = {"x": f"_fw - {rm} - {ww}"}
+    elif a == "bottom_left":  # pin bottom-left corner
+        kwargs = {"y": f"_fh - {bm} - {wh}"}
+    elif a == "bottom_right": # pin bottom-right corner
+        kwargs = {"x": f"_fw - {rm} - {ww}", "y": f"_fh - {bm} - {wh}"}
+
+    if not kwargs:
+        return ""
+    args = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+    return f"        self.{w.id}.place({args})"

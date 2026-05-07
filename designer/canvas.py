@@ -29,7 +29,8 @@ from .registry import REGISTRY
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-GRID    = 8         # snap grid (px)
+GRID         = 8     # snap grid (px)
+_snap_enabled = True # module-level flag toggled by DesignerCanvas.toggle_snap()
 _MARGIN = 50        # space around the form on the canvas
 _BG     = "#1e1e1e" # canvas background
 _FORM   = "#f5f5f5" # default form fill
@@ -456,6 +457,139 @@ class DesignerCanvas(tk.Canvas):
         elif self._form_selected:
             self._draw_form_handles()
             self.tag_raise("fhandle")
+
+    # ── Snap toggle ───────────────────────────────────────────────────────────
+
+    def toggle_snap(self) -> bool:
+        global _snap_enabled
+        _snap_enabled = not _snap_enabled
+        return _snap_enabled
+
+    @property
+    def snap_enabled(self) -> bool:
+        return _snap_enabled
+
+    # ── Alignment / distribution / sizing (multi-select operations) ───────────
+
+    def _selected_widgets(self) -> list[WidgetDescriptor]:
+        if not self._form:
+            return []
+        return [w for wid in self._selected_ids
+                if (w := self._form.get_widget(wid)) is not None]
+
+    def _primary_widget(self) -> "WidgetDescriptor | None":
+        if not self._form or not self._primary_id:
+            return None
+        return self._form.get_widget(self._primary_id)
+
+    def _commit_alignment(self) -> None:
+        self.redraw()
+        for w in self._selected_widgets():
+            if self._on_widget_changed:
+                self._on_widget_changed(w)
+
+    def align_left(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        for w in self._selected_widgets():
+            w.x = ref.x
+        self._commit_alignment()
+
+    def align_right(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        target = ref.x + ref.width
+        for w in self._selected_widgets():
+            w.x = target - w.width
+        self._commit_alignment()
+
+    def align_top(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        for w in self._selected_widgets():
+            w.y = ref.y
+        self._commit_alignment()
+
+    def align_bottom(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        target = ref.y + ref.height
+        for w in self._selected_widgets():
+            w.y = target - w.height
+        self._commit_alignment()
+
+    def align_center_h(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        cx = ref.x + ref.width // 2
+        for w in self._selected_widgets():
+            w.x = cx - w.width // 2
+        self._commit_alignment()
+
+    def align_center_v(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        cy = ref.y + ref.height // 2
+        for w in self._selected_widgets():
+            w.y = cy - w.height // 2
+        self._commit_alignment()
+
+    def distribute_h(self) -> None:
+        widgets = sorted(self._selected_widgets(), key=lambda w: w.x)
+        if len(widgets) < 3:
+            return
+        left  = widgets[0].x
+        right = widgets[-1].x + widgets[-1].width
+        total_w = sum(w.width for w in widgets)
+        gap = (right - left - total_w) // max(1, len(widgets) - 1)
+        x = left
+        for w in widgets:
+            w.x = x
+            x += w.width + gap
+        self._commit_alignment()
+
+    def distribute_v(self) -> None:
+        widgets = sorted(self._selected_widgets(), key=lambda w: w.y)
+        if len(widgets) < 3:
+            return
+        top    = widgets[0].y
+        bottom = widgets[-1].y + widgets[-1].height
+        total_h = sum(w.height for w in widgets)
+        gap = (bottom - top - total_h) // max(1, len(widgets) - 1)
+        y = top
+        for w in widgets:
+            w.y = y
+            y += w.height + gap
+        self._commit_alignment()
+
+    def same_width(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        for w in self._selected_widgets():
+            w.width = ref.width
+        self._commit_alignment()
+
+    def same_height(self) -> None:
+        ref = self._primary_widget()
+        if ref is None:
+            return
+        for w in self._selected_widgets():
+            w.height = ref.height
+        self._commit_alignment()
+
+    def set_selection_anchor(self, anchor: str) -> None:
+        for w in self._selected_widgets():
+            w.anchor = anchor
+        if self._on_widget_changed:
+            for w in self._selected_widgets():
+                self._on_widget_changed(w)
 
     # ── Form background ───────────────────────────────────────────────────────
 
@@ -1516,4 +1650,4 @@ _DRAW: dict = {
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def _snap(v: int) -> int:
-    return round(v / GRID) * GRID
+    return round(v / GRID) * GRID if _snap_enabled else v

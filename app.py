@@ -51,6 +51,7 @@ from widgets.package_manager import PackageManagerPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from designer.canvas import DesignerCanvas
+from designer.toolbar import DesignerToolbar
 
 
 def _add_tooltip(widget, text: str, delay: int = 500) -> None:
@@ -816,6 +817,8 @@ class IDOL(Tk):
             on_menu_navigate=self._on_designer_menu_navigate,
             on_menu_item_no_command=self._on_designer_menu_item_no_command,
         )
+        self._designer_toolbar = DesignerToolbar(self._designer_frame, self._design_canvas)
+        self._designer_toolbar.pack(fill="x", side="top")
         self._design_canvas.pack(fill="both", expand=True)
 
         # ── Properties panel (right pane, added to _h_pane in designer mode) ──
@@ -4322,7 +4325,7 @@ class IDOL(Tk):
                 self._design_canvas.redraw()
                 self._props_panel.load_form(form)
             return
-        if key == "__variable__":
+        if key in ("__variable__", "__anchor__"):
             return  # model already mutated by properties panel; no canvas redraw needed
         w = form.get_widget(widget_id)
         if w:

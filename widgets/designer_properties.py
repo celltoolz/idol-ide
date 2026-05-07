@@ -473,6 +473,18 @@ class DesignerProperties(tk.Frame):
             self._props_tree.insert("", "end", iid="var__initial",
                                     text="  initial", values=(vb.initial if vb else "",))
 
+        # Layout / anchor section
+        self._props_tree.insert("", "end", iid="anchor__section",
+                                text="── Layout", values=("",))
+        self._props_tree.tag_configure("anchor_section",
+                                       foreground="#569cd6", font=("Segoe UI", 8))
+        self._props_tree.item("anchor__section", tags=("anchor_section",))
+        anchor_disp = _ANCHOR_DISPLAY.get(d.anchor, d.anchor or "(none)")
+        self._props_tree.insert("", "end", iid="anchor__value",
+                                text="  anchor", values=(anchor_disp,))
+        self._props_tree.tag_configure("anchor_link", foreground="#cccccc")
+        self._props_tree.item("anchor__value", tags=("anchor_link",))
+
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_tree.delete(*self._events_tree.get_children())
         self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
@@ -495,8 +507,11 @@ class DesignerProperties(tk.Frame):
         col  = tree.identify_column(event.x)
         if not row or col != "#1":
             return
-        if row in ("var__section", "geo__parent"):
+        if row in ("var__section", "geo__parent", "anchor__section"):
             return  # not editable
+        if row == "anchor__value":
+            self._open_anchor_picker(row)
+            return
         if row == "form__menu_bar":
             self._open_menu_editor()
         elif row == "form__bg" or self._is_color_row(row):
@@ -1031,6 +1046,93 @@ class DesignerProperties(tk.Frame):
 
         _bid.append(top.bind("<Button-1>", _global_click, add=True))
 
+    def _open_anchor_picker(self, row_iid: str) -> None:
+        """Show a 3×3 grid popup for selecting the resize anchor preset."""
+        self._dismiss_editor()
+        tree = self._props_tree
+        bbox = tree.bbox(row_iid, "#1")
+        if not bbox:
+            return
+        x, y, w, h = bbox
+
+        overlay = tk.Frame(tree, bg="#2d2d2d",
+                           highlightthickness=1,
+                           highlightbackground="#007acc")
+
+        def _do_dismiss():
+            try:
+                overlay.destroy()
+            except Exception:
+                pass
+            if self._entry_editor is overlay:
+                self._entry_editor = None
+
+        def _pick(anchor_val: str):
+            _do_dismiss()
+            disp = _ANCHOR_DISPLAY.get(anchor_val, anchor_val or "(none)")
+            tree.set(row_iid, "#1", disp)
+            self._commit_prop(row_iid, anchor_val)
+
+        # 3×3 grid
+        grid_frame = tk.Frame(overlay, bg="#2d2d2d")
+        grid_frame.pack(padx=4, pady=4)
+        _GRID = [
+            [("↖", "top_left"),    ("↑", "top"),    ("↗", "top_right")],
+            [("←", "left"),        ("⊡", "all"),    ("→", "right")],
+            [("↙", "bottom_left"), ("↓", "bottom"), ("↘", "bottom_right")],
+        ]
+        d = self._current_widget
+        current = d.anchor if d else ""
+        for r, row_cells in enumerate(_GRID):
+            for c_idx, (sym, val) in enumerate(row_cells):
+                active = (val == current)
+                btn = tk.Label(
+                    grid_frame, text=sym,
+                    bg="#094771" if active else "#3c3c3c",
+                    fg="#ffffff" if active else "#cccccc",
+                    font=("Segoe UI", 10),
+                    width=3, height=1,
+                    relief="flat", cursor="hand2",
+                )
+                btn.grid(row=r, column=c_idx, padx=2, pady=2)
+                btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#094771", fg="#ffffff"))
+                btn.bind("<Leave>", lambda e, b=btn, v=val, cur=current:
+                         b.config(bg="#094771" if v == cur else "#3c3c3c",
+                                  fg="#ffffff" if v == cur else "#cccccc"))
+                btn.bind("<Button-1>", lambda e, v=val: _pick(v))
+
+        # "none" clear button
+        sep = tk.Frame(overlay, bg="#555555", height=1)
+        sep.pack(fill="x", padx=4)
+        clear_btn = tk.Label(
+            overlay, text="✕ none", bg="#2d2d2d", fg="#888888",
+            font=("Segoe UI", 8), cursor="hand2", pady=3,
+        )
+        clear_btn.pack(fill="x")
+        clear_btn.bind("<Enter>", lambda e: clear_btn.config(fg="#cccccc"))
+        clear_btn.bind("<Leave>", lambda e: clear_btn.config(fg="#888888"))
+        clear_btn.bind("<Button-1>", lambda e: _pick(""))
+
+        popup_w = max(w, 100)
+        overlay.place(x=x, y=y + h, width=popup_w)
+        self._entry_editor = overlay
+
+        top = tree.winfo_toplevel()
+        _bid: list = []
+
+        def _global_click(e):
+            try:
+                ox, oy = overlay.winfo_rootx(), overlay.winfo_rooty()
+                ow, oh = overlay.winfo_width(), overlay.winfo_height()
+                if not (ox <= e.x_root <= ox + ow and oy <= e.y_root <= oy + oh):
+                    _do_dismiss()
+                    if _bid:
+                        top.unbind("<Button-1>", _bid[0])
+            except Exception:
+                pass
+
+        _bid.append(top.bind("<Button-1>", _global_click, add=True))
+
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
         current = self._props_tree.set(row_iid, "#1").strip() or "#ffffff"
@@ -1400,6 +1502,10 @@ class DesignerProperties(tk.Frame):
                         self._props_tree.set("var__type", "#1", inferred)
                     if self._on_prop_change:
                         self._on_prop_change(d.id, "__variable__", d.variable)
+        elif row_iid == "anchor__value":
+            d.anchor = raw if raw != "(none)" else ""
+            if self._on_prop_change:
+                self._on_prop_change(d.id, "__anchor__", d.anchor)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
 
@@ -1504,6 +1610,19 @@ class DesignerProperties(tk.Frame):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+_ANCHOR_DISPLAY: dict[str, str] = {
+    "":             "(none)",
+    "top_left":     "↖ top-left",
+    "top":          "↑ top",
+    "top_right":    "↗ top-right",
+    "left":         "← left",
+    "all":          "⊡ all",
+    "right":        "→ right",
+    "bottom_left":  "↙ bot-left",
+    "bottom":       "↓ bottom",
+    "bottom_right": "↘ bot-right",
+}
 
 _PROP_LABELS: dict[str, str] = {
     "bg":               "Background",
