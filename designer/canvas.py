@@ -1032,6 +1032,16 @@ class DesignerCanvas(tk.Canvas):
         self.focus_set()
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
+            # If clicking on an existing widget, select it and de-arm instead
+            item = self._topmost_at(event.x, event.y)
+            if item is not None:
+                tags = self.gettags(item)
+                widget_tag = next((t for t in tags if t.startswith("widget:")), None)
+                if widget_tag:
+                    wid = widget_tag.split(":", 1)[1]
+                    self.cancel_tool()
+                    self.select(wid)
+                    return
             reg = REGISTRY.get(self._active_tool)
             if reg:
                 w, h = reg["default_size"]
@@ -1437,8 +1447,7 @@ class DesignerCanvas(tk.Canvas):
             if wid != self._hover_id:
                 self._clear_hover()
                 self._hover_id = wid
-                if not self._active_tool:
-                    self.config(cursor="fleur")
+                self.config(cursor="fleur")
         elif not any(t.startswith("handle:") or t.startswith("fhandle:") for t in tags):
             self._clear_hover()
 
@@ -1446,17 +1455,16 @@ class DesignerCanvas(tk.Canvas):
         pass  # handled by _on_click via tag binding
 
     def _widget_enter(self, event: tk.Event, wid: str) -> None:
-        if wid not in self._selected_ids and not self._active_tool:
+        if wid not in self._selected_ids:
             self.config(cursor="fleur")
 
     def _widget_leave(self, event: tk.Event, wid: str) -> None:
-        if self._drag is None and not self._active_tool:
-            self.config(cursor="arrow")
+        if self._drag is None:
+            self.config(cursor="crosshair" if self._active_tool else "arrow")
 
     def _clear_hover(self) -> None:
         self._hover_id = None
-        if not self._active_tool:
-            self.config(cursor="arrow")
+        self.config(cursor="crosshair" if self._active_tool else "arrow")
 
     def _show_menu_popup(self, event: tk.Event, top_idx: int) -> None:
         """Show a dropdown for the top-level menu item at top_idx."""
