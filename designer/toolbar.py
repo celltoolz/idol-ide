@@ -227,13 +227,20 @@ class DesignerToolbar(tk.Frame):
                 pw, ph = win.winfo_width(), win.winfo_height()
                 if not (px <= e.x_root < px + pw and py <= e.y_root < py + ph):
                     if _bid:
-                        top.unbind("<Button-1>", _bid[0])
+                        top.unbind("<Button-1>", _bid.pop())
                     _dismiss()
             except Exception:
                 pass
 
+        def _on_destroy(e):
+            if _bid:
+                try:
+                    top.unbind("<Button-1>", _bid.pop())
+                except Exception:
+                    pass
+
         _bid.append(top.bind("<Button-1>", _global_click, add=True))
-        win.bind("<Destroy>", lambda e: top.unbind("<Button-1>", _bid[0]) if _bid else None)
+        win.bind("<Destroy>", _on_destroy)
 
 
 # ── Tooltip helper ────────────────────────────────────────────────────────────
