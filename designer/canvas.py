@@ -1218,17 +1218,19 @@ class DesignerCanvas(tk.Canvas):
             self._ox = nox
             self._oy = noy
 
-            # Reposition anchored widgets to match runtime anchor behavior
-            orig_fw = d["orig_w"]
-            orig_fh = d["orig_h"]
-            for widget in f.widgets:
-                geom = d["orig_widget_geoms"].get(widget.id)
-                if geom:
-                    nx, ny, nww, nwh = _anchor_geom(
-                        geom, widget.anchor, orig_fw, orig_fh, f.width, f.height
-                    )
-                    widget.x, widget.y = nx, ny
-                    widget.width, widget.height = max(GRID, nww), max(GRID, nwh)
+            # Reposition anchored widgets unless Shift is held (suppress anchors)
+            shift_held = bool(event.state & 0x0001)
+            if not shift_held:
+                orig_fw = d["orig_w"]
+                orig_fh = d["orig_h"]
+                for widget in f.widgets:
+                    geom = d["orig_widget_geoms"].get(widget.id)
+                    if geom:
+                        nx, ny, nww, nwh = _anchor_geom(
+                            geom, widget.anchor, orig_fw, orig_fh, f.width, f.height
+                        )
+                        widget.x, widget.y = nx, ny
+                        widget.width, widget.height = max(GRID, nww), max(GRID, nwh)
 
             self.delete("all")
             self._draw_form()
