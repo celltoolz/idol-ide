@@ -345,8 +345,11 @@ class DesignerProperties(tk.Frame):
             self._status_label.config(text="")
 
     def flash_events_tab(self) -> None:
-        """Switch to the Events tab."""
-        self._nb.select(self._events_frame)
+        """Switch to the Events tab; if already there, open the Events guide."""
+        if self._nb.select() == str(self._events_frame):
+            self._open_event_guide()
+        else:
+            self._nb.select(self._events_frame)
 
     def _open_event_guide(self, event=None) -> None:
         """Open the paginated Events guide window."""
