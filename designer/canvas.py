@@ -1021,7 +1021,7 @@ class DesignerCanvas(tk.Canvas):
                                fill="", tags="fhandle")
 
         for name in _HANDLES:
-            cx, cy = _handle_center(ox, oy, f.width, f.height, name)
+            cx, cy = _handle_center(ox, ty, f.width, f.height + _TITLE, name)
             self.create_rectangle(cx - h, cy - h, cx + h + 1, cy + h + 1,
                                    fill="#ffffff", outline=_SEL, width=1,
                                    tags=("fhandle", f"fhandle:{name}"))
