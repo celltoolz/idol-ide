@@ -3419,31 +3419,50 @@ class IDOL(Tk):
     # ── Edit operations ───────────────────────────────────────────────────────
 
     def edit_undo(self) -> None:
+        if self._designer_mode:
+            self._design_canvas.undo()
+            return
         cv = self._current_codeview
         if cv:
             cv.event_generate("<<Undo>>")
 
     def edit_redo(self) -> None:
+        if self._designer_mode:
+            self._design_canvas.redo()
+            return
         cv = self._current_codeview
         if cv:
             cv.event_generate("<<Redo>>")
 
     def edit_cut(self) -> None:
+        if self._designer_mode:
+            self._design_canvas.copy_selected()
+            self._design_canvas.remove_selected()
+            return
         cv = self._current_codeview
         if cv:
             cv.event_generate("<<Cut>>")
 
     def edit_copy(self) -> None:
+        if self._designer_mode:
+            self._design_canvas.copy_selected()
+            return
         cv = self._current_codeview
         if cv:
             cv.event_generate("<<Copy>>")
 
     def edit_paste(self) -> None:
+        if self._designer_mode:
+            self._design_canvas.paste()
+            return
         cv = self._current_codeview
         if cv:
             cv.event_generate("<<Paste>>")
 
     def edit_select_all(self) -> None:
+        if self._designer_mode:
+            self._design_canvas.select_all()
+            return
         cv = self._current_codeview
         if cv:
             cv.event_generate("<Control-a>")
