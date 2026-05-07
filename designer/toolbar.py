@@ -63,6 +63,7 @@ class DesignerToolbar(tk.Frame):
         # Distribute cluster
         self._btn("⇔H", c.distribute_h, "Equal horizontal spacing (≥3)")
         self._btn("⇕V", c.distribute_v, "Equal vertical spacing (≥3)")
+        self._grid_btn = self._btn("⊡", self._open_grid_panel, "Grid layout & spacing")
 
         self._sep()
 
@@ -151,6 +152,88 @@ class DesignerToolbar(tk.Frame):
             bg=_BTN_ACT if on else _BTN_BG,
             fg=_SNAP_ON  if on else _BTN_FG,
         )
+
+    # ── Grid panel ────────────────────────────────────────────────────────────
+
+    def _open_grid_panel(self) -> None:
+        """Toggle the grid layout + spacing popup below the ⊡ button."""
+        existing = getattr(self, "_grid_panel_win", None)
+        if existing:
+            try:
+                existing.destroy()
+            except Exception:
+                pass
+            self._grid_panel_win = None
+            return
+
+        btn = self._grid_btn
+        bx  = btn.winfo_rootx()
+        by  = btn.winfo_rooty() + btn.winfo_height() + 2
+        c   = self._canvas
+        _NUDGE = 8
+
+        win = tk.Toplevel(self)
+        win.overrideredirect(True)
+        win.wm_attributes("-topmost", True)
+        win.configure(bg=_SEP_COLOR)
+        self._grid_panel_win = win
+
+        inner = tk.Frame(win, bg=_BG)
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+
+        def _dismiss():
+            try:
+                win.destroy()
+            except Exception:
+                pass
+            self._grid_panel_win = None
+
+        def _full_btn(text, cmd):
+            lbl = tk.Label(inner, text=text, bg=_BTN_BG, fg=_BTN_FG,
+                           font=("Segoe UI", 8), cursor="hand2",
+                           padx=6, pady=4, anchor="center")
+            lbl.pack(fill="x", padx=4, pady=(4, 2))
+            lbl.bind("<Enter>",    lambda e: lbl.config(bg=_BTN_ACT, fg="#ffffff"))
+            lbl.bind("<Leave>",    lambda e: lbl.config(bg=_BTN_BG,  fg=_BTN_FG))
+            lbl.bind("<Button-1>", lambda e: cmd())
+
+        def _nudge_row(label, cmd_minus, cmd_plus):
+            row = tk.Frame(inner, bg=_BG)
+            row.pack(fill="x", padx=4, pady=2)
+            tk.Label(row, text=label, bg=_BG, fg="#888888",
+                     font=("Segoe UI", 8), width=2, anchor="w").pack(side="left")
+            for sym, cmd in (("−", cmd_minus), ("+", cmd_plus)):
+                b = tk.Label(row, text=sym, bg=_BTN_BG, fg=_BTN_FG,
+                             font=("Segoe UI", 9), width=3, cursor="hand2", relief="flat")
+                b.pack(side="left", padx=2)
+                b.bind("<Enter>",    lambda e, b=b: b.config(bg=_BTN_ACT, fg="#ffffff"))
+                b.bind("<Leave>",    lambda e, b=b: b.config(bg=_BTN_BG,  fg=_BTN_FG))
+                b.bind("<Button-1>", lambda e, fn=cmd: fn())
+
+        _full_btn("⊡  Make Grid", c.arrange_grid)
+        tk.Frame(inner, bg=_SEP_COLOR, height=1).pack(fill="x", padx=4, pady=2)
+        _nudge_row("H", lambda: c.nudge_h(-_NUDGE), lambda: c.nudge_h(+_NUDGE))
+        _nudge_row("V", lambda: c.nudge_v(-_NUDGE), lambda: c.nudge_v(+_NUDGE))
+        tk.Frame(inner, bg=_BG, height=4).pack()
+
+        win.geometry(f"+{bx}+{by}")
+
+        top  = self.winfo_toplevel()
+        _bid: list = []
+
+        def _global_click(e):
+            try:
+                px, py = win.winfo_rootx(), win.winfo_rooty()
+                pw, ph = win.winfo_width(), win.winfo_height()
+                if not (px <= e.x_root < px + pw and py <= e.y_root < py + ph):
+                    if _bid:
+                        top.unbind("<Button-1>", _bid[0])
+                    _dismiss()
+            except Exception:
+                pass
+
+        _bid.append(top.bind("<Button-1>", _global_click, add=True))
+        win.bind("<Destroy>", lambda e: top.unbind("<Button-1>", _bid[0]) if _bid else None)
 
 
 # ── Tooltip helper ────────────────────────────────────────────────────────────

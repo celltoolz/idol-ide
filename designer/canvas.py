@@ -669,6 +669,108 @@ class DesignerCanvas(tk.Canvas):
             y += rh + gap
         self._commit_alignment()
 
+    def arrange_grid(self) -> None:
+        """Snap selected widgets into a uniform grid using their existing layout."""
+        widgets = self._selected_widgets()
+        n = len(widgets)
+        if n < 2:
+            return
+        self.push_undo()
+        avg_w = sum(w.width  for w in widgets) / n
+        avg_h = sum(w.height for w in widgets) / n
+
+        # Detect column count from existing x-clustering
+        by_cx = sorted(widgets, key=lambda w: w.x + w.width / 2)
+        cols: list[list] = []
+        for w in by_cx:
+            cx = w.x + w.width / 2
+            if cols and cx - (cols[-1][-1].x + cols[-1][-1].width / 2) < avg_w:
+                cols[-1].append(w)
+            else:
+                cols.append([w])
+        n_cols = max(1, len(cols))
+        n_rows = (n + n_cols - 1) // n_cols
+
+        # Sort in reading order (row clusters then left-to-right within each row)
+        by_cy = sorted(widgets, key=lambda w: w.y + w.height / 2)
+        rows: list[list] = []
+        for w in by_cy:
+            cy = w.y + w.height / 2
+            if rows and cy - (rows[-1][-1].y + rows[-1][-1].height / 2) < avg_h:
+                rows[-1].append(w)
+            else:
+                rows.append([w])
+        ordered: list = []
+        for row in rows:
+            ordered.extend(sorted(row, key=lambda w: w.x + w.width / 2))
+
+        start_x = min(w.x for w in widgets)
+        start_y = min(w.y for w in widgets)
+
+        col_widths = [
+            max((ordered[r * n_cols + c].width for r in range(n_rows)
+                 if r * n_cols + c < len(ordered)), default=int(avg_w))
+            for c in range(n_cols)
+        ]
+        row_heights = [
+            max((ordered[r * n_cols + c].height for c in range(n_cols)
+                 if r * n_cols + c < len(ordered)), default=int(avg_h))
+            for r in range(n_rows)
+        ]
+
+        for i, w in enumerate(ordered):
+            row = i // n_cols
+            col = i % n_cols
+            w.x = start_x + sum(col_widths[:col])  + col  * GRID
+            w.y = start_y + sum(row_heights[:row]) + row * GRID
+        self._commit_alignment()
+
+    def nudge_h(self, delta: int) -> None:
+        """Shift each column right (+) or left (−) by delta per column index."""
+        widgets = self._selected_widgets()
+        if len(widgets) < 2:
+            return
+        avg_w = sum(w.width for w in widgets) / len(widgets)
+        by_cx = sorted(widgets, key=lambda w: w.x + w.width / 2)
+        cols: list[list] = []
+        for w in by_cx:
+            cx = w.x + w.width / 2
+            if cols and cx - (cols[-1][-1].x + cols[-1][-1].width / 2) < avg_w:
+                cols[-1].append(w)
+            else:
+                cols.append([w])
+        if len(cols) < 2:
+            return
+        self.push_undo()
+        cols = sorted(cols, key=lambda c: sum(w.x + w.width / 2 for w in c) / len(c))
+        for i, col in enumerate(cols[1:], 1):
+            for w in col:
+                w.x = max(0, w.x + delta * i)
+        self._commit_alignment()
+
+    def nudge_v(self, delta: int) -> None:
+        """Shift each row down (+) or up (−) by delta per row index."""
+        widgets = self._selected_widgets()
+        if len(widgets) < 2:
+            return
+        avg_h = sum(w.height for w in widgets) / len(widgets)
+        by_cy = sorted(widgets, key=lambda w: w.y + w.height / 2)
+        rows: list[list] = []
+        for w in by_cy:
+            cy = w.y + w.height / 2
+            if rows and cy - (rows[-1][-1].y + rows[-1][-1].height / 2) < avg_h:
+                rows[-1].append(w)
+            else:
+                rows.append([w])
+        if len(rows) < 2:
+            return
+        self.push_undo()
+        rows = sorted(rows, key=lambda r: sum(w.y + w.height / 2 for w in r) / len(r))
+        for i, row in enumerate(rows[1:], 1):
+            for w in row:
+                w.y = max(0, w.y + delta * i)
+        self._commit_alignment()
+
     def same_width(self) -> None:
         ref = self._primary_widget()
         if ref is None:
