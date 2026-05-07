@@ -1334,7 +1334,8 @@ class DesignerCanvas(tk.Canvas):
     def _on_release(self, event: tk.Event) -> None:
         d = self._drag
         self._drag = None
-        self.config(cursor="arrow")
+        if not self._active_tool:
+            self.config(cursor="arrow")
         if d is None or self._form is None:
             return
 
