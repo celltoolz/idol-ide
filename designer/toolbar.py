@@ -43,7 +43,18 @@ class DesignerToolbar(tk.Frame):
         self.pack_propagate(False)
         self._canvas = canvas
         self._snap_lbl: tk.Label | None = None
+
+        # Button groups for bulk enable/disable
+        self._align_btns: list[tk.Label] = []
+        self._dist_btns:  list[tk.Label] = []
+        self._size_btns:  list[tk.Label] = []
+        self._undo_btn:   tk.Label | None = None
+        self._redo_btn:   tk.Label | None = None
+        self._copy_btn:   tk.Label | None = None
+        self._paste_btn:  tk.Label | None = None
+
         self._build_ui()
+        self.refresh()
 
     # ── Construction ──────────────────────────────────────────────────────────
 
@@ -51,29 +62,35 @@ class DesignerToolbar(tk.Frame):
         c = self._canvas
 
         # Alignment cluster
-        self._btn("⬌L", c.align_left,    "Align left edges")
-        self._btn("⬌R", c.align_right,   "Align right edges")
-        self._btn("⬍T", c.align_top,     "Align top edges")
-        self._btn("⬍B", c.align_bottom,  "Align bottom edges")
-        self._btn("⟺H", c.align_center_h, "Center horizontally")
-        self._btn("⟺V", c.align_center_v, "Center vertically")
+        self._align_btns = [
+            self._btn("⬌L", c.align_left,    "Align left edges"),
+            self._btn("⬌R", c.align_right,   "Align right edges"),
+            self._btn("⬍T", c.align_top,     "Align top edges"),
+            self._btn("⬍B", c.align_bottom,  "Align bottom edges"),
+            self._btn("⟺H", c.align_center_h, "Center horizontally"),
+            self._btn("⟺V", c.align_center_v, "Center vertically"),
+        ]
 
         self._sep()
 
         # Distribute cluster
-        self._btn("⇔H", c.distribute_h, "Equal horizontal spacing (≥3)")
-        self._btn("⇕V", c.distribute_v, "Equal vertical spacing (≥3)")
+        self._dist_btns = [
+            self._btn("⇔H", c.distribute_h, "Equal horizontal spacing (≥3)"),
+            self._btn("⇕V", c.distribute_v, "Equal vertical spacing (≥3)"),
+        ]
         self._grid_btn = self._btn("⊡", self._open_grid_panel, "Grid layout & spacing")
 
         self._sep()
 
         # Size cluster
-        self._btn("↔W", c.same_width,  "Match width to primary")
-        self._btn("↕H", c.same_height, "Match height to primary")
+        self._size_btns = [
+            self._btn("↔W", c.same_width,  "Match width to primary"),
+            self._btn("↕H", c.same_height, "Match height to primary"),
+        ]
 
         self._sep()
 
-        # Snap toggle
+        # Snap toggle — always enabled
         self._snap_lbl = self._btn(
             "⊞",
             self._toggle_snap,
@@ -83,11 +100,10 @@ class DesignerToolbar(tk.Frame):
         self._refresh_snap()
 
         # ── Right-aligned: divider + Undo / Redo / Copy / Paste ──────────────
-        # Pack right-to-left so visual order left→right is: | Undo Redo Copy Paste
-        self._btn("⎘", c.paste,         "Paste  (Ctrl+V)", side="right")
-        self._btn("⧉", c.copy_selected, "Copy   (Ctrl+C)", side="right")
-        self._btn("↷", c.redo,          "Redo   (Ctrl+Y)", side="right")
-        self._btn("↶", c.undo,          "Undo   (Ctrl+Z)", side="right")
+        self._paste_btn = self._btn("⎘", c.paste,         "Paste  (Ctrl+V)", side="right")
+        self._copy_btn  = self._btn("⧉", c.copy_selected, "Copy   (Ctrl+C)", side="right")
+        self._redo_btn  = self._btn("↷", c.redo,          "Redo   (Ctrl+Y)", side="right")
+        self._undo_btn  = self._btn("↶", c.undo,          "Undo   (Ctrl+Z)", side="right")
         self._sep(side="right")
 
     def _btn(
@@ -110,18 +126,26 @@ class DesignerToolbar(tk.Frame):
             relief="flat",
         )
         lbl.pack(side=side, padx=_PAD_X, pady=_PAD_Y)
+        lbl._enabled = True   # type: ignore[attr-defined]
 
         def _enter(_):
+            if not lbl._enabled:  # type: ignore[attr-defined]
+                return
             lbl.config(bg=_BTN_ACT, fg="#ffffff")
 
         def _leave(_):
+            if not lbl._enabled:  # type: ignore[attr-defined]
+                return
             if sticky and getattr(lbl, "_active", False):
                 lbl.config(bg=_BTN_ACT, fg=_SNAP_ON)
             else:
                 lbl.config(bg=_BTN_BG, fg=_BTN_FG)
 
         def _click(_):
+            if not lbl._enabled:  # type: ignore[attr-defined]
+                return
             cmd()
+            self.after(10, self.refresh)
 
         lbl.bind("<Enter>",    _enter)
         lbl.bind("<Leave>",    _leave)
@@ -136,6 +160,42 @@ class DesignerToolbar(tk.Frame):
         tk.Frame(self, bg=_SEP_COLOR, width=1).pack(
             side=side, fill="y", padx=4, pady=4
         )
+
+    # ── Enable / disable ──────────────────────────────────────────────────────
+
+    def _set_enabled(self, lbl: tk.Label, enabled: bool) -> None:
+        if lbl._enabled == enabled:  # type: ignore[attr-defined]
+            return
+        lbl._enabled = enabled       # type: ignore[attr-defined]
+        if enabled:
+            lbl.config(fg=_BTN_FG, cursor="hand2")
+        else:
+            lbl.config(fg=_BTN_DIS, bg=_BTN_BG, cursor="")
+
+    def refresh(self) -> None:
+        """Update every button's enabled state based on current canvas state."""
+        c   = self._canvas
+        sel = len(c.selected_ids)
+
+        for lbl in self._align_btns:
+            self._set_enabled(lbl, sel >= 2)
+
+        for lbl in self._dist_btns:
+            self._set_enabled(lbl, sel >= 3)
+
+        self._set_enabled(self._grid_btn, sel >= 2)
+
+        for lbl in self._size_btns:
+            self._set_enabled(lbl, sel >= 2)
+
+        if self._undo_btn:
+            self._set_enabled(self._undo_btn, c.can_undo)
+        if self._redo_btn:
+            self._set_enabled(self._redo_btn, c.can_redo)
+        if self._copy_btn:
+            self._set_enabled(self._copy_btn, sel >= 1)
+        if self._paste_btn:
+            self._set_enabled(self._paste_btn, c._clipboard is not None)
 
     # ── Snap toggle ───────────────────────────────────────────────────────────
 

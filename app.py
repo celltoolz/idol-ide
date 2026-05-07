@@ -4456,6 +4456,7 @@ class IDOL(Tk):
         """Canvas selection → populate properties panel; reset palette only when not placing."""
         if not self._design_canvas._active_tool:
             self._designer_palette.reset_to_pointer()
+        self._designer_toolbar.refresh()
         if self._design_canvas.form is None:
             return
         w = self._design_canvas.form.get_widget(widget_id)
@@ -4464,12 +4465,14 @@ class IDOL(Tk):
 
     def _on_designer_deselect(self) -> None:
         """Canvas deselect → show form-level properties."""
+        self._designer_toolbar.refresh()
         if self._design_canvas.form:
             self._props_panel.load_form(self._design_canvas.form)
         else:
             self._props_panel.clear()
 
     def _on_designer_multi_select(self, widget_ids: list) -> None:
+        self._designer_toolbar.refresh()
         form = self._design_canvas.form
         if form is None:
             return
@@ -4501,6 +4504,7 @@ class IDOL(Tk):
     def _on_designer_structure_changed(self) -> None:
         """Widget added/removed/reordered → dirty flag + rebuild selector."""
         self._designer_dirty = True
+        self._designer_toolbar.refresh()
         form = self._design_canvas.form
         if form:
             self._props_panel.set_form(form)
