@@ -482,8 +482,6 @@ class DesignerProperties(tk.Frame):
         anchor_disp = _ANCHOR_DISPLAY.get(d.anchor, d.anchor or "(none)")
         self._props_tree.insert("", "end", iid="anchor__value",
                                 text="  anchor", values=(anchor_disp,))
-        self._props_tree.tag_configure("anchor_link", foreground="#d4d4d4")
-        self._props_tree.item("anchor__value", tags=("anchor_link",))
 
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_tree.delete(*self._events_tree.get_children())
