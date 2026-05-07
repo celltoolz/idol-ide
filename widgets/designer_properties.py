@@ -482,7 +482,7 @@ class DesignerProperties(tk.Frame):
         anchor_disp = _ANCHOR_DISPLAY.get(d.anchor, d.anchor or "(none)")
         self._props_tree.insert("", "end", iid="anchor__value",
                                 text="  anchor", values=(anchor_disp,))
-        self._props_tree.tag_configure("anchor_link", foreground="#cccccc")
+        self._props_tree.tag_configure("anchor_link", foreground="#d4d4d4")
         self._props_tree.item("anchor__value", tags=("anchor_link",))
 
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
@@ -1076,6 +1076,7 @@ class DesignerProperties(tk.Frame):
         # 3×3 grid
         grid_frame = tk.Frame(overlay, bg="#2d2d2d")
         grid_frame.pack(padx=4, pady=4)
+
         _GRID = [
             [("↖", "top_left"),    ("↑", "top"),    ("↗", "top_right")],
             [("←", "left"),        ("⊡", "all"),    ("→", "right")],
@@ -1095,10 +1096,18 @@ class DesignerProperties(tk.Frame):
                     relief="flat", cursor="hand2",
                 )
                 btn.grid(row=r, column=c_idx, padx=2, pady=2)
-                btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#094771", fg="#ffffff"))
-                btn.bind("<Leave>", lambda e, b=btn, v=val, cur=current:
-                         b.config(bg="#094771" if v == cur else "#3c3c3c",
-                                  fg="#ffffff" if v == cur else "#cccccc"))
+
+                def _enter(e, b=btn, v=val):
+                    b.config(bg="#094771", fg="#ffffff")
+                    self._show_hint(_ANCHOR_DESC.get(v, ""))
+
+                def _leave(e, b=btn, v=val, cur=current):
+                    b.config(bg="#094771" if v == cur else "#3c3c3c",
+                             fg="#ffffff" if v == cur else "#cccccc")
+                    self._clear_hint()
+
+                btn.bind("<Enter>",    _enter)
+                btn.bind("<Leave>",    _leave)
                 btn.bind("<Button-1>", lambda e, v=val: _pick(v))
 
         # "none" clear button
@@ -1109,12 +1118,18 @@ class DesignerProperties(tk.Frame):
             font=("Segoe UI", 8), cursor="hand2", pady=3,
         )
         clear_btn.pack(fill="x")
-        clear_btn.bind("<Enter>", lambda e: clear_btn.config(fg="#cccccc"))
-        clear_btn.bind("<Leave>", lambda e: clear_btn.config(fg="#888888"))
+        clear_btn.bind("<Enter>", lambda e: (clear_btn.config(fg="#cccccc"),
+                                             self._show_hint("No anchor — fixed position")))
+        clear_btn.bind("<Leave>", lambda e: (clear_btn.config(fg="#888888"),
+                                             self._clear_hint()))
         clear_btn.bind("<Button-1>", lambda e: _pick(""))
 
-        popup_w = max(w, 100)
-        overlay.place(x=x, y=y + h, width=popup_w)
+        # Position: 120px wide, shifted left so it doesn't clip the panel edge
+        popup_w = 120
+        tree.update_idletasks()
+        tree_w = tree.winfo_width()
+        place_x = min(x, max(0, tree_w - popup_w - 2))
+        overlay.place(x=place_x, y=y + h, width=popup_w)
         self._entry_editor = overlay
 
         top = tree.winfo_toplevel()
@@ -1622,6 +1637,18 @@ _ANCHOR_DISPLAY: dict[str, str] = {
     "bottom_left":  "↙ bot-left",
     "bottom":       "↓ bottom",
     "bottom_right": "↘ bot-right",
+}
+
+_ANCHOR_DESC: dict[str, str] = {
+    "top_left":     "Pinned top-left — no movement on resize",
+    "top":          "Stretches width; top edge fixed",
+    "top_right":    "Pinned top-right — follows right edge",
+    "left":         "Stretches height; left edge fixed",
+    "all":          "Scales position and size proportionally",
+    "right":        "Pinned right; stretches height",
+    "bottom_left":  "Pinned bottom-left — follows bottom edge",
+    "bottom":       "Stretches width; bottom edge fixed",
+    "bottom_right": "Pinned bottom-right corner",
 }
 
 _PROP_LABELS: dict[str, str] = {
