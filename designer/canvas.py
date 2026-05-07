@@ -612,31 +612,59 @@ class DesignerCanvas(tk.Canvas):
         self._commit_alignment()
 
     def distribute_h(self) -> None:
-        widgets = sorted(self._selected_widgets(), key=lambda w: w.x)
+        widgets = self._selected_widgets()
         if len(widgets) < 3:
             return
-        left  = widgets[0].x
-        right = widgets[-1].x + widgets[-1].width
-        total_w = sum(w.width for w in widgets)
-        gap = (right - left - total_w) // max(1, len(widgets) - 1)
-        x = left
-        for w in widgets:
-            w.x = x
-            x += w.width + gap
+        # Cluster into rows by center-y proximity, then distribute within each row
+        avg_h = sum(w.height for w in widgets) / len(widgets)
+        by_cy = sorted(widgets, key=lambda w: w.y + w.height / 2)
+        rows: list[list] = []
+        for w in by_cy:
+            cy = w.y + w.height / 2
+            if rows and cy - (rows[-1][-1].y + rows[-1][-1].height / 2) < avg_h:
+                rows[-1].append(w)
+            else:
+                rows.append([w])
+        for row in rows:
+            row = sorted(row, key=lambda w: w.x)
+            if len(row) < 2:
+                continue
+            left    = row[0].x
+            right   = row[-1].x + row[-1].width
+            total_w = sum(w.width for w in row)
+            gap     = (right - left - total_w) // max(1, len(row) - 1)
+            x = left
+            for w in row:
+                w.x = x
+                x += w.width + gap
         self._commit_alignment()
 
     def distribute_v(self) -> None:
-        widgets = sorted(self._selected_widgets(), key=lambda w: w.y)
+        widgets = self._selected_widgets()
         if len(widgets) < 3:
             return
-        top    = widgets[0].y
-        bottom = widgets[-1].y + widgets[-1].height
-        total_h = sum(w.height for w in widgets)
-        gap = (bottom - top - total_h) // max(1, len(widgets) - 1)
-        y = top
-        for w in widgets:
-            w.y = y
-            y += w.height + gap
+        # Cluster into columns by center-x proximity, then distribute within each column
+        avg_w = sum(w.width for w in widgets) / len(widgets)
+        by_cx = sorted(widgets, key=lambda w: w.x + w.width / 2)
+        cols: list[list] = []
+        for w in by_cx:
+            cx = w.x + w.width / 2
+            if cols and cx - (cols[-1][-1].x + cols[-1][-1].width / 2) < avg_w:
+                cols[-1].append(w)
+            else:
+                cols.append([w])
+        for col in cols:
+            col = sorted(col, key=lambda w: w.y)
+            if len(col) < 2:
+                continue
+            top     = col[0].y
+            bottom  = col[-1].y + col[-1].height
+            total_h = sum(w.height for w in col)
+            gap     = (bottom - top - total_h) // max(1, len(col) - 1)
+            y = top
+            for w in col:
+                w.y = y
+                y += w.height + gap
         self._commit_alignment()
 
     def same_width(self) -> None:
