@@ -1180,6 +1180,12 @@ class DesignerProperties(tk.Frame):
                 btn.bind("<Leave>",    _leave)
                 btn.bind("<Button-1>", lambda e, v=val: _pick(v))
 
+        # Shift-key note
+        tk.Label(overlay, text="Shift+resize ignores anchors",
+                 bg="#2d2d2d", fg="#666666",
+                 font=("Segoe UI", 7), anchor="center").pack(
+            fill="x", padx=4, pady=(0, 4))
+
         # Position: 120px wide, shifted left so it doesn't clip the panel edge
         popup_w = 120
         tree.update_idletasks()
@@ -1368,7 +1374,7 @@ class DesignerProperties(tk.Frame):
                 self._prop_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
                 self._prop_clear_btn.lift()
         key = row.split("__", 1)[-1] if "__" in row else row
-        hint = _PROP_HINTS.get(key)
+        hint = _PROP_HINTS.get(row) or _PROP_HINTS.get(key)
         if hint:
             self._show_hint(hint)
 
@@ -1765,6 +1771,8 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
 }
 
 _PROP_HINTS: dict[str, str] = {
+    # Resize anchor
+    "anchor__value":      "How this widget moves/resizes when the form is resized. Hold Shift while resizing the form to ignore all anchors.",
     # Widget identity & geometry
     "name":               "Unique identifier for this control in generated code",
     "x":                  "Horizontal position in pixels from the left edge of the form",
