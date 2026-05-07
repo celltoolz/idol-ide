@@ -615,35 +615,8 @@ class DesignerCanvas(tk.Canvas):
         widgets = self._selected_widgets()
         if len(widgets) < 3:
             return
-        # Cluster into rows by center-y proximity, then distribute within each row
-        avg_h = sum(w.height for w in widgets) / len(widgets)
-        by_cy = sorted(widgets, key=lambda w: w.y + w.height / 2)
-        rows: list[list] = []
-        for w in by_cy:
-            cy = w.y + w.height / 2
-            if rows and cy - (rows[-1][-1].y + rows[-1][-1].height / 2) < avg_h:
-                rows[-1].append(w)
-            else:
-                rows.append([w])
-        for row in rows:
-            row = sorted(row, key=lambda w: w.x)
-            if len(row) < 2:
-                continue
-            left    = row[0].x
-            right   = row[-1].x + row[-1].width
-            total_w = sum(w.width for w in row)
-            gap     = (right - left - total_w) // max(1, len(row) - 1)
-            x = left
-            for w in row:
-                w.x = x
-                x += w.width + gap
-        self._commit_alignment()
-
-    def distribute_v(self) -> None:
-        widgets = self._selected_widgets()
-        if len(widgets) < 3:
-            return
-        # Cluster into columns by center-x proximity, then distribute within each column
+        # Cluster by center-x into column groups; all widgets in the same column
+        # get the same x so rows with different spans don't produce uneven gaps.
         avg_w = sum(w.width for w in widgets) / len(widgets)
         by_cx = sorted(widgets, key=lambda w: w.x + w.width / 2)
         cols: list[list] = []
@@ -653,18 +626,47 @@ class DesignerCanvas(tk.Canvas):
                 cols[-1].append(w)
             else:
                 cols.append([w])
-        for col in cols:
-            col = sorted(col, key=lambda w: w.y)
-            if len(col) < 2:
-                continue
-            top     = col[0].y
-            bottom  = col[-1].y + col[-1].height
-            total_h = sum(w.height for w in col)
-            gap     = (bottom - top - total_h) // max(1, len(col) - 1)
-            y = top
+        if len(cols) < 2:
+            return
+        cols = sorted(cols, key=lambda c: sum(w.x + w.width / 2 for w in c) / len(c))
+        left  = min(w.x for w in widgets)
+        right = max(w.x + w.width for w in widgets)
+        col_widths = [sum(w.width for w in c) / len(c) for c in cols]
+        gap = (right - left - sum(col_widths)) / max(1, len(cols) - 1)
+        x = float(left)
+        for col, cw in zip(cols, col_widths):
             for w in col:
-                w.y = y
-                y += w.height + gap
+                w.x = round(x)
+            x += cw + gap
+        self._commit_alignment()
+
+    def distribute_v(self) -> None:
+        widgets = self._selected_widgets()
+        if len(widgets) < 3:
+            return
+        # Cluster by center-y into row groups; all widgets in the same row
+        # get the same y so columns with different spans don't produce uneven gaps.
+        avg_h = sum(w.height for w in widgets) / len(widgets)
+        by_cy = sorted(widgets, key=lambda w: w.y + w.height / 2)
+        rows: list[list] = []
+        for w in by_cy:
+            cy = w.y + w.height / 2
+            if rows and cy - (rows[-1][-1].y + rows[-1][-1].height / 2) < avg_h:
+                rows[-1].append(w)
+            else:
+                rows.append([w])
+        if len(rows) < 2:
+            return
+        rows = sorted(rows, key=lambda r: sum(w.y + w.height / 2 for w in r) / len(r))
+        top    = min(w.y for w in widgets)
+        bottom = max(w.y + w.height for w in widgets)
+        row_heights = [sum(w.height for w in r) / len(r) for r in rows]
+        gap = (bottom - top - sum(row_heights)) / max(1, len(rows) - 1)
+        y = float(top)
+        for row, rh in zip(rows, row_heights):
+            for w in row:
+                w.y = round(y)
+            y += rh + gap
         self._commit_alignment()
 
     def same_width(self) -> None:
