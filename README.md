@@ -21,6 +21,8 @@ IDOL is what IDLE could have been — a full Python IDE with professional-grade 
 Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 **Designer** still needs to undergo proper macOS/Linux debugging. Should have it done within the week (todays date: 5/2/26)
 
+> **What's coming next?** See the [ROADMAP](ROADMAP.md) for in-progress work, the planned backlog, and long-term ideas.
+
 <p align="center">
   <img src="screenshots/editor-main.png" width="100%">
 </p>
