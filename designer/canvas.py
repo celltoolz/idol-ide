@@ -136,6 +136,7 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Down>",            lambda _: self._nudge( 0,  1))
         self.bind("<MouseWheel>",      self._on_mousewheel)
         self.bind("<Shift-MouseWheel>", self._on_mousewheel_h)
+        self.bind("<Escape>",          lambda _: self.cancel_tool())
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -159,6 +160,13 @@ class DesignerCanvas(tk.Canvas):
     def set_tool(self, type_key: str | None) -> None:
         self._active_tool = type_key
         self.config(cursor="crosshair" if type_key else "arrow")
+
+    def cancel_tool(self) -> None:
+        """Exit placement mode and return to pointer."""
+        if self._active_tool is None:
+            return
+        self._active_tool = None
+        self.config(cursor="arrow")
 
     def place_at_default(self, type_key: str) -> None:
         """Place *type_key* widget at the centre of the form and select it."""
@@ -1053,10 +1061,7 @@ class DesignerCanvas(tk.Canvas):
                 self.add_widget(desc)
                 if parent_id:
                     self._reorder_after_parent(wid, parent_id)
-                self._active_tool = None
-                self.config(cursor="arrow")
-                if self._on_deselect:   # signal palette to reset to pointer
-                    pass                # palette resets via app.py callback
+                # Stay in placement mode — cursor remains crosshair
             return
 
         # Menu bar hitbox check (before regular hit testing)

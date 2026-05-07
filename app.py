@@ -1149,6 +1149,9 @@ class IDOL(Tk):
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
+        # Cancel designer placement mode when clicking outside canvas/palette.
+        self.bind_all("<Button-1>", self._on_global_click_designer, add=True)
+
         # Dismiss floating popups when the application loses OS-level focus.
         # bind_all fires on every widget's FocusOut; the deferred check via
         # focus_displayof() distinguishes internal focus changes (ignored) from
@@ -4418,6 +4421,23 @@ class IDOL(Tk):
         """Event panel edit — model already mutated by properties panel."""
         self._designer_dirty = True
 
+    def _on_global_click_designer(self, event: tk.Event) -> None:
+        """Cancel placement mode when user clicks outside the canvas or palette."""
+        if not self._designer_mode:
+            return
+        if not self._design_canvas._active_tool:
+            return
+        w = event.widget
+        while w is not None:
+            if w is self._design_canvas or w is self._designer_palette:
+                return
+            try:
+                w = w.master
+            except Exception:
+                break
+        self._design_canvas.cancel_tool()
+        self._designer_palette.reset_to_pointer()
+
     def _on_palette_tool_select(self, type_key: str | None) -> None:
         """Palette click → arm canvas with placement tool."""
         self._design_canvas.set_tool(type_key)
@@ -4428,8 +4448,9 @@ class IDOL(Tk):
         self._designer_palette.reset_to_pointer()
 
     def _on_designer_select(self, widget_id: str) -> None:
-        """Canvas selection → populate properties panel, reset palette to pointer."""
-        self._designer_palette.reset_to_pointer()
+        """Canvas selection → populate properties panel; reset palette only when not placing."""
+        if not self._design_canvas._active_tool:
+            self._designer_palette.reset_to_pointer()
         if self._design_canvas.form is None:
             return
         w = self._design_canvas.form.get_widget(widget_id)
