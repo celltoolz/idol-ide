@@ -1447,7 +1447,7 @@ class DesignerCanvas(tk.Canvas):
             if wid != self._hover_id:
                 self._clear_hover()
                 self._hover_id = wid
-                self.config(cursor="fleur")
+                self.config(cursor="fleur" if not self._active_tool else "arrow")
         elif not any(t.startswith("handle:") or t.startswith("fhandle:") for t in tags):
             self._clear_hover()
 
@@ -1456,7 +1456,7 @@ class DesignerCanvas(tk.Canvas):
 
     def _widget_enter(self, event: tk.Event, wid: str) -> None:
         if wid not in self._selected_ids:
-            self.config(cursor="fleur")
+            self.config(cursor="arrow" if self._active_tool else "fleur")
 
     def _widget_leave(self, event: tk.Event, wid: str) -> None:
         if self._drag is None:
