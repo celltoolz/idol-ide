@@ -807,8 +807,8 @@ class IDOL(Tk):
         self._designer_frame = tk.Frame(nb_frame, bg="#1e1e1e")
 
         _canvas_area = tk.Frame(self._designer_frame, bg="#1e1e1e")
-        _vbar = tk.Scrollbar(_canvas_area, orient="vertical")
-        _hbar = tk.Scrollbar(_canvas_area, orient="horizontal")
+        _vbar = ttk.Scrollbar(_canvas_area, orient="vertical")
+        _hbar = ttk.Scrollbar(_canvas_area, orient="horizontal")
 
         self._design_canvas = DesignerCanvas(
             _canvas_area,
