@@ -1108,20 +1108,6 @@ class DesignerProperties(tk.Frame):
                 btn.bind("<Leave>",    _leave)
                 btn.bind("<Button-1>", lambda e, v=val: _pick(v))
 
-        # "none" clear button
-        sep = tk.Frame(overlay, bg="#555555", height=1)
-        sep.pack(fill="x", padx=4)
-        clear_btn = tk.Label(
-            overlay, text="✕ none", bg="#2d2d2d", fg="#888888",
-            font=("Segoe UI", 8), cursor="hand2", pady=3,
-        )
-        clear_btn.pack(fill="x")
-        clear_btn.bind("<Enter>", lambda e: (clear_btn.config(fg="#cccccc"),
-                                             self._show_hint("No anchor — fixed position")))
-        clear_btn.bind("<Leave>", lambda e: (clear_btn.config(fg="#888888"),
-                                             self._clear_hint()))
-        clear_btn.bind("<Button-1>", lambda e: _pick(""))
-
         # Position: 120px wide, shifted left so it doesn't clip the panel edge
         popup_w = 120
         tree.update_idletasks()
