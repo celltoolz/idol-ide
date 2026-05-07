@@ -821,6 +821,7 @@ class IDOL(Tk):
             on_double_click=self._on_designer_double_click,
             on_menu_navigate=self._on_designer_menu_navigate,
             on_menu_item_no_command=self._on_designer_menu_item_no_command,
+            on_tool_cancel=self._on_designer_tool_cancel,
             xscrollcommand=_hbar.set,
             yscrollcommand=_vbar.set,
         )
@@ -4436,6 +4437,10 @@ class IDOL(Tk):
             except Exception:
                 break
         self._design_canvas.cancel_tool()
+        self._designer_palette.reset_to_pointer()
+
+    def _on_designer_tool_cancel(self) -> None:
+        """Canvas cancelled placement tool → reset palette to pointer."""
         self._designer_palette.reset_to_pointer()
 
     def _on_palette_tool_select(self, type_key: str | None) -> None:

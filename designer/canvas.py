@@ -86,6 +86,7 @@ class DesignerCanvas(tk.Canvas):
         on_double_click:      Optional[Callable[[str],               None]] = None,
         on_menu_navigate:         Optional[Callable[[str],               None]] = None,
         on_menu_item_no_command:  Optional[Callable[[int],               None]] = None,
+        on_tool_cancel:           Optional[Callable[[],                  None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
@@ -98,6 +99,7 @@ class DesignerCanvas(tk.Canvas):
         self._on_double_click      = on_double_click
         self._on_menu_navigate     = on_menu_navigate
         self._on_menu_item_no_command = on_menu_item_no_command
+        self._on_tool_cancel       = on_tool_cancel
         self._menu_hitboxes: list[tuple[int, int, int, int, int]] = []
 
         self._form:          FormModel | None        = None
@@ -167,6 +169,8 @@ class DesignerCanvas(tk.Canvas):
             return
         self._active_tool = None
         self.config(cursor="arrow")
+        if self._on_tool_cancel:
+            self._on_tool_cancel()
 
     def place_at_default(self, type_key: str) -> None:
         """Place *type_key* widget at the centre of the form and select it."""
