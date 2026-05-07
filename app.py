@@ -1585,6 +1585,9 @@ class IDOL(Tk):
 
         codeview.bind("<Escape>", _on_esc)
 
+        # Dismiss completion when the editor loses focus (click designer, panels, etc.)
+        codeview.bind("<FocusOut>", lambda _: self._dismiss_completion())
+
         # LSP — diagnostics tags + hover + go-to-definition
         self._setup_lsp_tags(codeview)
         codeview.bind(
