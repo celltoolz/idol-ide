@@ -35,7 +35,8 @@ _MARGIN = 50        # space around the form on the canvas
 _BG     = "#1e1e1e" # canvas background
 _FORM   = "#f5f5f5" # default form fill
 _DOT    = "#3a3a3a" # grid dot color
-_SEL    = "#007acc" # selection / handle color
+_SEL     = "#007acc" # secondary selection color
+_PRIMARY = "#e8a844" # primary selection color (amber)
 _HIT    = "#1a9fd4" # hover highlight
 _HW     = 7         # handle width/height (px)
 _TITLE      = 24    # form title bar height (px)
@@ -744,7 +745,7 @@ class DesignerCanvas(tk.Canvas):
 
     # ── Selection handles ─────────────────────────────────────────────────────
 
-    def _draw_handles(self, w: WidgetDescriptor) -> None:
+    def _draw_handles(self, w: WidgetDescriptor, color: str = _PRIMARY) -> None:
         self.delete("handle")
         x, y = self._abs_xy(w)
         hw = w.width
@@ -753,13 +754,13 @@ class DesignerCanvas(tk.Canvas):
 
         # Selection dashed border
         self.create_rectangle(x - 1, y - 1, x + hw + 1, y + hh + 1,
-                               outline=_SEL, width=1, dash=(4, 3),
+                               outline=color, width=1, dash=(4, 3),
                                fill="", tags="handle")
 
         for name in _HANDLES:
             cx, cy = _handle_center(x, y, hw, hh, name)
             self.create_rectangle(cx - h, cy - h, cx + h + 1, cy + h + 1,
-                                   fill="#ffffff", outline=_SEL, width=1,
+                                   fill="#ffffff", outline=color, width=1,
                                    tags=("handle", f"handle:{name}"))
             self.tag_bind(f"handle:{name}", "<Enter>",
                           lambda e, n=name: None if self._active_tool else self.config(cursor=_handle_cursor(n)))
@@ -767,23 +768,30 @@ class DesignerCanvas(tk.Canvas):
                           lambda e: None if self._active_tool else self.config(cursor="arrow"))
 
     def _draw_all_handles(self) -> None:
-        """Draw selection handles for all selected widgets."""
+        """Draw selection handles for all selected widgets.
+
+        Primary widget: full resize handles in amber (_PRIMARY).
+        Secondary widgets: dashed border only in blue (_SEL).
+        """
         self.delete("handle")
         if not self._form:
             return
-        single = len(self._selected_ids) == 1
+        # Secondaries first (drawn below primary handles in z-order)
         for wid in self._selected_ids:
+            if wid == self._primary_id:
+                continue
             w = self._form.get_widget(wid)
             if w is None:
                 continue
-            if single:
+            x, y = self._abs_xy(w)
+            self.create_rectangle(x - 1, y - 1, x + w.width + 1, y + w.height + 1,
+                                   outline=_SEL, width=1, dash=(4, 3),
+                                   fill="", tags="handle")
+        # Primary: full handles on top
+        if self._primary_id:
+            w = self._form.get_widget(self._primary_id)
+            if w:
                 self._draw_handles(w)
-            else:
-                # Multi-select: dashed border only (no resize handles)
-                x, y = self._abs_xy(w)
-                self.create_rectangle(x - 1, y - 1, x + w.width + 1, y + w.height + 1,
-                                       outline=_SEL, width=1, dash=(4, 3),
-                                       fill="", tags="handle")
 
     def _draw_form_handles(self) -> None:
         f  = self._form
@@ -878,13 +886,19 @@ class DesignerCanvas(tk.Canvas):
                 }
             return
 
-        # Widget handle click → start resize (single-select only)
+        # Widget handle click → start resize (primary widget; delta propagates to secondaries)
         handle_tag = next((t for t in tags if t.startswith("handle:")), None)
         if handle_tag:
             handle_name = handle_tag.split(":", 1)[1]
             if self._primary_id and self._form:
                 w = self._form.get_widget(self._primary_id)
                 if w:
+                    orig_others = {
+                        sid: (sw.x, sw.y, sw.width, sw.height)
+                        for sid in self._selected_ids
+                        if sid != self._primary_id
+                        and (sw := self._form.get_widget(sid)) is not None
+                    }
                     self._drag = {
                         "mode":    "resize",
                         "handle":  handle_name,
@@ -892,6 +906,7 @@ class DesignerCanvas(tk.Canvas):
                         "start_cx": event.x, "start_cy": event.y,
                         "orig_x": w.x, "orig_y": w.y,
                         "orig_w": w.width, "orig_h": w.height,
+                        "orig_others": orig_others,
                     }
             return
 
@@ -1060,10 +1075,30 @@ class DesignerCanvas(tk.Canvas):
 
             nw = max(GRID * 2, nw)
             nh = max(GRID * 2, nh)
+
+            # Deltas to propagate to secondaries
+            ddx = nx - ox
+            ddy = ny - oy
+            ddw = nw - ow
+            ddh = nh - oh
+
             w.x, w.y, w.width, w.height = nx, ny, nw, nh
             self.delete(f"widget:{w.id}")
             self._render_widget(w)
             self._restore_z_order(w.id)
+
+            # Apply same delta to all other selected widgets
+            for sid, (sox, soy, sow, soh) in d.get("orig_others", {}).items():
+                sw = self._form.get_widget(sid)
+                if sw is None:
+                    continue
+                sw.x      = sox + ddx
+                sw.y      = max(self._min_y, soy + ddy)
+                sw.width  = max(GRID * 2, sow + ddw)
+                sw.height = max(GRID * 2, soh + ddh)
+                self.delete(f"widget:{sw.id}")
+                self._render_widget(sw)
+                self._restore_z_order(sw.id)
 
         self.delete("handle")
         self._draw_all_handles()
@@ -1112,6 +1147,11 @@ class DesignerCanvas(tk.Canvas):
                     self._try_reparent(w)
                 if self._on_widget_changed:
                     self._on_widget_changed(w)
+            if d["mode"] == "resize" and self._on_widget_changed:
+                for sid in d.get("orig_others", {}):
+                    sw = self._form.get_widget(sid)
+                    if sw:
+                        self._on_widget_changed(sw)
 
     def _try_reparent(self, w: WidgetDescriptor) -> None:
         """After a move drag, reparent w if it was dropped onto a different container."""
