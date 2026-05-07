@@ -3425,6 +3425,44 @@ class IDOL(Tk):
 
     # ── Edit operations ───────────────────────────────────────────────────────
 
+    def _update_edit_menu_state(self) -> None:
+        """Called via postcommand every time the Edit menu opens."""
+        m = self._edit_menu
+        if self._designer_mode:
+            canvas = self._design_canvas
+            has_sel   = bool(canvas.selected_ids)
+            has_clip  = canvas._clipboard is not None
+            can_undo  = canvas.can_undo
+            can_redo  = canvas.can_redo
+            has_form  = canvas.form is not None
+            m.entryconfigure("Undo",            state="normal" if can_undo else "disabled")
+            m.entryconfigure("Redo",            state="normal" if can_redo else "disabled")
+            m.entryconfigure("Cut",             state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Copy",            state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Paste",           state="normal" if has_clip else "disabled")
+            m.entryconfigure("Select All",      state="normal" if has_form else "disabled")
+            m.entryconfigure("Find & Replace...", state="disabled")
+        else:
+            cv = self._current_codeview
+            try:
+                has_clip = bool(self.clipboard_get())
+            except Exception:
+                has_clip = False
+            has_sel = False
+            if cv:
+                try:
+                    cv.get("sel.first", "sel.last")
+                    has_sel = True
+                except Exception:
+                    pass
+            m.entryconfigure("Undo",              state="normal")
+            m.entryconfigure("Redo",              state="normal")
+            m.entryconfigure("Cut",               state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Copy",              state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Paste",             state="normal" if has_clip else "disabled")
+            m.entryconfigure("Select All",        state="normal" if cv       else "disabled")
+            m.entryconfigure("Find & Replace...", state="normal" if cv       else "disabled")
+
     def edit_undo(self) -> None:
         if self._designer_mode:
             self._design_canvas.undo()
@@ -4221,7 +4259,6 @@ class IDOL(Tk):
         self._designer_mode = True
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
-        self._edit_menu.entryconfigure("Find & Replace...", state="disabled")
 
         # Swap left pane: sidebar → palette
         # Rebuild h_pane order: palette | v_pane | props
@@ -4280,7 +4317,6 @@ class IDOL(Tk):
         self._designer_mode = False
         self._designer_frame.pack_forget()
         self.notebook.pack(fill="both", expand=True)
-        self._edit_menu.entryconfigure("Find & Replace...", state="normal")
 
         # Snapshot pane widths before removing them from the layout.
         try:

@@ -42,7 +42,7 @@ def build_menubar(app) -> Menu:
     menubar.add_cascade(label="File", menu=file_menu)
 
     # ── Edit ─────────────────────────────────────────────────────────────────
-    edit_menu = Menu(menubar, tearoff=0)
+    edit_menu = Menu(menubar, tearoff=0, postcommand=app._update_edit_menu_state)
     edit_menu.add_command(label="Undo", command=app.edit_undo, accelerator="Ctrl+Z")
     edit_menu.add_command(label="Redo", command=app.edit_redo, accelerator="Ctrl+Y")
     edit_menu.add_separator()
