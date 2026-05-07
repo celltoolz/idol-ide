@@ -194,19 +194,85 @@ class DesignerProperties(tk.Frame):
                                      text=ev, values=(handler,))
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
-        """Show geometry-only panel for a multi-widget selection."""
+        """Show shared properties panel for a multi-widget selection."""
         self._dismiss_editor()
         self._current_widget = None
         self._multi_widgets  = list(descriptors)
         self._selector_label.config(text=f"({len(descriptors)} widgets selected)")
-        primary = descriptors[0] if descriptors else None
 
         self._props_tree.delete(*self._props_tree.get_children())
-        if primary:
-            for key in ("x", "y", "width", "height"):
-                self._props_tree.insert("", "end", iid=f"geo__{key}",
-                                        text=key, values=(str(getattr(primary, key)),))
         self._events_tree.delete(*self._events_tree.get_children())
+
+        if not descriptors:
+            return
+
+        primary = descriptors[0]
+
+        # Geometry (delta-based on commit)
+        for key in ("x", "y", "width", "height"):
+            self._props_tree.insert("", "end", iid=f"geo__{key}",
+                                    text=key, values=(str(getattr(primary, key)),))
+
+        regs = [REGISTRY.get(d.type, {}) for d in descriptors]
+
+        # Keys to exclude: state/validate/colorize conditionals are too complex for multi
+        excluded: set[str] = {
+            "state", "validate", "validatecommand", "vcmd_args",
+            "invalidcommand", "colorize", "colorize_altbg",
+        }
+        for r in regs:
+            for color_list in r.get("state_color_props", {}).values():
+                excluded.update(color_list)
+
+        # Intersection of each widget type's default_props keys, minus excluded
+        all_key_sets = [set(r.get("default_props", {}).keys()) - excluded for r in regs]
+        shared_keys = set.intersection(*all_key_sets) if all_key_sets else set()
+
+        # Order by first widget's registry order
+        first_defaults = regs[0].get("default_props", {})
+        ordered_keys = [k for k in first_defaults if k in shared_keys]
+        for k in shared_keys:
+            if k not in ordered_keys:
+                ordered_keys.append(k)
+
+        seen: set[str] = set()
+        for key in ordered_keys:
+            if key in seen:
+                continue
+            seen.add(key)
+            vals = [str(d.props.get(key, regs[i].get("default_props", {}).get(key, "")))
+                    for i, d in enumerate(descriptors)]
+            display_val = _display(vals[0]) if len(set(vals)) == 1 else ""
+            self._props_tree.insert("", "end", iid=f"prop__{key}",
+                                    text=_PROP_LABELS.get(key, key), values=(display_val,))
+
+        # Intersection of color props
+        all_color_sets = [set(r.get("color_props", [])) for r in regs]
+        shared_colors = set.intersection(*all_color_sets) if all_color_sets else set()
+        for key in shared_colors:
+            if key in seen:
+                continue
+            seen.add(key)
+            vals = [d.props.get(key, "") for d in descriptors]
+            display_val = vals[0] if len(set(vals)) == 1 else ""
+            self._props_tree.insert("", "end", iid=f"prop__{key}",
+                                    text=_PROP_LABELS.get(key, key), values=(display_val,))
+            if display_val:
+                self._apply_color_swatch(f"prop__{key}", display_val.upper())
+
+        # Layout / anchor section (applies to all widgets)
+        self._props_tree.insert("", "end", iid="anchor__section",
+                                text="── Layout", values=("",))
+        self._props_tree.tag_configure("anchor_section",
+                                       foreground="#569cd6", font=("Segoe UI", 8))
+        self._props_tree.item("anchor__section", tags=("anchor_section",))
+        anchor_vals = [d.anchor for d in descriptors]
+        anchor_disp = (
+            _ANCHOR_DISPLAY.get(anchor_vals[0], anchor_vals[0] or "(none)")
+            if len(set(anchor_vals)) == 1 else ""
+        )
+        self._props_tree.insert("", "end", iid="anchor__value",
+                                text="  anchor", values=(anchor_disp,))
 
     def clear(self) -> None:
         """Reset to the empty / no-selection state."""
@@ -541,15 +607,18 @@ class DesignerProperties(tk.Frame):
             self._open_dropdown(tree, row, col, _VCMD_ARG_PRESETS, self._commit_prop)
         elif row == "prop__colorize":
             self._open_dropdown(tree, row, col, ["True", "False"], self._commit_prop)
-        elif row.startswith("prop__") and self._current_widget:
+        elif row.startswith("prop__") and (self._current_widget or self._multi_widgets):
             key = row[6:]
+            d_ref = self._current_widget or self._multi_widgets[0]
             if key == "font":
-                self._open_font_picker(row)
+                if self._current_widget:
+                    self._open_font_picker(row)
                 return
-            if isinstance(self._current_widget.props.get(key), list):
-                self._open_list_editor(row)
+            if isinstance(d_ref.props.get(key), list):
+                if self._current_widget:
+                    self._open_list_editor(row)
                 return
-            reg = REGISTRY.get(self._current_widget.type, {})
+            reg = REGISTRY.get(d_ref.type, {})
             choices = reg.get("prop_choices", {}).get(key)
             if choices:
                 self._open_dropdown(tree, row, col, choices, self._commit_prop)
@@ -944,7 +1013,7 @@ class DesignerProperties(tk.Frame):
     def _is_color_row(self, row_iid: str) -> bool:
         if not row_iid.startswith("prop__"):
             return False
-        d = self._current_widget
+        d = self._current_widget or (self._multi_widgets[0] if self._multi_widgets else None)
         if d is None:
             return False
         key = row_iid[6:]
@@ -1405,6 +1474,20 @@ class DesignerProperties(tk.Frame):
                     self._on_prop_change("__multi__", key, delta)
             except ValueError:
                 pass
+            return
+        if self._multi_widgets and row_iid.startswith("prop__"):
+            key = row_iid[6:]
+            for desc in self._multi_widgets:
+                desc.props[key] = _parse_value(raw, desc.props.get(key))
+            if self._on_prop_change:
+                self._on_prop_change("__multi__", key, raw)
+            return
+        if self._multi_widgets and row_iid == "anchor__value":
+            anchor_val = raw if raw != "(none)" else ""
+            for desc in self._multi_widgets:
+                desc.anchor = anchor_val
+            if self._on_prop_change:
+                self._on_prop_change("__multi__", "__anchor__", anchor_val)
             return
         if row_iid == "widget__name":
             d = self._current_widget
