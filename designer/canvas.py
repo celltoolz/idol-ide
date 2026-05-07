@@ -746,7 +746,6 @@ class DesignerCanvas(tk.Canvas):
     # ── Selection handles ─────────────────────────────────────────────────────
 
     def _draw_handles(self, w: WidgetDescriptor, color: str = _PRIMARY) -> None:
-        self.delete("handle")
         x, y = self._abs_xy(w)
         hw = w.width
         hh = w.height
