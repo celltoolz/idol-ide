@@ -4292,6 +4292,7 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form is None:
             return
+        self._design_canvas.push_undo()
         self._designer_dirty = True
         if widget_id == "__multi__":
             self._design_canvas.redraw()

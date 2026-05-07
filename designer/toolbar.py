@@ -81,12 +81,21 @@ class DesignerToolbar(tk.Frame):
         )
         self._refresh_snap()
 
+        # ── Right-aligned: divider + Undo / Redo / Copy / Paste ──────────────
+        # Pack right-to-left so visual order left→right is: | Undo Redo Copy Paste
+        self._btn("⎘", c.paste,         "Paste  (Ctrl+V)", side="right")
+        self._btn("⧉", c.copy_selected, "Copy   (Ctrl+C)", side="right")
+        self._btn("↷", c.redo,          "Redo   (Ctrl+Y)", side="right")
+        self._btn("↶", c.undo,          "Undo   (Ctrl+Z)", side="right")
+        self._sep(side="right")
+
     def _btn(
         self,
         text: str,
         cmd: Callable,
         tooltip: str = "",
         sticky: bool = False,
+        side: str = "left",
     ) -> tk.Label:
         lbl = tk.Label(
             self,
@@ -99,7 +108,7 @@ class DesignerToolbar(tk.Frame):
             cursor="hand2",
             relief="flat",
         )
-        lbl.pack(side="left", padx=_PAD_X, pady=_PAD_Y)
+        lbl.pack(side=side, padx=_PAD_X, pady=_PAD_Y)
 
         def _enter(_):
             lbl.config(bg=_BTN_ACT, fg="#ffffff")
@@ -122,9 +131,9 @@ class DesignerToolbar(tk.Frame):
 
         return lbl
 
-    def _sep(self) -> None:
+    def _sep(self, side: str = "left") -> None:
         tk.Frame(self, bg=_SEP_COLOR, width=1).pack(
-            side="left", fill="y", padx=4, pady=4
+            side=side, fill="y", padx=4, pady=4
         )
 
     # ── Snap toggle ───────────────────────────────────────────────────────────

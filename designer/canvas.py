@@ -113,6 +113,9 @@ class DesignerCanvas(tk.Canvas):
 
         self._drag: dict | None = None
 
+        self._undo_stack: list[dict] = []
+        self._redo_stack: list[dict] = []
+
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
         self.bind("<B1-Motion>",       self._on_motion)
@@ -123,6 +126,9 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Control-c>",       lambda _: self.copy_selected())
         self.bind("<Control-v>",       lambda _: self.paste())
         self.bind("<Control-a>",       lambda _: self.select_all())
+        self.bind("<Control-z>",       lambda _: self.undo())
+        self.bind("<Control-y>",       lambda _: self.redo())
+        self.bind("<Control-Z>",       lambda _: self.redo())
         self.bind("<Configure>",       lambda _: self._reposition())
         self.bind("<Left>",            lambda _: self._nudge(-1,  0))
         self.bind("<Right>",           lambda _: self._nudge( 1,  0))
@@ -181,11 +187,59 @@ class DesignerCanvas(tk.Canvas):
         self._primary_id = None
         self._hover_id = None
         self._drag = None
+        self._undo_stack.clear()
+        self._redo_stack.clear()
         self._reposition()
+
+    # ── Undo / Redo ───────────────────────────────────────────────────────────
+
+    _MAX_UNDO = 50
+
+    def push_undo(self) -> None:
+        """Snapshot the current form state; call this BEFORE any mutation."""
+        if self._form is None:
+            return
+        self._undo_stack.append(self._form.to_dict())
+        if len(self._undo_stack) > self._MAX_UNDO:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def undo(self) -> None:
+        if not self._undo_stack or self._form is None:
+            return
+        self._redo_stack.append(self._form.to_dict())
+        self._restore_state(self._undo_stack.pop())
+
+    def redo(self) -> None:
+        if not self._redo_stack or self._form is None:
+            return
+        self._undo_stack.append(self._form.to_dict())
+        self._restore_state(self._redo_stack.pop())
+
+    def _restore_state(self, state: dict) -> None:
+        self._form = FormModel.from_dict(state)
+        self._selected_ids.clear()
+        self._primary_id = None
+        self._form_selected = False
+        self._drag = None
+        self._reposition()
+        if self._on_structure_changed:
+            self._on_structure_changed()
+        if self._on_deselect:
+            self._on_deselect()
+
+    @property
+    def can_undo(self) -> bool:
+        return bool(self._undo_stack)
+
+    @property
+    def can_redo(self) -> bool:
+        return bool(self._redo_stack)
 
     def add_widget(self, descriptor: WidgetDescriptor) -> None:
         if self._form is None:
             return
+        self.push_undo()
         self._form.add_widget(descriptor)
         self._render_widget(descriptor)
         self.select(descriptor.id)
@@ -195,6 +249,7 @@ class DesignerCanvas(tk.Canvas):
     def remove_selected(self) -> None:
         if not self._selected_ids or self._form is None:
             return
+        self.push_undo()
         for wid in list(self._selected_ids):
             # Un-parent any children so they stay on the form
             for child in self._children_of(wid):
@@ -340,6 +395,7 @@ class DesignerCanvas(tk.Canvas):
     def paste(self, canvas_x: int | None = None, canvas_y: int | None = None) -> None:
         if not self._clipboard or self._form is None:
             return
+        self.push_undo()
 
         if canvas_x is not None and canvas_y is not None:
             # Right-click paste: anchor the group's top-left corner to the mouse
@@ -418,6 +474,7 @@ class DesignerCanvas(tk.Canvas):
             return
         w = self._form.get_widget(self._primary_id)
         if w:
+            self.push_undo()
             self._form.widgets.remove(w)
             self._form.widgets.append(w)
             self.redraw()
@@ -429,6 +486,7 @@ class DesignerCanvas(tk.Canvas):
             return
         w = self._form.get_widget(self._primary_id)
         if w:
+            self.push_undo()
             self._form.widgets.remove(w)
             self._form.widgets.insert(0, w)
             self.redraw()
@@ -495,6 +553,7 @@ class DesignerCanvas(tk.Canvas):
         return self._form.get_widget(self._primary_id)
 
     def _commit_alignment(self) -> None:
+        self.push_undo()
         self.redraw()
         for w in self._selected_widgets():
             if self._on_widget_changed:
@@ -597,6 +656,7 @@ class DesignerCanvas(tk.Canvas):
         self._commit_alignment()
 
     def set_selection_anchor(self, anchor: str) -> None:
+        self.push_undo()
         for w in self._selected_widgets():
             w.anchor = anchor
         if self._on_widget_changed:
@@ -885,6 +945,7 @@ class DesignerCanvas(tk.Canvas):
         if fhandle_tag:
             handle_name = fhandle_tag.split(":", 1)[1]
             if self._form:
+                self.push_undo()
                 self._drag = {
                     "mode":     "form_resize",
                     "handle":   handle_name,
@@ -903,6 +964,7 @@ class DesignerCanvas(tk.Canvas):
             if self._primary_id and self._form:
                 w = self._form.get_widget(self._primary_id)
                 if w:
+                    self.push_undo()
                     orig_others = {
                         sid: (sw.x, sw.y, sw.width, sw.height)
                         for sid in self._selected_ids
@@ -933,6 +995,7 @@ class DesignerCanvas(tk.Canvas):
                     self.select(wid)
                 w = self._form.get_widget(wid) if self._form else None
                 if w:
+                    self.push_undo()
                     orig_positions = {
                         sid: (sw.x, sw.y)
                         for sid in self._selected_ids
@@ -1366,14 +1429,29 @@ class DesignerCanvas(tk.Canvas):
         has_clip = self._clipboard is not None
 
         menu.add_command(
+            label="Undo",
+            state="normal" if self.can_undo else "disabled",
+            command=self.undo,
+            accelerator="Ctrl+Z",
+        )
+        menu.add_command(
+            label="Redo",
+            state="normal" if self.can_redo else "disabled",
+            command=self.redo,
+            accelerator="Ctrl+Y",
+        )
+        menu.add_separator()
+        menu.add_command(
             label="Copy",
             state="normal" if has_sel else "disabled",
             command=self.copy_selected,
+            accelerator="Ctrl+C",
         )
         menu.add_command(
             label="Paste",
             state="normal" if has_clip else "disabled",
             command=lambda: self.paste(event.x, event.y),
+            accelerator="Ctrl+V",
         )
         menu.add_separator()
         menu.add_command(
