@@ -1343,6 +1343,7 @@ class DesignerCanvas(tk.Canvas):
             return
 
         if d["mode"] == "form_resize":
+            self._reposition()
             if self._on_form_changed:
                 self._on_form_changed(self._form)
         elif d["mode"] in ("move", "resize"):
