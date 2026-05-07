@@ -1086,6 +1086,11 @@ class DesignerCanvas(tk.Canvas):
                     "orig_h":   self._form.height,
                     "orig_ox":  self._ox,
                     "orig_oy":  self._oy,
+                    "orig_widget_geoms": {
+                        w.id: (w.x, w.y, w.width, w.height)
+                        for w in self._form.widgets
+                        if w.anchor and w.anchor not in ("", "top_left")
+                    },
                 }
             return
 
@@ -1194,6 +1199,18 @@ class DesignerCanvas(tk.Canvas):
             f.height = max(GRID * 8, nh)
             self._ox = nox
             self._oy = noy
+
+            # Reposition anchored widgets to match runtime anchor behavior
+            orig_fw = d["orig_w"]
+            orig_fh = d["orig_h"]
+            for widget in f.widgets:
+                geom = d["orig_widget_geoms"].get(widget.id)
+                if geom:
+                    nx, ny, nww, nwh = _anchor_geom(
+                        geom, widget.anchor, orig_fw, orig_fh, f.width, f.height
+                    )
+                    widget.x, widget.y = nx, ny
+                    widget.width, widget.height = max(GRID, nww), max(GRID, nwh)
 
             self.delete("all")
             self._draw_form()
@@ -1912,3 +1929,37 @@ _DRAW: dict = {
 
 def _snap(v: int) -> int:
     return round(v / GRID) * GRID if _snap_enabled else v
+
+
+def _anchor_geom(
+    geom: tuple[int, int, int, int],
+    anchor: str,
+    orig_fw: int, orig_fh: int,
+    new_fw: int,  new_fh: int,
+) -> tuple[int, int, int, int]:
+    """Return (x, y, w, h) for a widget after form resize, matching codegen formulas."""
+    x, y, ww, wh = geom
+    rm = orig_fw - (x + ww)
+    bm = orig_fh - (y + wh)
+    if anchor == "all":
+        return (
+            round(x  * new_fw / orig_fw),
+            round(y  * new_fh / orig_fh),
+            round(ww * new_fw / orig_fw),
+            round(wh * new_fh / orig_fh),
+        )
+    if anchor == "top":
+        return (x, y, new_fw - x - rm, wh)
+    if anchor == "bottom":
+        return (x, new_fh - bm - wh, new_fw - x - rm, wh)
+    if anchor == "left":
+        return (x, y, ww, new_fh - y - bm)
+    if anchor == "right":
+        return (new_fw - rm - ww, y, ww, new_fh - y - bm)
+    if anchor == "top_right":
+        return (new_fw - rm - ww, y, ww, wh)
+    if anchor == "bottom_left":
+        return (x, new_fh - bm - wh, ww, wh)
+    if anchor == "bottom_right":
+        return (new_fw - rm - ww, new_fh - bm - wh, ww, wh)
+    return (x, y, ww, wh)  # top_left / none — no change
