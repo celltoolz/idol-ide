@@ -1032,18 +1032,16 @@ class DesignerCanvas(tk.Canvas):
         self.focus_set()
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
-            # If clicking on an existing widget, select it and de-arm instead
+            # If clicking on an existing widget, de-arm and fall through to
+            # normal click handling so a drag can start immediately.
             item = self._topmost_at(event.x, event.y)
             if item is not None:
                 tags = self.gettags(item)
-                widget_tag = next((t for t in tags if t.startswith("widget:")), None)
-                if widget_tag:
-                    wid = widget_tag.split(":", 1)[1]
+                if any(t.startswith("widget:") for t in tags):
                     self.cancel_tool()
-                    self.select(wid)
-                    return
-            reg = REGISTRY.get(self._active_tool)
-            if reg:
+                    # fall through to normal hit-testing below
+            if self._active_tool:  # still armed → place
+                reg = REGISTRY.get(self._active_tool)
                 w, h = reg["default_size"]
                 wid  = self._form.next_id(self._active_tool)
                 # Check if dropping onto a container
@@ -1072,7 +1070,8 @@ class DesignerCanvas(tk.Canvas):
                 if parent_id:
                     self._reorder_after_parent(wid, parent_id)
                 # Stay in placement mode — cursor remains crosshair
-            return
+                return
+            # Tool was cancelled (clicked on widget) → fall through to normal handling
 
         # Menu bar hitbox check (before regular hit testing)
         for (hx1, hy1, hx2, hy2, item_idx) in self._menu_hitboxes:
