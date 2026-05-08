@@ -155,6 +155,7 @@ class BottomPanel(ttk.Frame):
         self._active: str = "output"
         self._cwd = cwd
         self._cwd_after_id: Optional[str] = None
+        self._pending_cd: Optional[str] = None
         self._terminal_first_show: bool = True
         self._flash_job: Optional[str] = None
         self._flash_state: bool = False
@@ -356,8 +357,13 @@ class BottomPanel(ttk.Frame):
 
     def _apply_cwd(self) -> None:
         self._cwd_after_id = None
-        if self._active == "terminal" and self.terminal._running and self._cwd:
+        if not self._cwd:
+            return
+        if self._active == "terminal" and self.terminal._running:
             self.terminal.send_text(f'cd "{self._cwd}"\r')
+        elif self.terminal._running:
+            # Terminal is running but not the active tab — defer until shown
+            self._pending_cd = self._cwd
 
     def update_problems(self, entries: list[dict]) -> None:
         self.problems.update(entries)
@@ -444,6 +450,9 @@ class BottomPanel(ttk.Frame):
             self.terminal.pack(fill="both", expand=True)
             if not self.terminal._running:
                 self.terminal.start(cwd=self._cwd)
+            elif self._pending_cd:
+                self.terminal._send_silently(f'cd "{self._pending_cd}"\r')
+                self._pending_cd = None
             if self._terminal_first_show:
                 self._terminal_first_show = False
                 if platform.system() == "Windows":
