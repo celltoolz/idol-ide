@@ -203,12 +203,44 @@ class OutlinePanel(ttk.Frame):
 
     # ── Refresh ───────────────────────────────────────────────────────────────
 
+    def _fingerprint(self, tree) -> tuple:
+        """Compact hashable summary of everything the outline displays.
+        Used to skip clear+rebuild when nothing visible actually changed."""
+        fp = []
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        fp.append(("var", t.id, node.lineno))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                fp.append(("avar", node.target.id, node.lineno))
+            elif isinstance(node, ast.ClassDef):
+                methods = []
+                for child in ast.iter_child_nodes(node):
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        params  = tuple(self._params(child))
+                        attrs   = tuple(self._instance_attrs(child))
+                        locals_ = tuple(self._local_vars(child))
+                        methods.append((child.name, child.lineno, params, attrs, locals_))
+                fp.append(("cls", node.name, node.lineno, tuple(methods)))
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                params  = tuple(self._params(node))
+                locals_ = tuple(self._local_vars(node))
+                fp.append(("fn", node.name, node.lineno, params, locals_))
+        return tuple(fp)
+
     def _refresh(self, code: str) -> None:
         self._after_id = None
         try:
             tree = ast.parse(code)
         except SyntaxError:
             return  # Keep existing content until the code is valid again
+
+        # Skip the clear+rebuild if nothing visible has changed
+        fp = self._fingerprint(tree)
+        if fp == getattr(self, "_last_fp", None):
+            return
+        self._last_fp = fp
 
         # Snapshot which expandable items are open before wiping the tree
         open_state: dict[str, bool] = {}

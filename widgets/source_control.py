@@ -75,6 +75,8 @@ class _FileRow(Frame):
                  bg: str = _ITEM_BG) -> None:
         super().__init__(parent, bg=bg, cursor="hand2")
         self._bg = bg
+        self._path = path
+        self._status = status
         color = STATUS_COLORS.get(status, _FG)
         name = os.path.basename(path)
 
@@ -258,18 +260,25 @@ class _Section(Frame):
     def populate(self, items: dict[str, str],
                  on_click: Callable, on_right_click: Callable,
                  panel_menu_cb: Callable | None = None) -> None:
-        # Clear existing rendered rows
-        for wid, widget in self._rendered.values():
-            self._canvas.delete(wid)
-            widget.destroy()
-        self._rendered.clear()
-
-        self._items               = list(items.items())
+        new_items = list(items.items())
         self._on_click            = on_click
         self._on_right_click_file = on_right_click
         if panel_menu_cb:
             self._panel_menu_cb = panel_menu_cb
 
+        # Discard only rows whose data changed or whose index is now out of range.
+        # Rows that are still valid stay on screen — no empty-canvas flash.
+        stale = [
+            i for i, (_, widget) in self._rendered.items()
+            if i >= len(new_items)
+            or new_items[i] != (widget._path, widget._status)
+        ]
+        for i in stale:
+            wid, widget = self._rendered.pop(i)
+            self._canvas.delete(wid)
+            widget.destroy()
+
+        self._items = new_items
         total_h = len(self._items) * self._ROW_H
         self._canvas.configure(scrollregion=(0, 0, self._canvas_w, total_h))
         self._canvas.yview_moveto(0)
@@ -484,6 +493,12 @@ class _HistorySection(Frame):
     def _rebuild_rows(self) -> None:
         if not hasattr(self, "_inner"):
             return   # canvas not built yet (trace fired during __init__)
+        # Skip full rebuild if the commit list hasn't changed
+        new_hashes = [c.hash for c in self._filtered]
+        old_hashes = [w._commit_hash for w in self._inner.winfo_children()
+                      if hasattr(w, "_commit_hash")]
+        if new_hashes == old_hashes:
+            return
         self._hide_hover()
         for w in self._inner.winfo_children():
             w.destroy()
@@ -515,6 +530,7 @@ class _HistorySection(Frame):
 
         row = Frame(self._inner, bg=_ITEM_BG, cursor="hand2",
                     height=self._ROW_H)
+        row._commit_hash = commit.hash
         row.pack(fill="x")
         row.pack_propagate(False)
 
