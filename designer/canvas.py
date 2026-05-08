@@ -193,6 +193,40 @@ class DesignerCanvas(tk.Canvas):
         self._active_tool = None
         self.config(cursor="arrow")
 
+    def drop_widget(self, type_key: str, cx: int, cy: int) -> None:
+        """Place *type_key* at canvas coord (cx, cy) with default size (palette drag-drop)."""
+        if self._form is None:
+            return
+        reg = REGISTRY.get(type_key)
+        if not reg:
+            return
+        w, h = reg["default_size"]
+        container = self._container_at(cx, cy)
+        if container:
+            ax, ay = self._abs_xy(container)
+            label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
+            fx = _snap(cx - ax)
+            fy = _snap(cy - ay - label_h)
+            fx = max(0, min(fx, container.width  - w))
+            fy = max(0, min(fy, container.height - label_h - h))
+            parent_id = container.id
+        else:
+            fx = _snap(cx - self._ox)
+            fy = _snap(cy - self._oy)
+            fx = max(0,           min(fx, self._form.width  - w))
+            fy = max(self._min_y, min(fy, self._form.height - h))
+            parent_id = None
+        wid = self._form.next_id(type_key)
+        desc = WidgetDescriptor(
+            id=wid, type=type_key,
+            x=fx, y=fy, width=w, height=h,
+            props=dict(reg["default_props"]),
+            parent_id=parent_id,
+        )
+        self.add_widget(desc)
+        if parent_id:
+            self._reorder_after_parent(wid, parent_id)
+
     def load_form(self, form: FormModel) -> None:
         self._form = form
         self._selected_ids.clear()

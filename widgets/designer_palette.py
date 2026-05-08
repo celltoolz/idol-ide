@@ -24,6 +24,7 @@ class DesignerPalette(tk.Frame):
     Each entry shows a canvas-drawn mini-preview and a text label.
     Clicking fires on_tool_select(type_key) where type_key is the registry
     key (e.g. 'Button') or None for the pointer/select tool.
+    Dragging a widget onto the canvas fires on_drag_drop(type_key, x_root, y_root).
     """
 
     def __init__(
@@ -31,13 +32,17 @@ class DesignerPalette(tk.Frame):
         master,
         on_tool_select: Optional[Callable[[str | None], None]] = None,
         on_place: Optional[Callable[[str], None]] = None,
+        on_drag_drop: Optional[Callable[[str, int, int], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, **kwargs)
         self._on_tool_select = on_tool_select
         self._on_place = on_place
+        self._on_drag_drop = on_drag_drop
         self._selected: str | None = None   # None = pointer tool
         self._items:    dict[str | None, tk.Frame] = {}
+        self._drag_pending: dict | None = None
+        self._ghost: tk.Toplevel | None = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -99,8 +104,10 @@ class DesignerPalette(tk.Frame):
 
         # Bind click on all child widgets
         for widget in (row, prev, lbl, accent):
-            widget.bind("<Button-1>",        lambda _, k=type_key: self._select(k))
-            widget.bind("<Double-Button-1>",  lambda _, k=type_key: self._place(k))
+            widget.bind("<Button-1>",         lambda e, k=type_key: self._on_press(k, e))
+            widget.bind("<B1-Motion>",         lambda e, k=type_key: self._on_drag_motion(k, e))
+            widget.bind("<ButtonRelease-1>",   lambda e, k=type_key: self._on_drag_release(k, e))
+            widget.bind("<Double-Button-1>",   lambda _, k=type_key: self._place(k))
             widget.bind("<Enter>",    lambda _, r=row, a=accent, k=type_key:
                         self._on_enter(r, a, k))
             widget.bind("<Leave>",    lambda _, r=row, a=accent, k=type_key:
@@ -131,6 +138,60 @@ class DesignerPalette(tk.Frame):
         self._apply_selection(None)
         if self._on_place:
             self._on_place(type_key)
+
+    def _on_press(self, type_key: str | None, event: tk.Event) -> None:
+        self._drag_pending = {
+            "type_key": type_key,
+            "start_x":  event.x_root,
+            "start_y":  event.y_root,
+            "dragging": False,
+        }
+
+    def _on_drag_motion(self, type_key: str | None, event: tk.Event) -> None:
+        if self._drag_pending is None or type_key is None:
+            return
+        if not self._drag_pending["dragging"]:
+            dx = abs(event.x_root - self._drag_pending["start_x"])
+            dy = abs(event.y_root - self._drag_pending["start_y"])
+            if dx > 5 or dy > 5:
+                self._drag_pending["dragging"] = True
+                self._show_ghost(type_key)
+        if self._drag_pending["dragging"]:
+            self._move_ghost(event.x_root, event.y_root)
+
+    def _on_drag_release(self, type_key: str | None, event: tk.Event) -> None:
+        if self._drag_pending is None:
+            self._select(type_key)
+            return
+        was_dragging = self._drag_pending["dragging"]
+        self._drag_pending = None
+        self._hide_ghost()
+        if was_dragging:
+            if type_key is not None and self._on_drag_drop:
+                self._on_drag_drop(type_key, event.x_root, event.y_root)
+        else:
+            self._select(type_key)
+
+    def _show_ghost(self, type_key: str) -> None:
+        self._hide_ghost()
+        self._ghost = tk.Toplevel(self.winfo_toplevel())
+        self._ghost.overrideredirect(True)
+        self._ghost.attributes("-topmost", True)
+        self._ghost.attributes("-alpha", 0.85)
+        tk.Label(
+            self._ghost, text=f"  {type_key}  ",
+            bg=_ACT, fg="#ffffff",
+            font=("Segoe UI", 9), relief="solid", bd=1,
+        ).pack()
+
+    def _move_ghost(self, x_root: int, y_root: int) -> None:
+        if self._ghost:
+            self._ghost.geometry(f"+{x_root + 14}+{y_root + 10}")
+
+    def _hide_ghost(self) -> None:
+        if self._ghost:
+            self._ghost.destroy()
+            self._ghost = None
 
     def _apply_selection(self, type_key: str | None) -> None:
         # Clear old selection

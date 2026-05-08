@@ -851,6 +851,7 @@ class IDOL(Tk):
             self._h_pane,
             on_tool_select=self._on_palette_tool_select,
             on_place=self._on_palette_place,
+            on_drag_drop=self._on_palette_drag_drop,
         )
         self._designer_palette.configure(width=180)
 
@@ -4450,6 +4451,17 @@ class IDOL(Tk):
     def _on_palette_place(self, type_key: str) -> None:
         """Palette double-click → place widget at form centre immediately."""
         self._design_canvas.place_at_default(type_key)
+        self._designer_palette.reset_to_pointer()
+
+    def _on_palette_drag_drop(self, type_key: str, x_root: int, y_root: int) -> None:
+        """Palette drag-drop → place widget at the drop position on the canvas."""
+        canvas = self._design_canvas
+        cx = canvas.winfo_rootx()
+        cy = canvas.winfo_rooty()
+        cw = canvas.winfo_width()
+        ch = canvas.winfo_height()
+        if cx <= x_root <= cx + cw and cy <= y_root <= cy + ch:
+            canvas.drop_widget(type_key, x_root - cx, y_root - cy)
         self._designer_palette.reset_to_pointer()
 
     def _on_designer_select(self, widget_id: str) -> None:
