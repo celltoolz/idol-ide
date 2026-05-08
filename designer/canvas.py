@@ -1685,6 +1685,42 @@ def _text(c, x, y, x2, y2, txt, anchor="center", color="#111111", bold=False):
     c.create_text(cx, cy, text=txt, fill=color, font=font, anchor=anchor)
 
 
+def _relief_border(c, x, y, x2, y2, relief, bd=2):
+    """Draw a tkinter-style relief border. Does nothing for flat/empty."""
+    light, mid, dark = "#ffffff", "#c0c0c0", "#808080"
+    if not relief or relief == "flat":
+        return
+    if relief == "solid":
+        c.create_rectangle(x, y, x2, y2, outline="#000000", fill="")
+        return
+    if relief == "raised":
+        tl, br, tl2, br2 = light, dark,  light, mid
+    elif relief == "sunken":
+        tl, br, tl2, br2 = dark,  light, mid,   light
+    elif relief == "groove":
+        tl, br, tl2, br2 = dark,  light, light, dark
+    elif relief == "ridge":
+        tl, br, tl2, br2 = light, dark,  dark,  light
+    else:
+        return
+    c.create_line(x,    y,    x2,   y,    fill=tl)
+    c.create_line(x,    y,    x,    y2,   fill=tl)
+    c.create_line(x,    y2,   x2,   y2,   fill=br)
+    c.create_line(x2,   y,    x2,   y2,   fill=br)
+    if bd >= 2:
+        c.create_line(x+1,  y+1,  x2-1, y+1,  fill=tl2)
+        c.create_line(x+1,  y+1,  x+1,  y2-1, fill=tl2)
+        c.create_line(x+1,  y2-1, x2-1, y2-1, fill=br2)
+        c.create_line(x2-1, y+1,  x2-1, y2-1, fill=br2)
+
+
+def _get_bd(props, default=2):
+    try:
+        return max(0, int(props.get("borderwidth", "") or default))
+    except (ValueError, TypeError):
+        return default
+
+
 @_tag
 def _draw_button(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#e1e1e1") or "#e1e1e1"
@@ -1692,9 +1728,9 @@ def _draw_button(c, x, y, x2, y2, text, props):
     disabled = (props.get("state", "normal") == "disabled")
     if disabled:
         fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
-    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#adadad", width=1)
-    if not disabled:
-        c.create_rectangle(x+1, y+1, x2, y2, fill="", outline="#ffffff", width=1)
+    relief = props.get("relief", "") or "raised"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     _text(c, x, y, x2, y2, text or "Button", color=fg)
 
 
@@ -1704,7 +1740,9 @@ def _draw_label(c, x, y, x2, y2, text, props):
     fg = props.get("fg", "#111111") or "#111111"
     if props.get("state", "normal") == "disabled":
         fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
+    relief = props.get("relief", "") or "flat"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
 
 
@@ -1716,8 +1754,9 @@ def _draw_entry(c, x, y, x2, y2, text, props):
     if state == "disabled":
         bg = props.get("disabledbackground", bg) or bg
         fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
-    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3", width=1)
-    c.create_line(x+1, y+1, x2-1, y+1, fill="#c2c2c2")
+    relief = props.get("relief", "") or "sunken"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     show = props.get("show", "")
     placeholder = props.get("placeholder", "")
     if show:
@@ -1732,8 +1771,9 @@ def _draw_entry(c, x, y, x2, y2, text, props):
 def _draw_text(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#ffffff") or "#ffffff"
     state = props.get("state", "normal")
-    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3")
-    c.create_line(x+1, y+1, x2-1, y+1, fill="#c2c2c2")
+    relief = props.get("relief", "") or "sunken"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     fg = "#cccccc" if state == "disabled" else "#aaaaaa"
     _text(c, x, y, x2, y2, "Text", anchor="w", color=fg)
 
@@ -1795,7 +1835,9 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
     sbg    = props.get("selectbackground", "#0078d4") or "#0078d4"
     sfg    = props.get("selectforeground", "#ffffff")  or "#ffffff"
     alt_bg = props.get("colorize_altbg", "") if props.get("colorize") else ""
-    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3")
+    relief = props.get("relief", "") or "sunken"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     row_h = 18
     items = props.get("values", [])
     display = [str(v) for v in items] if items else [f"Item {i+1}" for i in range(3)]
@@ -1818,8 +1860,12 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
 @_tag
 def _draw_frame(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#f0f0f0") or "#f0f0f0"
-    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#abadb3",
-                        dash=(4, 4), width=1)
+    relief = props.get("relief", "") or "flat"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
+    if not relief or relief == "flat":
+        c.create_rectangle(x, y, x2, y2, outline="#abadb3", fill="", dash=(4, 4))
+    else:
+        _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
 
 
 @_tag
@@ -1827,32 +1873,39 @@ def _draw_labelframe(c, x, y, x2, y2, text, props):
     bg    = props.get("bg",  "#f0f0f0") or "#f0f0f0"
     fg    = props.get("fg",  "#333333") or "#333333"
     label = text or "Group"
+    relief = props.get("relief", "") or "groove"
+    bd = _get_bd(props)
     anchor = props.get("labelanchor", "nw") or "nw"
     lw = len(label) * 6 + 8
     lh = 16
-    # First character is the primary edge: n=top, s=bottom, w=left, e=right
     edge = anchor[0]
     align = anchor[1] if len(anchor) > 1 else ""
     if edge == "s":
-        c.create_rectangle(x, y, x2, y2-8, fill=bg, outline="#abadb3", dash=(4, 4))
+        bx, by, bx2, by2 = x, y, x2, y2-8
         lx = x+8 if align == "w" else (x2-8-lw if align == "e" else (x+x2)//2-lw//2)
-        c.create_rectangle(lx, y2-lh, lx+lw, y2, fill=bg, outline="")
-        c.create_text(lx+4, y2-8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        notch = (lx, y2-lh, lx+lw, y2)
     elif edge == "w":
-        c.create_rectangle(x+8, y, x2, y2, fill=bg, outline="#abadb3", dash=(4, 4))
+        bx, by, bx2, by2 = x+8, y, x2, y2
         ly = y+8 if align == "n" else (y2-lh-8 if align == "s" else (y+y2)//2-lh//2)
-        c.create_rectangle(x, ly, x+lw, ly+lh, fill=bg, outline="")
-        c.create_text(x+4, ly+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        notch = (x, ly, x+lw, ly+lh)
     elif edge == "e":
-        c.create_rectangle(x, y, x2-8, y2, fill=bg, outline="#abadb3", dash=(4, 4))
+        bx, by, bx2, by2 = x, y, x2-8, y2
         ly = y+8 if align == "n" else (y2-lh-8 if align == "s" else (y+y2)//2-lh//2)
-        c.create_rectangle(x2-lw, ly, x2, ly+lh, fill=bg, outline="")
-        c.create_text(x2-lw+4, ly+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        notch = (x2-lw, ly, x2, ly+lh)
     else:  # n (default)
-        c.create_rectangle(x, y+8, x2, y2, fill=bg, outline="#abadb3", dash=(4, 4))
+        bx, by, bx2, by2 = x, y+8, x2, y2
         lx = x+8 if align in ("w", "") else (x2-8-lw if align == "e" else (x+x2)//2-lw//2)
-        c.create_rectangle(lx, y, lx+lw, y+lh, fill=bg, outline="")
-        c.create_text(lx+4, y+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        notch = (lx, y, lx+lw, y+lh)
+    c.create_rectangle(bx, by, bx2, by2, fill=bg, outline="")
+    _relief_border(c, bx, by, bx2, by2, relief, bd)
+    # Erase the border at the label position to create the notch
+    c.create_rectangle(notch[0], notch[1], notch[2], notch[3], fill=bg, outline="")
+    if edge == "s":
+        c.create_text(notch[0]+4, y2-8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+    elif edge in ("w", "e"):
+        c.create_text(notch[0]+4, notch[1]+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+    else:
+        c.create_text(notch[0]+4, by+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
 
 
 @_tag
@@ -1884,8 +1937,10 @@ def _draw_spinbox(c, x, y, x2, y2, text, props):
         bg  = props.get("readonlybackground", "#e8e8e8") or "#e8e8e8"
     btn_bg = "#cccccc" if state in ("disabled", "readonly") else "#e1e1e1"
     btn_fg = "#aaaaaa" if state == "disabled" else "#555555"
-    c.create_rectangle(x, y, x2, y2,      fill=bg,     outline="#abadb3")
-    c.create_rectangle(x2-16, y, x2, y2,  fill=btn_bg, outline="#abadb3")
+    relief = props.get("relief", "") or "sunken"
+    c.create_rectangle(x, y, x2, y2,      fill=bg,     outline="")
+    c.create_rectangle(x2-16, y, x2, y2,  fill=btn_bg, outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     mid = (y + y2) // 2
     c.create_text(x2-8, mid-4, text="▲", fill=btn_fg, font=("Segoe UI", 6))
     c.create_text(x2-8, mid+4, text="▼", fill=btn_fg, font=("Segoe UI", 6))
