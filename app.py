@@ -4885,8 +4885,28 @@ class IDOL(Tk):
                 activebackground="#2d2d2d", font=("Segoe UI", 9),
             ).pack(side="left", padx=(0, 8))
 
+        tk.Label(win, text="Link to:", bg="#2d2d2d", fg="#cccccc",
+                 font=("Segoe UI", 9)).grid(row=2, column=0, padx=12, pady=4, sticky="w")
+
+        main_forms = [f.name for f in self._designer_forms.values() if f.form_type == "main"]
+        link_options = ["None (unlinked)"] + main_forms
+        link_var = tk.StringVar(value=main_forms[0] if main_forms else "None (unlinked)")
+        link_cb = ttk.Combobox(
+            win, textvariable=link_var, values=link_options,
+            state="readonly", font=("Segoe UI", 9), width=20,
+        )
+        link_cb.grid(row=2, column=1, padx=(0, 12), pady=4, sticky="w")
+
+        def _on_type_change(*_):
+            if type_var.get() == "main":
+                link_cb.config(state="disabled")
+                link_var.set("None (unlinked)")
+            else:
+                link_cb.config(state="readonly")
+        type_var.trace_add("write", _on_type_change)
+
         btn_frame = tk.Frame(win, bg="#2d2d2d")
-        btn_frame.grid(row=2, column=0, columnspan=2, pady=(8, 12))
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=(8, 12))
 
         def _create():
             name = name_var.get().strip()
@@ -4896,15 +4916,21 @@ class IDOL(Tk):
             if name in self._designer_forms:
                 name_entry.config(bg="#5a1a1a")
                 return
+            link_to   = link_var.get()
+            form_type = type_var.get()
             win.destroy()
             form = _FormModel(
                 name=name,
                 title=name,
                 width=400,
                 height=300,
-                form_type=type_var.get(),
+                form_type=form_type,
             )
             self._designer_forms[name] = form
+            if form_type == "dialog" and link_to != "None (unlinked)":
+                parent = self._designer_forms.get(link_to)
+                if parent and name not in parent.linked_dialogs:
+                    parent.linked_dialogs.append(name)
             self._designer_autosave()
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
