@@ -5,7 +5,7 @@
 - Multi-tab editing with drag reorder, hover close button, and right-click tab menu
 - Hover any tab to see its full file path as a tooltip
 - Syntax highlighting via [Pygments](https://pygments.org/) — Dracula, Monokai, Ayu, Material, and more
-- Line numbers with code folding — click ⊟/⊞ markers to collapse/expand blocks
+- Line numbers with code folding — click ⊟/⊞ markers to collapse/expand blocks; `# ── Name ───` section-marker comments are also foldable regions
 - Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes
 - Insert key toggles overwrite mode — block cursor and OVR status bar indicator
 
@@ -53,6 +53,17 @@ A thin bar between the tab row and the editor showing the full file path and cur
 - **Side-by-side editing** — drag a tab past the midpoint or use `Ctrl+\` / right-click menu
 - **Scroll lock** — ⇕ button syncs both panes to the same scroll position; Scroll Lock key toggles it
 - Unsaved-changes check when closing the split pane
+
+## Code Editing Helpers
+
+- **Ctrl+/** — toggle comment on the current line or selection (adds/removes `#`)
+- **Smart Home** — first press jumps to the first non-whitespace character; second press jumps to column 0 (position-based, no state needed)
+- **Word occurrence highlights** — when the cursor rests on a word, all other occurrences in the file highlight automatically; updates on arrow-key navigation too
+- **Selection collapse** — pressing Left or Right arrow with a selection collapses to the start/end of the selection (VS Code behavior)
+
+## CRC Dirty Tracking
+
+The tab's modified dot (`•`) clears automatically when you undo back to the exact saved state — no manual save needed to clean the indicator. CRC32 is computed on each save and compared on every change.
 
 ## Find & Replace
 

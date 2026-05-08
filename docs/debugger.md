@@ -12,6 +12,8 @@ IDOL includes an integrated Python debugger powered by [debugpy](https://github.
 - Click the left edge of the gutter (the dim ghost dot zone) to set or clear a breakpoint
 - Red dots appear on active lines and **persist across sessions**
 - VS Code-style gutter: dim ghost dot on hover, cursor switches to a hand, bright red dot on active breakpoints, subtle separator between dot column and line numbers
+- **Auto-shift** — when you insert or delete lines above a breakpoint, the breakpoint moves with the code automatically
+- **Undo/redo aware** — breakpoints shift back correctly when you undo or redo line insertions
 
 ## Debug Targets
 

@@ -2,7 +2,11 @@
 
 ## Command Palette
 
-Open with `Ctrl+Shift+P`. Fuzzy-searches all commands. Type `@` to search symbols by name across the current file.
+Open with `Ctrl+Shift+P`. Fuzzy-searches all commands.
+
+- **`@` prefix** — search symbols by name across the current file
+- **`!pip` prefix** — install packages without opening the Package Manager; type `!pip requests` to install directly from the palette with package-name autocomplete
+- **Designer commands** — Generate Code, Fold All, Unfold All appear when a designer project is open
 
 ## File Explorer
 

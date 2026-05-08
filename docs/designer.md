@@ -29,10 +29,12 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 - **Drag to move** — repositions with 8px snap-to-grid
 - **Drag a handle to resize** — snapped to the same 8px grid
 - **Multi-select** — rubber-band drag to select multiple widgets; Ctrl+Click to toggle individual widgets; drag the group to move all at once
+- **Primary vs secondary selection** — the last-clicked widget is the primary (amber border + full resize handles); all others are secondary (blue border only); resize dragging on any handle propagates the delta to all selected widgets
 - **Copy / Paste** — Ctrl+C / Ctrl+V to duplicate; right-click context menu with Copy, Paste, Delete, Bring to Front, Send to Back
 - **Arrow-key nudge** — 1px precision positioning with arrow keys
 - **Z-order** — Bring to Front / Send to Back preserved on every mutation
 - **Menu bar strip** — live menu bar rendered below the title bar from your menu items; clicking a top-level name opens a native dropdown; clicking a command or check/radio item with a handler navigates to that handler in the editor
+- **Canvas scrollbars** — the canvas has horizontal and vertical scrollbars with mousewheel support; the form recenters automatically after a resize drag
 
 ## Widget Palette
 
@@ -46,18 +48,50 @@ Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, 
 - **Drag from palette to canvas** — drag a palette item directly onto the canvas; a ghost label follows the cursor; releasing over the canvas drops the widget at default size at that position; releasing outside the canvas cancels
 - **Double-click** — places the widget at the centre of the form immediately, without needing a canvas click
 
+**Multi-placement mode** — a single click on a palette item keeps the tool armed after each drop. Every subsequent canvas click places another widget of the same type. De-arm by pressing Escape, clicking outside the canvas, or selecting the Pointer tool.
+
+**Smart placement cursor** — while a palette tool is armed, the cursor changes based on what's under it:
+- **Crosshair** over empty form area — click will place a new widget
+- **Arrow** over an unselected widget — click selects it and de-arms the tool
+- **Fleur (move)** over a selected widget — drag moves it immediately; click selects and de-arms
+
 ## Toolbar
 
-A horizontal strip above the canvas with alignment and snap controls:
+A horizontal strip above the canvas with alignment, snap, and history controls.
 
-- **Align** — Align Left, Right, Top, Bottom, Center Horizontally, Center Vertically (requires ≥2 selected)
-- **Distribute** — Equal horizontal / vertical spacing (requires ≥3 selected)
-- **Size** — Same Width / Same Height across selected widgets
-- **Snap toggle** — enable/disable snap-to-grid; blue indicator when active
+**Left cluster — Alignment** (requires ≥2 selected):
+- Align Left, Right, Top, Bottom, Center Horizontally, Center Vertically
+
+**Center cluster — Distribution** (requires ≥3 selected):
+- Distribute Equal Horizontal / Vertical spacing — grid-aware: clusters widgets into rows/columns and assigns uniform positions
+
+**Center cluster — Sizing** (requires ≥2 selected):
+- Same Width / Same Height across all selected widgets
+
+**Snap toggle** — enable/disable snap-to-grid (8px); blue indicator when active
+
+**Grid Layout popup** — ⊡ button opens a `Toplevel` with Make Grid and H/V nudge controls for arranging widgets in a regular grid automatically
+
+**Right cluster — History & Clipboard:**
+
+| Action | Shortcut |
+|---|---|
+| Undo | Ctrl+Z |
+| Redo | Ctrl+Y |
+| Copy | Ctrl+C |
+| Paste | Ctrl+V |
+
+Undo/Redo is snapshot-based (max 50 states). Every mutation — move, resize, add, delete, prop change — is snapshotted before it happens. Also accessible via right-click context menu on the canvas.
+
+**Toolbar button states** — buttons dim to #555555 and ignore clicks when their action doesn't apply (alignment/distribute/size require ≥2/3 widgets selected; undo/redo track stack depth; copy requires a selection; paste requires clipboard content).
 
 ## Properties Panel
 
 Right-side panel with a **control selector dropdown** at the top and Property/Value columns below. Click any value to edit inline; geometry updates live as you drag on the canvas.
+
+### Font Picker
+
+The `font` property row opens a font chooser dialog pre-populated with the widget's current family, size, and style. Supports bold, italic, underline, and overstrike. The result is written back as a string tkinter accepts natively (e.g. `"Arial 12 bold"`).
 
 ### Color Picker
 Background and Foreground properties open `tkinter.colorchooser`. The row tints immediately and the canvas widget updates live. New widgets get sensible default colors automatically. A `×` button appears on hover to clear the value back to default.
@@ -72,6 +106,21 @@ Entry and Spinbox expose a `validate` dropdown (key / focus / all / etc.) with `
 Supported widgets expose a Variable section: set a name, type (StringVar / IntVar / DoubleVar / BooleanVar), and initial value. Codegen emits the declaration and wires `textvariable=` / `variable=` automatically.
 
 **Variable picker popup** — click the variable name field to open a popup listing every variable defined on the form (from widget bindings and menu check/radio items) with its type; live-filters as you type, or type a new name manually.
+
+### Widget Anchoring
+
+The `anchor` row in Properties shows a 3×3 picker grid. Selecting an anchor position (e.g. bottom-right) causes the widget to reposition and resize relative to the form at runtime — so it stays pinned to that corner as the window is resized.
+
+- **Live preview** — while you drag a form resize handle on the canvas, anchored widgets reposition in real time, matching the runtime behavior
+- **Shift+resize suppresses anchors** — hold Shift while dragging a form handle to keep all widgets frozen (useful for checking the layout without anchor interference)
+- **Hover hint** — the anchor row's status-bar hint describes the selected anchor and reminds you of the Shift shortcut
+- A `×` button appears on hover to clear the anchor back to none
+
+Codegen emits a `_apply_anchor_layout()` method that is called in `__init__` after `_build_ui()`.
+
+### Multi-Select Properties
+
+When multiple widgets are selected, the Properties panel shows the **intersection** of all their shared property names. Values that differ across the selection are shown blank; typing a new value applies it to all selected widgets at once. Color pickers, enum dropdowns, and text fields all work in multi-select. The font picker and list editor are single-select only.
 
 ### Form Properties
 Click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), and maximize box. Border style and maximize box stay in sync automatically.
@@ -99,6 +148,12 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 
 **`comboselected` event** — for Combobox, generates `.bind("<<ComboboxSelected>>", ...)`.
 
+**Form events** — clicking the canvas background and switching to the Events tab exposes form-level events: load, activate, deactivate, unload, resize. Wiring them generates `.bind()` calls and stubs the handler methods.
+
+**Handler picker** — every event handler cell has a ▾ button that opens a scrollable popup listing all handlers already defined on the form. Hover a row to preview the name in the entry field. Useful for reusing an existing handler across multiple events. The Menu Editor Command field has the same picker.
+
+**Double-click a wired event row** to auto-generate code (if dirty) and jump directly to that handler in the editor.
+
 ## Widget Containment
 
 Frame and LabelFrame act as parent containers:
@@ -113,9 +168,11 @@ Frame and LabelFrame act as parent containers:
 
 A VB6-style dialog accessible from the `menu bar` form property row.
 
-**Fields:** Caption, Name, Shortcut, Enabled, Visible, **Type** (Command / Checkbutton / Radiobutton), **Variable** (with variable picker popup), **Command**, **Value**
+**Fields:** Caption, Name, Shortcut, Enabled, Visible, **Type** (Command / Checkbutton / Radiobutton), **Variable** (with variable picker popup), **Command** (with handler picker popup), **Value**
 
-**Controls:** ← → ↑ ↓ arrow buttons to indent (create submenus) and reorder; Insert / Delete / Next; indented preview listbox; hover hint bar at the bottom describing each field; OK / Cancel
+**Controls:** ← → ↑ ↓ arrow buttons to indent (create submenus) and reorder; Insert / **Separator** / Delete / Next; indented preview listbox; hover hint bar at the bottom describing each field; OK / Cancel
+
+**& access-key in captions** — prefix a letter with `&` (e.g. `&File`) to set an access-key underline. The `&` is stripped from the rendered caption and codegen emits the matching `underline=N` kwarg.
 
 **Behavior:**
 - Adding a menu bar shifts all top-level widgets down 20px and increases form height; removing reverses this
@@ -174,11 +231,15 @@ class Form1(tk.Tk):
 
 Regenerating never discards code you wrote:
 
-- Event handler **bodies** are extracted and spliced back in verbatim
+- Event handler **bodies** are extracted and spliced back in verbatim, including any **leading comment lines** before the first statement
 - Event handler **signatures** are preserved — change `*args` to `event: tk.Event` once and IDOL keeps it on every subsequent regeneration
 - User **imports** between the `IDOL:IMPORTS:BEGIN/END` markers survive regeneration
 - Helper methods in the `# ── Functions ──` section survive verbatim
 - Code in the two `__init__` user zones (between the IDOL marker blocks) is preserved
+
+## Codegen Confirmation Prompt
+
+When Generate Code would overwrite a file, a single dark-themed dialog asks for confirmation. A **"don't ask again this session"** checkbox suppresses subsequent prompts for the rest of the session. The checkbox resets on next launch.
 
 ## Manual Edits Detection
 

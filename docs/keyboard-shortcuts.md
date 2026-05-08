@@ -23,6 +23,7 @@
 | Clear all cursors | Escape / Click |
 | Extend selection (per cursor) | Shift+Arrow |
 | Toggle overwrite mode | Insert |
+| Toggle comment | Ctrl+/ |
 | Move line up / down | Alt+Up / Alt+Down |
 | Duplicate line down (cursor follows) | Shift+Alt+Down |
 | Duplicate line up (cursor stays) | Shift+Alt+Up |
@@ -76,3 +77,10 @@
 | Action | Shortcut |
 |---|---|
 | Generate Code | Ctrl+Shift+G |
+| Undo | Ctrl+Z |
+| Redo | Ctrl+Y |
+| Copy widget(s) | Ctrl+C |
+| Paste widget(s) | Ctrl+V |
+| Delete widget(s) | Delete |
+| Nudge widget(s) | Arrow keys (1px) |
+| Select all widgets | Ctrl+A |

@@ -68,7 +68,8 @@ The status bar (bottom of the window) shows:
 - **Line/column** — cursor position
 - **Cursor count** — shown when multiple cursors are active
 - **Lexer name** — active syntax highlighter
-- **Active interpreter** — Python version or venv name
+- **Active interpreter** — Python version or venv name; click to open the interpreter picker
+- **Run entry selector** — shows which file the ▶ run button targets (`Active Tab` or a pinned filename); click to change; persists with the project
 - **Indent mode** — spaces ↔ tabs cycle on click
 - **Git branch** — current branch with live polling
 
