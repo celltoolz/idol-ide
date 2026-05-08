@@ -2555,7 +2555,14 @@ class IDOL(Tk):
         """Fetch the latest 50 commits and push them to the HISTORY section."""
         if not self._git or not self._sidebar._sc_visible:
             return
-        self._git.get_log(50, self._sidebar.source_control.refresh_history)
+        git_snap = self._git
+        self._git.get_log(
+            50,
+            lambda commits: (
+                self._sidebar.source_control.refresh_history(commits)
+                if self._git is git_snap else None
+            ),
+        )
 
     def _sc_gitignore_exists(self) -> bool:
         if not self._git:
