@@ -1044,36 +1044,12 @@ class DesignerCanvas(tk.Canvas):
                 if any(t.startswith("widget:") for t in tags):
                     self.cancel_tool()
                     # fall through to normal hit-testing below
-            if self._active_tool:  # still armed → place
-                reg = REGISTRY.get(self._active_tool)
-                w, h = reg["default_size"]
-                wid  = self._form.next_id(self._active_tool)
-                # Check if dropping onto a container
-                container = self._container_at(event.x, event.y)
-                if container:
-                    ax, ay = self._abs_xy(container)
-                    label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
-                    fx = _snap(event.x - ax)
-                    fy = _snap(event.y - ay - label_h)
-                    fx = max(0, min(fx, container.width  - w))
-                    fy = max(0, min(fy, container.height - label_h - h))
-                    parent_id = container.id
-                else:
-                    fx = _snap(event.x - self._ox)
-                    fy = _snap(event.y - self._oy)
-                    fx = max(0,            min(fx, self._form.width  - w))
-                    fy = max(self._min_y, min(fy, self._form.height - h))
-                    parent_id = None
-                desc = WidgetDescriptor(
-                    id=wid, type=self._active_tool,
-                    x=fx, y=fy, width=w, height=h,
-                    props=dict(reg["default_props"]),
-                    parent_id=parent_id,
-                )
-                self.add_widget(desc)
-                if parent_id:
-                    self._reorder_after_parent(wid, parent_id)
-                # Stay in placement mode — cursor remains crosshair
+            if self._active_tool:  # still armed → begin draw drag
+                self._drag = {
+                    "mode":     "draw_widget",
+                    "start_cx": event.x,
+                    "start_cy": event.y,
+                }
                 return
             # Tool was cancelled (clicked on widget) → fall through to normal handling
 
@@ -1250,6 +1226,23 @@ class DesignerCanvas(tk.Canvas):
                                    width=1, tags="rubber_band")
             return
 
+        if d["mode"] == "draw_widget" and self._form:
+            self.delete("draw_preview")
+            x0 = min(d["start_cx"], event.x)
+            y0 = min(d["start_cy"], event.y)
+            x1 = max(d["start_cx"], event.x)
+            y1 = max(d["start_cy"], event.y)
+            # Clamp preview rect to form boundaries
+            x0 = max(self._ox, x0)
+            y0 = max(self._oy + self._min_y, y0)
+            x1 = min(self._ox + self._form.width, x1)
+            y1 = min(self._oy + self._form.height, y1)
+            if x1 > x0 and y1 > y0:
+                self.create_rectangle(x0, y0, x1, y1,
+                                      outline=_SEL, dash=(4, 3), fill="",
+                                      width=1, tags="draw_preview")
+            return
+
         w = self._form.get_widget(d["id"])
         if w is None:
             return
@@ -1352,6 +1345,71 @@ class DesignerCanvas(tk.Canvas):
         if not self._active_tool:
             self.config(cursor="arrow")
         if d is None or self._form is None:
+            return
+
+        if d["mode"] == "draw_widget":
+            self.delete("draw_preview")
+            if not self._active_tool:
+                return
+            reg = REGISTRY.get(self._active_tool)
+            if not reg:
+                return
+            dx = abs(event.x - d["start_cx"])
+            dy = abs(event.y - d["start_cy"])
+            if dx > 5 or dy > 5:
+                # Drawn: use the dragged rectangle as the widget bounds
+                cx1 = min(d["start_cx"], event.x)
+                cy1 = min(d["start_cy"], event.y)
+                cx2 = max(d["start_cx"], event.x)
+                cy2 = max(d["start_cy"], event.y)
+                container = self._container_at((cx1 + cx2) // 2, (cy1 + cy2) // 2)
+                if container:
+                    ax, ay = self._abs_xy(container)
+                    label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
+                    fw = max(GRID * 2, _snap(cx2 - cx1))
+                    fh = max(GRID * 2, _snap(cy2 - cy1))
+                    fx = _snap(cx1 - ax)
+                    fy = _snap(cy1 - ay - label_h)
+                    fx = max(0, min(fx, container.width  - fw))
+                    fy = max(0, min(fy, container.height - label_h - fh))
+                    parent_id = container.id
+                else:
+                    fw = max(GRID * 2, _snap(cx2 - cx1))
+                    fh = max(GRID * 2, _snap(cy2 - cy1))
+                    fx = _snap(cx1 - self._ox)
+                    fy = _snap(cy1 - self._oy)
+                    fx = max(0,           min(fx, self._form.width  - fw))
+                    fy = max(self._min_y, min(fy, self._form.height - fh))
+                    parent_id = None
+            else:
+                # Click: drop at default size centered on click point
+                fw, fh = reg["default_size"]
+                container = self._container_at(d["start_cx"], d["start_cy"])
+                if container:
+                    ax, ay = self._abs_xy(container)
+                    label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
+                    fx = _snap(d["start_cx"] - ax)
+                    fy = _snap(d["start_cy"] - ay - label_h)
+                    fx = max(0, min(fx, container.width  - fw))
+                    fy = max(0, min(fy, container.height - label_h - fh))
+                    parent_id = container.id
+                else:
+                    fx = _snap(d["start_cx"] - self._ox)
+                    fy = _snap(d["start_cy"] - self._oy)
+                    fx = max(0,           min(fx, self._form.width  - fw))
+                    fy = max(self._min_y, min(fy, self._form.height - fh))
+                    parent_id = None
+            wid = self._form.next_id(self._active_tool)
+            desc = WidgetDescriptor(
+                id=wid, type=self._active_tool,
+                x=fx, y=fy, width=fw, height=fh,
+                props=dict(reg["default_props"]),
+                parent_id=parent_id,
+            )
+            self.add_widget(desc)
+            if parent_id:
+                self._reorder_after_parent(wid, parent_id)
+            # Stay in placement mode
             return
 
         if d["mode"] == "rubber_band":
