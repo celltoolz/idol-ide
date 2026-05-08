@@ -7,19 +7,20 @@ IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applica
 ## Layout
 
 ```
-┌─────────────┬──────────────────────────┬──────────────────┐
-│ Palette     │  [Editor]  [Designer]    │ Properties       │
-│ (reuses     │  Toolbar (align/snap)    │ Panel            │
-│  explorer   │  Canvas (dotted grid)    │                  │
-│  slot)      │                          │ Name: btn1       │
-│             │  ┌────────────────────┐  │ Text: Click Me   │
-│ [Button]    │  │ Form1              │  │ Width: 90        │
-│ [Label]     │  │  [Click Me]        │  │ ── Events ──     │
-│ [Entry] ... │  └────────────────────┘  │ Click: [stub ▼]  │
-└─────────────┴──────────────────────────┴──────────────────┘
+┌──────────────────┬──────────────────────────┬──────────────────┐
+│ FORMS        [+] │  [Editor]  [Designer]    │ Properties       │
+│  ⬜ Form1        │  Toolbar (align/snap)    │ Panel            │
+│    ⧉ Dialog1     │  Canvas (dotted grid)    │                  │
+│    ⧉ Dialog2     │                          │ Name: btn1       │
+│  Unlinked        │  ┌────────────────────┐  │ Text: Click Me   │
+│    ⧉ Dialog3     │  │ Form1              │  │ Width: 90        │
+│ ──────────────   │  │  [Click Me]        │  │ ── Events ──     │
+│ Widget Palette   │  └────────────────────┘  │ Click: [stub ▼]  │
+│ [Button] [Label] │                          │                  │
+└──────────────────┴──────────────────────────┴──────────────────┘
 ```
 
-Entering Designer mode swaps the File Explorer out and the Widget Palette in — same left-panel slot, no floating windows. Exiting Designer restores the Explorer.
+Entering Designer mode swaps the File Explorer out and the Widget Palette in — same left-panel slot, no floating windows. The left panel is split: the **FORMS tree** sits at the top, and the **Widget Palette** fills the rest. Exiting Designer restores the Explorer.
 
 ## Canvas
 
@@ -193,6 +194,76 @@ Double-clicking a widget with no events switches to the Events tab.
 
 Clicking a menu item on the canvas dropdown navigates to its handler the same way.
 
+## Multi-Form Projects
+
+A project can contain any number of forms. Each form has its own canvas, `.form.json` sidecar, and generated `.py` file.
+
+### Form Types
+
+| Type | Base class | Use for |
+|---|---|---|
+| **Main Window** | `tk.Tk` | The app's primary window |
+| **Dialog Window** | `tk.Toplevel` | Secondary windows opened from a main form |
+
+### FORMS Tree
+
+The **FORMS** panel at the top of the left pane shows the full form hierarchy:
+
+- **Main forms** appear at top level with a `⬜` icon
+- **Linked dialogs** appear indented below their parent form with a `⧉` icon
+- **Unlinked dialogs** appear in a dim "Unlinked" section at the bottom
+
+Click any row to switch the canvas to that form (the current form is auto-saved first).
+
+### Creating a New Form
+
+Click the `+` button in the FORMS header or use `Designer → New Form…`. The dialog has:
+
+- **Form Name** — must be a valid Python identifier
+- **Type** — Main Window or Dialog Window
+- **Link to** — (Dialog only) choose a parent main form or "None (unlinked)"; defaults to the first existing main form
+
+The new form appears in the tree immediately and the canvas switches to it.
+
+### Linking and Unlinking Dialogs
+
+**Drag to link** — drag a dialog row and drop it onto any main form row. The target form highlights blue while hovering. A ghost label (`⧉ name`) follows the cursor. Releasing over a form links the dialog to it; releasing elsewhere cancels.
+
+**Unlink** — hover a linked dialog row to reveal a `×` button on the right side. Clicking it removes the link.
+
+A dialog can be linked to multiple main forms simultaneously.
+
+### Dialog Code Generation
+
+Dialogs generate a `tk.Toplevel` subclass:
+
+```python
+class MyDialog(tk.Toplevel):
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.withdraw()
+        self.title("My Dialog")
+        self.geometry("400x300")
+        self._build_ui()
+```
+
+For each linked dialog, the parent main form gets an opener method and a dialog import:
+
+```python
+# ── IDOL:DIALOG_IMPORTS:BEGIN ──
+from MyDialog import MyDialog
+# ── IDOL:DIALOG_IMPORTS:END ──
+
+# ... inside the main form class ...
+
+def _open_MyDialog(self):
+    MyDialog(self).deiconify()
+```
+
+The `IDOL:DIALOG_IMPORTS` block is fully auto-managed — regenerated from the current link state on every codegen run. The `_open_*` method body is preserved across regenerations like any other event stub, so you can customize it freely.
+
+**Codegen order** — when generating all forms, dialogs are written before main forms so their import statements resolve correctly.
+
 ## Code Generation
 
 `Designer → Generate Code` (`Ctrl+Shift+G`) writes clean, class-based Python:
@@ -238,6 +309,7 @@ Regenerating never discards code you wrote:
 - Event handler **bodies** are extracted and spliced back in verbatim, including any **leading comment lines** before the first statement
 - Event handler **signatures** are preserved — change `*args` to `event: tk.Event` once and IDOL keeps it on every subsequent regeneration
 - User **imports** between the `IDOL:IMPORTS:BEGIN/END` markers survive regeneration
+- The `IDOL:DIALOG_IMPORTS` block is fully auto-managed (always regenerated from link state) — do not add manual imports inside it; use `IDOL:IMPORTS` for your own imports
 - Helper methods in the `# ── Functions ──` section survive verbatim
 - Code in the two `__init__` user zones (between the IDOL marker blocks) is preserved
 

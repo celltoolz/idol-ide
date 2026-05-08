@@ -136,13 +136,43 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ---
 
+## Phase 2 continued — Multi-Form Designer (2026-05-08)
+
+- **Multi-form support** — projects can contain any number of `Main` (`tk.Tk` subclass) and
+  `Dialog` (`tk.Toplevel` subclass) forms; each form has its own `.form.json` sidecar and
+  its own generated `.py` file
+- **FORMS tree panel** — canvas-rendered tree above the widget palette; main forms appear at
+  top level, linked dialogs indented below with `⧉` icon; unlinked dialogs in a dim
+  "Unlinked" section at the bottom
+- **Form switching** — click any row in the FORMS tree to save the current canvas and load the
+  selected form; `×` unlink button appears on hover for linked dialog rows
+- **Drag-to-link** — drag a dialog row and drop it onto a main form row to link it; the target
+  form highlights blue during hover; a ghost tooltip (`⧉ name`, semi-transparent) follows the
+  cursor; dragging a linked dialog to a different form unlinks it from the old parent first
+- **Drag threshold** — mousedown on a draggable row records pending state only; drag activates
+  after 5 px of movement so plain clicks pass through cleanly to selection
+- **New Form dialog** — `+` button (FORMS header) and `Designer → New Form…` open a dialog
+  with name entry, Main/Dialog type selector, and a **"Link to:"** dropdown listing all
+  existing main forms; defaults to the first main form when creating a dialog; disables when
+  Main Window type is selected; new dialog appears nested in the tree immediately
+- **Dialog codegen** — dialog forms generate `tk.Toplevel` subclasses:
+  `__init__(self, parent, **kwargs)` with `super().__init__(parent, **kwargs)` +
+  `self.withdraw()`; no `if __name__ == "__main__":` block
+- **`_open_DialogName()` methods** — for each linked dialog, codegen emits an opener method
+  on the main form (`DialogName(self).deiconify()`); body is preserved across regenerations
+  like any other event stub
+- **`IDOL:DIALOG_IMPORTS` zone** — auto-managed import block emitted below `IDOL:IMPORTS`;
+  regenerated from `linked_dialogs` on every codegen run
+- **Multi-form codegen order** — dialogs generated before main forms so imports resolve
+- **Canvas scroll offset fix** — resize handles and rubber-band selection used raw event
+  coordinates; now converted with `canvasx()`/`canvasy()` so both work correctly when the
+  form is scrolled
+
+---
+
 ## Planned — Designer
 
-- Tab order panel — drag widgets in Outline tree to set Tab key sequence
-- Toplevel / dialog form support (multi-form)
-- Multi-form management panel — add / remove / import / export forms, easy switching
 - Persist designer sash positions across sessions
-- New Form / Add Form in designer menu
 - Open Designer for existing (non-wizard) projects
 - Live Preview mode — eye icon toggles canvas to interactive state without running the app
 - Priority event sorting — most relevant events floated to top per widget type
