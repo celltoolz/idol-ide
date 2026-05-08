@@ -13,9 +13,10 @@ _DROP_HL   = "#007acc"   # drop-target highlight
 _FG        = "#cccccc"
 _DIM       = "#858585"
 _UNLINK_FG = "#cc6666"
-_ROW_H     = 26
-_ICON_X    = 10
-_LABEL_X   = 26
+_ROW_H          = 26
+_ICON_X         = 10
+_LABEL_X        = 26
+_DRAG_THRESHOLD = 5   # pixels of movement before drag activates
 
 
 class FormListPanel(tk.Frame):
@@ -52,12 +53,13 @@ class FormListPanel(tk.Frame):
         self._active: str | None = None
 
         # Drag state
-        self._drag_name:   str | None = None  # dialog being dragged
-        self._drag_parent: str | None = None  # its current parent form (if linked)
-        self._drop_idx:    int | None = None  # row index highlighted as drop target
-        self._hov_idx:     int | None = None
-        self._rows:        list[dict]  = []   # built by _build_rows()
-        self._ghost:       tk.Toplevel | None = None  # floating drag preview
+        self._drag_name:    str | None  = None   # dialog being dragged (confirmed)
+        self._drag_parent:  str | None  = None   # its current parent form (if linked)
+        self._drag_pending: dict | None = None   # press recorded, waiting for threshold
+        self._drop_idx:     int | None  = None   # row index highlighted as drop target
+        self._hov_idx:      int | None  = None
+        self._rows:         list[dict]  = []     # built by _build_rows()
+        self._ghost:        tk.Toplevel | None = None  # floating drag preview
 
         self._build_ui()
 
@@ -259,29 +261,39 @@ class FormListPanel(tk.Frame):
         if idx is None:
             return
         row = self._rows[idx]
-        # Only dialogs (linked or unlinked) are draggable
         if row["kind"] not in ("linked", "dialog"):
             return
-        self._drag_name   = row["name"]
-        self._drag_parent = row.get("parent")
-        self._drop_idx    = None
-        self._canvas.config(cursor="fleur")
-        self._show_ghost(row["name"], event.x_root, event.y_root)
+        # Record the press — drag activates only after threshold movement
+        self._drag_pending = {
+            "name":    row["name"],
+            "parent":  row.get("parent"),
+            "start_x": event.x_root,
+            "start_y": event.y_root,
+        }
 
     def _drag_motion(self, event: tk.Event) -> None:
-        if not self._drag_name:
-            return
-        self._move_ghost(event.x_root, event.y_root)
-        idx = self._idx_at(event.y)
-        if idx is not None and self._rows[idx]["kind"] == "form":
-            new_drop = idx
-        else:
-            new_drop = None
-        if new_drop != self._drop_idx:
-            self._drop_idx = new_drop
-            self._redraw()
+        if self._drag_name:
+            # Active drag — move ghost and update drop target
+            self._move_ghost(event.x_root, event.y_root)
+            idx = self._idx_at(event.y)
+            new_drop = idx if (idx is not None and self._rows[idx]["kind"] == "form") else None
+            if new_drop != self._drop_idx:
+                self._drop_idx = new_drop
+                self._redraw()
+        elif self._drag_pending:
+            # Check if the mouse has moved far enough to commit to a drag
+            dx = abs(event.x_root - self._drag_pending["start_x"])
+            dy = abs(event.y_root - self._drag_pending["start_y"])
+            if dx > _DRAG_THRESHOLD or dy > _DRAG_THRESHOLD:
+                self._drag_name   = self._drag_pending["name"]
+                self._drag_parent = self._drag_pending["parent"]
+                self._drag_pending = None
+                self._drop_idx    = None
+                self._canvas.config(cursor="fleur")
+                self._show_ghost(self._drag_name, event.x_root, event.y_root)
 
     def _drag_release(self, event: tk.Event) -> None:
+        self._drag_pending = None  # always clear pending on release
         if not self._drag_name:
             return
         dialog_name   = self._drag_name
