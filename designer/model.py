@@ -177,6 +177,18 @@ class FormModel:
             n += 1
         return f"{prefix}{n}"
 
+    def move_widget(self, widget_id: str, new_idx: int) -> bool:
+        """Move widget to new_idx in the widgets list (tab/z order). Returns True if moved."""
+        cur_idx = next((i for i, w in enumerate(self.widgets) if w.id == widget_id), None)
+        if cur_idx is None:
+            return False
+        new_idx = max(0, min(new_idx, len(self.widgets) - 1))
+        if cur_idx == new_idx:
+            return False
+        widget = self.widgets.pop(cur_idx)
+        self.widgets.insert(new_idx, widget)
+        return True
+
     # ── serialization ──────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:

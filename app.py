@@ -858,6 +858,7 @@ class IDOL(Tk):
             on_event_change=self._on_designer_event_change,
             on_select_widget=self._on_designer_selector_pick,
             on_navigate_handler=self._on_designer_event_navigate,
+            on_reorder_widget=self._on_designer_reorder_widget,
         )
         self._props_panel.configure(width=230)
 
@@ -4593,17 +4594,21 @@ class IDOL(Tk):
         if not self._design_canvas._active_tool:
             self._designer_palette.reset_to_pointer()
         self._designer_toolbar.refresh()
-        if self._design_canvas.form is None:
+        form = self._design_canvas.form
+        if form is None:
             return
-        w = self._design_canvas.form.get_widget(widget_id)
+        w = form.get_widget(widget_id)
         if w:
             self._props_panel.load_widget(w)
+        self._props_panel.refresh_order(form, widget_id)
 
     def _on_designer_deselect(self) -> None:
         """Canvas deselect → show form-level properties."""
         self._designer_toolbar.refresh()
-        if self._design_canvas.form:
-            self._props_panel.load_form(self._design_canvas.form)
+        form = self._design_canvas.form
+        if form:
+            self._props_panel.load_form(form)
+            self._props_panel.refresh_order(form, None)
         else:
             self._props_panel.clear()
 
@@ -4644,6 +4649,12 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form:
             self._props_panel.set_form(form)
+            sel = next(iter(self._design_canvas.selected_ids), None)
+            self._props_panel.refresh_order(form, sel)
+
+    def _on_designer_reorder_widget(self, widget_id: str, new_idx: int) -> None:
+        """Order tab drag-drop → move widget in model."""
+        self._design_canvas.move_widget_to(widget_id, new_idx)
 
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""

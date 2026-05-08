@@ -9,6 +9,18 @@ from designer.registry import REGISTRY
 from widgets.guide_window import GuideWindow, GuidePage
 
 
+# ── Order tab palette ────────────────────────────────────────────────────────
+_ORD_ROW_H = 28
+_ORD_BG    = "#1e1e1e"
+_ORD_EVEN  = "#252526"
+_ORD_ODD   = "#2a2a2b"
+_ORD_HOV   = "#2d2d30"
+_ORD_SEL   = "#094771"
+_ORD_FG    = "#cccccc"
+_ORD_DIM   = "#636363"
+_ORD_NUM   = "#007acc"
+
+
 class DesignerProperties(tk.Frame):
     """Properties + Events panel for the GUI Designer.
 
@@ -26,6 +38,7 @@ class DesignerProperties(tk.Frame):
         on_event_change:     Optional[Callable[[str, str, str], None]] = None,
         on_select_widget:    Optional[Callable[[str | None],    None]] = None,
         on_navigate_handler: Optional[Callable[[str],           None]] = None,
+        on_reorder_widget:   Optional[Callable[[str, int],      None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
@@ -33,6 +46,7 @@ class DesignerProperties(tk.Frame):
         self._on_event_change     = on_event_change
         self._on_select_widget    = on_select_widget
         self._on_navigate_handler = on_navigate_handler
+        self._on_reorder_widget   = on_reorder_widget
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -146,6 +160,33 @@ class DesignerProperties(tk.Frame):
         self._ev_wire_btn.bind("<Enter>",    lambda e: self._ev_wire_btn.config(fg="#569cd6"))
         self._ev_wire_btn.bind("<Leave>",    lambda e: self._ev_wire_btn.config(fg="#555555"))
         self._ev_wire_btn.bind("<Button-1>", self._on_ev_wire_click)
+
+        # ── Order tab ─────────────────────────────────────────────────────────
+        self._order_frame = tk.Frame(self._nb, bg=_ORD_BG)
+        self._nb.add(self._order_frame, text="  Order  ")
+
+        _ob = tk.Frame(self._order_frame, bg=_ORD_BG)
+        _ob.pack(fill="both", expand=True)
+        self._order_sb = tk.Scrollbar(_ob, orient="vertical")
+        self._order_sb.pack(side="right", fill="y")
+        self._order_cv = tk.Canvas(
+            _ob, bg=_ORD_BG, highlightthickness=0,
+            yscrollcommand=self._order_sb.set,
+        )
+        self._order_cv.pack(side="left", fill="both", expand=True)
+        self._order_sb.config(command=self._order_cv.yview)
+        self._order_cv.bind("<Configure>",  lambda _: self._order_redraw())
+        self._order_cv.bind("<MouseWheel>",
+            lambda e: self._order_cv.yview_scroll(-1 * (e.delta // 120), "units"))
+        self._order_cv.bind("<ButtonPress-1>",   self._order_press)
+        self._order_cv.bind("<B1-Motion>",        self._order_motion)
+        self._order_cv.bind("<ButtonRelease-1>",  self._order_release)
+
+        self._order_widgets: list[WidgetDescriptor] = []
+        self._order_sel_id:  str | None = None
+        self._order_bgs:     dict[int, int] = {}
+        self._order_drag_idx:   int | None = None
+        self._order_drag_ghost: int | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -290,6 +331,129 @@ class DesignerProperties(tk.Frame):
         self._selector_items = [(f"{form.name}  (Form)", None)]
         for w in form.widgets:
             self._selector_items.append((f"{w.id}  ({w.type})", w.id))
+
+    def refresh_order(self, form: "FormModel | None", selected_id: str | None = None) -> None:
+        """Refresh the Order tab list. Call on any structure change or selection change."""
+        self._order_widgets = list(form.widgets) if form else []
+        self._order_sel_id  = selected_id
+        self._order_bgs.clear()
+        self._order_redraw()
+
+    # ── Order tab internals ───────────────────────────────────────────────────
+
+    def _order_redraw(self) -> None:
+        cv = self._order_cv
+        cv.delete("all")
+        self._order_bgs.clear()
+        w = cv.winfo_width()
+        if w <= 1:
+            return
+        if not self._order_widgets:
+            cv.create_text(
+                w // 2, 40,
+                text="No widgets on form.",
+                fill=_ORD_DIM, font=("Segoe UI", 9), anchor="center",
+            )
+            cv.configure(scrollregion=(0, 0, w, 80))
+            return
+        total_h = len(self._order_widgets) * _ORD_ROW_H
+        cv.configure(scrollregion=(0, 0, w, total_h))
+        for i, widget in enumerate(self._order_widgets):
+            self._order_draw_row(widget, i, w)
+
+    def _order_draw_row(self, widget: WidgetDescriptor, idx: int, w: int) -> None:
+        cv  = self._order_cv
+        y   = idx * _ORD_ROW_H
+        bg  = self._order_row_color(idx)
+        tag = f"orow{idx}"
+
+        rect = cv.create_rectangle(0, y, w, y + _ORD_ROW_H - 1,
+                                   fill=bg, outline="", tags=tag)
+        self._order_bgs[idx] = rect
+
+        # Number badge
+        r = 9
+        bx, by = r + 4, y + _ORD_ROW_H // 2
+        cv.create_oval(bx - r, by - r, bx + r, by + r,
+                       fill=_ORD_NUM, outline="", tags=tag)
+        cv.create_text(bx, by, text=str(idx + 1), fill="#ffffff",
+                       font=("Segoe UI", 7, "bold"), anchor="center", tags=tag)
+
+        # Widget ID
+        cv.create_text(bx + r + 6, by, text=widget.id,
+                       fill=_ORD_FG, font=("Consolas", 9),
+                       anchor="w", tags=tag)
+
+        # Type (dim, right-aligned)
+        cv.create_text(w - 8, by, text=widget.type,
+                       fill=_ORD_DIM, font=("Segoe UI", 8),
+                       anchor="e", tags=tag)
+
+        cv.tag_bind(tag, "<Enter>", lambda e, i=idx: self._order_hover_on(i))
+        cv.tag_bind(tag, "<Leave>", lambda e, i=idx: self._order_hover_off(i))
+
+    def _order_row_color(self, idx: int) -> str:
+        if idx < len(self._order_widgets):
+            if self._order_widgets[idx].id == self._order_sel_id:
+                return _ORD_SEL
+        return _ORD_EVEN if idx % 2 == 0 else _ORD_ODD
+
+    def _order_hover_on(self, idx: int) -> None:
+        if idx in self._order_bgs and self._order_drag_idx is None:
+            wid = self._order_widgets[idx].id if idx < len(self._order_widgets) else None
+            if wid != self._order_sel_id:
+                self._order_cv.itemconfigure(self._order_bgs[idx], fill=_ORD_HOV)
+
+    def _order_hover_off(self, idx: int) -> None:
+        if idx in self._order_bgs:
+            self._order_cv.itemconfigure(self._order_bgs[idx],
+                                         fill=self._order_row_color(idx))
+
+    def _order_press(self, event) -> None:
+        idx = int(self._order_cv.canvasy(event.y)) // _ORD_ROW_H
+        if 0 <= idx < len(self._order_widgets):
+            self._order_drag_idx = idx
+            if self._on_select_widget:
+                self._on_select_widget(self._order_widgets[idx].id)
+
+    def _order_motion(self, event) -> None:
+        if self._order_drag_idx is None:
+            return
+        cv      = self._order_cv
+        target  = self._order_drop_target(event.y)
+        ghost_y = target * _ORD_ROW_H
+        if self._order_drag_ghost is not None:
+            cv.coords(self._order_drag_ghost, 0, ghost_y, cv.winfo_width(), ghost_y)
+        else:
+            self._order_drag_ghost = cv.create_line(
+                0, ghost_y, cv.winfo_width(), ghost_y,
+                fill="#007acc", width=2, tags="order_ghost",
+            )
+        cv.tag_raise("order_ghost")
+
+    def _order_release(self, event) -> None:
+        src = self._order_drag_idx
+        if src is None:
+            return
+        if self._order_drag_ghost is not None:
+            self._order_cv.delete(self._order_drag_ghost)
+            self._order_drag_ghost = None
+        self._order_drag_idx = None
+
+        target = self._order_drop_target(event.y)
+        dst = target if target <= src else target - 1
+        dst = max(0, min(dst, len(self._order_widgets) - 1))
+
+        if dst != src and self._on_reorder_widget and self._order_widgets:
+            self._on_reorder_widget(self._order_widgets[src].id, dst)
+
+    def _order_drop_target(self, canvas_y: int) -> int:
+        """Return insertion index (0..N) from a canvas y coordinate."""
+        cy  = int(self._order_cv.canvasy(canvas_y))
+        idx = cy // _ORD_ROW_H
+        if cy % _ORD_ROW_H > _ORD_ROW_H // 2:
+            idx += 1
+        return max(0, min(idx, len(self._order_widgets)))
 
     def _set_selector(self, widget_id: str | None) -> None:
         """Update the selector label to reflect the currently selected item."""

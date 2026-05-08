@@ -117,6 +117,7 @@ class DesignerCanvas(tk.Canvas):
 
         self._undo_stack: list[dict] = []
         self._redo_stack: list[dict] = []
+        self._tab_order_visible: bool = False
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -567,12 +568,47 @@ class DesignerCanvas(tk.Canvas):
         self._draw_form()
         for w in self._form.widgets:
             self._render_widget(w)
+        if self._tab_order_visible:
+            self._draw_tab_badges()
         if self._selected_ids:
             self._draw_all_handles()
             self.tag_raise("handle")
         elif self._form_selected:
             self._draw_form_handles()
             self.tag_raise("fhandle")
+
+    # ── Tab order ─────────────────────────────────────────────────────────────
+
+    def toggle_tab_order(self) -> bool:
+        self._tab_order_visible = not self._tab_order_visible
+        self.redraw()
+        return self._tab_order_visible
+
+    def _draw_tab_badges(self) -> None:
+        if not self._form:
+            return
+        r = 9
+        for i, w in enumerate(self._form.widgets):
+            x, y = self._abs_xy(w)
+            cx, cy = x + r + 2, y + r + 2
+            self.create_oval(cx - r, cy - r, cx + r, cy + r,
+                             fill="#007acc", outline="#ffffff", width=1,
+                             tags="tab_badge")
+            self.create_text(cx, cy, text=str(i + 1), fill="#ffffff",
+                             font=("Segoe UI", 7, "bold"), tags="tab_badge")
+        self.tag_raise("tab_badge")
+
+    def move_widget_to(self, widget_id: str, new_idx: int) -> None:
+        """Move widget_id to new_idx in form order (tab + z order)."""
+        if self._form is None:
+            return
+        self.push_undo()
+        if not self._form.move_widget(widget_id, new_idx):
+            self._undo_stack.pop()
+            return
+        self.redraw()
+        if self._on_structure_changed:
+            self._on_structure_changed()
 
     # ── Snap toggle ───────────────────────────────────────────────────────────
 

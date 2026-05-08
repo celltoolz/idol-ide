@@ -99,6 +99,14 @@ class DesignerToolbar(tk.Frame):
         )
         self._refresh_snap()
 
+        # Tab order badge toggle — always enabled
+        self._taborder_btn = self._btn(
+            "⇥",
+            self._toggle_tab_order,
+            "Show tab order numbers",
+            sticky=True,
+        )
+
         # ── Right-aligned: divider + Undo / Redo / Copy / Paste ──────────────
         self._paste_btn = self._btn("⎘", c.paste,         "Paste  (Ctrl+V)", side="right")
         self._copy_btn  = self._btn("⧉", c.copy_selected, "Copy   (Ctrl+C)", side="right")
@@ -209,6 +217,14 @@ class DesignerToolbar(tk.Frame):
         on = self._canvas.snap_enabled
         self._snap_lbl._active = on  # type: ignore[attr-defined]
         self._snap_lbl.config(
+            bg=_BTN_ACT if on else _BTN_BG,
+            fg=_SNAP_ON  if on else _BTN_FG,
+        )
+
+    def _toggle_tab_order(self) -> None:
+        on = self._canvas.toggle_tab_order()
+        self._taborder_btn._active = on  # type: ignore[attr-defined]
+        self._taborder_btn.config(
             bg=_BTN_ACT if on else _BTN_BG,
             fg=_SNAP_ON  if on else _BTN_FG,
         )
