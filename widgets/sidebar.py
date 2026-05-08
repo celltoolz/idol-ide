@@ -256,18 +256,27 @@ class Sidebar(ttk.Frame):
 
     # ── Sash drag ─────────────────────────────────────────────────────────────
 
+    _SLOT_BODY = {0: "outline", 1: "references", 2: "source_control", 3: "explorer"}
+
     def _sash_press(self, event, slot_above: int, slot_below: int) -> None:
         self._dragging         = True
         self._drag_slot_above  = slot_above
         self._drag_slot_below  = slot_below
         self._drag_start_y     = event.y_root
+        # Sync stored desired heights to actual rendered heights before dragging.
+        # The layout engine scales heights down when panels overflow but never
+        # writes back, so stored values can be stale and make the delta wrong.
+        for slot in (slot_above, slot_below):
+            actual = getattr(self, self._SLOT_BODY[slot]).winfo_height()
+            if actual > 1:
+                self._set_h(slot, actual)
         self._drag_start_above = self._get_h(slot_above)
         self._drag_start_below = self._get_h(slot_below)
         event.widget.grab_set()
         # Show ghost drag line — position at the sash's current y in the sidebar
         if self._ghost_sash is None:
             self._ghost_sash = Frame(self, bg="#007acc", height=2)
-        self._ghost_y0 = event.widget.winfo_y() + _SASH_H // 2
+        self._ghost_y0 = event.widget.winfo_y()
         self._ghost_sash.place(x=0, y=self._ghost_y0, relwidth=1.0, height=2)
         self._ghost_sash.lift()
 
