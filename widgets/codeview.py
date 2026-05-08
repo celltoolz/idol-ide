@@ -23,6 +23,10 @@ color_schemes_dir = Path(__file__).parent.parent / "colorschemes"
 
 LexerType = Union[Type[pygments.lexer.Lexer], pygments.lexer.Lexer]
 
+# Non-ASCII whitespace chars that look like spaces but silently break Python source.
+# Commonly injected when copy-pasting from web pages, PDFs, or rich-text editors.
+_BAD_PASTE_CHARS = frozenset("\xa0​      ")
+
 
 class Scrollbar(ttk.Scrollbar):
     def __init__(self, master: ttk.Frame, autohide: bool, *args, **kwargs) -> None:
@@ -292,6 +296,8 @@ class CodeView(Text):
             # Strip null bytes that X11 clipboard can inject on Linux
             text = text.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
             self.insert("insert", text)
+            if any(c in text for c in _BAD_PASTE_CHARS):
+                self.event_generate("<<BadPaste>>")
         self.see(insert)
         return "break"
 

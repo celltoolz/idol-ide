@@ -528,6 +528,16 @@ class IDOL(Tk):
         self._plus_btn.bind("<Enter>", lambda _: self._plus_btn.config(fg="#2ea043"))
         self._plus_btn.bind("<Leave>", lambda _: self._plus_btn.config(fg="#858585"))
 
+        # Encoding fix pill — hidden until a bad paste is detected
+        self._encoding_pill = Label(
+            _nav_bar, text=" ⚠ Fix Encoding ",
+            bg=_NAV_BG, fg="#e8a844",
+            font=("Segoe UI", 9), cursor="hand2", padx=2, pady=0,
+        )
+        self._encoding_pill.bind("<Button-1>", lambda _: self._fix_encoding())
+        self._encoding_pill.bind("<Enter>", lambda _: self._encoding_pill.config(fg="#ffd080"))
+        self._encoding_pill.bind("<Leave>", lambda _: self._encoding_pill.config(fg="#e8a844"))
+
         # Debug controls — hidden until a session is active
         self._debug_bar = tk.Frame(_nav_bar, bg="#1e1e1e")
         # (packed dynamically by _show_debug_bar / _hide_debug_bar)
@@ -1603,6 +1613,7 @@ class IDOL(Tk):
         )
         codeview.bind("<Leave>", lambda _: self._cancel_hover())
         codeview.bind("<F12>", lambda _: self._goto_definition())
+        codeview.bind("<<BadPaste>>", lambda _: self._show_encoding_pill())
 
         codeview.mark_set("insert", "1.0")
         codeview.focus_set()
@@ -2392,6 +2403,33 @@ class IDOL(Tk):
             self._refresh_sc_panel()
 
         self._git.pull(callback=_done)
+
+    # ── Encoding fix ──────────────────────────────────────────────────────────
+
+    def _show_encoding_pill(self) -> None:
+        if not self._encoding_pill.winfo_ismapped():
+            self._encoding_pill.pack(side="left", padx=(6, 0))
+
+    def _fix_encoding(self) -> None:
+        from widgets.codeview import _BAD_PASTE_CHARS
+        _REMOVE = frozenset([0x200b])  # zero-width — removing is safer than replacing with space
+        cv = self._current_codeview
+        if cv is None:
+            return
+        content = cv.get("1.0", "end-1c")
+        fixed = "".join(
+            ("" if ord(c) in _REMOVE else " ") if c in _BAD_PASTE_CHARS else c
+            for c in content
+        )
+        if fixed != content:
+            cursor = cv.index("insert")
+            cv.delete("1.0", "end")
+            cv.insert("1.0", fixed)
+            try:
+                cv.mark_set("insert", cursor)
+            except Exception:
+                cv.mark_set("insert", "1.0")
+        self._encoding_pill.pack_forget()
 
     def _sc_open_diff(self, path: str) -> None:
         """Open a read-only diff tab for *path*."""
