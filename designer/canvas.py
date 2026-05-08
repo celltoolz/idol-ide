@@ -1104,11 +1104,12 @@ class DesignerCanvas(tk.Canvas):
 
     def _on_click(self, event: tk.Event) -> None:
         self.focus_set()
+        cx, cy = self.canvasx(event.x), self.canvasy(event.y)
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
             # If clicking on an existing widget, de-arm and fall through to
             # normal click handling so a drag can start immediately.
-            item = self._topmost_at(event.x, event.y)
+            item = self._topmost_at(cx, cy)
             if item is not None:
                 tags = self.gettags(item)
                 if any(t.startswith("widget:") for t in tags):
@@ -1117,19 +1118,19 @@ class DesignerCanvas(tk.Canvas):
             if self._active_tool:  # still armed → begin draw drag
                 self._drag = {
                     "mode":     "draw_widget",
-                    "start_cx": event.x,
-                    "start_cy": event.y,
+                    "start_cx": cx,
+                    "start_cy": cy,
                 }
                 return
             # Tool was cancelled (clicked on widget) → fall through to normal handling
 
         # Menu bar hitbox check (before regular hit testing)
         for (hx1, hy1, hx2, hy2, item_idx) in self._menu_hitboxes:
-            if hx1 <= event.x <= hx2 and hy1 <= event.y <= hy2:
+            if hx1 <= cx <= hx2 and hy1 <= cy <= hy2:
                 self._show_menu_popup(event, item_idx)
                 return
 
-        item = self._topmost_at(event.x, event.y)
+        item = self._topmost_at(cx, cy)
         if item is None:
             self.deselect()
             return
@@ -1145,7 +1146,7 @@ class DesignerCanvas(tk.Canvas):
                 self._drag = {
                     "mode":     "form_resize",
                     "handle":   handle_name,
-                    "start_cx": event.x, "start_cy": event.y,
+                    "start_cx": cx, "start_cy": cy,
                     "orig_w":   self._form.width,
                     "orig_h":   self._form.height,
                     "orig_ox":  self._ox,
@@ -1176,7 +1177,7 @@ class DesignerCanvas(tk.Canvas):
                         "mode":    "resize",
                         "handle":  handle_name,
                         "id":      w.id,
-                        "start_cx": event.x, "start_cy": event.y,
+                        "start_cx": cx, "start_cy": cy,
                         "orig_x": w.x, "orig_y": w.y,
                         "orig_w": w.width, "orig_h": w.height,
                         "orig_others": orig_others,
@@ -1205,7 +1206,7 @@ class DesignerCanvas(tk.Canvas):
                     self._drag = {
                         "mode":     "move",
                         "id":       wid,
-                        "start_cx": event.x, "start_cy": event.y,
+                        "start_cx": cx, "start_cy": cy,
                         "orig_x":   w.x,     "orig_y":   w.y,
                         "orig_positions": orig_positions,
                     }
@@ -1220,7 +1221,7 @@ class DesignerCanvas(tk.Canvas):
                 self.delete("fhandle")
             self._drag = {
                 "mode":     "rubber_band",
-                "start_cx": event.x, "start_cy": event.y,
+                "start_cx": cx, "start_cy": cy,
                 "ctrl":     ctrl,
                 "prev_ids": set(self._selected_ids),
             }
@@ -1237,8 +1238,9 @@ class DesignerCanvas(tk.Canvas):
         if d is None or self._form is None:
             return
 
-        dx = event.x - d["start_cx"]
-        dy = event.y - d["start_cy"]
+        cx, cy = self.canvasx(event.x), self.canvasy(event.y)
+        dx = cx - d["start_cx"]
+        dy = cy - d["start_cy"]
 
         if d["mode"] == "form_resize":
             f      = self._form
@@ -1290,18 +1292,18 @@ class DesignerCanvas(tk.Canvas):
             x0, y0 = d["start_cx"], d["start_cy"]
             # Delete old rubber-band rect if any
             self.delete("rubber_band")
-            self.create_rectangle(min(x0, event.x), min(y0, event.y),
-                                   max(x0, event.x), max(y0, event.y),
+            self.create_rectangle(min(x0, cx), min(y0, cy),
+                                   max(x0, cx), max(y0, cy),
                                    outline=_SEL, dash=(4, 3), fill="",
                                    width=1, tags="rubber_band")
             return
 
         if d["mode"] == "draw_widget" and self._form:
             self.delete("draw_preview")
-            x0 = min(d["start_cx"], event.x)
-            y0 = min(d["start_cy"], event.y)
-            x1 = max(d["start_cx"], event.x)
-            y1 = max(d["start_cy"], event.y)
+            x0 = min(d["start_cx"], cx)
+            y0 = min(d["start_cy"], cy)
+            x1 = max(d["start_cx"], cx)
+            y1 = max(d["start_cy"], cy)
             # Clamp preview rect to form boundaries
             x0 = max(self._ox, x0)
             y0 = max(self._oy + self._min_y, y0)
@@ -1417,6 +1419,8 @@ class DesignerCanvas(tk.Canvas):
         if d is None or self._form is None:
             return
 
+        cx, cy = self.canvasx(event.x), self.canvasy(event.y)
+
         if d["mode"] == "draw_widget":
             self.delete("draw_preview")
             if not self._active_tool:
@@ -1424,14 +1428,14 @@ class DesignerCanvas(tk.Canvas):
             reg = REGISTRY.get(self._active_tool)
             if not reg:
                 return
-            dx = abs(event.x - d["start_cx"])
-            dy = abs(event.y - d["start_cy"])
+            dx = abs(cx - d["start_cx"])
+            dy = abs(cy - d["start_cy"])
             if dx > 5 or dy > 5:
                 # Drawn: use the dragged rectangle as the widget bounds
-                cx1 = min(d["start_cx"], event.x)
-                cy1 = min(d["start_cy"], event.y)
-                cx2 = max(d["start_cx"], event.x)
-                cy2 = max(d["start_cy"], event.y)
+                cx1 = min(d["start_cx"], cx)
+                cy1 = min(d["start_cy"], cy)
+                cx2 = max(d["start_cx"], cx)
+                cy2 = max(d["start_cy"], cy)
                 container = self._container_at((cx1 + cx2) // 2, (cy1 + cy2) // 2)
                 if container:
                     ax, ay = self._abs_xy(container)
@@ -1484,10 +1488,10 @@ class DesignerCanvas(tk.Canvas):
 
         if d["mode"] == "rubber_band":
             self.delete("rubber_band")
-            x0 = min(d["start_cx"], event.x)
-            y0 = min(d["start_cy"], event.y)
-            x1 = max(d["start_cx"], event.x)
-            y1 = max(d["start_cy"], event.y)
+            x0 = min(d["start_cx"], cx)
+            y0 = min(d["start_cy"], cy)
+            x1 = max(d["start_cx"], cx)
+            y1 = max(d["start_cy"], cy)
             if x1 - x0 > 4 or y1 - y0 > 4:
                 # Select all widgets intersecting the band
                 hit = set()
@@ -1568,7 +1572,7 @@ class DesignerCanvas(tk.Canvas):
             self._on_structure_changed()
 
     def _on_hover(self, event: tk.Event) -> None:
-        item = self._topmost_at(event.x, event.y)
+        item = self._topmost_at(self.canvasx(event.x), self.canvasy(event.y))
         if item is None:
             if self._hover_id:
                 self._clear_hover()
@@ -1716,8 +1720,9 @@ class DesignerCanvas(tk.Canvas):
 
     def _on_right_click(self, event: tk.Event) -> None:
         import tkinter as _tk
+        _rcx, _rcy = self.canvasx(event.x), self.canvasy(event.y)
         # If widget under cursor isn't in selection, select just it
-        item = self._topmost_at(event.x, event.y)
+        item = self._topmost_at(_rcx, _rcy)
         if item:
             tags = self.gettags(item)
             widget_tag = next((t for t in tags if t.startswith("widget:")), None)
@@ -1752,7 +1757,7 @@ class DesignerCanvas(tk.Canvas):
         menu.add_command(
             label="Paste",
             state="normal" if has_clip else "disabled",
-            command=lambda: self.paste(event.x, event.y),
+            command=lambda: self.paste(_rcx, _rcy),
             accelerator="Ctrl+V",
         )
         menu.add_separator()
