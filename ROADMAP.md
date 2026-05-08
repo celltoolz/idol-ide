@@ -38,20 +38,28 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ---
 
-## In Progress
+## Phase 2 continued — Designer Polish (2026-05-07)
 
-### Widget Anchoring + Alignment Toolbar
-Proportional scaling system for resizable place-geometry forms.
+### Widget Anchoring + Alignment Toolbar — COMPLETE
 
-- **Anchor property per widget** — modes: None, Left/Right stretch, Top/Bottom stretch,
-  Bottom-Right pin, All (scale proportionally)
-- **3×3 Anchor Grid UI** in Properties panel — click edges to toggle axes independently
-- **Codegen**: auto-emit `_on_resize` handler using stored original geometry + ratios
-- **Alignment Toolbar** in canvas strip:
-  - *Alignment*: Align Lefts / Rights / Tops / Bottoms, Center H/V
-  - *Distribution*: Equal H/V spacing, Remove spacing (snap edge-to-edge)
-  - *Sizing*: Same Width, Same Height
-  - *Grid*: Snap-to-grid toggle (8px)
+- **Widget anchoring**: 9-mode anchor picker (3×3 grid in Properties); codegen emits
+  `_apply_anchor_layout()`; anchor row gets mouseover × clear
+- **Live anchor repositioning**: widgets reposition/resize in real time as the form is
+  dragged — matches runtime behavior; **Shift+resize suppresses anchors** (widgets frozen)
+- **Anchor hint**: hovering the anchor row shows description + Shift shortcut note;
+  picker popup also shows the note at the bottom
+- **Alignment Toolbar**: full toolbar with 4 clusters — Align L/R/T/B/H/V, Distribute
+  H/V (grid-aware), Same Width/Height, Undo/Redo/Copy/Paste; all buttons disable when
+  their action doesn't currently apply
+- **Multi-placement mode**: single click on palette item stays armed; each canvas click
+  places another widget; Escape / click outside / Pointer de-arms
+- **Smart placement cursor**: crosshair over empty form (place), arrow over unselected
+  widget (click selects + de-arms), fleur over selected widget(s) (drag moves immediately)
+- **Form resize handles**: N/NW/NE handles now appear above the titlebar
+- **Ghost sash fix**: editor/output (ttk.PanedWindow) sash now correctly detects drags
+  using `sashpos()` proximity — was silently failing on Windows due to unreliable `identify()`
+- **Grid layout popup**: ⊡ toolbar button → Make Grid + H/V nudge controls
+- **Form recenter**: form recenters on canvas after a resize drag
 
 ---
 
