@@ -28,6 +28,9 @@ class StatusBar(ttk.Frame):
         self._on_interpreter_click = on_interpreter_click
         self._on_run_entry_click = on_run_entry_click
         self._indent_size = 4
+        self._branch_name = ""
+        self._ahead = 0
+        self._behind = 0
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -80,13 +83,29 @@ class StatusBar(ttk.Frame):
 
     def set_branch(self, name: str) -> None:
         """Show or update the git branch indicator on the left of the status bar."""
-        if name:
-            self._branch_lbl.config(text=f"\u2387 {name}")   # ⎇ branch_name
-            self._branch_sep.pack(side="left", fill="y", padx=4, pady=3)
-            self._branch_lbl.pack(side="left", padx=(4, 2), pady=2)
-        else:
+        self._branch_name = name
+        self._refresh_branch_label()
+
+    def set_ahead_behind(self, ahead: int, behind: int) -> None:
+        """Update the ahead/behind counts shown next to the branch name."""
+        self._ahead = ahead
+        self._behind = behind
+        self._refresh_branch_label()
+
+    def _refresh_branch_label(self) -> None:
+        name = self._branch_name
+        if not name:
             self._branch_lbl.pack_forget()
             self._branch_sep.pack_forget()
+            return
+        text = f"⎇ {name}"
+        if self._ahead:
+            text += f" ↑{self._ahead}"
+        if self._behind:
+            text += f" ↓{self._behind}"
+        self._branch_lbl.config(text=text)
+        self._branch_sep.pack(side="left", fill="y", padx=4, pady=3)
+        self._branch_lbl.pack(side="left", padx=(4, 2), pady=2)
 
     def set_lexer(self, name: str) -> None:
         self._lexer_lbl.config(text=name)

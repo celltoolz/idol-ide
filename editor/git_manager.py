@@ -201,6 +201,22 @@ class GitManager:
             self._after(0, lambda b=branch: callback(b))
         threading.Thread(target=_run, daemon=True).start()
 
+    def get_ahead_behind(self, callback: Callable[[int, int], None]) -> None:
+        """Fire callback(ahead, behind) relative to the upstream branch.
+        Both are 0 if there is no upstream or the repo has no commits."""
+        def _run() -> None:
+            ahead = behind = 0
+            out = _run_git(["rev-list", "--left-right", "--count", "HEAD...@{u}"], self._root)
+            if out.strip():
+                parts = out.strip().split()
+                if len(parts) == 2:
+                    try:
+                        ahead, behind = int(parts[0]), int(parts[1])
+                    except ValueError:
+                        pass
+            self._after(0, lambda a=ahead, b=behind: callback(a, b))
+        threading.Thread(target=_run, daemon=True).start()
+
     def get_status(self, callback: Callable[[dict[str, str]], None]) -> None:
         def _run() -> None:
             out = _run_git(["status", "--porcelain", "-u"], self._root)

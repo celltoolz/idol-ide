@@ -2267,11 +2267,15 @@ class IDOL(Tk):
             return
         self._git.get_branch(self._on_git_branch)
         self._git.get_status(self._on_git_status)
+        self._git.get_ahead_behind(self._on_git_ahead_behind)
         # Poll every 30 s to catch external git operations
         self.after(30_000, self._refresh_git)
 
     def _on_git_branch(self, branch: str) -> None:
         self._statusbar.set_branch(branch)
+
+    def _on_git_ahead_behind(self, ahead: int, behind: int) -> None:
+        self._statusbar.set_ahead_behind(ahead, behind)
 
     def _on_git_status(self, status_map: dict) -> None:
         self._git_status = status_map

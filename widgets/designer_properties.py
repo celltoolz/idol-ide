@@ -1932,6 +1932,14 @@ _DROPDOWN_ITEM_HINTS: dict[str, dict[str, str]] = {
         "determinate":   "Determinate — fills from left to right to show measurable progress toward a known goal",
         "indeterminate": "Indeterminate — bounces back and forth to show activity when progress can't be measured",
     },
+    "vcmd_args": {
+        "%P":                        "%P — the new value the field would have if the edit is accepted",
+        "%P, %S":                    "%P = new value  |  %S = the string being inserted or deleted",
+        "%d, %P, %S":                "%d = action (1=insert, 0=delete)  |  %P = new value  |  %S = change string",
+        "%s, %P, %S":                "%s = current value before edit  |  %P = new value  |  %S = change string",
+        "%d, %i, %P, %S":            "%d = action  |  %i = index of change  |  %P = new value  |  %S = change string",
+        "%d, %i, %P, %S, %s, %v, %V, %W": "%d action  %i index  %P new value  %S change  %s old value  %v validate mode  %V event  %W widget name",
+    },
 }
 
 _CHAR_PX_W = 8   # approx px per character (default 9pt font)
