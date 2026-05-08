@@ -107,16 +107,11 @@ debugpy over DAP — breakpoints with VS Code-style gutter, step controls (F5/F1
 
 ### AI Chat (F2)
 
-<table><tr>
-<td valign="top">
+<img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="100%">
 
 Local Ollama LLM — fully offline, no API key. Send File, Send Selection, streaming responses, syntax-highlighted code blocks, token counter, conversation save/load, and remote host support.
 
 → **[Full AI chat docs](docs/ai-chat.md)**
-
-</td>
-<td width="50%"><img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="100%"></td>
-</tr></table>
 
 ### Package Manager (F3)
 
