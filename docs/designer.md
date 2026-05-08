@@ -71,7 +71,9 @@ A horizontal strip above the canvas with alignment, snap, and history controls.
 
 **Snap toggle** — enable/disable snap-to-grid (8px); blue indicator when active
 
-**Grid Layout popup** — ⊡ button opens a `Toplevel` with Make Grid and H/V nudge controls for arranging widgets in a regular grid automatically
+**Grid Layout popup** — ⊡ button opens a `Toplevel` with Make Grid and H/V nudge controls for arranging widgets in a regular grid automatically; H/V nudge buttons step by 8px, or **1px when Shift is held**
+
+**Tab order toggle** — `⇥` button shows or hides numbered blue badges on every widget indicating its tab/z-order position; toggles as a sticky button (lit blue when active)
 
 **Right cluster — History & Clipboard:**
 
@@ -102,6 +104,8 @@ Button, Entry, Text, Combobox, and other widgets expose a `state` dropdown (norm
 
 ### Validation
 Entry and Spinbox expose a `validate` dropdown (key / focus / all / etc.) with `--vcmd`, `--args`, and `--ivcmd` sub-rows. The `--args` field has a preset dropdown for common tkinter substitution codes (`%P`, `%P, %S`, etc.). Codegen emits `self.register(self.method)` wiring automatically.
+
+Hovering a substitution code in the `--args` dropdown shows its meaning in the hint bar at the bottom of the Properties panel (e.g. `%P` → *proposed value after the edit*, `%S` → *string being inserted or deleted*, `%d` → *action type: 0=delete 1=insert*).
 
 ### Variable Binding
 Supported widgets expose a Variable section: set a name, type (StringVar / IntVar / DoubleVar / BooleanVar), and initial value. Codegen emits the declaration and wires `textvariable=` / `variable=` automatically.
@@ -154,6 +158,15 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 **Handler picker** — every event handler cell has a ▾ button that opens a scrollable popup listing all handlers already defined on the form. Hover a row to preview the name in the entry field. Useful for reusing an existing handler across multiple events. The Menu Editor Command field has the same picker.
 
 **Double-click a wired event row** to auto-generate code (if dirty) and jump directly to that handler in the editor.
+
+## Order Tab
+
+The **Order** tab in the Properties panel shows all widgets on the form as a canvas-rendered numbered list in their current tab/z-order.
+
+- Drag any row up or down to reorder it — the canvas updates immediately, badges refresh, and undo is supported
+- The order here is both the **Tab key focus sequence** and the **z-order** (earlier entries are beneath later ones)
+- The **`⇥` toolbar button** toggles numbered blue badges directly on the canvas widgets so you can see the order at a glance without switching to the Order tab
+- A permanent hint in the status bar reminds you of what the Order tab does when it is active
 
 ## Widget Containment
 

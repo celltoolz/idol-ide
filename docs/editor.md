@@ -61,6 +61,14 @@ A thin bar between the tab row and the editor showing the full file path and cur
 - **Word occurrence highlights** — when the cursor rests on a word, all other occurrences in the file highlight automatically; updates on arrow-key navigation too
 - **Selection collapse** — pressing Left or Right arrow with a selection collapses to the start/end of the selection (VS Code behavior)
 
+## Non-ASCII Paste Detection
+
+When you paste text that contains non-ASCII characters (curly quotes, em-dashes, zero-width spaces, etc.) an amber **Fix Encoding** pill appears in the nav bar.
+
+- Click **Fix Encoding** to replace all detected non-ASCII characters with a space (zero-width characters are stripped entirely)
+- Useful when copying from Word, web pages, or PDF — invisible characters that cause `SyntaxError` or `IndentationError` at runtime are caught before they cause problems
+- The pill disappears once the file is clean
+
 ## CRC Dirty Tracking
 
 The tab's modified dot (`•`) clears automatically when you undo back to the exact saved state — no manual save needed to clean the indicator. CRC32 is computed on each save and compared on every change.

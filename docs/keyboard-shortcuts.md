@@ -85,3 +85,5 @@
 | Delete widget(s) | Delete |
 | Nudge widget(s) | Arrow keys (1px) |
 | Select all widgets | Ctrl+A |
+| Toggle tab order badges | ⇥ toolbar button |
+| Grid nudge 1px (vs 8px) | Shift+click H/V nudge buttons |

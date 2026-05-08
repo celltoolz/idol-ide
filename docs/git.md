@@ -2,7 +2,7 @@
 
 ## Status & Gutter
 
-- Branch name in the status bar with live 30-second polling
+- **Branch and sync indicator** in the status bar — shows `⎇ branch-name ↑N ↓N` where ↑N is commits ahead of remote and ↓N is commits behind; refreshes automatically after commit, push, and pull; async so it never blocks the UI
 - M/A/U/D badges on tabs and file explorer entries (Modified, Added, Untracked, Deleted)
 - Gutter diff strips showing added/modified/deleted lines inline in the editor
 
