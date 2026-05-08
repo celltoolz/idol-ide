@@ -189,7 +189,7 @@ Double-clicking a widget with no events switches to the Events tab.
 
 **Double-clicking a wired event row** in the Events tab jumps directly to that specific handler in the editor.
 
-**Double-clicking a wired event row in the Properties panel** (the property name column) also jumps to that handler — so you can navigate to code from either tab.
+**Double-clicking a wired event row in the Properties panel** (the property name column) also jumps to that handler — so you can navigate to code from any event.
 
 Clicking a menu item on the canvas dropdown navigates to its handler the same way.
 
