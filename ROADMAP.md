@@ -60,6 +60,9 @@ This document tracks completed milestones, work in progress, and the planned fea
   using `sashpos()` proximity — was silently failing on Windows due to unreliable `identify()`
 - **Grid layout popup**: ⊡ toolbar button → Make Grid + H/V nudge controls
 - **Form recenter**: form recenters on canvas after a resize drag
+- **Relief rendering**: widget `relief` prop (raised/sunken/groove/ridge/solid/flat) draws correctly on the canvas for all supported types; `borderwidth` respected; Frame keeps dashed indicator when flat
+- **Draw-to-size placement**: with a palette tool armed, drag on the canvas to define the widget's bounding box; plain click still drops at default size
+- **Palette drag-and-drop**: drag a widget type from the palette directly onto the canvas; ghost label follows cursor; drops at default size at cursor position
 
 ---
 

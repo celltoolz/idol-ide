@@ -24,7 +24,7 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 ## Canvas
 
 - **Dotted-grid design surface** — form rendered at real size with a simulated title bar and drop shadow
-- **Widgets render realistically** — raised buttons, sunken entries, filled progress bars, checked checkboxes, and more
+- **Widgets render realistically** — relief styles (raised, sunken, groove, ridge, solid, flat), disabled state, password dots, progress bars, checked checkboxes, and more; changing the `relief` property in the Properties panel updates the canvas immediately
 - **Click to select** — blue dashed border + 8 white resize handles appear on the selected widget
 - **Drag to move** — repositions with 8px snap-to-grid
 - **Drag a handle to resize** — snapped to the same 8px grid
@@ -39,6 +39,12 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 14 widget types in a scrollable toolbox with canvas-drawn mini-previews:
 
 Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, Scale, Spinbox, Progressbar, Separator
+
+**Placement modes:**
+- **Click** — arms the crosshair tool; click anywhere on the canvas to drop at default size
+- **Click-and-drag on canvas** — after arming, drag out a bounding box on the canvas; the widget is placed at exactly the drawn size (grid-snapped, 16px minimum); a plain click without dragging still drops at default size
+- **Drag from palette to canvas** — drag a palette item directly onto the canvas; a ghost label follows the cursor; releasing over the canvas drops the widget at default size at that position; releasing outside the canvas cancels
+- **Double-click** — places the widget at the centre of the form immediately, without needing a canvas click
 
 ## Toolbar
 
