@@ -58,18 +58,19 @@ class Sidebar(ttk.Frame):
 
         self._relaying_out: bool = False   # instance-level re-entrancy guard
         self._dragging:     bool = False
+        self._ghost_sash:   Frame | None = None
 
         # ── Sections ──────────────────────────────────────────────────────────
         self._outline_hdr = self._make_header("OUTLINE",    self._toggle_outline)
         self.outline      = OutlinePanel(self, on_navigate=on_navigate)
 
-        self._sash1 = self._make_sash()
+        self._sash1 = self._make_sash(0, 1)
 
         self._refs_hdr = self._make_header("REFERENCES", self._toggle_refs,
                                            closeable=True)
         self.references = ReferencesPanel(self, on_navigate=on_navigate)
 
-        self._sash2 = self._make_sash()
+        self._sash2 = self._make_sash(1, 2)
 
         self._sc_hdr = self._make_header("SOURCE CONTROL", self._toggle_sc,
                                          closeable=True,
@@ -93,7 +94,7 @@ class Sidebar(ttk.Frame):
             on_expand_commit=sc_cb.get("expand_commit",          None),
         )
 
-        self._sash3 = self._make_sash()
+        self._sash3 = self._make_sash(2, 3)
 
         self._explorer_hdr = self._make_header("EXPLORER",  self._toggle_explorer)
         # Wrap callback so clicks from the tree don't reset the explorer root
@@ -205,9 +206,11 @@ class Sidebar(ttk.Frame):
 
         return hdr
 
-    def _make_sash(self) -> Frame:
+    def _make_sash(self, slot_above: int, slot_below: int) -> Frame:
         sash = Frame(self, bg="#3c3c3c", cursor="sb_v_double_arrow",
                      height=_SASH_H)
+        sash.bind("<ButtonPress-1>",
+                  lambda e, a=slot_above, b=slot_below: self._sash_press(e, a, b))
         sash.bind("<B1-Motion>",        self._sash_drag)
         sash.bind("<ButtonRelease-1>",  self._sash_release)
         return sash
@@ -260,31 +263,36 @@ class Sidebar(ttk.Frame):
         self._drag_start_y     = event.y_root
         self._drag_start_above = self._get_h(slot_above)
         self._drag_start_below = self._get_h(slot_below)
-        # Grab all mouse events to this sash so motion keeps firing even when
-        # the cursor moves off the widget during a fast drag.
         event.widget.grab_set()
+        # Show ghost drag line — position at the sash's current y in the sidebar
+        if self._ghost_sash is None:
+            self._ghost_sash = Frame(self, bg="#007acc", height=2)
+        self._ghost_y0 = event.widget.winfo_y() + _SASH_H // 2
+        self._ghost_sash.place(x=0, y=self._ghost_y0, relwidth=1.0, height=2)
+        self._ghost_sash.lift()
 
     def _sash_release(self, event) -> None:
+        if self._ghost_sash is not None:
+            self._ghost_sash.place_forget()
+        delta = event.y_root - self._drag_start_y
         self._dragging = False
         try:
             event.widget.grab_release()
         except Exception:
             pass
-
-    def _sash_drag(self, event) -> None:
-        if not self._dragging:
-            return
-        delta = event.y_root - self._drag_start_y
         new_above = max(_MIN_BODY, self._drag_start_above + delta)
-        # Give the below panel exactly what the above panel gave up (or gained)
         actual_delta = new_above - self._drag_start_above
         new_below = max(_MIN_BODY, self._drag_start_below - actual_delta)
         self._set_h(self._drag_slot_above, new_above)
         self._set_h(self._drag_slot_below, new_below)
-        # Debounce — avoid triggering place() → <Configure> → _relayout loop
-        if hasattr(self, "_relayout_id"):
-            self.after_cancel(self._relayout_id)
-        self._relayout_id = self.after(16, self._relayout)
+        self._relayout()
+
+    def _sash_drag(self, event) -> None:
+        if not self._dragging or self._ghost_sash is None:
+            return
+        delta = event.y_root - self._drag_start_y
+        ghost_y = max(0, min(self._ghost_y0 + delta, self.winfo_height() - 2))
+        self._ghost_sash.place(x=0, y=int(ghost_y), relwidth=1.0, height=2)
 
     def _on_configure(self, event) -> None:
         # Only respond to the sidebar frame resizing (window resize), not
