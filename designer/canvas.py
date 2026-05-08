@@ -1997,7 +1997,7 @@ def _draw_labelframe(c, x, y, x2, y2, text, props):
     elif edge in ("w", "e"):
         c.create_text(notch[0]+4, notch[1]+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
     else:
-        c.create_text(notch[0]+4, by+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        c.create_text(notch[0]+4, by, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
 
 
 @_tag
