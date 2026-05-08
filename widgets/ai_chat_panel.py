@@ -9,7 +9,7 @@ from typing import Callable
 
 from utils import ollama_client
 from utils import settings as idol_settings
-from utils.learning_registry import LearningManager
+from widgets.learning_manager import LearningManager
 
 _HISTORY_FILE = Path.home() / ".idol" / "ai_history.json"
 _HISTORY_CAP  = 20   # max messages restored from disk

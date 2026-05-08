@@ -11,7 +11,7 @@ from utils.git_diagnostics import (
     classify_file, analyze_files, health_checks, git_installed, git_identity_ok,
     FileInfo, Issue, HealthCheck
 )
-from utils.learning_registry import LearningManager
+from widgets.learning_manager import LearningManager
 from widgets.guide_window import GuideWindow, GuidePage
 
 

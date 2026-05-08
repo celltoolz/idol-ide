@@ -29,7 +29,7 @@ from widgets.breadcrumb_bar import BreadcrumbBar
 from editor.bracket_matcher import BracketMatcher
 from editor.key_handler import KeyHandler
 from editor.multi_cursor import MultiCursor
-from editor.completion import CompletionPopup
+from widgets.completion_popup import CompletionPopup
 from editor.lsp_manager import (
     LspManager,
     detect_server,
@@ -43,7 +43,7 @@ from editor.git_manager import GitManager, get_global_identity
 from menus.menubar import build_menubar
 from utils import session as session_utils
 from utils.thread_safe_after import make_thread_safe_after
-from utils.learning_registry import LearningManager
+from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel

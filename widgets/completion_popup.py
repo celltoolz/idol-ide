@@ -55,7 +55,7 @@ class CompletionPopup:
                 detail = detail[:35] + "…"
             row = f" {kind}  {label}"
             if detail:
-                row += f"  \u2014  {detail}"
+                row += f"  —  {detail}"
             self._lb.insert("end", row)
 
         rows = min(len(items), self.MAX_ROWS)

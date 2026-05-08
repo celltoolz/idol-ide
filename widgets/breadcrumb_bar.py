@@ -11,7 +11,7 @@ import os
 import tkinter as tk
 from typing import Callable
 
-from utils.learning_registry import LearningManager
+from widgets.learning_manager import LearningManager
 
 _BG       = "#2d2d30"
 _BG_HOVER = "#3e3e42"

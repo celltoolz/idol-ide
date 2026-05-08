@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import Frame, Label, ttk
 from typing import Callable, Optional
 
-from utils.learning_registry import LearningManager
+from widgets.learning_manager import LearningManager
 
 from .debug_panel import DebugPanel
 from .output import OutputPanel

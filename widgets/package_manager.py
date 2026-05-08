@@ -9,7 +9,7 @@ from tkinter import ttk
 from typing import Callable
 
 from editor.pip_manager import PipManager
-from utils.learning_registry import LearningManager
+from widgets.learning_manager import LearningManager
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow, GuidePage
 

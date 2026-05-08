@@ -106,7 +106,8 @@ Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for
 never runs subprocesses or owns protocol logic itself.
 
 Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `codeview.py`,
-`command_palette.py`, `debug_panel.py`, `explorer.py`, `find_replace.py`, `guide_window.py`,
+`command_palette.py`, `completion_popup.py`, `debug_panel.py`, `designer_palette.py`,
+`explorer.py`, `find_replace.py`, `guide_window.py`, `learning_manager.py`,
 `learning_panel.py`, `linenums.py`, `minimap.py`, `notebook.py`, `outline.py`,
 `output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
 `sidebar.py`, `source_control.py`, `statusbar.py`, `sticky_scroll.py`, `terminal.py`
@@ -157,8 +158,8 @@ GuideWindow(self, "My Feature", [
 
 The visual form designer. Only active when the current project type is "Tkinter GUI App".
 Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `codegen`,
-`persistence`) have no Tkinter widget imports; UI modules (`canvas`, `palette`,
-`widgets/designer_properties.py`) have no subprocess calls.
+`persistence`) have no Tkinter widget imports; UI modules (`canvas`, `toolbar`,
+`widgets/designer_palette.py`, `widgets/designer_properties.py`) have no subprocess calls.
 
 | File | Role |
 |---|---|
@@ -169,7 +170,8 @@ Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `co
 | `canvas.py` | Dotted-grid drag/drop surface — canvas-primitive widget rendering (bg/fg from props applied live), click-to-select, drag-to-move, resize handles, multi-select rubber band, copy/paste with cascade-offset drift reset, arrow-key nudge (1 px), bring-to-front/send-to-back, z-order preservation on every mutation. **Widget containment**: Frame/LabelFrame act as parent containers; widgets dragged onto them are auto-parented (coords stored relative to container content area); `_abs_xy()` converts to absolute canvas coords for rendering; drag-out releases parent on drop. Fires `on_structure_changed` on add/remove/reorder. Fires `on_double_click(widget_id)` on double-click. Renders live menu bar strip below title bar from `form.menu_items`; clicking a top-level menu shows a native `tk.Menu` dropdown; clicking a command leaf or check/radio item with a `command_handler` fires `on_menu_navigate(method_name)`. |
 | `menu_editor.py` | VB6-style Menu Editor `Toplevel` dialog — Caption/Name/Shortcut fields, Enabled/Visible checkboxes, Type combobox (Command/Checkbutton/Radiobutton), Variable picker (`VariablePickerEntry`), Command and Value fields, ← → ↑ ↓ arrow buttons (promote/demote/reorder), Insert/Delete/Next actions, indented listbox preview, hover hint bar (3-line, below OK/Cancel), OK/Cancel, ? guide. Accepts optional `form` arg so the variable picker can show all form-level variables. Works on a deep copy; calls `on_save(items)` only on OK. |
 | `var_picker.py` | `collect_form_variables(form)` — gathers all variable names+types from widget `VariableBinding`s then menu check/radiobutton items in definition order, deduped. `show_variable_popup(anchor, variables, on_select, entry_ref)` — dark-themed `Toplevel` listing variables as `name (VarType)` rows; live-filters as the user types in `entry_ref`; refocuses entry after render; dismisses on outside click but keeps alive on anchor/entry clicks. `VariablePickerEntry` — reusable `Entry + ▾ button` widget that opens the popup on button click. Used by both the properties panel (inline treeview editor for `var__name` row) and the menu editor Variable field. |
-| `palette.py` | Widget toolbox panel — canvas-drawn mini previews, click-to-place |
+| `toolbar.py` | Alignment/distribute/size/snap toolbar strip rendered above the design canvas — purely a UI widget |
+| `widgets/designer_palette.py` | Widget toolbox panel — scrollable list of widget types with canvas-drawn mini-previews; click-to-place; lives in `widgets/` because it is a `tk.Frame` subclass |
 | `widgets/designer_properties.py` | Property grid + Events tab — inline text editor for most props; **inline overlay dropdown** for enum props (`tk.Frame` overlay, item width sized to content, per-item hover hints in status bar for all prop options); color swatch + `tkinter.colorchooser` for color props; state dropdown with conditional state-color rows; validate dropdown with `--vcmd`/`--args`/`--ivcmd` rows; **inline list editor** for array-type props (e.g. Combobox `values`): floating panel with item rows + `×` remove buttons, Entry at bottom — Enter adds item and keeps focus; variable binding section; control selector dropdown at top; read-only `parent` geo row (drag on canvas to reparent); red `name_warn` tag on non-underscore handler names; `? Events` guide row at bottom of Events tab; ✦ auto-wire button on hover for unwired event rows; blue hover highlight on all rows in both tabs; `×` clear button on hover for color/optional props and wired event handlers; status-bar property/event hints on hover (wrapping label, grey, defers to timed errors) |
 
 **Designer layout (when active):**
@@ -308,12 +310,42 @@ Implemented and stable:
 
 ---
 
-## Keeping This File Current
+## Keeping Docs Current
 
-This file is the project brief for Claude Code (`CLAUDE.md` points here). Keep it accurate:
-- When you add a file to `editor/`, `utils/`, or `widgets/`, add a row to the relevant table
+**Rule: every feature change ships with a docs change. No exceptions.**
+
+### This file (`CONTRIBUTING.md`)
+- When you add a file to `editor/`, `utils/`, `widgets/`, or `designer/`, add a row to the relevant table
 - When a planned feature ships, move it from **Planned / In Progress** to **Current Feature State**
 - When a key technical decision changes (threading model, import rules, etc.), update the relevant section
+
+### `README.md`
+- Keep feature summaries (3–5 bullets per section) accurate — update wording if behavior changes
+- Add a new feature section (with screenshot link) when a major feature ships
+- If a feature is removed or renamed, update or remove its entry
+
+### `docs/`
+Each file in `docs/` maps to a feature area. When you change a feature, update the matching doc:
+
+| Changed area | Update this doc |
+|---|---|
+| Editor, multi-cursor, split, breadcrumb, minimap | `docs/editor.md` |
+| Diagnostics, Problems panel, LSP | `docs/intelligence.md` |
+| Explorer, command palette, outline, references | `docs/navigation.md` |
+| Git panel, health, history, wizards | `docs/git.md` |
+| Terminal, output, run line/selection | `docs/terminal.md` |
+| Debugger, breakpoints, DAP | `docs/debugger.md` |
+| AI Chat panel | `docs/ai-chat.md` |
+| Package Manager | `docs/package-manager.md` |
+| Learning Mode | `docs/learning-mode.md` |
+| Project wizard, interpreter, session, status bar | `docs/project.md` |
+| GUI Designer (any part) | `docs/designer.md` |
+| Keyboard shortcuts | `docs/keyboard-shortcuts.md` |
+| Install, requirements, first-run flow | `docs/getting-started.md` |
+
+### `ROADMAP.md`
+- When a planned item ships, move it from the backlog to the Shipped section with a date
+- Add new planned items as they are decided
 
 ---
 
