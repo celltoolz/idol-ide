@@ -86,7 +86,6 @@ class FormListPanel(tk.Frame):
 
         self._canvas = tk.Canvas(self, bg=_BG, highlightthickness=0, bd=0)
         self._canvas.pack(fill="both", expand=True)
-        self._canvas.bind("<Button-1>",        self._click)
         self._canvas.bind("<Motion>",          self._motion)
         self._canvas.bind("<Leave>",           self._leave)
         self._canvas.bind("<ButtonPress-1>",   self._drag_start)
@@ -221,23 +220,6 @@ class FormListPanel(tk.Frame):
         i = y // _ROW_H
         return i if 0 <= i < len(self._rows) else None
 
-    def _click(self, event: tk.Event) -> None:
-        idx = self._idx_at(event.y)
-        if idx is None:
-            return
-        row = self._rows[idx]
-        if row["kind"] == "section":
-            return
-        # Check if the × unlink area was clicked (right ~20px for linked rows)
-        if row["kind"] == "linked":
-            cw = self._canvas.winfo_width()
-            if event.x >= cw - 20:
-                if self._on_unlink:
-                    self._on_unlink(row["name"], row["parent"])
-                return
-        if self._on_select:
-            self._on_select(row["name"])
-
     def _motion(self, event: tk.Event) -> None:
         if self._drag_name:
             return  # handled by _drag_motion
@@ -294,32 +276,45 @@ class FormListPanel(tk.Frame):
 
     def _drag_release(self, event: tk.Event) -> None:
         self._drag_pending = None  # always clear pending on release
-        if not self._drag_name:
-            return
-        dialog_name   = self._drag_name
-        drag_parent   = self._drag_parent
-        self._drag_name   = None
-        self._drag_parent = None
-        drop_idx          = self._drop_idx
-        self._drop_idx    = None
-        self._hide_ghost()
-        self._canvas.config(cursor="")
 
-        if drop_idx is not None and drop_idx < len(self._rows):
-            target_row = self._rows[drop_idx]
-            if target_row["kind"] == "form":
-                target_form = target_row["name"]
-                # Unlink from old parent first (if different form)
-                if drag_parent and drag_parent != target_form:
+        if self._drag_name:
+            dialog_name   = self._drag_name
+            drag_parent   = self._drag_parent
+            self._drag_name   = None
+            self._drag_parent = None
+            drop_idx          = self._drop_idx
+            self._drop_idx    = None
+            self._hide_ghost()
+            self._canvas.config(cursor="")
+
+            if drop_idx is not None and drop_idx < len(self._rows):
+                target_row = self._rows[drop_idx]
+                if target_row["kind"] == "form":
+                    target_form = target_row["name"]
+                    if drag_parent and drag_parent != target_form:
+                        if self._on_unlink:
+                            self._on_unlink(dialog_name, drag_parent)
+                    if target_form != drag_parent:
+                        if self._on_link:
+                            self._on_link(dialog_name, target_form)
+                        return
+            self._redraw()
+        else:
+            # No drag crossed the threshold — treat as a plain click
+            idx = self._idx_at(event.y)
+            if idx is None:
+                return
+            row = self._rows[idx]
+            if row["kind"] == "section":
+                return
+            if row["kind"] == "linked":
+                cw = self._canvas.winfo_width()
+                if event.x >= cw - 20:
                     if self._on_unlink:
-                        self._on_unlink(dialog_name, drag_parent)
-                # Link to new form
-                if target_form != drag_parent:
-                    if self._on_link:
-                        self._on_link(dialog_name, target_form)
+                        self._on_unlink(row["name"], row["parent"])
                     return
-
-        self._redraw()
+            if self._on_select:
+                self._on_select(row["name"])
 
     # ── Ghost drag preview ────────────────────────────────────────────────────
 
