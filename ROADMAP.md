@@ -171,11 +171,23 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ---
 
-## Planned — Editor
+## Phase 2 continued — Editor & UX Polish (2026-05-08)
 
-- **Non-ASCII paste detection** — on paste, scan for `\xa0` / non-ASCII characters that cause
-  silent Python syntax errors; flash a "Fix Encoding" button in the nav bar (no dialog)
-- **Git ahead/behind status** — statusbar shows when local branch is behind the remote
+- **Designer Shift+click nudge** — holding Shift while clicking any nudge arrow steps by 1 px
+  instead of 8 px (`e.state & 0x1` in `designer/toolbar.py`)
+- **Git ahead/behind statusbar** — `⎇ branch ↑N ↓N` indicator; async
+  `rev-list --left-right --count` in `editor/git_manager.py`; refreshes after commit/push/pull
+- **Validation substitution tooltips** — hover hint bar in Properties shows `%P`, `%S`, `%d`
+  descriptions for `vcmd_args` dropdown items
+- **Non-ASCII paste detection** — `_BAD_PASTE_CHARS` frozenset in `codeview.py`; fires
+  `<<BadPaste>>` virtual event; nav bar shows amber "Fix Encoding" pill that replaces bad chars
+  with space (zero-width stripped entirely)
+- **Panel redraw flicker eliminated** — source control uses diff-based row reconciliation
+  (unchanged rows kept on screen); outline uses `_fingerprint()` pre-check to skip full rebuild
+  when visible structure hasn't changed
+- **Ghost sash fix — sidebar** — sidebar's custom Frame-based sashes now use ghost drag (blue
+  2 px overlay line tracks mouse; actual panel resize fires on mouse-up only); also fixes the
+  missing `<ButtonPress-1>` binding that was never connected to `_sash_press`
 
 ---
 
@@ -199,6 +211,34 @@ the import + pre-wired class skeleton.
 
 ## Long-Term Ideas
 
+### Clipboard History Panel
+A dedicated panel (or Command Palette overlay) showing the last N clipboard entries.
+- Ring buffer of copied text (configurable depth, e.g. 50 entries); each entry stores content +
+  timestamp + source file/line
+- Accessible via `Ctrl+Shift+V` or a panel tab; click-to-paste or keyboard nav + Enter
+- Search/filter bar across all entries; single × to delete an entry; "Clear All" button
+- Entries pinned with a 📌 icon survive "Clear All"
+- Storage: in-memory only (never written to disk — clipboard content is sensitive)
+- Implementation sketch: hook `codeview` paste and intercept Ctrl+C/X at the app level;
+  render entries as a canvas-virtualized list (ties directly into the canvas panel idea below)
+
+### Canvas-Virtualized Side Panel Renderer
+Replace the Frame/Label widget trees in the sidebar panels with a single `Canvas` per section,
+drawing rows as canvas items and only repainting visible rows.
+- Motivation: zero widget teardown → zero flicker; handles 10 000-row symbol lists without
+  slowdown; enables smooth animated expand/collapse and VS Code-style hover highlights
+- Each panel section gets one `Canvas` + a vertical `Scrollbar`; rows are `create_text` /
+  `create_image` items; `tag_bind` handles clicks, hovers, and context menus
+- Approach: build it first on a new surface (Clipboard History is the ideal pilot) to prove out
+  the pattern before migrating the four existing panels (Outline, References, Source Control,
+  Explorer)
+- This is also a **showcase milestone** — demonstrating that raw Tkinter can produce
+  virtualized, sub-millisecond-repaint UI on par with Electron-based editors; Tkinter is
+  systematically underestimated and IDOL is a direct rebuttal of that. A Canvas renderer that
+  handles real IDE workloads (large file trees, live symbol updates, commit history) is exactly
+  the kind of thing that shifts that conversation
+
+### Other Ideas
 - **Import / Export project** — bundle to single `.idolpkg` file (zip-based); import wizard
   with package checklist, interpreter mismatch warning, and git init / remote-pull options
 - **Grid / Pack layout mode** — drag-first canvas with auto-detected grid overlay
