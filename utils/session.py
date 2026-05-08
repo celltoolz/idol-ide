@@ -155,7 +155,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     # Save live sash widths if in designer mode, otherwise use the stored values.
     if getattr(app, "_designer_mode", False):
         try:
-            w = app._designer_palette.winfo_width()
+            w = app._designer_left_pane.winfo_width()
             if w > 50:
                 layout["designer_palette_width"] = w
         except Exception:

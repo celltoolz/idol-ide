@@ -62,10 +62,12 @@ _BOOL_PROPS = {"wrap", "exportselection"}
 _PROP_RENAMES = {"char_width": "width", "char_height": "height"}
 
 # IDOL marker lines — must contain the tokens persistence.py detects
-_IMPORT_B = "# ── IDOL:IMPORTS:BEGIN " + "─" * 49
-_IMPORT_E = "# ── IDOL:IMPORTS:END "   + "─" * 51
-_INIT_B   = "        # ── IDOL:BEGIN " + "─" * 55
-_INIT_E   = "        # ── IDOL:END "   + "─" * 57
+_IMPORT_B        = "# ── IDOL:IMPORTS:BEGIN "        + "─" * 49
+_IMPORT_E        = "# ── IDOL:IMPORTS:END "          + "─" * 51
+_DIALOG_IMPORT_B = "# ── IDOL:DIALOG_IMPORTS:BEGIN " + "─" * 42
+_DIALOG_IMPORT_E = "# ── IDOL:DIALOG_IMPORTS:END "   + "─" * 44
+_INIT_B          = "        # ── IDOL:BEGIN "         + "─" * 55
+_INIT_E          = "        # ── IDOL:END "           + "─" * 57
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -73,16 +75,19 @@ _INIT_E   = "        # ── IDOL:END "   + "─" * 57
 def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
              pre_init: str = "", post_init: str = "", helpers: str = "",
              user_imports: str = "",
-             event_signatures: dict[str, tuple[str, str]] | None = None) -> str:
+             event_signatures: dict[str, tuple[str, str]] | None = None,
+             linked_dialogs: list[str] | None = None) -> str:
     """Return Python source for *form*.
 
-    event_bodies: {method_name: dedented_body_str} — user event handler code.
-    pre_init:     user code placed between form setup and self._build_ui().
-    post_init:    user code placed after self._build_ui().
-    helpers:      full source of public helper methods (user-written).
+    event_bodies:   {method_name: dedented_body_str} — user event handler code.
+    pre_init:       user code placed between form setup and self._build_ui().
+    post_init:      user code placed after self._build_ui().
+    helpers:        full source of public helper methods (user-written).
+    linked_dialogs: dialog class names owned by this form; generates _open_X methods.
     """
-    bodies = event_bodies or {}
-    sigs   = event_signatures or {}
+    bodies   = event_bodies or {}
+    sigs     = event_signatures or {}
+    dialogs  = linked_dialogs or []
     needs_ttk = _uses_ttk(form)
 
     out: list[str] = []
@@ -98,16 +103,29 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     else:
         out.append("# Add your imports here")
     out.append(_IMPORT_E)
+    if dialogs:
+        out.append(_DIALOG_IMPORT_B)
+        for d in dialogs:
+            out.append(f"from {d} import {d}")
+        out.append(_DIALOG_IMPORT_E)
     out += ["", ""]
 
     # ── class header ──────────────────────────────────────────────────────────
-    base = "tk.Tk" if form.form_type == "main" else "tk.Toplevel"
+    is_dialog = form.form_type != "main"
+    base = "tk.Tk" if not is_dialog else "tk.Toplevel"
     out.append(f"class {form.name}({base}):")
-    out.append("    def __init__(self):")
+    if is_dialog:
+        out.append("    def __init__(self, parent, **kwargs):")
+    else:
+        out.append("    def __init__(self):")
 
     # Generated form-setup block (includes variable declarations)
     out.append(_INIT_B)
-    out.append("        super().__init__()")
+    if is_dialog:
+        out.append("        super().__init__(parent, **kwargs)")
+        out.append("        self.withdraw()")
+    else:
+        out.append("        super().__init__()")
     out.append(f'        self.title("{form.title}")')
     geom_h = form.height - (_MENUBAR if form.menu_items else 0)
     out.append(f'        self.geometry("{form.width}x{geom_h}")')
@@ -186,7 +204,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         m: k for k, m in form.form_events.items() if m
     }
     methods = _collect_methods(form)
-    if methods:
+    opener_names = [f"_open_{d}" for d in dialogs]
+    if methods or opener_names:
         out.append("    # ── Events " + "─" * 63)
         out.append("")
         for name in methods:
@@ -202,6 +221,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(f"    def {name}(self{sig_params}){ret_str}:")
             out.extend(_body_lines(name, bodies, default_body))
             out.append("")
+        for d in dialogs:
+            opener = f"_open_{d}"
+            default_body = f"{d}(self).deiconify()"
+            out.append(f"    def {opener}(self):")
+            out.extend(_body_lines(opener, bodies, default_body))
+            out.append("")
 
     # ── helper methods ────────────────────────────────────────────────────────
     out.append("    # ── Functions " + "─" * 59)
@@ -214,8 +239,9 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     out.append("")
 
     # ── entry point ───────────────────────────────────────────────────────────
-    out += ["", f'if __name__ == "__main__":',
-            f"    app = {form.name}()", "    app.mainloop()", ""]
+    if not is_dialog:
+        out += ["", f'if __name__ == "__main__":',
+                f"    app = {form.name}()", "    app.mainloop()", ""]
 
     return "\n".join(out)
 

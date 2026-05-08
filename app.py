@@ -51,6 +51,7 @@ from widgets.package_manager import PackageManagerPanel
 from widgets.clipboard_history import ClipboardHistoryPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
+from widgets.form_list_panel import FormListPanel
 from designer.canvas import DesignerCanvas
 from designer.toolbar import DesignerToolbar
 
@@ -382,6 +383,7 @@ class IDOL(Tk):
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
         )
+        self._designer_forms: dict = {}  # {name: FormModel} for all open forms
         self._zen_pill: object = None  # floating toast Toplevel
 
         # Peek at the saved layout before building so panes can be pre-sized
@@ -862,14 +864,26 @@ class IDOL(Tk):
         )
         self._props_panel.configure(width=230)
 
-        # ── Widget palette (swaps into left pane in designer mode) ────────────
+        # ── Left designer pane: form list (top) + palette (bottom) ──────────────
+        self._designer_left_pane = tk.Frame(self._h_pane, bg="#252526")
+
+        self._form_list_panel = FormListPanel(
+            self._designer_left_pane,
+            on_select=self._on_form_list_select,
+            on_new=self.designer_new_form,
+            on_link=self._on_form_link,
+            on_unlink=self._on_form_unlink,
+        )
+        self._form_list_panel.pack(fill="x")
+
         self._designer_palette = DesignerPalette(
-            self._h_pane,
+            self._designer_left_pane,
             on_tool_select=self._on_palette_tool_select,
             on_place=self._on_palette_place,
             on_drag_drop=self._on_palette_drag_drop,
         )
-        self._designer_palette.configure(width=180)
+        self._designer_palette.pack(fill="both", expand=True)
+        self._designer_left_pane.configure(width=180)
 
         # Last-used designer pane widths (persisted in session.json)
         self._designer_palette_width: int = 180
@@ -3177,9 +3191,11 @@ class IDOL(Tk):
             json_path = _Path(project_path) / "Form1.form.json"
             if json_path.exists():
                 form, _ = designer_load(json_path)
+                self._designer_forms[form.name] = form
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
+                self._refresh_form_list(active=form.name)
             self._refresh_generate_code_state()
         else:
             self._hide_mode_bar()
@@ -3417,20 +3433,27 @@ class IDOL(Tk):
         self._do_exit()
 
     def _designer_autosave(self) -> None:
-        """Silently save the .form.json without regenerating Python code."""
+        """Silently save all .form.json files without regenerating Python code."""
         from pathlib import Path as _Path
         from designer.persistence import save as _save, load as _load
 
-        form = self._design_canvas.form
         root = getattr(self._sidebar.explorer, "_root", None)
-        if form is None or not root:
+        if not root:
             return
-        try:
-            json_path = _Path(root) / f"{form.name}.form.json"
-            _, existing_checksum = _load(json_path)
-            _save(form, json_path, py_checksum=existing_checksum)
-        except Exception:
-            pass
+        # Sync current canvas model back into the dict before saving
+        active = self._design_canvas.form
+        if active and active.name in self._designer_forms:
+            self._designer_forms[active.name] = active
+        for form in self._designer_forms.values():
+            try:
+                json_path = _Path(root) / f"{form.name}.form.json"
+                try:
+                    _, existing_checksum = _load(json_path)
+                except Exception:
+                    existing_checksum = ""
+                _save(form, json_path, py_checksum=existing_checksum)
+            except Exception:
+                pass
 
     def _do_exit(self) -> None:
         """Save session and quit — called exactly once."""
@@ -4402,9 +4425,9 @@ class IDOL(Tk):
                 pass
         # Apply stored widths before add() — PanedWindow uses the widget's
         # requested width as the initial sash position, no timing tricks needed.
-        self._designer_palette.configure(width=self._designer_palette_width)
+        self._designer_left_pane.configure(width=self._designer_palette_width)
         self._props_panel.configure(width=self._designer_props_width)
-        self._h_pane.add(self._designer_palette, minsize=160, stretch="never")
+        self._h_pane.add(self._designer_left_pane, minsize=160, stretch="never")
         self._h_pane.add(self._v_pane, stretch="always")
         self._h_pane.add(self._props_panel, minsize=200, stretch="never")
 
@@ -4416,7 +4439,7 @@ class IDOL(Tk):
             self._load_designer_form_from_project()
 
     def _load_designer_form_from_project(self) -> None:
-        """Find the first .form.json in the current project root and load it."""
+        """Find all .form.json files in the project root and load them."""
         from pathlib import Path as _Path
         from designer.persistence import load as _load
 
@@ -4429,14 +4452,25 @@ class IDOL(Tk):
             return
         if not json_files:
             return
-        try:
-            form, _ = _load(json_files[0])
-            self._design_canvas.load_form(form)
-            self._props_panel.set_form(form)
-            self._props_panel.load_form(form)
-            self._designer_menu_had_items = bool(form.menu_items)
-        except Exception:
-            pass
+
+        self._designer_forms.clear()
+        primary: object = None
+        for jf in json_files:
+            try:
+                form, _ = _load(jf)
+                self._designer_forms[form.name] = form
+                if primary is None or form.form_type == "main":
+                    primary = form
+            except Exception:
+                pass
+
+        if primary is None:
+            return
+        self._design_canvas.load_form(primary)
+        self._props_panel.set_form(primary)
+        self._props_panel.load_form(primary)
+        self._designer_menu_had_items = bool(primary.menu_items)
+        self._refresh_form_list(active=primary.name)
         self._refresh_generate_code_state()
 
     def _enter_editor_mode(self) -> None:
@@ -4450,7 +4484,7 @@ class IDOL(Tk):
 
         # Snapshot pane widths before removing them from the layout.
         try:
-            w = self._designer_palette.winfo_width()
+            w = self._designer_left_pane.winfo_width()
             if w > 50:
                 self._designer_palette_width = w
         except Exception:
@@ -4462,9 +4496,9 @@ class IDOL(Tk):
         except Exception:
             pass
 
-        # Rebuild h_pane order: sidebar | v_pane  (remove palette + props)
+        # Rebuild h_pane order: sidebar | v_pane  (remove left pane + props)
         try:
-            self._h_pane.forget(self._designer_palette)
+            self._h_pane.forget(self._designer_left_pane)
         except Exception:
             pass
         try:
@@ -4556,7 +4590,7 @@ class IDOL(Tk):
             return
         w = event.widget
         while w is not None:
-            if w is self._design_canvas or w is self._designer_palette:
+            if w is self._design_canvas or w is self._designer_left_pane:
                 return
             try:
                 w = w.master
@@ -4762,11 +4796,158 @@ class IDOL(Tk):
         else:
             self._design_canvas.select(widget_id)
 
+    # ── Form list helpers ─────────────────────────────────────────────────────
+
+    def _links_dict(self) -> dict:
+        """Build {form_name: [dialog_names]} from current _designer_forms."""
+        return {
+            f.name: list(f.linked_dialogs)
+            for f in self._designer_forms.values()
+            if f.form_type == "main"
+        }
+
+    def _refresh_form_list(self, active: str | None = None) -> None:
+        """Re-render the FormListPanel with current state."""
+        if active is None:
+            active_form = self._design_canvas.form
+            active = active_form.name if active_form else None
+        self._form_list_panel.set_forms(
+            [(f.name, f.form_type) for f in self._designer_forms.values()],
+            links=self._links_dict(),
+            active=active,
+        )
+
+    def _on_form_list_select(self, form_name: str) -> None:
+        """FormListPanel click — switch canvas to the named form."""
+        if self._design_canvas.form and self._design_canvas.form.name == form_name:
+            return
+        self._designer_autosave()
+        form = self._designer_forms.get(form_name)
+        if form is None:
+            return
+        self._design_canvas.load_form(form)
+        self._props_panel.set_form(form)
+        self._props_panel.load_form(form)
+        self._designer_menu_had_items = bool(form.menu_items)
+        self._form_list_panel.set_active(form_name)
+        self._refresh_generate_code_state()
+
+    def _on_form_link(self, dialog_name: str, form_name: str) -> None:
+        """Tree drag-drop — link a dialog to a form."""
+        form = self._designer_forms.get(form_name)
+        if form is None or dialog_name in form.linked_dialogs:
+            return
+        form.linked_dialogs.append(dialog_name)
+        self._designer_dirty = True
+        self._refresh_form_list()
+
+    def _on_form_unlink(self, dialog_name: str, form_name: str) -> None:
+        """Tree × click — unlink a dialog from a form."""
+        form = self._designer_forms.get(form_name)
+        if form is None or dialog_name not in form.linked_dialogs:
+            return
+        form.linked_dialogs.remove(dialog_name)
+        self._designer_dirty = True
+        self._refresh_form_list()
+
+    def designer_new_form(self) -> None:
+        """Open a small dialog to create a new form or dialog."""
+        from designer.model import FormModel as _FormModel
+
+        win = tk.Toplevel(self)
+        win.title("New Form")
+        win.resizable(False, False)
+        win.configure(bg="#2d2d2d")
+        win.grab_set()
+        win.transient(self)
+
+        tk.Label(win, text="Form Name:", bg="#2d2d2d", fg="#cccccc",
+                 font=("Segoe UI", 9)).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
+
+        name_var = tk.StringVar(value=self._next_form_name())
+        name_entry = tk.Entry(win, textvariable=name_var, bg="#3c3c3c", fg="#cccccc",
+                              insertbackground="#cccccc", relief="flat",
+                              font=("Segoe UI", 9), width=22)
+        name_entry.grid(row=0, column=1, padx=(0, 12), pady=(14, 4))
+        name_entry.select_range(0, "end")
+        name_entry.focus_set()
+
+        tk.Label(win, text="Type:", bg="#2d2d2d", fg="#cccccc",
+                 font=("Segoe UI", 9)).grid(row=1, column=0, padx=12, pady=4, sticky="w")
+
+        type_var = tk.StringVar(value="dialog")
+        type_frame = tk.Frame(win, bg="#2d2d2d")
+        type_frame.grid(row=1, column=1, padx=(0, 12), pady=4, sticky="w")
+        for lbl, val in [("Main Window", "main"), ("Dialog Window", "dialog")]:
+            tk.Radiobutton(
+                type_frame, text=lbl, variable=type_var, value=val,
+                bg="#2d2d2d", fg="#cccccc", selectcolor="#094771",
+                activebackground="#2d2d2d", font=("Segoe UI", 9),
+            ).pack(side="left", padx=(0, 8))
+
+        btn_frame = tk.Frame(win, bg="#2d2d2d")
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=(8, 12))
+
+        def _create():
+            name = name_var.get().strip()
+            if not name or not name.isidentifier():
+                name_entry.config(bg="#5a1a1a")
+                return
+            if name in self._designer_forms:
+                name_entry.config(bg="#5a1a1a")
+                return
+            win.destroy()
+            form = _FormModel(
+                name=name,
+                title=name,
+                width=400,
+                height=300,
+                form_type=type_var.get(),
+            )
+            self._designer_forms[name] = form
+            self._designer_autosave()
+            self._design_canvas.load_form(form)
+            self._props_panel.set_form(form)
+            self._props_panel.load_form(form)
+            self._designer_menu_had_items = False
+            self._designer_dirty = True
+            self._refresh_form_list(active=name)
+            if not self._designer_mode:
+                self._enter_designer_mode()
+            self._refresh_generate_code_state()
+
+        for lbl, cmd in [("Create", _create), ("Cancel", win.destroy)]:
+            tk.Button(
+                btn_frame, text=lbl, command=cmd,
+                bg="#3c3c3c", fg="#cccccc", relief="flat",
+                font=("Segoe UI", 9), padx=12, pady=4, cursor="hand2",
+            ).pack(side="left", padx=4)
+
+        win.bind("<Return>", lambda _: _create())
+        win.bind("<Escape>", lambda _: win.destroy())
+
+        # Centre on parent
+        self.update_idletasks()
+        px = self.winfo_rootx() + self.winfo_width() // 2
+        py = self.winfo_rooty() + self.winfo_height() // 2
+        win.update_idletasks()
+        win.geometry(f"+{px - win.winfo_width() // 2}+{py - win.winfo_height() // 2}")
+
+    def _next_form_name(self) -> str:
+        """Return the next available Dialog{n} name."""
+        existing = set(self._designer_forms)
+        n = 1
+        while f"Dialog{n}" in existing:
+            n += 1
+        return f"Dialog{n}"
+
     def designer_close_form(self) -> None:
         """Unload the current form from the designer canvas."""
         self._design_canvas._form = None
         self._design_canvas.delete("all")
         self._props_panel.clear()
+        self._designer_forms.clear()
+        self._form_list_panel.set_forms([])
         self._refresh_generate_code_state()
 
     def designer_open_form(self) -> None:
@@ -4784,9 +4965,13 @@ class IDOL(Tk):
             return
         try:
             form, _ = _load(_Path(path))
+            self._designer_forms[form.name] = form
             self._design_canvas.load_form(form)
+            self._props_panel.set_form(form)
             self._props_panel.load_form(form)
+            self._designer_menu_had_items = bool(form.menu_items)
             self._designer_dirty = False
+            self._refresh_form_list(active=form.name)
             self._show_mode_bar()
             self._refresh_generate_code_state()
             if not self._designer_mode:
@@ -4797,7 +4982,37 @@ class IDOL(Tk):
             showerror("Open Form", f"Could not load form:\n{exc}", parent=self)
 
     def designer_generate_code(self, *, _skip_manual_check: bool = False) -> None:
-        """Regenerate the form .py from the current canvas model and save checksums."""
+        """Regenerate .py for all forms in the project and save checksums."""
+        root = getattr(self._sidebar.explorer, "_root", None)
+        active_form = self._design_canvas.form
+        if active_form is None or not root:
+            return
+
+        # Sync active canvas model into the dict before generating
+        self._designer_forms[active_form.name] = active_form
+
+        # Generate dialogs first so imports resolve when main form is generated
+        for form in self._designer_forms.values():
+            if form.form_type != "main":
+                self._generate_one_form(
+                    form, root, _skip_manual_check=_skip_manual_check,
+                )
+
+        for form in self._designer_forms.values():
+            if form.form_type == "main":
+                self._generate_one_form(
+                    form, root, _skip_manual_check=_skip_manual_check,
+                )
+
+        self._designer_dirty = False
+
+    def _generate_one_form(
+        self,
+        form,
+        root: str,
+        *,
+        _skip_manual_check: bool = False,
+    ) -> None:
         from pathlib import Path as _Path
         from designer.codegen import generate as _gen
         from designer.persistence import (
@@ -4812,13 +5027,8 @@ class IDOL(Tk):
             was_modified as _modified,
         )
 
-        form = self._design_canvas.form
-        root = getattr(self._sidebar.explorer, "_root", None)
-        if form is None or not root:
-            return
-
         json_path = _Path(root) / f"{form.name}.form.json"
-        py_path = _Path(root) / f"{form.name}.py"
+        py_path   = _Path(root) / f"{form.name}.py"
 
         if py_path.exists():
             try:
@@ -4844,19 +5054,15 @@ class IDOL(Tk):
 
         if py_path.exists():
             event_bodies = _bodies(py_path)
-            event_sigs = _sigs(py_path)
+            event_sigs   = _sigs(py_path)
             pre_init, post_init = _init_zones(py_path)
-            helpers = _helpers(py_path)
+            helpers      = _helpers(py_path)
             user_imports = _user_imports(py_path)
         else:
             event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = (
-                {},
-                {},
-                "",
-                "",
-                "",
-                "",
+                {}, {}, "", "", "", "",
             )
+
         code = _gen(
             form,
             event_bodies=event_bodies,
@@ -4865,14 +5071,13 @@ class IDOL(Tk):
             post_init=post_init,
             helpers=helpers,
             user_imports=user_imports,
+            linked_dialogs=list(form.linked_dialogs) if form.form_type == "main" else None,
         )
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)
 
-        self._designer_dirty = False
-
-        # If the generated file is open in a tab, update its content in place
+        # If the generated file is open in a tab, refresh it in place
         for tab_id, fp in list(self._files.items()):
             if fp and _Path(fp) == py_path:
                 cv = self._codeviews.get(tab_id)

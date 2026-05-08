@@ -157,6 +157,8 @@ def build_menubar(app) -> Menu:
 
     # ── Designer ──────────────────────────────────────────────────────────────
     designer_menu = Menu(menubar, tearoff=0)
+    designer_menu.add_command(label="New Form...",
+                              command=app.designer_new_form)
     designer_menu.add_command(label="Open Form...",
                               command=app.designer_open_form)
     designer_menu.add_command(label="Close Form",

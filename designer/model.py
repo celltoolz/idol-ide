@@ -147,10 +147,11 @@ class FormModel:
     border_style: str = "sizable"         # "sizable" | "fixed" | "none"
     maximize_box: bool = True
     bg: str = ""                         # "" = system default
-    form_type:  str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel, v2)
+    form_type:  str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel)
     widgets:    list[WidgetDescriptor]    = field(default_factory=list)
     menu_items: list[MenuItemDescriptor]  = field(default_factory=list)
     form_events: dict[str, str]           = field(default_factory=dict)  # {ev_key: method_name}
+    linked_dialogs: list[str]             = field(default_factory=list)  # dialog names owned by this form
 
     # ── widget lookup helpers ──────────────────────────────────────────────────
 
@@ -192,7 +193,7 @@ class FormModel:
     # ── serialization ──────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "name": self.name,
             "title": self.title,
             "width": self.width,
@@ -205,6 +206,9 @@ class FormModel:
             "menu_items": [m.to_dict() for m in self.menu_items],
             "form_events": dict(self.form_events),
         }
+        if self.linked_dialogs:
+            d["linked_dialogs"] = list(self.linked_dialogs)
+        return d
 
     @staticmethod
     def from_dict(d: dict) -> "FormModel":
@@ -224,9 +228,10 @@ class FormModel:
             maximize_box=d.get("maximize_box", True),
             bg=d.get("bg", ""),
             form_type=d.get("form_type", "main"),
-            widgets    =[WidgetDescriptor.from_dict(w)    for w in d.get("widgets",    [])],
-            menu_items =[MenuItemDescriptor.from_dict(m)  for m in d.get("menu_items", [])],
-            form_events=dict(d.get("form_events", {})),
+            widgets       =[WidgetDescriptor.from_dict(w)    for w in d.get("widgets",    [])],
+            menu_items    =[MenuItemDescriptor.from_dict(m)  for m in d.get("menu_items", [])],
+            form_events   =dict(d.get("form_events", {})),
+            linked_dialogs=list(d.get("linked_dialogs", [])),
         )
 
 
