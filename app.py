@@ -6137,7 +6137,7 @@ class IDOL(Tk):
         dlg.attributes("-topmost", True)
 
         # Logo
-        logo_path = _Path(__file__).parent / "images" / "gitPIDE.png"
+        logo_path = _Path(__file__).parent / "images" / "IDOL.png"
         try:
             from PIL import Image, ImageTk
 

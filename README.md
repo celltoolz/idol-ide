@@ -2,7 +2,7 @@
 ### Integrated Development and Objective Learning
 
 <p align="center">
-  <img src="images/gitPIDE.png" width="65%">
+  <img src="images/IDOL.png" width="65%">
 </p>
 
 <p align="center">
