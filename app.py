@@ -953,13 +953,13 @@ class IDOL(Tk):
         def _sash_hit(x: int, y: int) -> tuple[bool, int]:
             try:
                 if is_ttk:
-                    if pane.identify(x, y) not in ("sash", "separator"):
-                        return False, 0
+                    # identify() is unreliable on Windows (theme-dependent), so
+                    # just check proximity to each sash position directly.
                     coord = y if orient == "vertical" else x
                     for i in range(len(pane.panes()) - 1):
-                        if abs(coord - pane.sashpos(i)) <= 8:
+                        if abs(coord - pane.sashpos(i)) <= 6:
                             return True, i
-                    return True, 0
+                    return False, 0
                 else:
                     r = pane.identify(x, y)
                     if not r:
