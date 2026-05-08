@@ -167,6 +167,9 @@ class DesignerProperties(tk.Frame):
 
         _ob = tk.Frame(self._order_frame, bg=_ORD_BG)
         _ob.pack(fill="both", expand=True)
+
+        # Keep hint bar in sync with the active tab
+        self._nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         self._order_sb = tk.Scrollbar(_ob, orient="vertical")
         self._order_sb.pack(side="right", fill="y")
         self._order_cv = tk.Canvas(
@@ -506,6 +509,20 @@ class DesignerProperties(tk.Frame):
 
     def _clear_hint(self) -> None:
         if self._status_after is None:
+            # If the Order tab is active keep its permanent description visible
+            if self._nb.select() == str(self._order_frame):
+                self._show_hint(
+                    "Drag rows to reorder  ·  Tab key visits widgets in this order"
+                )
+            else:
+                self._status_label.config(text="")
+
+    def _on_tab_changed(self, _event=None) -> None:
+        if self._nb.select() == str(self._order_frame):
+            self._show_hint(
+                "Drag rows to reorder  ·  Tab key visits widgets in this order"
+            )
+        else:
             self._status_label.config(text="")
 
     def flash_events_tab(self) -> None:
