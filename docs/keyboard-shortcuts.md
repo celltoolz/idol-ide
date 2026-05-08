@@ -48,6 +48,7 @@
 | Show problems panel | Ctrl+Shift+M |
 | Show debug panel | Ctrl+Shift+Y |
 | Source control | Ctrl+Shift+G |
+| Clipboard History | Ctrl+Shift+H |
 | Toggle sidebar | Ctrl+B |
 | Zen mode | F10 |
 | Learning Mode | F1 |

@@ -105,12 +105,20 @@ no widget imports, no stateful objects.
 Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for data,
 never runs subprocesses or owns protocol logic itself.
 
-Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `codeview.py`,
-`command_palette.py`, `completion_popup.py`, `debug_panel.py`, `designer_palette.py`,
+Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `clipboard_history.py`,
+`codeview.py`, `command_palette.py`, `completion_popup.py`, `debug_panel.py`, `designer_palette.py`,
 `explorer.py`, `find_replace.py`, `guide_window.py`, `learning_manager.py`,
 `learning_panel.py`, `linenums.py`, `minimap.py`, `notebook.py`, `outline.py`,
 `output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
 `sidebar.py`, `source_control.py`, `statusbar.py`, `sticky_scroll.py`, `terminal.py`
+
+`clipboard_history.py` — canvas-virtualized clipboard ring (`ClipboardHistoryPanel`). Rows are
+drawn as `Canvas` primitives (background rect + text items); hover state updated via
+`itemconfigure` on the background rect only — zero widget teardown, zero full redraw. Ring buffer
+of 50 entries; deduplication by content; per-entry pin (right-click); search/filter bar; keyboard
+nav (Up/Down/Enter/Ctrl+C); pin-to-top toolbar button. Opened as a persistent hidden `Toplevel`
+(Ctrl+Shift+H); `push(text, source)` is called from `app.py` whenever the editor copies or cuts.
+Pilot for the canvas-renderer pattern that will eventually back all sidebar panels.
 
 #### `guide_window.py` — reusable paginated guide UI
 
@@ -290,6 +298,18 @@ Implemented and stable:
 - Zen mode (F10), Toggle Sidebar (Ctrl+B)
 - **GuideWindow system** — content-agnostic paginated `Toplevel` used across all guides; see `widgets/guide_window.py`
 - Colorscheme system (`.toml` files)
+- **Clipboard History panel** (`widgets/clipboard_history.py`) — canvas-virtualized ring of the
+  last 50 clipboard entries; opened via Ctrl+Shift+H as a persistent hidden `Toplevel`; canvas
+  rows (rect + text) with hover via `itemconfigure`, keyboard nav, pin/unpin (right-click), and
+  search filter; `on_copy` callback on `codeview` delivers text directly on Ctrl+C (bypasses
+  the `<<Copy>>` virtual event which `_copy()` suppresses with `return "break"`)
+- **Undo tag-snapshot** — `_capture_token_tags()` grabs all `Token.*` tag ranges via a single
+  `dump -tag` Tcl call; stored per undo burst (gated by `_undo_pending_save`); `_restore_token_tags()`
+  replays them via a batched `tk.eval` script on undo/redo, skipping Pygments entirely when tags
+  are available; eliminates the white-flash and fold-marker lag on Ctrl+Z
+- **Ghost sash — sidebar** — sidebar's custom Frame-based horizontal sashes use a 2 px `#007acc`
+  ghost overlay during drag; actual resize fires on `ButtonRelease` only; also restores the
+  missing `<ButtonPress-1>` binding that was never wired to `_sash_press`
 
 ## Planned / In Progress
 

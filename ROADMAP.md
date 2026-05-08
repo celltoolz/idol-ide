@@ -238,6 +238,25 @@ drawing rows as canvas items and only repainting visible rows.
   handles real IDE workloads (large file trees, live symbol updates, commit history) is exactly
   the kind of thing that shifts that conversation
 
+### IDOL Custom Widget Library
+A curated palette of pre-built, production-quality Tkinter widgets that ship with IDOL and appear
+as first-class entries in the Designer palette alongside the standard Tk widgets.
+- **Motivation**: same Tk showcase goal as the canvas renderer — prove that Tkinter can produce
+  polished, professional UI components without Qt or Electron; Clipboard History is the first
+  proof of concept (canvas-rendered rows, pinned entries, animated hover, keyboard nav)
+- **Candidate widgets (first batch):**
+  - `IDOLListView` — canvas-virtualized, sortable, filterable list with column headers
+  - `IDOLCard` — rounded-corner card with drop shadow, title bar, and content slot
+  - `IDOLBadge` — pill-shaped colored label (status, tag, severity indicator)
+  - `IDOLToast` — slide-in/out notification overlay (success / warning / error variants)
+  - `IDOLToggle` — animated iOS-style toggle switch (replaces Checkbutton)
+  - `IDOLProgressRing` — circular indeterminate / determinate progress indicator
+  - `IDOLSearchBox` — styled search entry with clear × button and animated placeholder
+- **Distribution**: widgets live in `widgets/idol_components/`; codegen emits
+  `from idol_components import IDOLListView` and a dependency note
+- **Designer integration**: each component has a canvas preview thumbnail (same system as
+  standard widgets); Properties panel exposes its custom properties; double-click to place
+
 ### Other Ideas
 - **Import / Export project** — bundle to single `.idolpkg` file (zip-based); import wizard
   with package checklist, interpreter mismatch warning, and git init / remote-pull options

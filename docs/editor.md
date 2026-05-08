@@ -65,6 +65,22 @@ A thin bar between the tab row and the editor showing the full file path and cur
 
 The tab's modified dot (`•`) clears automatically when you undo back to the exact saved state — no manual save needed to clean the indicator. CRC32 is computed on each save and compared on every change.
 
+## Clipboard History
+
+Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut from the editor.
+
+- Ring buffer of the **last 50 entries**; deduplication by content (most-recent wins)
+- **Search / filter bar** at the top — type to narrow entries by content or source filename
+- **Click** any row to paste it into the editor at the current cursor position
+- **Right-click** a row to toggle its **📌 pin** — pinned entries survive "Clear All" (🗑 toolbar button)
+- **Keyboard navigation** — Up/Down to move selection, Enter or Ctrl+C to paste the highlighted entry
+- **Pin-to-top** — 📌 toolbar button keeps the panel floating above all other windows
+- The panel is a persistent hidden window; closing it with the × just hides it, history is preserved
+
+> The rows are rendered as Canvas primitives (not widget trees) — hover effects are sub-millisecond
+> `itemconfigure` calls with no full redraws. This is the pilot for the canvas-renderer pattern
+> that will eventually back the Outline, References, Source Control, and Explorer panels.
+
 ## Find & Replace
 
 VS Code-style inline bar with case, whole word, and regex toggles. Open with `Ctrl+F`.
