@@ -145,6 +145,8 @@ class CodeView(Text):
         # on_undo_restore(state) — called after undo/redo restores text
         self.on_snapshot = None
         self.on_undo_restore = None
+        # on_copy(text: str) — called by _copy() after writing to the OS clipboard
+        self.on_copy = None
 
         self._sticky = StickyScroll(self._frame, self, self._line_numbers)
         # Minimap.grid() also places its border widget in column 3;
@@ -226,16 +228,64 @@ class CodeView(Text):
         self.mark_set("insert", "end")
         return "break"
 
+    # ── Tag snapshot helpers ─────────────────────────────────────────────────
+
+    def _capture_token_tags(self) -> list | None:
+        """Capture all Token.* tag ranges via a single dump -tag Tcl call.
+
+        Called once per snapshot burst (gated by _undo_pending_save), so the
+        per-keystroke cost is effectively zero.  Returns None for very large
+        documents (>10 000 token ranges) to cap memory use.
+        """
+        try:
+            raw = self.tk.call(self._orig, "dump", "-tag", "1.0", "end")
+        except TclError:
+            return None
+        result: list = []
+        opens: dict[str, str] = {}
+        for i in range(0, len(raw), 3):
+            event, tag, idx = raw[i], raw[i + 1], raw[i + 2]
+            if not tag.startswith("Token"):
+                continue
+            if event == "tagon":
+                opens[tag] = idx
+            elif event == "tagoff":
+                start = opens.pop(tag, None)
+                if start is not None:
+                    result.append((tag, start, idx))
+        return result if len(result) <= 10_000 else None
+
+    def _restore_token_tags(self, snap_tags: list) -> None:
+        """Replay saved tag ranges in two Tcl calls (tag_names + batch eval).
+
+        Compare to highlight_all(): ~20 tag_removes + Pygments CPU +
+        ~2 000 tag_adds.  Here: ~20 tag_removes + ~2 000 tag_adds, all
+        batched into one eval — no Pygments, no render gap.
+        """
+        w = self._orig
+        lines: list[str] = []
+        for tag in self.tag_names(index=None):         # 1 Tcl call
+            if tag.startswith("Token"):
+                lines.append(f"{w} tag remove {{{tag}}} 1.0 end")
+        for tag, start, end in snap_tags:
+            lines.append(f"{w} tag add {{{tag}}} {start} {end}")
+        if lines:
+            self.tk.eval("\n".join(lines))              # 1 Tcl call
+
+    # ── Undo / Redo ──────────────────────────────────────────────────────────
+
     def _undo(self, event: Event | None = None) -> str:
         if not self._undo_stack:
             return "break"
         cur_text   = self.tk.call(self._orig, "get", "1.0", "end-1c")
         cur_cursor = self.tk.call(self._orig, "index", "insert")
         cur_extra  = self.on_snapshot() if self.on_snapshot else None
-        self._redo_stack.append((cur_text, cur_cursor, cur_extra))
+        cur_tags   = self._capture_token_tags()
+        self._redo_stack.append((cur_text, cur_cursor, cur_extra, cur_tags))
         entry = self._undo_stack.pop()
         text, cursor = entry[0], entry[1]
-        extra = entry[2] if len(entry) > 2 else None
+        extra     = entry[2] if len(entry) > 2 else None
+        snap_tags = entry[3] if len(entry) > 3 else None
         self._undo_restoring = True
         try:
             self.tk.call(self._orig, "delete", "1.0", "end")
@@ -247,8 +297,12 @@ class CodeView(Text):
             self.tk.call(self._orig, "see", "insert")
         if extra is not None and self.on_undo_restore:
             self.on_undo_restore(extra)
-        self.after_idle(self.highlight_all)
-        self.after_idle(self.scroll_line_update)
+        if snap_tags is not None:
+            self._restore_token_tags(snap_tags)
+            self.after_idle(self.highlight_all)   # silent background pass
+        else:
+            self.highlight_all()                  # fallback: huge file / old entry
+        self.scroll_line_update()
         self.event_generate("<<ContentChanged>>", when="tail")
         return "break"
 
@@ -258,10 +312,12 @@ class CodeView(Text):
         cur_text   = self.tk.call(self._orig, "get", "1.0", "end-1c")
         cur_cursor = self.tk.call(self._orig, "index", "insert")
         cur_extra  = self.on_snapshot() if self.on_snapshot else None
-        self._undo_stack.append((cur_text, cur_cursor, cur_extra))
+        cur_tags   = self._capture_token_tags()
+        self._undo_stack.append((cur_text, cur_cursor, cur_extra, cur_tags))
         entry = self._redo_stack.pop()
         text, cursor = entry[0], entry[1]
-        extra = entry[2] if len(entry) > 2 else None
+        extra     = entry[2] if len(entry) > 2 else None
+        snap_tags = entry[3] if len(entry) > 3 else None
         self._undo_restoring = True
         try:
             self.tk.call(self._orig, "delete", "1.0", "end")
@@ -273,8 +329,12 @@ class CodeView(Text):
             self.tk.call(self._orig, "see", "insert")
         if extra is not None and self.on_undo_restore:
             self.on_undo_restore(extra)
-        self.after_idle(self.highlight_all)
-        self.after_idle(self.scroll_line_update)
+        if snap_tags is not None:
+            self._restore_token_tags(snap_tags)
+            self.after_idle(self.highlight_all)   # silent background pass
+        else:
+            self.highlight_all()                  # fallback: huge file / old entry
+        self.scroll_line_update()
         self.event_generate("<<ContentChanged>>", when="tail")
         return "break"
 
@@ -317,6 +377,8 @@ class CodeView(Text):
             if not text:
                 text = self.get("insert linestart", "insert lineend")
         copy(text)
+        if self.on_copy:
+            self.on_copy(text)
         return "break"
 
     def _cmd_proxy(self, command: str, *args) -> Any:
@@ -339,10 +401,11 @@ class CodeView(Text):
                 if not self._undo_restoring:
                     self._redo_stack.clear()
                     if not self._undo_pending_save:
-                        snap_text = self.tk.call(self._orig, "get", "1.0", "end-1c")
+                        snap_text   = self.tk.call(self._orig, "get", "1.0", "end-1c")
                         snap_cursor = self.tk.call(self._orig, "index", "insert")
-                        snap_extra = self.on_snapshot() if self.on_snapshot else None
-                        self._undo_stack.append((snap_text, snap_cursor, snap_extra))
+                        snap_extra  = self.on_snapshot() if self.on_snapshot else None
+                        snap_tags   = self._capture_token_tags()
+                        self._undo_stack.append((snap_text, snap_cursor, snap_extra, snap_tags))
                         if len(self._undo_stack) > 200:
                             self._undo_stack.pop(0)
                         self._undo_pending_save = True

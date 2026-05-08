@@ -48,6 +48,7 @@ from utils.custom_cursor import get_learn_cursor
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
+from widgets.clipboard_history import ClipboardHistoryPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from designer.canvas import DesignerCanvas
@@ -340,6 +341,10 @@ class IDOL(Tk):
         self._learning_panel: LearningPanel | None = None
         self._learning_active_lid: str = ""
         self._learning_reg_map: dict = {}  # widget → lid, built on activate
+
+        # Clipboard History
+        self._clip_top:   tk.Toplevel | None          = None
+        self._clip_panel: ClipboardHistoryPanel | None = None
 
         # Split editor
         self._split_active: bool = False
@@ -1158,6 +1163,7 @@ class IDOL(Tk):
         self.bind("<F1>", lambda _: self.view_learning_mode())
         self.bind("<F2>", lambda _: self.view_ai_chat())
         self.bind("<F3>", lambda _: self.view_package_manager())
+        self.bind("<Control-H>", lambda _: self.view_clipboard_history())   # Ctrl+Shift+H
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -1614,6 +1620,15 @@ class IDOL(Tk):
         codeview.bind("<Leave>", lambda _: self._cancel_hover())
         codeview.bind("<F12>", lambda _: self._goto_definition())
         codeview.bind("<<BadPaste>>", lambda _: self._show_encoding_pill())
+        codeview.bind("<<Cut>>", lambda _: self.after(50, self._capture_clipboard))
+
+        def _on_cv_copy(text: str, cv=codeview) -> None:
+            tab_id = self._current_tab_id
+            source = os.path.basename(self._files.get(tab_id, "") or "")
+            if self._clip_panel is None:
+                self._ensure_clip_panel()
+            self._clip_panel.push(text, source=source)
+        codeview.on_copy = _on_cv_copy
 
         codeview.mark_set("insert", "1.0")
         codeview.focus_set()
@@ -2430,6 +2445,66 @@ class IDOL(Tk):
             except Exception:
                 cv.mark_set("insert", "1.0")
         self._encoding_pill.pack_forget()
+
+    # ── Clipboard History ─────────────────────────────────────────────────────
+
+    def _capture_clipboard(self) -> None:
+        """Called 50 ms after <<Copy>> / <<Cut>> to grab the clipboard content."""
+        try:
+            text = self.clipboard_get()
+        except Exception:
+            return
+        if not text.strip():
+            return
+        tab_id = self._current_tab_id
+        source = os.path.basename(self._files.get(tab_id, "") or "")
+        if self._clip_panel is None:
+            self._ensure_clip_panel()
+        self._clip_panel.push(text, source=source)
+
+    def _ensure_clip_panel(self) -> None:
+        """Create the persistent clipboard history Toplevel on first use."""
+        if self._clip_top is not None:
+            return
+        top = tk.Toplevel(self)
+        top.withdraw()
+        top.title("Clipboard History")
+        top.resizable(True, True)
+        top.protocol("WM_DELETE_WINDOW", top.withdraw)
+        top.bind("<Escape>", lambda _: top.withdraw())
+
+        def _paste(text: str) -> None:
+            top.withdraw()
+            cv = self._current_codeview
+            if cv:
+                cv.insert("insert", text)
+                cv.focus_set()
+
+        panel = ClipboardHistoryPanel(top, on_paste=_paste)
+        panel.set_window(top)
+        panel.pack(fill="both", expand=True)
+        self._clip_top   = top
+        self._clip_panel = panel
+
+    def view_clipboard_history(self) -> None:
+        """Toggle the Clipboard History overlay (Ctrl+H)."""
+        self._ensure_clip_panel()
+        top = self._clip_top
+        if top.state() != "withdrawn":
+            top.withdraw()
+            return
+        # Center over the editor area
+        ew = self.winfo_width()
+        ex = self.winfo_rootx()
+        ey = self.winfo_rooty()
+        w, h = 460, 520
+        x = ex + (ew - w) // 2
+        y = ey + 60
+        top.geometry(f"{w}x{h}+{x}+{y}")
+        top.deiconify()
+        top.lift()
+        top.focus_force()
+        self._clip_panel.focus_search()
 
     def _sc_open_diff(self, path: str) -> None:
         """Open a read-only diff tab for *path*."""
