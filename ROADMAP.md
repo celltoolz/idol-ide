@@ -87,18 +87,22 @@ This document tracks completed milestones, work in progress, and the planned fea
 - Drag/drop placement, 8-handle resize, rubber-band multi-select, copy/paste, z-order
 - Properties panel: color pickers, state dropdown, validate dropdown, control selector
 - Events tab: auto-wire, name-prefix warning, ? Events guide
+- **Handler picker** — `HandlerPickerEntry` in Events tab and Menu Editor Command field; ▾ button opens scrollable dropdown listing all handlers defined on the form; hover-to-preview; smart positioning (right-align, flip above anchor when maximized)
+- **Font property** — `font` row opens `tkfontchooser` dialog pre-populated with current family/size/style; writes result back as a string tkinter accepts natively; supports bold, italic, underline, overstrike
 - Variable binding (StringVar / IntVar / DoubleVar / BooleanVar) + Variable Picker popup
 - Code generation with full preservation: event bodies, signatures, pre/post-init zones,
-  helper methods, user imports (IDOL:IMPORTS markers)
+  helper methods, user imports (IDOL:IMPORTS markers); leading comments in handler bodies preserved on regen
+- **Unified codegen prompt** — single dark-themed dialog (replacing per-action confirmations) with per-session "don't ask again" suppress
 - Menu Builder: caption/name/shortcut, enabled/visible, type, variable, command, value;
-  indent/insert/delete; codegen with add_checkbutton/add_radiobutton and auto self.bind()
+  indent/insert/delete; **Separator item**; **& access-key** in captions (display_caption + underline kwarg); codegen with add_checkbutton/add_radiobutton and auto self.bind()
 - Widget containment: Frame/LabelFrame auto-parent dropped widgets; drag-out to reparent
 - Inline list editor, color swatches, hover hint bar, × clear buttons, ✦ auto-wire
 - Full widget property coverage: wraplength, onvalue/offvalue, selectmode, char_width/height,
-  resolution, tickinterval, increment, labelanchor, Spinbox values-list mode, and more
+  resolution, tickinterval, increment, labelanchor, Spinbox values-list mode, scrollbar (Listbox/Text), and more
 - Canvas visual pass: disabled state, password dots, Listbox values, Progressbar stripes
-- Form events: load / activate / deactivate / unload / resize with codegen
+- Form events: load / activate / deactivate / unload / resize with codegen and method stubs
 - Double-click event row → jump to handler in editor
+- Double-click palette widget → place at form centre
 - Ghost sash drag (blue line, resize on mouse-up only)
 - Startup and AI-chat sash flash eliminated (pre-size from saved session)
 
@@ -134,8 +138,6 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ## Planned — Designer
 
-- Font picker for text-bearing widgets
-- Anchor / justify dropdowns
 - Tab order panel — drag widgets in Outline tree to set Tab key sequence
 - Toplevel / dialog form support (multi-form)
 - Multi-form management panel — add / remove / import / export forms, easy switching

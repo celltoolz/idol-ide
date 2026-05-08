@@ -252,8 +252,10 @@ Any future static data files belong here, not inside package directories.
 ## Current Feature State
 
 Implemented and stable:
-- Multi-tab editing with session persistence (dirty tracking, restore hardening)
-- Pygments syntax highlighting; fold markers; Ctrl+/ comment toggle; word occurrence highlights on cursor move
+- Multi-tab editing with session persistence (dirty tracking, restore hardening); **CRC dirty tracking** — undo/redo clears the dirty flag automatically when content returns to the last-saved state
+- Pygments syntax highlighting; fold markers (including `# ── Name ───` section-marker folds); Ctrl+/ comment toggle; word occurrence highlights on cursor move
+- **Smart Home key** — first press goes to first non-whitespace; second press goes to column 0 (position-based, no state needed)
+- **Center-on-navigate** — outline and references panel navigation centers the target line in the editor
 - pylsp LSP integration (hover, diagnostics, definition, completion)
 - **Problems panel** — PROBLEMS tab in bottom bar with colored severity dots; click to jump to line/column; hover tooltips with beginner-friendly ruff rule descriptions; Ask AI button + double-click for AI explanation
 - **Dual-track error engine** — ruff subprocess + compile() fallback on debounced background thread; three-tier severity: red (error) / yellow (warning) / blue (info/hint); runtime error indicators: amber gutter arrow, line highlight, Problems tab flash
@@ -279,7 +281,7 @@ Implemented and stable:
 - AI chat panel (Ollama, session history, token counter, remote host config, animated "Thinking..." dots, horizontal scroll on code blocks)
 - **Learning Mode (F1)** — hover any IDE element for three-section explanations with AI Ask button; custom arrow+? cursor; cursor+flash intercept system
 - Pip package manager with topic grouping, PyPI search, AI examples, and active-interpreter awareness
-- Command palette (Ctrl+Shift+P) with fuzzy search, `@` symbol search, and `!pip` mode with package autocomplete
+- Command palette (Ctrl+Shift+P) with fuzzy search, `@` symbol search, `!pip` mode with package autocomplete, and designer commands (Generate Code, Fold All, Unfold All)
 - Project setup wizard (4-step: name/location, interpreter/venv, git/starter files, summary + first commit guide)
 - **Session persistence** — open tabs, layout, appearance, breakpoints, active interpreter, active venv; auto-session (`~/.idol/session.json`); named saves (`.idol-project` in project root)
 - **Integrated Python debugger** — debugpy over DAP; breakpoints with VSCode-style gutter (hover ghost dot, bright active dot), session persistence, auto-shift on line insert/delete; step controls (F5/F10/F11/Shift+F11/Shift+F5); LOCALS + BREAKPOINTS panel; IDOL's bundled debugpy injected via PYTHONPATH — no per-project install needed
@@ -291,7 +293,7 @@ Implemented and stable:
 
 ## Planned / In Progress
 
-- **GUI Designer — remaining roadmap:** font picker; anchor/justify dropdowns; tab order / z-order panel; dialog/Toplevel forms (`form_type="dialog"` slot exists); grid layout mode; live preview (run form in subprocess); startup sash jump fix (apply h_sash width from session.json before sidebar is added to `_h_pane` to prevent layout jump on launch — palette/properties sash widths are already persisted).
+- **GUI Designer — remaining roadmap:** tab order / z-order panel; dialog/Toplevel forms (`form_type="dialog"` slot exists); grid layout mode; live preview (run form in subprocess).
 
 ## Designer — Shipped (Phase 2)
 
@@ -321,6 +323,39 @@ Implemented and stable:
 - **Relief rendering** — `_relief_border` helper draws raised/sunken/groove/ridge/solid/flat borders live on the canvas for Button, Label, Entry, Text, Listbox, Frame, LabelFrame, and Spinbox; reads the `relief` and `borderwidth` props; Frame keeps its dashed design-time indicator when relief is flat
 - **Draw-to-size placement** — after arming a palette tool, drag on the canvas to draw the widget's bounding box; placed at drawn size (grid-snapped, min 2×GRID) on mouseup; plain click drops at default size; container parenting works in both modes
 - **Palette drag-and-drop** — drag a widget type directly from the palette onto the canvas; ghost label follows cursor; releases outside canvas cancel silently; `on_drag_drop` callback in `DesignerPalette` → `canvas.drop_widget(type_key, cx, cy)`
+- **Double-click palette widget** → place at form centre (default size)
+- **Font property** — `font` row opens `tkfontchooser` dialog pre-populated with the current value; writes result back as `"Family size bold italic"` string; supports bold, italic, underline, overstrike
+- **Handler picker** — `HandlerPickerEntry` (Entry + ▾ button) in the Events tab and Menu Editor Command field; opens a scrollable popup listing all handlers defined on the form; hover row to preview name in entry; max 10 visible with mousewheel scroll; smart positioning (right-aligned, flips above when maximised)
+- **Form events** — load / activate / deactivate / unload / resize in the Events tab; codegen emits `.bind()` calls and stubs the handler methods
+- **Double-click wired event row** → auto-generates code if dirty, then jumps to that handler in the editor
+- **Preserve leading comments** in event handler bodies — comment lines before the first non-comment line of a handler are extracted and re-injected on regeneration
+- **Unified codegen prompt** — single dark-themed confirmation dialog replaces per-action confirms; per-session "don't ask again" checkbox
+- **Scrollbar property** for Listbox and Text — adds `yscrollcommand` wiring and a paired `ttk.Scrollbar` in codegen
+- **Separator item** in Menu Editor — Separator button adds a menu separator row; rendered as `---` in the listbox preview; codegen emits `add_separator()`
+- **& access-key in captions** — `&File` renders as `File` with underline=0; codegen emits `underline=N` kwarg; display_caption strips the `&` for canvas rendering
+
+### Widget Anchoring + Alignment Toolbar — SHIPPED (2026-05-07)
+
+- **Widget anchoring** — `anchor` property per widget; 3×3 picker grid in Properties; `× clear` on hover; codegen emits `_apply_anchor_layout()` which repositions/resizes anchored widgets relative to the form at runtime
+- **Live anchor repositioning** — widgets with anchors reposition and resize in real time as the form is dragged on the canvas, matching the runtime behavior of `_apply_anchor_layout()`; **Shift+resize suppresses anchors** so widgets stay frozen while the form is dragged
+- **Anchor hint** — hovering the anchor row shows a description + "Hold Shift while resizing to ignore all anchors"; anchor picker popup shows the Shift note at the bottom
+- **Alignment Toolbar** — right-aligned strip in the designer toolbar with four clusters: (1) Align L/R/T/B, Center H/V; (2) Distribute H/V equal spacing (grid-aware: clusters into rows/columns, assigns uniform positions); (3) Same Width / Same Height; (4) Undo ↶ / Redo ↷ / Copy ⧉ / Paste ⎘
+- **Toolbar button states** — all buttons disable (dim to #555555, ignore clicks) when their action doesn't currently apply: alignment/distribute/size require ≥2/3 selected; undo/redo track stack depth; copy requires selection; paste requires clipboard
+- **Undo/Redo** — snapshot-based history (max 50); `push_undo()` called before every mutation; Ctrl+Z/Y; toolbar buttons; right-click menu Undo/Redo at top
+- **Multi-select properties** — intersection of all selected widgets' shared props shown; blank for mixed values; full editing via dropdown/color/text; font and list editors blocked in multi-select by design
+- **Primary selection** in amber (#e8a844) with full resize handles; secondary selections show blue border only; resize delta propagates to all selected widgets
+- **Canvas scrollbars** — `ttk.Scrollbar` on canvas with `_MARGIN` padding and mousewheel support
+- **Edit menu context-aware** — Undo/Redo/Cut/Copy/Paste/Select All route to designer when in designer mode; Find & Replace is greyed out in designer mode and re-enabled on editor switch
+
+### Designer Polish Session — SHIPPED (2026-05-07 continued)
+
+- **Multi-placement mode** — single click on a palette widget keeps the tool armed; each canvas click places another widget of that type; Escape / click outside canvas / Pointer tool de-arms
+- **Smart placement cursor** — crosshair over empty form area (will place), arrow over unselected widget (click selects + de-arms), fleur over selected widget(s) (click selects + de-arms, drag moves immediately without second click)
+- **Form resize handles** — N/NW/NE handles now appear above the title bar instead of overlapping the form content
+- **Ghost sash fix** — `ttk.PanedWindow` (editor/output vertical sash) now correctly detects sash hits using `sashpos()` proximity instead of unreliable `identify()` — fixes ghost drag line on Windows
+- **Grid layout popup** — ⊡ toolbar button opens a `Toplevel` with Make Grid + H/V nudge controls
+- **Form recenter** — form recenters on canvas after a form resize drag (mouse-up)
+- **Events guide on second double-click** — double-clicking a widget that has no wired events a second time opens the Events GuideWindow
 
 ---
 
