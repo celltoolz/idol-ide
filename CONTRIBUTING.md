@@ -252,10 +252,11 @@ Any future static data files belong here, not inside package directories.
 ## Current Feature State
 
 Implemented and stable:
-- Multi-tab editing with session persistence
-- Pygments syntax highlighting
+- Multi-tab editing with session persistence (dirty tracking, restore hardening)
+- Pygments syntax highlighting; fold markers; Ctrl+/ comment toggle; word occurrence highlights on cursor move
 - pylsp LSP integration (hover, diagnostics, definition, completion)
-- **Problems panel** — PROBLEMS tab in bottom bar with colored severity dots; click to jump to line/column
+- **Problems panel** — PROBLEMS tab in bottom bar with colored severity dots; click to jump to line/column; hover tooltips with beginner-friendly ruff rule descriptions; Ask AI button + double-click for AI explanation
+- **Dual-track error engine** — ruff subprocess + compile() fallback on debounced background thread; three-tier severity: red (error) / yellow (warning) / blue (info/hint); runtime error indicators: amber gutter arrow, line highlight, Problems tab flash
 - **Diagnostic statusbar badge** — live ✕N ⚠N count; click to open Problems panel
 - **Interpreter statusbar segment** — shows active Python version; click to open interpreter picker popup; selection persists per project root in `~/.idol/settings.json`; venv activation (from terminal toolbar or project wizard) shown as `(.venv) Python x.x.x` and re-activated automatically on next launch
 - Sticky scroll, minimap
@@ -263,19 +264,29 @@ Implemented and stable:
 - **Multi-cursor editing** — Alt+Click to add/remove cursors; Shift+Arrow for independent per-cursor selections; Ctrl+C copies all selections; smart pairs and bracket matching work at every cursor; click-placement aligned to nearest character boundary
 - **Line move & duplicate** — Alt+Up/Down moves current line or selected block; Shift+Alt+Down duplicates below (cursor follows); Shift+Alt+Up duplicates below (cursor stays on original)
 - **Unified Panels menu** — View → Panels submenu switches between Output/Terminal/Problems/Debug tabs; Ctrl+` terminal, Ctrl+Shift+U output, Ctrl+Shift+M problems, Ctrl+Shift+Y debug; each shortcut toggles visibility if already active
-- Split editor with scroll sync
-- Git integration: staging, unstaging, commit, push, diff view, health panel, inline file explanations, fix wizard
+- Split editor with scroll sync; scroll lock (hardware Scroll Lock key synced on startup)
+- Find/Replace
+- **Explorer** — rename, delete, drag/drop file/folder, new file/folder, context menus, unsaved-change guard on move
+- **Outline panel** — symbol tree with locals drill-down (instance attrs, nested defs, color-coded sections)
+- References panel
+- Git integration: staging, unstaging, commit, push, diff view, health panel (smart warnings + fix wizard), Add to .gitignore
+- **Git guides** — install guide (Windows/macOS/Linux), identity guide (git config + GitHub account + `gh auth login`), remote guide, first commit guide
 - **Commit History panel** — last 50 commits, file diff on click, filter bar, load more
-- Integrated PTY terminal with venv detection (activate/deactivate/switch toolbar)
+- Integrated PTY terminal (pyte VT100 screen buffer) with venv detection (activate/deactivate/switch toolbar)
+- **Terminal debug mode** — launch debugpy in terminal, attach DAP client
+- **Output panel** — copy button and right-click context menu; inline stdin bar for `input()` support
 - **Run Line / Run Selection** — right-click to execute in output panel
-- AI chat panel (Ollama, session history, token counter, remote host config, animated "Thinking..." dots while awaiting response)
-- Learning Mode (F1) — hover any IDE element for three-section explanations with AI Ask button
-- Pip package manager with topic grouping, PyPI search, and AI examples
-- Command palette (Ctrl+Shift+P) with fuzzy search and `@` symbol search
-- Project setup wizard (4-step: name/location, interpreter/venv, git/starter files, summary)
-- **Integrated Python debugger** — debugpy over DAP; breakpoints, step controls, LOCALS + BREAKPOINTS panel; IDOL's bundled debugpy injected via PYTHONPATH — no per-project install needed
-- Nav toolbar (back/forward, split, minimap, sidebar, zen, AI, packages, learning toggles)
+- AI chat panel (Ollama, session history, token counter, remote host config, animated "Thinking..." dots, horizontal scroll on code blocks)
+- **Learning Mode (F1)** — hover any IDE element for three-section explanations with AI Ask button; custom arrow+? cursor; cursor+flash intercept system
+- Pip package manager with topic grouping, PyPI search, AI examples, and active-interpreter awareness
+- Command palette (Ctrl+Shift+P) with fuzzy search, `@` symbol search, and `!pip` mode with package autocomplete
+- Project setup wizard (4-step: name/location, interpreter/venv, git/starter files, summary + first commit guide)
+- **Session persistence** — open tabs, layout, appearance, breakpoints, active interpreter, active venv; auto-session (`~/.idol/session.json`); named saves (`.idol-project` in project root)
+- **Integrated Python debugger** — debugpy over DAP; breakpoints with VSCode-style gutter (hover ghost dot, bright active dot), session persistence, auto-shift on line insert/delete; step controls (F5/F10/F11/Shift+F11/Shift+F5); LOCALS + BREAKPOINTS panel; IDOL's bundled debugpy injected via PYTHONPATH — no per-project install needed
+- **Floating debug panel** — dock/undock, always-on-top, session restore
+- Nav toolbar (split run button, panel toggles: AI/Learn/Packages; view toggles: Minimap/Sidebar/Split/Zen)
 - Zen mode (F10), Toggle Sidebar (Ctrl+B)
+- **GuideWindow system** — content-agnostic paginated `Toplevel` used across all guides; see `widgets/guide_window.py`
 - Colorscheme system (`.toml` files)
 
 ## Planned / In Progress
