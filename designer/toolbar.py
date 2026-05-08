@@ -257,23 +257,23 @@ class DesignerToolbar(tk.Frame):
             lbl.bind("<Leave>",    lambda e: lbl.config(bg=_BTN_BG,  fg=_BTN_FG))
             lbl.bind("<Button-1>", lambda e: cmd())
 
-        def _nudge_row(label, cmd_minus, cmd_plus):
+        def _nudge_row(label, fn_minus, fn_plus):
             row = tk.Frame(inner, bg=_BG)
             row.pack(fill="x", padx=4, pady=2)
             tk.Label(row, text=label, bg=_BG, fg="#888888",
                      font=("Segoe UI", 8), width=2, anchor="w").pack(side="left")
-            for sym, cmd in (("−", cmd_minus), ("+", cmd_plus)):
+            for sym, fn in (("−", fn_minus), ("+", fn_plus)):
                 b = tk.Label(row, text=sym, bg=_BTN_BG, fg=_BTN_FG,
                              font=("Segoe UI", 9), width=3, cursor="hand2", relief="flat")
                 b.pack(side="left", padx=2)
                 b.bind("<Enter>",    lambda e, b=b: b.config(bg=_BTN_ACT, fg="#ffffff"))
                 b.bind("<Leave>",    lambda e, b=b: b.config(bg=_BTN_BG,  fg=_BTN_FG))
-                b.bind("<Button-1>", lambda e, fn=cmd: fn())
+                b.bind("<Button-1>", lambda e, fn=fn: fn(1 if e.state & 0x1 else _NUDGE))
 
         _full_btn("⊡  Make Grid", c.arrange_grid)
         tk.Frame(inner, bg=_SEP_COLOR, height=1).pack(fill="x", padx=4, pady=2)
-        _nudge_row("H", lambda: c.nudge_h(-_NUDGE), lambda: c.nudge_h(+_NUDGE))
-        _nudge_row("V", lambda: c.nudge_v(-_NUDGE), lambda: c.nudge_v(+_NUDGE))
+        _nudge_row("H", lambda d: c.nudge_h(-d), lambda d: c.nudge_h(+d))
+        _nudge_row("V", lambda d: c.nudge_v(-d), lambda d: c.nudge_v(+d))
         tk.Frame(inner, bg=_BG, height=4).pack()
 
         win.geometry(f"+{bx}+{by}")
