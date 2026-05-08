@@ -35,8 +35,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-For LSP (hover, autocomplete, go-to-definition): `pip install python-lsp-server`  
-For diagnostics: `pip install ruff`  
+For LSP (hover, autocomplete, go-to-definition): `pip install python-lsp-server`
+For diagnostics: `pip install ruff`
 For AI features: install [Ollama](https://ollama.com) and run `ollama pull qwen2.5-coder`
 
 → **[Full setup guide](docs/getting-started.md)**
@@ -107,7 +107,7 @@ debugpy over DAP — breakpoints with VS Code-style gutter, step controls (F5/F1
 
 ### AI Chat (F2)
 
-<img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="100%">
+<img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="50%">
 
 Local Ollama LLM — fully offline, no API key. Send File, Send Selection, streaming responses, syntax-highlighted code blocks, token counter, conversation save/load, and remote host support.
 
