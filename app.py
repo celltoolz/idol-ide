@@ -2134,9 +2134,18 @@ class IDOL(Tk):
 
     def _on_lsp_diagnostics(self, uri: str, diags: list) -> None:
         """Called by LspManager when diagnostics arrive for a file."""
+        # Guard against the race where a background lint thread finishes *after*
+        # the tab has already been closed and its entry removed from _lsp_diagnostics.
+        # Without this, the thread re-inserts stale diagnostics and they never clear.
+        norm_path = uri_to_path(uri).replace("/", os.sep).replace("\\", os.sep)
+        if not any(
+            p and os.path.normcase(p) == os.path.normcase(norm_path)
+            for p in self._files.values()
+        ):
+            return
+
         self._lsp_diagnostics[uri] = diags
         # Paint underlines on the relevant codeview
-        norm_path = uri_to_path(uri).replace("/", os.sep).replace("\\", os.sep)
         for tab_id, path in self._files.items():
             if path and os.path.normcase(path) == os.path.normcase(norm_path):
                 cv = self._codeviews.get(tab_id)
