@@ -237,6 +237,31 @@ the import + pre-wired class skeleton.
 8. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`,
    `controls`, etc.); user drags from tray, not autogenned by default
 
+### Dialog Helper Injector
+
+When a form has linked dialogs, a **Dialog Helpers** component (or right-click option on a
+linked dialog row in the FORMS tree) opens a picker dialog listing opt-in helper methods the
+user can inject into their form class. Clicking a helper appends the stub to the Functions
+section (or a new Helpers zone) on next codegen.
+
+**Candidate helpers (per linked dialog):**
+
+| Helper | What it does |
+|---|---|
+| `_new_Dialog1()` | Destroys and recreates the instance — `self.dlg_Dialog1.destroy(); self.dlg_Dialog1 = Dialog1(self)` — useful for a full state reset |
+| `_show_Dialog1()` | Alias for `_open_Dialog1` — `self.dlg_Dialog1.deiconify()` |
+| `_hide_Dialog1()` | Programmatically hide — `self.dlg_Dialog1.withdraw()` |
+| `_center_Dialog1()` | Position the dialog centered over the parent window |
+| `_on_Dialog1_result(data)` | Callback stub — wire from inside the dialog to pass data back to the parent |
+
+**Design notes:**
+- Nothing is autogenned by default — user explicitly opts in via the picker
+- Each helper is a preserved event stub, so the body survives regeneration
+- The picker could live as a right-click context menu on a linked dialog row in the FORMS
+  tree, or as a dedicated "Dialog Helpers" entry in the Components tray
+- `_on_Dialog1_result` pairs naturally with a `self.master._on_Dialog1_result(...)` call
+  inside the dialog's own event handlers — forms a clean parent↔dialog communication pattern
+
 ---
 
 ## Long-Term Ideas
