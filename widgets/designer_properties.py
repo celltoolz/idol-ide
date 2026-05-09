@@ -221,6 +221,8 @@ class DesignerProperties(tk.Frame):
         self._set_selector(descriptor.id)
         self._populate_props(descriptor, reg)
         self._populate_events(descriptor, reg)
+        if self._form:
+            self.load_handlers(self._form)
 
     def load_form(self, form: FormModel) -> None:
         """Show form-level properties when the canvas background is selected."""
@@ -275,6 +277,8 @@ class DesignerProperties(tk.Frame):
 
         self._props_tree.delete(*self._props_tree.get_children())
         self._events_tree.delete(*self._events_tree.get_children())
+        if self._form:
+            self.load_handlers(self._form)
 
         if not descriptors:
             return
@@ -380,7 +384,9 @@ class DesignerProperties(tk.Frame):
         defs = self._handlers_defs
 
         if not defs:
-            cv.create_text(w // 2, 24, text="Select the form to manage handlers",
+            msg = ("No handlers available for this form type"
+                   if self._form else "Select the form to manage handlers")
+            cv.create_text(w // 2, 24, text=msg,
                            fill=_ORD_DIM, font=("Segoe UI", 8), anchor="center")
             return
 
