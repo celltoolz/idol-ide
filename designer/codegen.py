@@ -146,6 +146,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append("        self.overrideredirect(True)")
     elif form.border_style == "fixed" or not form.maximize_box:
         out.append("        self.resizable(False, False)")
+    if form.always_on_top:
+        out.append('        self.attributes("-topmost", True)')
     if form.bg:
         out.append(f'        self.configure(bg="{form.bg}")')
     for line in _variable_decls(form):

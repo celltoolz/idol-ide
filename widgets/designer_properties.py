@@ -269,9 +269,10 @@ class DesignerProperties(tk.Frame):
             ("title",        "title",        form.title),
             ("width",        "width",        form.width),
             ("height",       "height",       form.height - (20 if form.menu_items else 0)),
-            ("border_style", "border style", form.border_style),
-            ("maximize_box", "maximize",     form.maximize_box),
-            ("bg",           "background",   form.bg),
+            ("border_style",  "border style",   form.border_style),
+            ("maximize_box",  "maximize",       form.maximize_box),
+            ("always_on_top", "always on top",  form.always_on_top),
+            ("bg",            "background",     form.bg),
         ]:
             self._props_insert(f"form__{key}", label, str(val))
         # Tint the background row with the current color
@@ -1336,7 +1337,7 @@ class DesignerProperties(tk.Frame):
             self._open_color_picker(row)
         elif row == "form__border_style":
             self._props_open_dropdown(row, ["sizable", "fixed", "none"], self._commit_prop)
-        elif row == "form__maximize_box":
+        elif row in ("form__maximize_box", "form__always_on_top"):
             self._props_open_dropdown(row, ["True", "False"], self._commit_prop)
         elif row == "prop__state":
             d = self._current_widget
@@ -2575,6 +2576,7 @@ _PROP_HINTS: dict[str, str] = {
     "title":              "Window title shown in the title bar",
     "border_style":       "Window border: sizable (resizable), fixed, or none (no chrome)",
     "maximize_box":       "Whether the maximize / restore button is visible",
+    "always_on_top":      "Pin this window above all other windows (wm_attributes -topmost)",
     "menu_bar":           "Click to open the Menu Editor and build a menu bar for this form",
 }
 

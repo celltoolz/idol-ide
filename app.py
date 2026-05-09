@@ -4567,6 +4567,8 @@ class IDOL(Tk):
                 form.border_style = str(value).lower().strip()
             elif key == "maximize_box":
                 form.maximize_box = str(value).lower() in ("true", "1", "yes")
+            elif key == "always_on_top":
+                form.always_on_top = str(value).lower() in ("true", "1", "yes")
             elif key == "menu_bar":
                 has_menu = bool(form.menu_items)
                 if has_menu != self._designer_menu_had_items:

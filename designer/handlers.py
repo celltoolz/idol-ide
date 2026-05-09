@@ -80,6 +80,19 @@ HANDLER_CATALOG: list[HandlerDef] = [
         params="event=None",
         default_body="pass  # TODO",
     ),
+    HandlerDef(
+        id="_set_always_on_top",
+        label="always_on_top",
+        description=(
+            "Generates a helper to pin or unpin this window. "
+            "Call self._set_always_on_top(True) to pin, self._set_always_on_top(False) to unpin."
+        ),
+        applies_to=("main", "dialog"),
+        default_checked=False,
+        wiring="",
+        params="value: bool = True",
+        default_body='self.attributes("-topmost", value)',
+    ),
 ]
 
 

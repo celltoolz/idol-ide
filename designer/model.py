@@ -144,8 +144,9 @@ class FormModel:
     title: str = "Form1"
     width: int = 800
     height: int = 600
-    border_style: str = "sizable"         # "sizable" | "fixed" | "none"
-    maximize_box: bool = True
+    border_style:   str  = "sizable"       # "sizable" | "fixed" | "none"
+    maximize_box:   bool = True
+    always_on_top:  bool = False
     bg: str = ""                         # "" = system default
     form_type:  str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel)
     widgets:    list[WidgetDescriptor]    = field(default_factory=list)
@@ -200,8 +201,9 @@ class FormModel:
             "title": self.title,
             "width": self.width,
             "height": self.height,
-            "border_style": self.border_style,
-            "maximize_box": self.maximize_box,
+            "border_style":  self.border_style,
+            "maximize_box":  self.maximize_box,
+            "always_on_top": self.always_on_top,
             "bg": self.bg,
             "form_type": self.form_type,
             "widgets":    [w.to_dict() for w in self.widgets],
@@ -231,6 +233,7 @@ class FormModel:
             height=d.get("height", 600),
             border_style=border_style,
             maximize_box=d.get("maximize_box", True),
+            always_on_top=d.get("always_on_top", False),
             bg=d.get("bg", ""),
             form_type=d.get("form_type", "main"),
             widgets       =[WidgetDescriptor.from_dict(w)    for w in d.get("widgets",    [])],
