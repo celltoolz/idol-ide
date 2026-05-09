@@ -248,34 +248,52 @@ A dialog can be linked to multiple main forms simultaneously.
 
 ### Dialog Code Generation
 
-Dialogs generate a `tk.Toplevel` subclass:
+Dialogs generate a `tk.Toplevel` subclass. Closing the window calls `_on_close` (a preserved stub) which hides it rather than destroying it, keeping the instance alive for reuse:
 
 ```python
 class MyDialog(tk.Toplevel):
     def __init__(self, parent, **kwargs):
+        # ── IDOL:BEGIN ──
         super().__init__(parent, **kwargs)
         self.withdraw()
         self.title("My Dialog")
         self.geometry("400x300")
+        # ── IDOL:END ──
+
+        # ── IDOL:BEGIN ──
         self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # ── IDOL:END ──
+
+    # ── Events ──────────────────────────────────────────────────
+    def _on_close(self):
+        self.withdraw()
 ```
 
-For each linked dialog, the parent main form gets an opener method and a dialog import:
+The parent main form stores the dialog instance on creation and exposes an opener:
 
 ```python
 # ── IDOL:DIALOG_IMPORTS:BEGIN ──
 from MyDialog import MyDialog
 # ── IDOL:DIALOG_IMPORTS:END ──
 
-# ... inside the main form class ...
+class Form1(tk.Tk):
+    def __init__(self):
+        # ── IDOL:BEGIN ──
+        super().__init__()
+        self.dlg_MyDialog = MyDialog(self)   # created once, reused
+        # ── IDOL:END ──
 
-def _open_MyDialog(self):
-    MyDialog(self).deiconify()
+    # ── Events ──────────────────────────────────────────────────
+    def _open_MyDialog(self):
+        self.dlg_MyDialog.deiconify()
 ```
 
-The `IDOL:DIALOG_IMPORTS` block is fully auto-managed — regenerated from the current link state on every codegen run. The `_open_*` method body is preserved across regenerations like any other event stub, so you can customize it freely.
-
-**Codegen order** — when generating all forms, dialogs are written before main forms so their import statements resolve correctly.
+Key points:
+- `self.dlg_MyDialog` gives the parent direct access to the dialog's widgets and state at any time
+- `_on_close` and `_open_MyDialog` are both preserved event stubs — customize them freely, bodies survive regeneration
+- The `IDOL:DIALOG_IMPORTS` block is fully auto-managed — regenerated from the current link state on every codegen run; do not add your own imports inside it
+- **Codegen order** — dialogs are written before main forms so their imports resolve correctly
 
 ## Code Generation
 

@@ -157,10 +157,14 @@ This document tracks completed milestones, work in progress, and the planned fea
   Main Window type is selected; new dialog appears nested in the tree immediately
 - **Dialog codegen** — dialog forms generate `tk.Toplevel` subclasses:
   `__init__(self, parent, **kwargs)` with `super().__init__(parent, **kwargs)` +
-  `self.withdraw()`; no `if __name__ == "__main__":` block
-- **`_open_DialogName()` methods** — for each linked dialog, codegen emits an opener method
-  on the main form (`DialogName(self).deiconify()`); body is preserved across regenerations
-  like any other event stub
+  `self.withdraw()`; no `if __name__ == "__main__":` block; `WM_DELETE_WINDOW` wired to
+  `_on_close` (preserved stub, default body `self.withdraw()`) so closing hides rather than
+  destroys the window
+- **Dialog instances on parent** — each linked dialog is instantiated once in the parent's
+  `IDOL:BEGIN` block as `self.dlg_DialogName = DialogName(self)`; opener becomes
+  `self.dlg_DialogName.deiconify()`; parent has direct attribute access to the dialog at all
+  times; existing projects with the old `DialogName(self).deiconify()` body are auto-migrated
+  on the next regen
 - **`IDOL:DIALOG_IMPORTS` zone** — auto-managed import block emitted below `IDOL:IMPORTS`;
   regenerated from `linked_dialogs` on every codegen run
 - **Multi-form codegen order** — dialogs generated before main forms so imports resolve
