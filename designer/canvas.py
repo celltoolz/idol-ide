@@ -1264,7 +1264,7 @@ class DesignerCanvas(tk.Canvas):
             nox, noy = oox, ooy
 
             shift_held = bool(event.state & 0x0001)
-            _s = (lambda v: v) if shift_held else _snap
+            _s = (lambda v: int(v)) if shift_held else _snap
 
             if "E" in handle:
                 nw = _s(ow + dx)
@@ -1335,7 +1335,7 @@ class DesignerCanvas(tk.Canvas):
             return
 
         if d["mode"] == "move":
-            _s = (lambda v: v) if (event.state & 0x0001) else _snap
+            _s = (lambda v: int(v)) if (event.state & 0x0001) else _snap
             new_x = _s(d["orig_x"] + dx)
             new_y = _s(d["orig_y"] + dy)
             # Parented widgets move freely during drag so they can escape the
@@ -1384,7 +1384,7 @@ class DesignerCanvas(tk.Canvas):
             nx, ny, nw, nh = ox, oy, ow, oh
 
             shift_held = bool(event.state & 0x0001)
-            _s = (lambda v: v) if shift_held else _snap
+            _s = (lambda v: int(v)) if shift_held else _snap
 
             if "W" in handle:
                 nw = _s(ow - dx)
