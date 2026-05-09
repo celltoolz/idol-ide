@@ -100,13 +100,16 @@ class DesignerProperties(tk.Frame):
                      background=[("selected", "#252526")],
                      foreground=[("selected", "#cccccc")])
 
-        # Status bar — shown briefly when a validation error occurs
+        # Status bar — fixed height so text changes never cause panel redraws
+        _hint_frame = tk.Frame(self, bg="#252526", height=48)
+        _hint_frame.pack(fill="x", side="bottom")
+        _hint_frame.pack_propagate(False)
         self._status_label = tk.Label(
-            self, text="", bg="#252526", fg="#ff6b6b",
+            _hint_frame, text="", bg="#252526", fg="#ff6b6b",
             font=("Segoe UI", 8), anchor="nw", padx=6, pady=4,
             justify="left", wraplength=200,
         )
-        self._status_label.pack(fill="x", side="bottom")
+        self._status_label.pack(fill="both", expand=True)
         self._status_label.bind(
             "<Configure>",
             lambda e: self._status_label.config(wraplength=max(1, e.width - 12)),
@@ -149,21 +152,34 @@ class DesignerProperties(tk.Frame):
         self._prop_clear_btn.bind("<Leave>",    lambda e: self._prop_clear_btn.config(fg="#888888"))
         self._prop_clear_btn.bind("<Button-1>", self._on_prop_clear_click)
 
-        # Events tab
-        self._events_frame = tk.Frame(self._nb, bg="#1e1e1e")
+        # Events tab — canvas-rendered rows
+        self._events_frame = tk.Frame(self._nb, bg=_ORD_BG)
         self._nb.add(self._events_frame, text="  Events  ")
-
-        self._events_tree = _make_tree(self._events_frame, value_col_name="Handler")
-        self._events_tree.tag_configure("hover", foreground="#569cd6")
-        self._events_tree.bind("<Button-1>",        self._on_event_click)
-        self._events_tree.bind("<Double-Button-1>",  self._on_event_double_click)
-        self._events_tree.bind("<Motion>",           self._on_event_hover)
-        self._events_tree.bind("<Leave>",            self._on_event_leave)
-
-        self._ev_hover_row:        str | None = None
-        self._ev_hover_saved_tags: tuple      = ()
+        _eb = tk.Frame(self._events_frame, bg=_ORD_BG)
+        _eb.pack(fill="both", expand=True)
+        self._events_sb = VerticalScrollbar(_eb, bg=_ORD_BG)
+        self._events_sb.pack(side="right", fill="y")
+        self._events_cv = tk.Canvas(
+            _eb, bg=_ORD_BG, highlightthickness=0,
+            yscrollcommand=self._events_sb.set,
+        )
+        self._events_cv.pack(side="left", fill="both", expand=True)
+        self._events_sb.configure(command=self._events_cv.yview)
+        self._events_cv.bind("<Configure>",
+            lambda _: self._events_redraw())
+        self._events_cv.bind("<MouseWheel>",
+            lambda e: self._events_cv.yview_scroll(-1 * (e.delta // 120), "units"))
+        self._events_cv.bind("<Motion>",           self._on_event_motion)
+        self._events_cv.bind("<Leave>",            self._on_event_canvas_leave)
+        self._events_cv.bind("<ButtonRelease-1>",  self._on_event_canvas_click)
+        self._events_cv.bind("<Double-Button-1>",  self._on_event_canvas_dblclick)
+        # Row data store
+        self._events_rows:    list = []
+        self._events_row_map: dict = {}
+        self._events_hov_idx: int | None = None
+        # Floating action buttons placed over canvas on hover
         self._ev_clear_btn = tk.Label(
-            self._events_tree, text="×",
+            self._events_cv, text="×",
             bg="#3a3a3a", fg="#888888",
             font=("Segoe UI", 9), cursor="hand2", padx=2,
         )
@@ -172,7 +188,7 @@ class DesignerProperties(tk.Frame):
         self._ev_clear_btn.bind("<Button-1>", self._on_ev_clear_click)
 
         self._ev_wire_btn = tk.Label(
-            self._events_tree, text="✦",
+            self._events_cv, text="✦",
             bg="#3a3a3a", fg="#555555",
             font=("Segoe UI", 9), cursor="hand2", padx=2,
         )
@@ -206,14 +222,14 @@ class DesignerProperties(tk.Frame):
 
         # Keep hint bar in sync with the active tab
         self._nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-        self._order_sb = tk.Scrollbar(_ob, orient="vertical")
+        self._order_sb = VerticalScrollbar(_ob, bg=_ORD_BG)
         self._order_sb.pack(side="right", fill="y")
         self._order_cv = tk.Canvas(
             _ob, bg=_ORD_BG, highlightthickness=0,
             yscrollcommand=self._order_sb.set,
         )
         self._order_cv.pack(side="left", fill="both", expand=True)
-        self._order_sb.config(command=self._order_cv.yview)
+        self._order_sb.configure(command=self._order_cv.yview)
         self._order_cv.bind("<Configure>",  lambda _: self._order_redraw())
         self._order_cv.bind("<MouseWheel>",
             lambda e: self._order_cv.yview_scroll(-1 * (e.delta // 120), "units"))
@@ -267,11 +283,12 @@ class DesignerProperties(tk.Frame):
         self._props_set_link("form__menu_bar", True)
         self._props_redraw()
 
-        self._events_tree.delete(*self._events_tree.get_children())
+        self._events_clear()
         for ev in ("load", "activate", "deactivate", "unload", "resize"):
             handler = form.form_events.get(ev, "")
-            self._events_tree.insert("", "end", iid=f"form_ev__{ev}",
-                                     text=ev, values=(handler,))
+            self._events_insert(f"form_ev__{ev}", ev, handler)
+        self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
+        self._events_redraw()
 
         self.load_handlers(form)
 
@@ -291,7 +308,8 @@ class DesignerProperties(tk.Frame):
         self._selector_label.config(text=f"({len(descriptors)} widgets selected)")
 
         self._props_clear()
-        self._events_tree.delete(*self._events_tree.get_children())
+        self._events_clear()
+        self._events_redraw()
         if self._form:
             self.load_handlers(self._form)
 
@@ -365,7 +383,8 @@ class DesignerProperties(tk.Frame):
         self._selector_label.config(text="Properties")
         self._props_clear()
         self._props_redraw()
-        self._events_tree.delete(*self._events_tree.get_children())
+        self._events_clear()
+        self._events_redraw()
 
     def set_form(self, form: FormModel) -> None:
         """Rebuild the control selector dropdown from the current form."""
@@ -380,6 +399,222 @@ class DesignerProperties(tk.Frame):
         self._order_sel_id  = selected_id
         self._order_bgs.clear()
         self._order_redraw()
+
+    # ── Events canvas helpers ─────────────────────────────────────────────────
+
+    def _events_clear(self) -> None:
+        self._events_rows.clear()
+        self._events_row_map.clear()
+        self._events_hov_idx = None
+
+    def _events_insert(self, iid: str, label: str, value: str,
+                       kind: str = "event") -> None:
+        """kind: 'event' | 'guide'"""
+        row: dict = {"iid": iid, "label": label, "value": value,
+                     "kind": kind, "warn": False}
+        self._events_row_map[iid] = len(self._events_rows)
+        self._events_rows.append(row)
+
+    def _events_set(self, iid: str, value: str) -> None:
+        idx = self._events_row_map.get(iid)
+        if idx is not None:
+            self._events_rows[idx]["value"] = value
+            self._events_redraw_row(idx)
+
+    def _events_get(self, iid: str) -> str:
+        idx = self._events_row_map.get(iid)
+        return self._events_rows[idx]["value"] if idx is not None else ""
+
+    def _events_exists(self, iid: str) -> bool:
+        return iid in self._events_row_map
+
+    def _events_set_warn(self, iid: str, warn: bool) -> None:
+        idx = self._events_row_map.get(iid)
+        if idx is not None:
+            self._events_rows[idx]["warn"] = warn
+            self._events_redraw_row(idx)
+
+    def _events_bbox(self, iid: str) -> "tuple[int,int,int,int] | None":
+        """Return (x, y, w, h) in canvas widget coords for the value column."""
+        idx = self._events_row_map.get(iid)
+        if idx is None:
+            return None
+        cv_w     = max(self._events_cv.winfo_width(), 160)
+        split_x  = max(80, int(cv_w * _PROPS_SPLIT))
+        canvas_y = idx * _ORD_ROW_H
+        scroll_top = int(self._events_cv.canvasy(0))
+        screen_y = canvas_y - scroll_top
+        cv_h = self._events_cv.winfo_height()
+        if screen_y < -_ORD_ROW_H or screen_y >= cv_h:
+            return None
+        return (split_x + 1, screen_y, cv_w - split_x - 1, _ORD_ROW_H)
+
+    def _events_iid_at_y(self, widget_y: int) -> "str | None":
+        canvas_y = int(self._events_cv.canvasy(widget_y))
+        idx = canvas_y // _ORD_ROW_H
+        return self._events_rows[idx]["iid"] if 0 <= idx < len(self._events_rows) else None
+
+    def _events_idx_at_y(self, widget_y: int) -> "int | None":
+        canvas_y = int(self._events_cv.canvasy(widget_y))
+        idx = canvas_y // _ORD_ROW_H
+        return idx if 0 <= idx < len(self._events_rows) else None
+
+    def _events_redraw(self) -> None:
+        cv = self._events_cv
+        cv.delete("all")
+        w = max(cv.winfo_width(), 160)
+
+        if not self._events_rows:
+            cv.configure(scrollregion=(0, 0, w, 40))
+            return
+
+        split_x = max(80, int(w * _PROPS_SPLIT))
+        total_h = len(self._events_rows) * _ORD_ROW_H
+        cv.configure(scrollregion=(0, 0, w, total_h))
+
+        for i, row in enumerate(self._events_rows):
+            y0  = i * _ORD_ROW_H
+            y1  = y0 + _ORD_ROW_H
+            mid = (y0 + y1) // 2
+            is_hov = (i == self._events_hov_idx)
+
+            bg = _ORD_HOV if is_hov else (_ORD_EVEN if i % 2 == 0 else _ORD_ODD)
+            cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"er{i}")
+
+            if row["kind"] == "guide":
+                cv.create_text(w // 2, mid, text=row["label"],
+                               fill="#569cd6", font=("Segoe UI", 9),
+                               anchor="center", tags=f"er{i}")
+            else:
+                cv.create_line(split_x, y0, split_x, y1,
+                               fill="#333333", tags=f"er{i}")
+                cv.create_text(8, mid, text=row["label"],
+                               fill=_ORD_FG, font=("Segoe UI", 9),
+                               anchor="w", tags=f"er{i}")
+                val = row["value"]
+                if val:
+                    color = "#ff6b6b" if row["warn"] else _ORD_FG
+                    cv.create_text(split_x + 8, mid, text=val,
+                                   fill=color, font=("Consolas", 9),
+                                   anchor="w", tags=f"er{i}")
+
+    def _events_redraw_row(self, idx: int) -> None:
+        cv = self._events_cv
+        w  = max(cv.winfo_width(), 160)
+        cv.delete(f"er{idx}")
+
+        row     = self._events_rows[idx]
+        y0      = idx * _ORD_ROW_H
+        y1      = y0 + _ORD_ROW_H
+        mid     = (y0 + y1) // 2
+        split_x = max(80, int(w * _PROPS_SPLIT))
+        is_hov  = (idx == self._events_hov_idx)
+
+        bg = _ORD_HOV if is_hov else (_ORD_EVEN if idx % 2 == 0 else _ORD_ODD)
+        cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"er{idx}")
+
+        if row["kind"] == "guide":
+            cv.create_text(w // 2, mid, text=row["label"],
+                           fill="#569cd6", font=("Segoe UI", 9),
+                           anchor="center", tags=f"er{idx}")
+        else:
+            cv.create_line(split_x, y0, split_x, y1,
+                           fill="#333333", tags=f"er{idx}")
+            cv.create_text(8, mid, text=row["label"],
+                           fill=_ORD_FG, font=("Segoe UI", 9),
+                           anchor="w", tags=f"er{idx}")
+            val = row["value"]
+            if val:
+                color = "#ff6b6b" if row["warn"] else _ORD_FG
+                cv.create_text(split_x + 8, mid, text=val,
+                               fill=color, font=("Consolas", 9),
+                               anchor="w", tags=f"er{idx}")
+
+    # ── Events canvas input handlers ──────────────────────────────────────────
+
+    def _on_event_motion(self, event: tk.Event) -> None:
+        idx = self._events_idx_at_y(event.y)
+        if idx == self._events_hov_idx:
+            if idx is not None:
+                self._update_event_btns(idx)
+            return
+        old = self._events_hov_idx
+        self._events_hov_idx = idx
+        if old is not None:
+            self._events_redraw_row(old)
+        if idx is not None:
+            self._events_redraw_row(idx)
+            iid     = self._events_rows[idx]["iid"]
+            self._update_event_btns(idx)
+            ev_name = (iid[4:]  if iid.startswith("ev__")      else
+                       iid[9:]  if iid.startswith("form_ev__") else "")
+            hint = _EVENT_DESCRIPTIONS.get(ev_name, ("", ""))[1]
+            if hint:
+                self._show_hint(hint)
+            else:
+                self._clear_hint()
+        else:
+            self._ev_clear_btn.place_forget()
+            self._ev_wire_btn.place_forget()
+            self._clear_hint()
+
+    def _update_event_btns(self, idx: int) -> None:
+        iid = self._events_rows[idx]["iid"]
+        if iid == "ev__learn_guide":
+            self._ev_clear_btn.place_forget()
+            self._ev_wire_btn.place_forget()
+            return
+        bbox = self._events_bbox(iid)
+        if not bbox:
+            self._ev_clear_btn.place_forget()
+            self._ev_wire_btn.place_forget()
+            return
+        x, y, w, h = bbox
+        bw  = 18
+        val = self._events_rows[idx]["value"].strip()
+        if val:
+            self._ev_wire_btn.place_forget()
+            self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+            self._ev_clear_btn.lift()
+        else:
+            self._ev_clear_btn.place_forget()
+            can_wire = (
+                (iid.startswith("ev__")      and self._current_widget is not None) or
+                (iid.startswith("form_ev__") and self._form is not None)
+            )
+            if can_wire:
+                self._ev_wire_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+                self._ev_wire_btn.lift()
+            else:
+                self._ev_wire_btn.place_forget()
+
+    def _on_event_canvas_leave(self, _event: tk.Event) -> None:
+        if self._events_hov_idx is not None:
+            old = self._events_hov_idx
+            self._events_hov_idx = None
+            self._events_redraw_row(old)
+        self._ev_clear_btn.place_forget()
+        self._ev_wire_btn.place_forget()
+        self._clear_hint()
+
+    def _on_event_canvas_click(self, event: tk.Event) -> None:
+        iid = self._events_iid_at_y(event.y)
+        if not iid:
+            return
+        if iid == "ev__learn_guide":
+            self._open_event_guide()
+            return
+        self._open_handler_picker(iid)
+
+    def _on_event_canvas_dblclick(self, event: tk.Event) -> None:
+        if not self._on_navigate_handler:
+            return
+        iid = self._events_iid_at_y(event.y)
+        if not iid or iid == "ev__learn_guide":
+            return
+        handler = self._events_get(iid).strip()
+        if handler:
+            self._on_navigate_handler(handler)
 
     # ── Handlers tab internals ────────────────────────────────────────────────
 
@@ -1024,18 +1259,15 @@ class DesignerProperties(tk.Frame):
         self._props_redraw()
 
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
-        self._events_tree.delete(*self._events_tree.get_children())
-        self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
-        self._events_tree.tag_configure("ev_guide_link", foreground="#569cd6")
+        self._events_clear()
         for ev in reg.get("events", []):
             handler = d.events.get(ev, "")
-            iid = f"ev__{ev}"
-            self._events_tree.insert("", "end", iid=iid, text=ev, values=(handler,))
+            iid     = f"ev__{ev}"
+            self._events_insert(iid, ev, handler)
             if handler and not handler.startswith("_"):
-                self._events_tree.item(iid, tags=("name_warn",))
-        self._events_tree.insert("", "end", iid="ev__learn_guide",
-                                 text="? Events", values=("",),
-                                 tags=("ev_guide_link",))
+                self._events_set_warn(iid, True)
+        self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
+        self._events_redraw()
 
     # ── Props canvas input handlers ───────────────────────────────────────────
 
@@ -1356,30 +1588,8 @@ class DesignerProperties(tk.Frame):
 
     # _on_prop_click replaced by _on_prop_canvas_click + _dispatch_prop_click above
 
-    def _on_event_click(self, event: tk.Event) -> None:
-        tree = self._events_tree
-        row  = tree.identify_row(event.y)
-        col  = tree.identify_column(event.x)
-        if not row:
-            return
-        if row == "ev__learn_guide":
-            self._open_event_guide()
-            return
-        if col == "#1":
-            self._open_handler_picker(tree, row, col)
-        elif col == "#0":
-            self._auto_wire_event(row)
-
-    def _on_event_double_click(self, event: tk.Event) -> None:
-        if not self._on_navigate_handler:
-            return
-        tree    = self._events_tree
-        row     = tree.identify_row(event.y)
-        if not row or row == "ev__learn_guide":
-            return
-        handler = tree.set(row, "#1").strip()
-        if handler:
-            self._on_navigate_handler(handler)
+    # _on_event_click / _on_event_double_click replaced by
+    # _on_event_canvas_click / _on_event_canvas_dblclick above
 
     # ── Inline cell editor ────────────────────────────────────────────────────
 
@@ -1434,18 +1644,22 @@ class DesignerProperties(tk.Frame):
 
     # _open_variable_picker replaced by _props_open_variable_picker above
 
-    def _open_handler_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
-        """Inline entry + handler picker popup for event handler rows."""
+    def _open_handler_picker(self, iid: str) -> None:
+        """Inline entry + handler picker popup for event handler rows (canvas-based)."""
         from designer.var_picker import collect_form_handlers, show_handler_popup
-        if not row.startswith("ev__") and not row.startswith("form_ev__"):
+        if not iid.startswith("ev__") and not iid.startswith("form_ev__"):
             return
         self._dismiss_editor()
-        bbox = tree.bbox(row, col)
+        bbox = self._events_bbox(iid)
         if not bbox:
             return
         x, y, w, h = bbox
+        cv = self._events_cv
+        # value column starts at the split
+        split_x = int(cv.winfo_width() * _PROPS_SPLIT)
+        val_w = cv.winfo_width() - split_x - 1
         entry = tk.Entry(
-            tree,
+            cv,
             font=("TkDefaultFont", 8),
             bg="#3c3c3c", fg="#cccccc",
             insertbackground="#cccccc",
@@ -1453,8 +1667,8 @@ class DesignerProperties(tk.Frame):
             highlightthickness=1,
             highlightbackground="#007acc",
         )
-        entry.insert(0, tree.set(row, col))
-        entry.place(x=x, y=y, width=w, height=h)
+        entry.insert(0, self._events_get(iid))
+        entry.place(x=split_x, y=y, width=val_w, height=h)
         self._entry_editor = entry
 
         def _grab_focus():
@@ -1464,7 +1678,7 @@ class DesignerProperties(tk.Frame):
                 entry.icursor("end")
             except Exception:
                 pass
-        tree.after_idle(_grab_focus)
+        cv.after_idle(_grab_focus)
 
         popup_ref: list = [None]
 
@@ -1473,8 +1687,8 @@ class DesignerProperties(tk.Frame):
             if popup_ref[0] and popup_ref[0].winfo_exists():
                 popup_ref[0].destroy()
             self._dismiss_editor()
-            tree.set(row, col, val)
-            self._commit_event(row, val)
+            self._events_set(iid, val)
+            self._commit_event(iid, val)
 
         def _on_select(name: str):
             entry.delete(0, "end")
@@ -1504,9 +1718,9 @@ class DesignerProperties(tk.Frame):
             for ev_key in list(self._form.form_events.keys()):
                 if self._form.form_events.get(ev_key) == name:
                     del self._form.form_events[ev_key]
-                    iid = f"form_ev__{ev_key}"
-                    if self._events_tree.exists(iid):
-                        self._events_tree.set(iid, "#1", "")
+                    row_iid = f"form_ev__{ev_key}"
+                    if self._events_exists(row_iid):
+                        self._events_set(row_iid, "")
                     if self._on_event_change:
                         self._on_event_change("__form__", ev_key, "")
             d = self._current_widget
@@ -1937,79 +2151,24 @@ class DesignerProperties(tk.Frame):
         """Store color swatch for the row and redraw it."""
         self._props_set_swatch(row_iid, color)
 
-    def _on_event_hover(self, event: tk.Event) -> None:
-        tree = self._events_tree
-        row  = tree.identify_row(event.y)
-        if row == self._ev_hover_row:
-            return
-        # restore previous row's tags
-        if self._ev_hover_row:
-            try:
-                tree.item(self._ev_hover_row, tags=self._ev_hover_saved_tags)
-            except Exception:
-                pass
-        self._ev_hover_row = row
-        self._ev_hover_saved_tags = ()
-        if not row:
-            self._ev_clear_btn.place_forget()
-            return
-        self._ev_hover_saved_tags = tuple(tree.item(row, "tags") or ())
-        tree.item(row, tags=(*self._ev_hover_saved_tags, "hover"))
-        ev_name = row[4:] if row.startswith("ev__") else row[9:] if row.startswith("form_ev__") else ""
-        hint = _EVENT_DESCRIPTIONS.get(ev_name, ("", ""))[1]
-        if hint:
-            self._show_hint(hint)
-        bbox = tree.bbox(row, "#1")
-        if not bbox:
-            self._ev_clear_btn.place_forget()
-            self._ev_wire_btn.place_forget()
-            return
-        x, y, w, h = bbox
-        bw = 18
-        if tree.set(row, "#1").strip():
-            # Wired row — show × to clear
-            self._ev_wire_btn.place_forget()
-            self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
-            self._ev_clear_btn.lift()
-        else:
-            # Unwired row — show ✦ to auto-wire
-            self._ev_clear_btn.place_forget()
-            can_wire = (
-                (row.startswith("ev__") and row != "ev__learn_guide" and self._current_widget is not None) or
-                (row.startswith("form_ev__") and self._form is not None)
-            )
-            if can_wire:
-                self._ev_wire_btn.place(x=x + w - bw, y=y, width=bw, height=h)
-                self._ev_wire_btn.lift()
-            else:
-                self._ev_wire_btn.place_forget()
-
+    # _on_event_hover / _on_event_leave replaced by _on_event_motion / _on_event_canvas_leave above
     # _on_prop_hover / _on_prop_leave / _clear_prop_hover replaced by canvas versions above
 
-    def _on_event_leave(self, event: tk.Event) -> None:
-        if self._ev_hover_row:
-            try:
-                self._events_tree.item(self._ev_hover_row, tags=self._ev_hover_saved_tags)
-            except Exception:
-                pass
-        self._ev_hover_row = None
-        self._ev_hover_saved_tags = ()
-        self._ev_clear_btn.place_forget()
-        self._ev_wire_btn.place_forget()
-        self._clear_hint()
-
     def _on_ev_clear_click(self, event: tk.Event) -> None:
-        row = self._ev_hover_row
-        if not row:
+        idx = self._events_hov_idx
+        if idx is None or idx >= len(self._events_rows):
             return
+        row = self._events_rows[idx]["iid"]
         self._ev_clear_btn.place_forget()
-        self._ev_hover_row = None
-        self._events_tree.set(row, "#1", "")
+        self._events_set(row, "")
         self._commit_event(row, "")
 
     def _on_ev_wire_click(self, event: tk.Event) -> None:
-        row = self._ev_hover_row
-        if not row or (not row.startswith("ev__") and not row.startswith("form_ev__")):
+        idx = self._events_hov_idx
+        if idx is None or idx >= len(self._events_rows):
+            return
+        row = self._events_rows[idx]["iid"]
+        if not row.startswith("ev__") and not row.startswith("form_ev__"):
             return
         self._ev_wire_btn.place_forget()
         self._auto_wire_event(row)
@@ -2230,7 +2389,6 @@ class DesignerProperties(tk.Frame):
 
     def _commit_event(self, row_iid: str, raw: str) -> None:
         handler = raw.strip()
-        self._events_tree.tag_configure("name_warn", foreground="#ff6b6b")
 
         if row_iid.startswith("form_ev__"):
             if self._form is None:
@@ -2242,10 +2400,7 @@ class DesignerProperties(tk.Frame):
                 self._form.form_events.pop(ev_key, None)
             if self._on_event_change:
                 self._on_event_change("__form__", ev_key, handler)
-            if handler and not handler.startswith("_"):
-                self._events_tree.item(row_iid, tags=("name_warn",))
-            else:
-                self._events_tree.item(row_iid, tags=())
+            self._events_set_warn(row_iid, bool(handler and not handler.startswith("_")))
             return
 
         d = self._current_widget
@@ -2258,10 +2413,7 @@ class DesignerProperties(tk.Frame):
             d.events.pop(event_key, None)
         if self._on_event_change:
             self._on_event_change(d.id, event_key, handler)
-        if handler and not handler.startswith("_"):
-            self._events_tree.item(row_iid, tags=("name_warn",))
-        else:
-            self._events_tree.item(row_iid, tags=())
+        self._events_set_warn(row_iid, bool(handler and not handler.startswith("_")))
 
     def _auto_wire_event(self, row_iid: str) -> None:
         """Click on event name → fill default handler and commit."""
@@ -2273,7 +2425,7 @@ class DesignerProperties(tk.Frame):
                 return  # already wired
             default = f"_on_{ev_key}"
             self._form.form_events[ev_key] = default
-            self._events_tree.set(row_iid, "#1", default)
+            self._events_set(row_iid, default)
             if self._on_event_change:
                 self._on_event_change("__form__", ev_key, default)
             return
@@ -2286,7 +2438,7 @@ class DesignerProperties(tk.Frame):
             return  # already wired
         default = f"_{d.id}_{event_key}"
         d.events[event_key] = default
-        self._events_tree.set(row_iid, "#1", default)
+        self._events_set(row_iid, default)
         if self._on_event_change:
             self._on_event_change(d.id, event_key, default)
 
