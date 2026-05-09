@@ -168,6 +168,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(f"        {binding_line}")
     if _anchored:
         out.append("        self.bind(\"<Configure>\", self._apply_anchor_layout)")
+    if is_dialog:
+        out.append("        self.protocol(\"WM_DELETE_WINDOW\", self._on_close)")
     out.append(_INIT_E)
     out.append("")
 
@@ -213,9 +215,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     }
     methods = _collect_methods(form)
     opener_names = [f"_open_{d}" for d in dialogs]
-    if methods or opener_names:
+    if methods or opener_names or is_dialog:
         out.append("    # ── Events " + "─" * 63)
         out.append("")
+        if is_dialog:
+            out.append("    def _on_close(self):")
+            out.extend(_body_lines("_on_close", bodies, "self.withdraw()"))
+            out.append("")
         for name in methods:
             ev_key = form_ev_map.get(name)
             if ev_key and name not in sigs:
