@@ -85,10 +85,16 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     helpers:        full source of public helper methods (user-written).
     linked_dialogs: dialog class names owned by this form; generates _open_X methods.
     """
-    bodies   = event_bodies or {}
+    bodies   = dict(event_bodies or {})
     sigs     = event_signatures or {}
     dialogs  = linked_dialogs or []
     needs_ttk = _uses_ttk(form)
+
+    # Migrate old single-use opener bodies to the new instance-based pattern
+    for _d in dialogs:
+        _old = f"{_d}(self).deiconify()"
+        if bodies.get(f"_open_{_d}", "").strip() == _old:
+            del bodies[f"_open_{_d}"]
 
     out: list[str] = []
 
@@ -139,6 +145,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append(line)
     for line in _menu_variable_decls(form.menu_items):
         out.append(line)
+    for d in dialogs:
+        out.append(f"        self.dlg_{d} = {d}(self)")
     out.append(_INIT_E)
     out.append("")
 
@@ -223,7 +231,7 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append("")
         for d in dialogs:
             opener = f"_open_{d}"
-            default_body = f"{d}(self).deiconify()"
+            default_body = f"self.dlg_{d}.deiconify()"
             out.append(f"    def {opener}(self):")
             out.extend(_body_lines(opener, bodies, default_body))
             out.append("")
