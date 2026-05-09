@@ -49,8 +49,8 @@ For AI features: install [Ollama](https://ollama.com) and run `ollama pull qwen2
 
 <img src="screenshots/designer-canvas-palette-properties.gif" width="100%">
 <p align="center">
-  <img src="screenshots/designer-calculator-running-history.png" width="50%">
-  <img src="screenshots/designer-calculator-running.png" width="50%">
+  <img src="screenshots/designer-calculator-running-history.png" width="40%">
+  <img src="screenshots/designer-calculator-running.png" width="41%">
 </p>
 
 The only Python IDE with a **VB6-style visual form designer** built in. Drag-and-drop canvas, 14 widget types, live property editing, variable binding, menu builder, and clean class-based code generation — all in a Tkinter project.
