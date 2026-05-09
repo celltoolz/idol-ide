@@ -87,6 +87,7 @@ class DesignerCanvas(tk.Canvas):
         on_menu_navigate:         Optional[Callable[[str],               None]] = None,
         on_menu_item_no_command:  Optional[Callable[[int],               None]] = None,
         on_tool_cancel:           Optional[Callable[[],                  None]] = None,
+        on_snap_state_changed:    Optional[Callable[[],                  None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
@@ -100,6 +101,7 @@ class DesignerCanvas(tk.Canvas):
         self._on_menu_navigate     = on_menu_navigate
         self._on_menu_item_no_command = on_menu_item_no_command
         self._on_tool_cancel       = on_tool_cancel
+        self._on_snap_state_changed = on_snap_state_changed
         self._menu_hitboxes: list[tuple[int, int, int, int, int]] = []
 
         self._form:          FormModel | None        = None
@@ -114,6 +116,7 @@ class DesignerCanvas(tk.Canvas):
         self._oy = _MARGIN + _TITLE
 
         self._drag: dict | None = None
+        self._shift_snap_override: bool = False
 
         self._undo_stack: list[dict] = []
         self._redo_stack: list[dict] = []
@@ -125,6 +128,10 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<ButtonRelease-1>", self._on_release)
         self.bind("<Motion>",          self._on_hover)
         self.bind("<Button-3>",        self._on_right_click)
+        self.bind("<KeyPress-Shift_L>",   self._on_shift_press)
+        self.bind("<KeyPress-Shift_R>",   self._on_shift_press)
+        self.bind("<KeyRelease-Shift_L>", self._on_shift_release)
+        self.bind("<KeyRelease-Shift_R>", self._on_shift_release)
         self.bind("<Delete>",          lambda _: self.remove_selected())
         self.bind("<Control-c>",       lambda _: self.copy_selected())
         self.bind("<Control-v>",       lambda _: self.paste())
@@ -619,7 +626,7 @@ class DesignerCanvas(tk.Canvas):
 
     @property
     def snap_enabled(self) -> bool:
-        return _snap_enabled
+        return _snap_enabled and not self._shift_snap_override
 
     # ── Alignment / distribution / sizing (multi-select operations) ───────────
 
@@ -1320,8 +1327,9 @@ class DesignerCanvas(tk.Canvas):
             return
 
         if d["mode"] == "move":
-            new_x = _snap(d["orig_x"] + dx)
-            new_y = _snap(d["orig_y"] + dy)
+            _s = (lambda v: v) if (event.state & 0x0001) else _snap
+            new_x = _s(d["orig_x"] + dx)
+            new_y = _s(d["orig_y"] + dy)
             # Parented widgets move freely during drag so they can escape the
             # container — _try_reparent on release handles final clamping.
             if not w.parent_id:
@@ -1417,6 +1425,10 @@ class DesignerCanvas(tk.Canvas):
     def _on_release(self, event: tk.Event) -> None:
         d = self._drag
         self._drag = None
+        if self._shift_snap_override:
+            self._shift_snap_override = False
+            if self._on_snap_state_changed:
+                self._on_snap_state_changed()
         if not self._active_tool:
             # If the pointer is still over a resize handle, restore that cursor
             # (handle <Enter> won't re-fire since the pointer never left)
@@ -1542,6 +1554,18 @@ class DesignerCanvas(tk.Canvas):
                     sw = self._form.get_widget(sid)
                     if sw:
                         self._on_widget_changed(sw)
+
+    def _on_shift_press(self, event: tk.Event) -> None:
+        if not self._shift_snap_override:
+            self._shift_snap_override = True
+            if self._on_snap_state_changed:
+                self._on_snap_state_changed()
+
+    def _on_shift_release(self, event: tk.Event) -> None:
+        if self._shift_snap_override:
+            self._shift_snap_override = False
+            if self._on_snap_state_changed:
+                self._on_snap_state_changed()
 
     def _try_reparent(self, w: WidgetDescriptor) -> None:
         """After a move drag, reparent w if it was dropped onto a different container."""

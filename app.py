@@ -839,6 +839,7 @@ class IDOL(Tk):
             on_menu_navigate=self._on_designer_menu_navigate,
             on_menu_item_no_command=self._on_designer_menu_item_no_command,
             on_tool_cancel=self._on_designer_tool_cancel,
+            on_snap_state_changed=self._on_designer_snap_state_changed,
             xscrollcommand=_hbar.set,
             yscrollcommand=_vbar.set,
         )
@@ -4617,6 +4618,9 @@ class IDOL(Tk):
     def _on_designer_tool_cancel(self) -> None:
         """Canvas cancelled placement tool → reset palette to pointer."""
         self._designer_palette.reset_to_pointer()
+
+    def _on_designer_snap_state_changed(self) -> None:
+        self._designer_toolbar.refresh_snap()
 
     def _on_palette_tool_select(self, type_key: str | None) -> None:
         """Palette click → arm canvas with placement tool."""

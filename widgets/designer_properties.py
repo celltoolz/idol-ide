@@ -208,10 +208,12 @@ class DesignerProperties(tk.Frame):
         self._handlers_cv.bind("<Motion>",     self._handlers_motion)
         self._handlers_cv.bind("<Leave>",      self._handlers_leave)
         self._handlers_cv.bind("<ButtonRelease-1>", self._handlers_click)
+        self._handlers_cv.bind("<Double-Button-1>", self._handlers_dblclick)
 
         self._handlers_defs:    list = []   # HandlerDef list for current form
         self._handlers_enabled: set[str] = set()
         self._handlers_hov_idx: int | None = None
+        self._handlers_dbl_pending: bool = False
 
         # ── Order tab ─────────────────────────────────────────────────────────
         self._order_frame = tk.Frame(self._nb, bg=_ORD_BG)
@@ -606,6 +608,9 @@ class DesignerProperties(tk.Frame):
         if iid == "ev__learn_guide":
             self._open_event_guide()
             return
+        split_x = int(self._events_cv.winfo_width() * _PROPS_SPLIT)
+        if event.x < split_x:
+            return  # name column — double-click navigates, single-click does nothing
         self._open_handler_picker(iid)
 
     def _on_event_canvas_dblclick(self, event: tk.Event) -> None:
@@ -687,6 +692,11 @@ class DesignerProperties(tk.Frame):
         self._clear_hint()
 
     def _handlers_click(self, event: tk.Event) -> None:
+        if self._handlers_dbl_pending:
+            self._handlers_dbl_pending = False
+            return
+        if event.x > 28:
+            return  # name area — only double-click acts here
         idx = self._handlers_idx_at(event.y)
         if idx is None:
             return
@@ -699,6 +709,23 @@ class DesignerProperties(tk.Frame):
         self._handlers_redraw()
         if self._on_handler_toggle:
             self._on_handler_toggle(h.id, enabled)
+
+    def _handlers_dblclick(self, event: tk.Event) -> None:
+        self._handlers_dbl_pending = True
+        if event.x <= 28:
+            return  # checkbox zone — single-click handles it
+        idx = self._handlers_idx_at(event.y)
+        if idx is None:
+            return
+        h = self._handlers_defs[idx]
+        if h.id not in self._handlers_enabled:
+            self._handlers_enabled.add(h.id)
+            self._handlers_redraw()
+            if self._on_handler_toggle:
+                self._on_handler_toggle(h.id, True)
+        else:
+            if self._on_navigate_handler:
+                self._on_navigate_handler(h.id)
 
     # ── Props canvas data helpers ─────────────────────────────────────────────
 

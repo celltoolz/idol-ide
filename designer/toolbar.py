@@ -207,6 +207,9 @@ class DesignerToolbar(tk.Frame):
 
     # ── Snap toggle ───────────────────────────────────────────────────────────
 
+    def refresh_snap(self) -> None:
+        self._refresh_snap()
+
     def _toggle_snap(self) -> None:
         self._canvas.toggle_snap()
         self._refresh_snap()
