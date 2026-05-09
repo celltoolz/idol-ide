@@ -161,6 +161,9 @@ def build_menubar(app) -> Menu:
                               command=app.designer_new_form)
     designer_menu.add_command(label="Open Form...",
                               command=app.designer_open_form)
+    designer_menu.add_command(label="Save Form",
+                              command=app.designer_save_form,
+                              state="disabled")
     designer_menu.add_command(label="Close Form",
                               command=app.designer_close_form)
     designer_menu.add_separator()

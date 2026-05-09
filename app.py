@@ -378,6 +378,7 @@ class IDOL(Tk):
         self._designer_dirty: bool = (
             False  # True when model changed since last Generate Code
         )
+        self._designer_forms_dirty: bool = False  # True when JSON not yet saved
         self._suppress_codegen_prompt: bool = False  # reset each session
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
@@ -3446,6 +3447,14 @@ class IDOL(Tk):
         # session.save() so nothing is lost. Prompts only happen on tab close.
         self._do_exit()
 
+    def _set_designer_dirty(self) -> None:
+        self._designer_dirty = True
+        self._designer_forms_dirty = True
+
+    def designer_save_form(self) -> None:
+        """Save all .form.json files (File → Designer → Save Form)."""
+        self._designer_autosave()
+
     def _designer_autosave(self) -> None:
         """Silently save all .form.json files without regenerating Python code."""
         from pathlib import Path as _Path
@@ -3468,13 +3477,24 @@ class IDOL(Tk):
                 _save(form, json_path, py_checksum=existing_checksum)
             except Exception:
                 pass
+        self._designer_forms_dirty = False
 
     def _do_exit(self) -> None:
         """Save session and quit — called exactly once."""
         if getattr(self, "_exiting", False):
             return
+        if self._designer_forms_dirty and self._designer_forms:
+            from tkinter.messagebox import askyesnocancel
+            result = askyesnocancel(
+                "Unsaved Designer Changes",
+                "Designer forms have unsaved changes. Save before exiting?",
+                parent=self,
+            )
+            if result is None:  # Cancel
+                return
+            if result:          # Yes
+                self._designer_autosave()
         self._exiting = True
-        self._designer_autosave()
         session_utils.save(self)
         if self._ai_chat_panel:
             self._ai_chat_panel.auto_save_history()
@@ -4395,8 +4415,9 @@ class IDOL(Tk):
         if menu is None:
             return
         form_loaded = getattr(self._design_canvas, "_form", None) is not None
-        menu.entryconfigure("Generate Code",
-                            state="normal" if form_loaded else "disabled")
+        state = "normal" if form_loaded else "disabled"
+        menu.entryconfigure("Generate Code", state=state)
+        menu.entryconfigure("Save Form",     state=state)
 
     def _show_mode_bar(self) -> None:
         """Pack the [Editor] | [Designer] strip above the notebook."""
@@ -4537,7 +4558,7 @@ class IDOL(Tk):
         if form is None:
             return
         self._design_canvas.push_undo()
-        self._designer_dirty = True
+        self._set_designer_dirty()
         if widget_id == "__multi__":
             self._design_canvas.redraw()
             return
@@ -4596,7 +4617,7 @@ class IDOL(Tk):
         self, widget_id: str, event_key: str, handler: str
     ) -> None:
         """Event panel edit — model already mutated by properties panel."""
-        self._designer_dirty = True
+        self._set_designer_dirty()
 
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
@@ -4677,7 +4698,7 @@ class IDOL(Tk):
             self._props_panel.load_multi(descriptors)
 
     def _on_designer_widget_changed(self, descriptor) -> None:
-        self._designer_dirty = True
+        self._set_designer_dirty()
         if len(self._design_canvas.selected_ids) > 1:
             form = self._design_canvas.form
             descriptors = [
@@ -4691,13 +4712,13 @@ class IDOL(Tk):
 
     def _on_designer_form_changed(self, form) -> None:
         """Form resize finished → refresh form-level properties panel."""
-        self._designer_dirty = True
+        self._set_designer_dirty()
         self._props_panel.set_form(form)
         self._props_panel.load_form(form)
 
     def _on_designer_structure_changed(self) -> None:
         """Widget added/removed/reordered → dirty flag + rebuild selector."""
-        self._designer_dirty = True
+        self._set_designer_dirty()
         self._designer_toolbar.refresh()
         form = self._design_canvas.form
         if form:
@@ -4718,7 +4739,7 @@ class IDOL(Tk):
             form.enabled_handlers.append(handler_id)
         elif not enabled:
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
-        self._designer_dirty = True
+        self._set_designer_dirty()
 
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""
@@ -4868,7 +4889,7 @@ class IDOL(Tk):
         if form is None or dialog_name in form.linked_dialogs:
             return
         form.linked_dialogs.append(dialog_name)
-        self._designer_dirty = True
+        self._set_designer_dirty()
         self._refresh_form_list()
 
     def _on_form_unlink(self, dialog_name: str, form_name: str) -> None:
@@ -4877,7 +4898,7 @@ class IDOL(Tk):
         if form is None or dialog_name not in form.linked_dialogs:
             return
         form.linked_dialogs.remove(dialog_name)
-        self._designer_dirty = True
+        self._set_designer_dirty()
         self._refresh_form_list()
 
     def designer_new_form(self) -> None:
@@ -4968,7 +4989,7 @@ class IDOL(Tk):
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
             self._designer_menu_had_items = False
-            self._designer_dirty = True
+            self._set_designer_dirty()
             self._refresh_form_list(active=name)
             if not self._designer_mode:
                 self._enter_designer_mode()
@@ -5063,6 +5084,7 @@ class IDOL(Tk):
                 )
 
         self._designer_dirty = False
+        self._designer_forms_dirty = False
 
     def _generate_one_form(
         self,
