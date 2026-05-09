@@ -3409,6 +3409,9 @@ class IDOL(Tk):
                         cv._line_numbers.set_breakpoints(
                             self._breakpoints.get(filepath, set())
                         )
+                # If the run entry was pinned to the temp file, redirect it to the real path
+                if self._run_entry_file == _tmp:
+                    self._set_run_entry(filepath)
                 try:
                     Path(_tmp).unlink(missing_ok=True)
                 except Exception:
@@ -5951,6 +5954,13 @@ class IDOL(Tk):
         py_files.sort(
             key=lambda f: (os.path.dirname(f) != root, os.path.basename(f).lower())
         )
+        # Also include any open .py tabs that weren't caught by the glob
+        # (e.g. files saved outside the project root)
+        open_py = [
+            fp for fp in self._files.values()
+            if fp and fp.endswith(".py") and fp not in py_files
+        ]
+        py_files.extend(sorted(open_py, key=lambda f: os.path.basename(f).lower()))
 
         entries: list[str | None] = [None] + py_files + ["__browse__"]
 

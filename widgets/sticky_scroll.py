@@ -30,6 +30,7 @@ class StickyScroll(Frame):
         self._gutter = Frame(self._row, bd=0, highlightthickness=0)
         self._gutter.pack(side="left", fill="y")
         self._gutter.pack_propagate(False)  # hold the set width
+        self._gutter_rows: list[tuple] = []  # (row_frame, lbl) pairs, reused across refreshes
 
         # pady=0 so each line is exactly font-height pixels, matching Labels below.
         self._display = Text(
@@ -62,39 +63,40 @@ class StickyScroll(Frame):
         self._gutter.config(bg=bg)
         self._display.config(bg=bg, fg=fg, font=font, insertbackground=bg)
         self._sep.config(bg=sep)
+        for row, lbl in self._gutter_rows:
+            row.config(bg=bg)
+            lbl.config(bg=bg, fg=fg, font=font)
         self._sync_tags()
 
     def refresh(self) -> None:
         """Recompute and redraw the sticky header based on the current scroll position."""
         scope_lines = self._find_scope_lines()
 
-        # Clear previous content
         self._display.config(state="normal")
         self._display.delete("1.0", "end")
-        for w in self._gutter.winfo_children():
-            w.destroy()
 
         if not scope_lines:
+            for row, _ in self._gutter_rows:
+                row.pack_forget()
             self._display.config(state="disabled", height=0)
             self.place_forget()
             return
 
         # Match gutter width to the live line-numbers widget
         gutter_w = self._ln.winfo_width()
-        self._gutter.config(width=gutter_w)
+        if gutter_w > 1:
+            self._gutter.config(width=gutter_w)
 
         bp_w = getattr(self._ln, "BP_COL_WIDTH", 0)
-        for i, (lineno, line_text) in enumerate(scope_lines):
-            # pady=0 makes each Label exactly font-height pixels, matching the
-            # Text widget's line height (which also uses pady=0).
-            # Use a row Frame so we can push the number past the BP dot column.
+
+        # Grow the cached row list if we need more rows than we have
+        while len(self._gutter_rows) < len(scope_lines):
             row = Frame(self._gutter, bg=self._bg)
-            row.pack(fill="x")
             if bp_w:
                 Frame(row, bg=self._bg, width=bp_w).pack(side="left")
-            Label(
+            lbl = Label(
                 row,
-                text=f" {lineno} ",
+                text="",
                 bg=self._bg,
                 fg=self._fg,
                 font=self._font,
@@ -103,13 +105,25 @@ class StickyScroll(Frame):
                 pady=0,
                 bd=0,
                 relief="flat",
-            ).pack(side="left", fill="x", expand=True)
+            )
+            lbl.pack(side="left", fill="x", expand=True)
+            self._gutter_rows.append((row, lbl))
 
-            # Syntax-highlighted code in the text area
+        # Update visible rows in-place (no destroy → no flash)
+        for i, (lineno, line_text) in enumerate(scope_lines):
+            row, lbl = self._gutter_rows[i]
+            lbl.config(text=f" {lineno} ", bg=self._bg, fg=self._fg, font=self._font)
+            row.config(bg=self._bg)
+            row.pack(fill="x")
+
             if i > 0:
                 self._display.insert("end", "\n")
             self._display.insert("end", line_text)
             self._apply_highlight(i + 1, line_text)
+
+        # Hide any extra cached rows beyond what we need this refresh
+        for row, _ in self._gutter_rows[len(scope_lines):]:
+            row.pack_forget()
 
         self._display.config(state="disabled", height=len(scope_lines))
         # Subtract scrollbar and minimap (if visible) so we don't overlap them

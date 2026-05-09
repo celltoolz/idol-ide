@@ -1367,18 +1367,21 @@ class DesignerCanvas(tk.Canvas):
 
             nx, ny, nw, nh = ox, oy, ow, oh
 
+            shift_held = bool(event.state & 0x0001)
+            _s = (lambda v: v) if shift_held else _snap
+
             if "W" in handle:
-                nw = _snap(ow - dx)
-                nx = _snap(ox + dx)
+                nw = _s(ow - dx)
+                nx = _s(ox + dx)
             if "E" in handle:
-                nw = _snap(ow + dx)
+                nw = _s(ow + dx)
             if "N" in handle:
-                nh = _snap(oh - dy)
-                ny = max(self._min_y, _snap(oy + dy))
+                nh = _s(oh - dy)
+                ny = max(self._min_y, _s(oy + dy))
                 nh = oy + oh - ny  # recalculate height after ny clamp
                 nh = max(GRID * 2, nh)
             if "S" in handle:
-                nh = _snap(oh + dy)
+                nh = _s(oh + dy)
 
             nw = max(GRID * 2, nw)
             nh = max(GRID * 2, nh)
@@ -1415,7 +1418,18 @@ class DesignerCanvas(tk.Canvas):
         d = self._drag
         self._drag = None
         if not self._active_tool:
-            self.config(cursor="arrow")
+            # If the pointer is still over a resize handle, restore that cursor
+            # (handle <Enter> won't re-fire since the pointer never left)
+            _cx = self.canvasx(event.x)
+            _cy = self.canvasy(event.y)
+            _hc = next(
+                (_handle_cursor(t.split(":", 1)[1])
+                 for item in self.find_overlapping(_cx - 2, _cy - 2, _cx + 2, _cy + 2)
+                 for t in self.gettags(item)
+                 if t.startswith("handle:") or t.startswith("fhandle:")),
+                None,
+            )
+            self.config(cursor=_hc or "arrow")
         if d is None or self._form is None:
             return
 

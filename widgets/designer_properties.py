@@ -389,7 +389,8 @@ class DesignerProperties(tk.Frame):
     def set_form(self, form: FormModel) -> None:
         """Rebuild the control selector dropdown from the current form."""
         self._form = form
-        self._selector_items = [(f"{form.name}  (Form)", None)]
+        kind = "TopLevel" if form.form_type == "dialog" else "Form"
+        self._selector_items = [(f"{form.name}  ({kind})", None)]
         for w in form.widgets:
             self._selector_items.append((f"{w.id}  ({w.type})", w.id))
 
