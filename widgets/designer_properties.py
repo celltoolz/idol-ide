@@ -7,18 +7,20 @@ from typing import Any, Callable, Optional
 from designer.model import FormModel, VariableBinding, WidgetDescriptor
 from designer.registry import REGISTRY
 from widgets.guide_window import GuideWindow, GuidePage
+from widgets.scrollbar import VerticalScrollbar
 
 
-# ── Order tab palette ────────────────────────────────────────────────────────
-_ORD_ROW_H = 28
-_ORD_BG    = "#1e1e1e"
-_ORD_EVEN  = "#252526"
-_ORD_ODD   = "#2a2a2b"
-_ORD_HOV   = "#2d2d30"
-_ORD_SEL   = "#094771"
-_ORD_FG    = "#cccccc"
-_ORD_DIM   = "#636363"
-_ORD_NUM   = "#007acc"
+# ── Order / Props canvas palette ─────────────────────────────────────────────
+_ORD_ROW_H   = 28
+_ORD_BG      = "#1e1e1e"
+_ORD_EVEN    = "#252526"
+_ORD_ODD     = "#2a2a2b"
+_ORD_HOV     = "#2d2d30"
+_ORD_SEL     = "#094771"
+_ORD_FG      = "#cccccc"
+_ORD_DIM     = "#636363"
+_ORD_NUM     = "#007acc"
+_PROPS_SPLIT = 0.44   # fraction of width for the label column
 
 
 class DesignerProperties(tk.Frame):
@@ -113,18 +115,33 @@ class DesignerProperties(tk.Frame):
         self._nb = ttk.Notebook(self, style="Props.TNotebook")
         self._nb.pack(fill="both", expand=True)
 
-        # Properties tab
-        self._props_frame = tk.Frame(self._nb, bg="#1e1e1e")
+        # Properties tab — canvas-rendered rows
+        self._props_frame = tk.Frame(self._nb, bg=_ORD_BG)
         self._nb.add(self._props_frame, text="  Properties  ")
-        self._props_tree = _make_tree(self._props_frame)
-        self._props_tree.tag_configure("hover", foreground="#569cd6")
-        self._props_tree.bind("<Button-1>", self._on_prop_click)
-        self._props_tree.bind("<Motion>",   self._on_prop_hover)
-        self._props_tree.bind("<Leave>",    self._on_prop_leave)
-        self._prop_hover_row:        str | None = None
-        self._prop_hover_saved_tags: tuple      = ()
+        _pb = tk.Frame(self._props_frame, bg=_ORD_BG)
+        _pb.pack(fill="both", expand=True)
+        self._props_sb = VerticalScrollbar(_pb, bg=_ORD_BG)
+        self._props_sb.pack(side="right", fill="y")
+        self._props_cv = tk.Canvas(
+            _pb, bg=_ORD_BG, highlightthickness=0,
+            yscrollcommand=self._props_sb.set,
+        )
+        self._props_cv.pack(side="left", fill="both", expand=True)
+        self._props_sb.configure(command=self._props_cv.yview)
+        self._props_cv.bind("<Configure>",
+            lambda _: self._props_redraw())
+        self._props_cv.bind("<MouseWheel>",
+            lambda e: self._props_cv.yview_scroll(-1 * (e.delta // 120), "units"))
+        self._props_cv.bind("<Motion>",           self._on_prop_motion)
+        self._props_cv.bind("<Leave>",            self._on_prop_canvas_leave)
+        self._props_cv.bind("<ButtonRelease-1>",  self._on_prop_canvas_click)
+        # Row data store
+        self._props_rows:    list = []   # list of row dicts
+        self._props_row_map: dict = {}   # iid → index
+        self._props_hov_idx: int | None = None
+        # Floating × clear button placed over canvas on hover
         self._prop_clear_btn = tk.Label(
-            self._props_tree, text="×",
+            self._props_cv, text="×",
             bg="#3a3a3a", fg="#888888",
             font=("Segoe UI", 9), cursor="hand2", padx=2,
         )
@@ -231,7 +248,7 @@ class DesignerProperties(tk.Frame):
         self._multi_widgets  = []
         self._set_selector(None)
 
-        self._props_tree.delete(*self._props_tree.get_children())
+        self._props_clear()
         for key, label, val in [
             ("title",        "title",        form.title),
             ("width",        "width",        form.width),
@@ -240,17 +257,15 @@ class DesignerProperties(tk.Frame):
             ("maximize_box", "maximize",     form.maximize_box),
             ("bg",           "background",   form.bg),
         ]:
-            self._props_tree.insert("", "end", iid=f"form__{key}",
-                                    text=label, values=(str(val),))
+            self._props_insert(f"form__{key}", label, str(val))
         # Tint the background row with the current color
         self._apply_color_swatch("form__bg", (form.bg or "#f5f5f5").upper())
-        # Menu bar row
+        # Menu bar row (blue link)
         n = len(form.menu_items)
         menu_val = f"{n} item{'s' if n != 1 else ''}" if n else "(none)"
-        self._props_tree.insert("", "end", iid="form__menu_bar",
-                                text="menu bar", values=(menu_val,))
-        self._props_tree.tag_configure("menu_bar_link", foreground="#569cd6")
-        self._props_tree.item("form__menu_bar", tags=("menu_bar_link",))
+        self._props_insert("form__menu_bar", "menu bar", menu_val)
+        self._props_set_link("form__menu_bar", True)
+        self._props_redraw()
 
         self._events_tree.delete(*self._events_tree.get_children())
         for ev in ("load", "activate", "deactivate", "unload", "resize"):
@@ -275,24 +290,23 @@ class DesignerProperties(tk.Frame):
         self._multi_widgets  = list(descriptors)
         self._selector_label.config(text=f"({len(descriptors)} widgets selected)")
 
-        self._props_tree.delete(*self._props_tree.get_children())
+        self._props_clear()
         self._events_tree.delete(*self._events_tree.get_children())
         if self._form:
             self.load_handlers(self._form)
 
         if not descriptors:
+            self._props_redraw()
             return
 
         primary = descriptors[0]
 
         # Geometry (delta-based on commit)
         for key in ("x", "y", "width", "height"):
-            self._props_tree.insert("", "end", iid=f"geo__{key}",
-                                    text=key, values=(str(getattr(primary, key)),))
+            self._props_insert(f"geo__{key}", key, str(getattr(primary, key)))
 
         regs = [REGISTRY.get(d.type, {}) for d in descriptors]
 
-        # Keys to exclude: state/validate/colorize conditionals are too complex for multi
         excluded: set[str] = {
             "state", "validate", "validatecommand", "vcmd_args",
             "invalidcommand", "colorize", "colorize_altbg",
@@ -301,13 +315,11 @@ class DesignerProperties(tk.Frame):
             for color_list in r.get("state_color_props", {}).values():
                 excluded.update(color_list)
 
-        # Intersection of each widget type's default_props keys, minus excluded
         all_key_sets = [set(r.get("default_props", {}).keys()) - excluded for r in regs]
-        shared_keys = set.intersection(*all_key_sets) if all_key_sets else set()
+        shared_keys  = set.intersection(*all_key_sets) if all_key_sets else set()
 
-        # Order by first widget's registry order
         first_defaults = regs[0].get("default_props", {})
-        ordered_keys = [k for k in first_defaults if k in shared_keys]
+        ordered_keys   = [k for k in first_defaults if k in shared_keys]
         for k in shared_keys:
             if k not in ordered_keys:
                 ordered_keys.append(k)
@@ -320,36 +332,29 @@ class DesignerProperties(tk.Frame):
             vals = [str(d.props.get(key, regs[i].get("default_props", {}).get(key, "")))
                     for i, d in enumerate(descriptors)]
             display_val = _display(vals[0]) if len(set(vals)) == 1 else ""
-            self._props_tree.insert("", "end", iid=f"prop__{key}",
-                                    text=_PROP_LABELS.get(key, key), values=(display_val,))
+            self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), display_val)
 
-        # Intersection of color props
         all_color_sets = [set(r.get("color_props", [])) for r in regs]
-        shared_colors = set.intersection(*all_color_sets) if all_color_sets else set()
+        shared_colors  = set.intersection(*all_color_sets) if all_color_sets else set()
         for key in shared_colors:
             if key in seen:
                 continue
             seen.add(key)
-            vals = [d.props.get(key, "") for d in descriptors]
+            vals        = [d.props.get(key, "") for d in descriptors]
             display_val = vals[0] if len(set(vals)) == 1 else ""
-            self._props_tree.insert("", "end", iid=f"prop__{key}",
-                                    text=_PROP_LABELS.get(key, key), values=(display_val,))
+            self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), display_val)
             if display_val:
-                self._apply_color_swatch(f"prop__{key}", display_val.upper())
+                self._props_set_swatch(f"prop__{key}", display_val.upper())
 
-        # Layout / anchor section (applies to all widgets)
-        self._props_tree.insert("", "end", iid="anchor__section",
-                                text="── Layout", values=("",))
-        self._props_tree.tag_configure("anchor_section",
-                                       foreground="#569cd6", font=("Segoe UI", 8))
-        self._props_tree.item("anchor__section", tags=("anchor_section",))
+        # Layout / anchor section
+        self._props_insert("anchor__section", "Layout", "", kind="header")
         anchor_vals = [d.anchor for d in descriptors]
         anchor_disp = (
             _ANCHOR_DISPLAY.get(anchor_vals[0], anchor_vals[0] or "(none)")
             if len(set(anchor_vals)) == 1 else ""
         )
-        self._props_tree.insert("", "end", iid="anchor__value",
-                                text="  anchor", values=(anchor_disp,))
+        self._props_insert("anchor__value", "  anchor", anchor_disp)
+        self._props_redraw()
 
     def clear(self) -> None:
         """Reset to the empty / no-selection state."""
@@ -358,7 +363,8 @@ class DesignerProperties(tk.Frame):
         self._multi_widgets  = []
         self._selector_items = []
         self._selector_label.config(text="Properties")
-        self._props_tree.delete(*self._props_tree.get_children())
+        self._props_clear()
+        self._props_redraw()
         self._events_tree.delete(*self._events_tree.get_children())
 
     def set_form(self, form: FormModel) -> None:
@@ -456,6 +462,203 @@ class DesignerProperties(tk.Frame):
         self._handlers_redraw()
         if self._on_handler_toggle:
             self._on_handler_toggle(h.id, enabled)
+
+    # ── Props canvas data helpers ─────────────────────────────────────────────
+
+    def _props_clear(self) -> None:
+        self._props_rows.clear()
+        self._props_row_map.clear()
+        self._props_hov_idx = None
+
+    def _props_insert(self, iid: str, label: str, value: str,
+                      kind: str = "normal") -> None:
+        """kind: 'header' | 'normal' | 'readonly'"""
+        row: dict = {"iid": iid, "label": label, "value": value, "kind": kind,
+                     "swatch": None, "warn": False, "link": False}
+        self._props_row_map[iid] = len(self._props_rows)
+        self._props_rows.append(row)
+
+    def _props_set(self, iid: str, value: str) -> None:
+        idx = self._props_row_map.get(iid)
+        if idx is not None:
+            self._props_rows[idx]["value"] = value
+            self._props_redraw_row(idx)
+
+    def _props_get(self, iid: str) -> str:
+        idx = self._props_row_map.get(iid)
+        return self._props_rows[idx]["value"] if idx is not None else ""
+
+    def _props_exists(self, iid: str) -> bool:
+        return iid in self._props_row_map
+
+    def _props_set_swatch(self, iid: str, color: str | None) -> None:
+        idx = self._props_row_map.get(iid)
+        if idx is not None:
+            self._props_rows[idx]["swatch"] = color
+            self._props_redraw_row(idx)
+
+    def _props_set_warn(self, iid: str, warn: bool) -> None:
+        idx = self._props_row_map.get(iid)
+        if idx is not None:
+            self._props_rows[idx]["warn"] = warn
+            self._props_redraw_row(idx)
+
+    def _props_set_link(self, iid: str, link: bool) -> None:
+        idx = self._props_row_map.get(iid)
+        if idx is not None:
+            self._props_rows[idx]["link"] = link
+
+    def _props_bbox(self, iid: str) -> "tuple[int,int,int,int] | None":
+        """Return (x, y, w, h) in canvas widget coords for the value column."""
+        idx = self._props_row_map.get(iid)
+        if idx is None:
+            return None
+        cv_w   = max(self._props_cv.winfo_width(), 160)
+        split_x = max(80, int(cv_w * _PROPS_SPLIT))
+        canvas_y = idx * _ORD_ROW_H
+        scroll_top = int(self._props_cv.canvasy(0))
+        screen_y = canvas_y - scroll_top
+        cv_h = self._props_cv.winfo_height()
+        if screen_y < -_ORD_ROW_H or screen_y >= cv_h:
+            return None
+        val_x = split_x + 1
+        val_w = cv_w - val_x
+        return (val_x, screen_y, val_w, _ORD_ROW_H)
+
+    def _props_iid_at_y(self, widget_y: int) -> "str | None":
+        canvas_y = int(self._props_cv.canvasy(widget_y))
+        idx = canvas_y // _ORD_ROW_H
+        return self._props_rows[idx]["iid"] if 0 <= idx < len(self._props_rows) else None
+
+    def _props_idx_at_y(self, widget_y: int) -> "int | None":
+        canvas_y = int(self._props_cv.canvasy(widget_y))
+        idx = canvas_y // _ORD_ROW_H
+        return idx if 0 <= idx < len(self._props_rows) else None
+
+    def _props_redraw(self) -> None:
+        cv = self._props_cv
+        cv.delete("all")
+        w = max(cv.winfo_width(), 160)
+
+        if not self._props_rows:
+            cv.configure(scrollregion=(0, 0, w, 40))
+            return
+
+        split_x  = max(80, int(w * _PROPS_SPLIT))
+        total_h  = len(self._props_rows) * _ORD_ROW_H
+        cv.configure(scrollregion=(0, 0, w, total_h))
+
+        for i, row in enumerate(self._props_rows):
+            y0  = i * _ORD_ROW_H
+            y1  = y0 + _ORD_ROW_H
+            mid = (y0 + y1) // 2
+            is_hov = (i == self._props_hov_idx)
+
+            if row["kind"] == "header":
+                bg = _ORD_EVEN if i % 2 == 0 else _ORD_ODD
+                cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"pr{i}")
+                # Full separator line
+                cv.create_line(6, mid, w - 6, mid, fill=_ORD_DIM, tags=f"pr{i}")
+                # Text centered on full row width
+                tid = cv.create_text(w // 2, mid, text=row["label"],
+                                     fill=_ORD_DIM, font=("Segoe UI", 8),
+                                     anchor="center", tags=f"pr{i}")
+                # Mask line behind text with bg rect, then raise text
+                tb = cv.bbox(tid)
+                if tb:
+                    cv.create_rectangle(tb[0] - 3, y0, tb[2] + 3, y1,
+                                        fill=bg, outline="", tags=f"pr{i}")
+                    cv.tag_raise(tid)
+            else:
+                bg = _ORD_HOV if is_hov else (_ORD_EVEN if i % 2 == 0 else _ORD_ODD)
+                cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"pr{i}")
+
+                # Divider
+                cv.create_line(split_x, y0, split_x, y1, fill="#333333", tags=f"pr{i}")
+
+                # Label
+                lbl_color = _ORD_DIM if row["kind"] == "readonly" else _ORD_FG
+                if row["link"]:
+                    lbl_color = "#569cd6"
+                cv.create_text(8, mid, text=row["label"],
+                               fill=lbl_color, font=("Segoe UI", 9),
+                               anchor="w", tags=f"pr{i}")
+
+                # Value
+                val = row["value"]
+                if row["swatch"]:
+                    sx = split_x + 6
+                    cv.create_rectangle(sx, mid - 6, sx + 12, mid + 6,
+                                        fill=row["swatch"], outline="#555555",
+                                        tags=f"pr{i}")
+                    cv.create_text(sx + 16, mid, text=val,
+                                   fill=_ORD_FG, font=("Segoe UI", 9),
+                                   anchor="w", tags=f"pr{i}")
+                elif row["warn"]:
+                    cv.create_text(split_x + 8, mid, text=val,
+                                   fill="#ff6b6b", font=("Segoe UI", 9),
+                                   anchor="w", tags=f"pr{i}")
+                else:
+                    cv.create_text(split_x + 8, mid, text=val,
+                                   fill=_ORD_FG, font=("Segoe UI", 9),
+                                   anchor="w", tags=f"pr{i}")
+
+    def _props_redraw_row(self, idx: int) -> None:
+        """Redraw a single row in-place (no full delete)."""
+        if not self._props_rows:
+            return
+        cv = self._props_cv
+        w  = max(cv.winfo_width(), 160)
+        cv.delete(f"pr{idx}")
+
+        row     = self._props_rows[idx]
+        y0      = idx * _ORD_ROW_H
+        y1      = y0 + _ORD_ROW_H
+        mid     = (y0 + y1) // 2
+        split_x = max(80, int(w * _PROPS_SPLIT))
+        is_hov  = (idx == self._props_hov_idx)
+
+        if row["kind"] == "header":
+            bg = _ORD_EVEN if idx % 2 == 0 else _ORD_ODD
+            cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"pr{idx}")
+            cv.create_line(6, mid, w - 6, mid, fill=_ORD_DIM, tags=f"pr{idx}")
+            tid = cv.create_text(w // 2, mid, text=row["label"],
+                                 fill=_ORD_DIM, font=("Segoe UI", 8),
+                                 anchor="center", tags=f"pr{idx}")
+            tb = cv.bbox(tid)
+            if tb:
+                cv.create_rectangle(tb[0] - 3, y0, tb[2] + 3, y1,
+                                    fill=bg, outline="", tags=f"pr{idx}")
+                cv.tag_raise(tid)
+        else:
+            bg = _ORD_HOV if is_hov else (_ORD_EVEN if idx % 2 == 0 else _ORD_ODD)
+            cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"pr{idx}")
+            cv.create_line(split_x, y0, split_x, y1, fill="#333333", tags=f"pr{idx}")
+
+            lbl_color = _ORD_DIM if row["kind"] == "readonly" else _ORD_FG
+            if row["link"]:
+                lbl_color = "#569cd6"
+            cv.create_text(8, mid, text=row["label"],
+                           fill=lbl_color, font=("Segoe UI", 9),
+                           anchor="w", tags=f"pr{idx}")
+
+            val = row["value"]
+            if row["swatch"]:
+                sx = split_x + 6
+                cv.create_rectangle(sx, mid - 6, sx + 12, mid + 6,
+                                    fill=row["swatch"], outline="#555555",
+                                    tags=f"pr{idx}")
+                cv.create_text(sx + 16, mid, text=val,
+                               fill=_ORD_FG, font=("Segoe UI", 9),
+                               anchor="w", tags=f"pr{idx}")
+            elif row["warn"]:
+                cv.create_text(split_x + 8, mid, text=val,
+                               fill="#ff6b6b", font=("Segoe UI", 9),
+                               anchor="w", tags=f"pr{idx}")
+            else:
+                cv.create_text(split_x + 8, mid, text=val,
+                               fill=_ORD_FG, font=("Segoe UI", 9),
+                               anchor="w", tags=f"pr{idx}")
 
     # ── Order tab internals ───────────────────────────────────────────────────
 
@@ -724,19 +927,16 @@ class DesignerProperties(tk.Frame):
     # ── Populate helpers ──────────────────────────────────────────────────────
 
     def _populate_props(self, d: WidgetDescriptor, reg: dict) -> None:
-        self._props_tree.delete(*self._props_tree.get_children())
-        # Name first (the widget's ID / variable name)
-        self._props_tree.insert("", "end", iid="widget__name",
-                                text="name", values=(d.id,))
+        self._props_clear()
+        # Name
+        self._props_insert("widget__name", "name", d.id)
         # Geometry
         for key in ("x", "y", "width", "height"):
-            self._props_tree.insert("", "end", iid=f"geo__{key}",
-                                    text=key, values=(str(getattr(d, key)),))
-        # Parent container (read-only — drag to reparent)
+            self._props_insert(f"geo__{key}", key, str(getattr(d, key)))
+        # Parent container (read-only)
         parent_val = d.parent_id if d.parent_id else "(form)"
-        self._props_tree.insert("", "end", iid="geo__parent",
-                                text="parent", values=(parent_val,))
-        # Widget-specific props — exclude state/validate (handled in dedicated blocks)
+        self._props_insert("geo__parent", "parent", parent_val, kind="readonly")
+        # Widget-specific props
         defaults = reg.get("default_props", {})
         color_props = reg.get("color_props", [])
         _state_reserved = (
@@ -759,97 +959,69 @@ class DesignerProperties(tk.Frame):
                 continue
             seen.add(key)
             val = d.props.get(key, defaults.get(key, ""))
-            self._props_tree.insert("", "end", iid=f"prop__{key}",
-                                    text=_PROP_LABELS.get(key, key), values=(_display(val),))
-        # Color props — always show even when not set, apply swatches
+            self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), _display(val))
+        # Color props — always show, apply swatches
         for key in color_props:
-            if key in seen:
-                val = d.props.get(key, "")
-            else:
-                val = d.props.get(key, "")
-                self._props_tree.insert("", "end", iid=f"prop__{key}",
-                                        text=_PROP_LABELS.get(key, key), values=(val,))
+            val = d.props.get(key, "")
+            if key not in seen:
+                self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), val)
                 seen.add(key)
             if val:
-                self._apply_color_swatch(f"prop__{key}", val.upper())
-        # State row + conditional indented color props
+                self._props_set_swatch(f"prop__{key}", val.upper())
+        # State row + conditional color props
         if reg.get("state_prop"):
             current_state = d.props.get("state", "normal")
-            self._props_tree.insert("", "end", iid="prop__state",
-                                    text="state", values=(current_state,))
+            self._props_insert("prop__state", "state", current_state)
             seen.add("state")
             state_colors = reg.get("state_color_props", {})
             for color_key in state_colors.get(current_state, []):
                 label = _STATE_COLOR_LABELS.get(color_key, f"  --{color_key}")
-                val = d.props.get(color_key, "")
-                self._props_tree.insert("", "end", iid=f"prop__{color_key}",
-                                        text=label, values=(val,))
+                val   = d.props.get(color_key, "")
+                self._props_insert(f"prop__{color_key}", label, val)
                 seen.add(color_key)
                 if val:
-                    self._apply_color_swatch(f"prop__{color_key}", val.upper())
-
-        # Validate row + conditional vcmd / --args / ivcmd rows
+                    self._props_set_swatch(f"prop__{color_key}", val.upper())
+        # Validate row + conditional sub-rows
         if reg.get("validate_prop"):
             current_validate = d.props.get("validate", "none")
-            self._props_tree.insert("", "end", iid="prop__validate",
-                                    text="validate", values=(current_validate,))
+            self._props_insert("prop__validate", "validate", current_validate)
             seen.add("validate")
             if current_validate != "none":
-                self._props_tree.tag_configure("vcmd_warn", foreground="#ff6b6b")
                 for v_key, v_label in (("validatecommand", "  --vcmd"),
                                        ("invalidcommand",  "  --ivcmd")):
                     val = d.props.get(v_key, "")
-                    self._props_tree.insert("", "end", iid=f"prop__{v_key}",
-                                            text=v_label, values=(val,))
+                    self._props_insert(f"prop__{v_key}", v_label, val)
                     if val and not val.startswith("_"):
-                        self._props_tree.item(f"prop__{v_key}", tags=("vcmd_warn",))
-                    # --args between the two command rows
+                        self._props_set_warn(f"prop__{v_key}", True)
                     if v_key == "validatecommand":
-                        self._props_tree.insert("", "end", iid="prop__vcmd_args",
-                                                text="  --args",
-                                                values=(d.props.get("vcmd_args", "%P"),))
+                        self._props_insert("prop__vcmd_args", "  --args",
+                                           d.props.get("vcmd_args", "%P"))
                 seen.update({"validatecommand", "vcmd_args", "invalidcommand"})
-
-        # Colorize row + conditional alt-bg color row
+        # Colorize row + conditional alt-bg
         if reg.get("colorize_prop"):
             current_colorize = bool(d.props.get("colorize", False))
-            self._props_tree.insert("", "end", iid="prop__colorize",
-                                    text="colorize", values=(str(current_colorize),))
+            self._props_insert("prop__colorize", "colorize", str(current_colorize))
             seen.add("colorize")
             if current_colorize:
                 alt_bg = d.props.get("colorize_altbg", "")
-                self._props_tree.insert("", "end", iid="prop__colorize_altbg",
-                                        text="  --alt bg", values=(alt_bg,))
+                self._props_insert("prop__colorize_altbg", "  --alt bg", alt_bg)
                 seen.add("colorize_altbg")
                 if alt_bg:
-                    self._apply_color_swatch("prop__colorize_altbg", alt_bg.upper())
-
-        # Variable binding section (only for widgets that support it)
+                    self._props_set_swatch("prop__colorize_altbg", alt_bg.upper())
+        # Variable binding section
         if reg.get("variable_prop"):
             var_types = reg.get("variable_types", ["StringVar"])
             vb = d.variable
-            self._props_tree.insert("", "end", iid="var__section",
-                                    text="── Variable", values=("",))
-            self._props_tree.tag_configure("var_section",
-                                           foreground="#569cd6", font=("Segoe UI", 8))
-            self._props_tree.item("var__section", tags=("var_section",))
-            self._props_tree.insert("", "end", iid="var__name",
-                                    text="  variable", values=(vb.name if vb else "",))
-            self._props_tree.insert("", "end", iid="var__type",
-                                    text="  type",
-                                    values=(vb.var_type if vb else var_types[0],))
-            self._props_tree.insert("", "end", iid="var__initial",
-                                    text="  initial", values=(vb.initial if vb else "",))
-
+            self._props_insert("var__section", "Variable", "", kind="header")
+            self._props_insert("var__name",    "  variable", vb.name if vb else "")
+            self._props_insert("var__type",    "  type",
+                               vb.var_type if vb else var_types[0])
+            self._props_insert("var__initial", "  initial", vb.initial if vb else "")
         # Layout / anchor section
-        self._props_tree.insert("", "end", iid="anchor__section",
-                                text="── Layout", values=("",))
-        self._props_tree.tag_configure("anchor_section",
-                                       foreground="#569cd6", font=("Segoe UI", 8))
-        self._props_tree.item("anchor__section", tags=("anchor_section",))
+        self._props_insert("anchor__section", "Layout", "", kind="header")
         anchor_disp = _ANCHOR_DISPLAY.get(d.anchor, d.anchor or "(none)")
-        self._props_tree.insert("", "end", iid="anchor__value",
-                                text="  anchor", values=(anchor_disp,))
+        self._props_insert("anchor__value", "  anchor", anchor_disp)
+        self._props_redraw()
 
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_tree.delete(*self._events_tree.get_children())
@@ -865,16 +1037,63 @@ class DesignerProperties(tk.Frame):
                                  text="? Events", values=("",),
                                  tags=("ev_guide_link",))
 
-    # ── Click handlers ────────────────────────────────────────────────────────
+    # ── Props canvas input handlers ───────────────────────────────────────────
 
-    def _on_prop_click(self, event: tk.Event) -> None:
-        tree = self._props_tree
-        row  = tree.identify_row(event.y)
-        col  = tree.identify_column(event.x)
-        if not row or col != "#1":
+    def _on_prop_motion(self, event: tk.Event) -> None:
+        idx = self._props_idx_at_y(event.y)
+        if idx == self._props_hov_idx:
+            if idx is not None:
+                self._update_prop_clear_btn(idx)
             return
+        old = self._props_hov_idx
+        self._props_hov_idx = idx
+        if old is not None:
+            self._props_redraw_row(old)
+        if idx is not None:
+            self._props_redraw_row(idx)
+            row = self._props_rows[idx]
+            iid = row["iid"]
+            self._update_prop_clear_btn(idx)
+            key = iid.split("__", 1)[-1] if "__" in iid else iid
+            hint = _PROP_HINTS.get(iid) or _PROP_HINTS.get(key)
+            if hint:
+                self._show_hint(hint)
+            else:
+                self._clear_hint()
+        else:
+            self._prop_clear_btn.place_forget()
+            self._clear_hint()
+
+    def _update_prop_clear_btn(self, idx: int) -> None:
+        row = self._props_rows[idx]
+        iid = row["iid"]
+        val = row["value"]
+        if self._is_prop_clearable(iid) and val and (iid != "anchor__value" or val != "(none)"):
+            bbox = self._props_bbox(iid)
+            if bbox:
+                x, y, w, h = bbox
+                bw = 18
+                self._prop_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+                self._prop_clear_btn.lift()
+                return
+        self._prop_clear_btn.place_forget()
+
+    def _on_prop_canvas_leave(self, _event: tk.Event) -> None:
+        if self._props_hov_idx is not None:
+            old = self._props_hov_idx
+            self._props_hov_idx = None
+            self._props_redraw_row(old)
+        self._prop_clear_btn.place_forget()
+        self._clear_hint()
+
+    def _on_prop_canvas_click(self, event: tk.Event) -> None:
+        iid = self._props_iid_at_y(event.y)
+        if iid:
+            self._dispatch_prop_click(iid)
+
+    def _dispatch_prop_click(self, row: str) -> None:
         if row in ("var__section", "geo__parent", "anchor__section"):
-            return  # not editable
+            return
         if row == "anchor__value":
             self._open_anchor_picker(row)
             return
@@ -883,34 +1102,31 @@ class DesignerProperties(tk.Frame):
         elif row == "form__bg" or self._is_color_row(row):
             self._open_color_picker(row)
         elif row == "form__border_style":
-            self._open_dropdown(self._props_tree, row, col,
-                                ["sizable", "fixed", "none"], self._commit_prop)
+            self._props_open_dropdown(row, ["sizable", "fixed", "none"], self._commit_prop)
         elif row == "form__maximize_box":
-            self._open_dropdown(self._props_tree, row, col,
-                                ["True", "False"], self._commit_prop)
+            self._props_open_dropdown(row, ["True", "False"], self._commit_prop)
         elif row == "prop__state":
             d = self._current_widget
             if d is None:
                 return
             reg = REGISTRY.get(d.type, {})
-            self._open_dropdown(tree, row, col,
-                                reg.get("state_values", ["normal", "disabled"]),
-                                self._commit_prop)
+            self._props_open_dropdown(row,
+                reg.get("state_values", ["normal", "disabled"]), self._commit_prop)
         elif row == "prop__validate":
             d = self._current_widget
             if d is None:
                 return
             reg = REGISTRY.get(d.type, {})
-            self._open_dropdown(tree, row, col,
-                                reg.get("validate_values",
-                                        ["none", "focus", "focusin", "focusout", "key", "all"]),
-                                self._commit_prop)
+            self._props_open_dropdown(row,
+                reg.get("validate_values",
+                        ["none", "focus", "focusin", "focusout", "key", "all"]),
+                self._commit_prop)
         elif row == "prop__vcmd_args":
-            self._open_dropdown(tree, row, col, _VCMD_ARG_PRESETS, self._commit_prop)
+            self._props_open_dropdown(row, _VCMD_ARG_PRESETS, self._commit_prop)
         elif row == "prop__colorize":
-            self._open_dropdown(tree, row, col, ["True", "False"], self._commit_prop)
+            self._props_open_dropdown(row, ["True", "False"], self._commit_prop)
         elif row.startswith("prop__") and (self._current_widget or self._multi_widgets):
-            key = row[6:]
+            key  = row[6:]
             d_ref = self._current_widget or self._multi_widgets[0]
             if key == "font":
                 if self._current_widget:
@@ -920,24 +1136,225 @@ class DesignerProperties(tk.Frame):
                 if self._current_widget:
                     self._open_list_editor(row)
                 return
-            reg = REGISTRY.get(d_ref.type, {})
+            reg     = REGISTRY.get(d_ref.type, {})
             choices = reg.get("prop_choices", {}).get(key)
             if choices:
-                self._open_dropdown(tree, row, col, choices, self._commit_prop)
+                self._props_open_dropdown(row, choices, self._commit_prop)
                 return
-            self._open_editor(tree, row, col, self._commit_prop)
-            return
+            self._props_open_editor(row, self._commit_prop)
         elif row == "var__name":
-            self._open_variable_picker(tree, row, col)
+            self._props_open_variable_picker(row)
         elif row == "var__type":
             d = self._current_widget
             if d is None:
                 return
-            reg = REGISTRY.get(d.type, {})
+            reg       = REGISTRY.get(d.type, {})
             var_types = reg.get("variable_types", ["StringVar"])
-            self._open_dropdown(tree, row, col, var_types, self._commit_prop)
-        else:
-            self._open_editor(tree, row, col, self._commit_prop)
+            self._props_open_dropdown(row, var_types, self._commit_prop)
+        elif row.startswith(("geo__", "widget__", "var__", "form__")):
+            self._props_open_editor(row, self._commit_prop)
+
+    # ── Props canvas editors ──────────────────────────────────────────────────
+
+    def _props_open_editor(self, iid: str, commit_fn) -> None:
+        self._dismiss_editor()
+        bbox = self._props_bbox(iid)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        entry = tk.Entry(
+            self._props_cv,
+            font=("TkDefaultFont", 8),
+            bg="#3c3c3c", fg="#cccccc",
+            insertbackground="#cccccc",
+            relief="flat", bd=0,
+            highlightthickness=1,
+            highlightbackground="#007acc",
+        )
+        entry.insert(0, self._props_get(iid))
+        entry.place(x=x, y=y, width=w, height=h)
+        self._entry_editor = entry
+
+        def _grab_focus():
+            try:
+                entry.focus_force()
+                entry.select_range(0, "end")
+                entry.icursor("end")
+            except Exception:
+                pass
+        self._props_cv.after_idle(_grab_focus)
+
+        def commit(_=None):
+            if self._entry_editor is not entry:
+                return
+            val = entry.get()
+            self._pending_commit = None
+            self._dismiss_editor()
+            self._props_set(iid, val)
+            commit_fn(iid, val)
+
+        def cancel(_=None):
+            self._pending_commit = None
+            self._dismiss_editor()
+
+        entry.bind("<Return>",   commit)
+        entry.bind("<Tab>",      commit)
+        entry.bind("<Escape>",   cancel)
+        entry.bind("<FocusOut>", commit)
+        self._pending_commit = commit
+
+    def _props_open_dropdown(self, iid: str, values: list, commit_fn) -> None:
+        self._dismiss_editor()
+        bbox = self._props_bbox(iid)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+
+        prop_key   = iid.split("__", 1)[-1] if "__" in iid else ""
+        item_hints = _DROPDOWN_ITEM_HINTS.get(prop_key, {})
+
+        overlay = tk.Frame(self._props_cv, bg="#2d2d2d",
+                           highlightthickness=1,
+                           highlightbackground="#007acc")
+
+        def _do_dismiss():
+            try:
+                overlay.destroy()
+            except Exception:
+                pass
+            if self._entry_editor is overlay:
+                self._entry_editor = None
+
+        for val in values:
+            lbl = tk.Label(overlay, text=val, bg="#2d2d2d", fg="#cccccc",
+                           font=("Segoe UI", 9), anchor="w",
+                           padx=6, pady=2, cursor="hand2")
+            lbl.pack(fill="x")
+
+            def _enter(e, v=val, lb=lbl):
+                lb.config(bg="#094771", fg="#ffffff")
+                hint = item_hints.get(v, "")
+                if hint:
+                    self._show_hint(hint)
+
+            def _leave(e, lb=lbl):
+                lb.config(bg="#2d2d2d", fg="#cccccc")
+
+            def _click(e, v=val):
+                _do_dismiss()
+                self._props_set(iid, v)
+                commit_fn(iid, v)
+
+            lbl.bind("<Enter>",    _enter)
+            lbl.bind("<Leave>",    _leave)
+            lbl.bind("<Button-1>", _click)
+
+        item_w = max(w, max(len(v) * 7 + 24 for v in values) if values else w)
+        overlay.place(x=x, y=y + h, width=item_w)
+        self._entry_editor = overlay
+
+        top   = self._props_cv.winfo_toplevel()
+        _bid: list = []
+
+        def _global_click(e):
+            try:
+                ox, oy = overlay.winfo_rootx(), overlay.winfo_rooty()
+                ow, oh = overlay.winfo_width(), overlay.winfo_height()
+                if not (ox <= e.x_root <= ox + ow and oy <= e.y_root <= oy + oh):
+                    _do_dismiss()
+                    if _bid:
+                        top.unbind("<Button-1>", _bid[0])
+            except Exception:
+                pass
+
+        _bid.append(top.bind("<Button-1>", _global_click, add=True))
+
+    def _props_open_variable_picker(self, iid: str) -> None:
+        from designer.var_picker import collect_form_variables, show_variable_popup
+        self._dismiss_editor()
+        if self._form is None:
+            return
+        bbox = self._props_bbox(iid)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        entry = tk.Entry(
+            self._props_cv,
+            font=("TkDefaultFont", 8),
+            bg="#3c3c3c", fg="#cccccc",
+            insertbackground="#cccccc",
+            relief="flat", bd=0,
+            highlightthickness=1,
+            highlightbackground="#007acc",
+        )
+        entry.insert(0, self._props_get(iid))
+        entry.place(x=x, y=y, width=w, height=h)
+        self._entry_editor = entry
+
+        def _grab_focus():
+            try:
+                entry.focus_force()
+                entry.select_range(0, "end")
+                entry.icursor("end")
+            except Exception:
+                pass
+        self._props_cv.after_idle(_grab_focus)
+
+        popup_ref: list = [None]
+        variables     = collect_form_variables(self._form)
+        var_type_map  = {n: vt for n, vt in variables}
+
+        def _commit(_=None):
+            val = entry.get()
+            if popup_ref[0] and popup_ref[0].winfo_exists():
+                popup_ref[0].destroy()
+            self._dismiss_editor()
+            self._props_set(iid, val)
+            self._commit_prop(iid, val)
+
+        def _on_select(name: str):
+            entry.delete(0, "end")
+            entry.insert(0, name)
+            popup_ref[0] = None
+            _commit()
+            var_type = var_type_map.get(name)
+            if var_type and self._props_exists("var__type"):
+                self._props_set("var__type", var_type)
+                self._commit_prop("var__type", var_type)
+
+        entry.bind("<Return>", _commit)
+        entry.bind("<Tab>",    _commit)
+        entry.bind("<Escape>", lambda _: (
+            popup_ref[0].destroy() if popup_ref[0] and popup_ref[0].winfo_exists() else None,
+            self._dismiss_editor(),
+        ))
+
+        def _on_var_remove(name: str):
+            if self._form is None:
+                return
+            for w in self._form.widgets:
+                if w.variable and w.variable.name == name:
+                    w.variable.name = ""
+                    if self._on_prop_change:
+                        self._on_prop_change(w.id, "__variable__", w.variable)
+            for item in self._form.menu_items:
+                if item.variable == name:
+                    item.variable = ""
+            d = self._current_widget
+            if d is not None:
+                self._populate_props(d, REGISTRY.get(d.type, {}))
+
+        popup_ref[0] = show_variable_popup(
+            anchor=entry,
+            variables=variables,
+            on_select=_on_select,
+            entry_ref=entry,
+            on_remove=_on_var_remove,
+        )
+
+    # ── Click handlers ────────────────────────────────────────────────────────
+
+    # _on_prop_click replaced by _on_prop_canvas_click + _dispatch_prop_click above
 
     def _on_event_click(self, event: tk.Event) -> None:
         tree = self._events_tree
@@ -1015,90 +1432,7 @@ class DesignerProperties(tk.Frame):
         entry.bind("<FocusOut>", commit)
         self._pending_commit = commit
 
-    def _open_variable_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
-        """Inline entry + variable picker popup for the var__name row."""
-        from designer.var_picker import collect_form_variables, show_variable_popup
-        self._dismiss_editor()
-        if self._form is None:
-            return
-        bbox = tree.bbox(row, col)
-        if not bbox:
-            return
-        x, y, w, h = bbox
-        entry = tk.Entry(
-            tree,
-            font=("TkDefaultFont", 8),
-            bg="#3c3c3c", fg="#cccccc",
-            insertbackground="#cccccc",
-            relief="flat", bd=0,
-            highlightthickness=1,
-            highlightbackground="#007acc",
-        )
-        entry.insert(0, tree.set(row, col))
-        entry.place(x=x, y=y, width=w, height=h)
-        self._entry_editor = entry
-
-        def _grab_focus():
-            try:
-                entry.focus_force()
-                entry.select_range(0, "end")
-                entry.icursor("end")
-            except Exception:
-                pass
-        tree.after_idle(_grab_focus)
-
-        popup_ref: list = [None]
-
-        variables = collect_form_variables(self._form)
-        var_type_map = {n: vt for n, vt in variables}
-
-        def _commit(_=None):
-            val = entry.get()
-            if popup_ref[0] and popup_ref[0].winfo_exists():
-                popup_ref[0].destroy()
-            self._dismiss_editor()
-            tree.set(row, col, val)
-            self._commit_prop(row, val)
-
-        def _on_select(name: str):
-            entry.delete(0, "end")
-            entry.insert(0, name)
-            popup_ref[0] = None
-            _commit()
-            var_type = var_type_map.get(name)
-            if var_type and self._props_tree.exists("var__type"):
-                self._props_tree.set("var__type", "#1", var_type)
-                self._commit_prop("var__type", var_type)
-
-        entry.bind("<Return>", _commit)
-        entry.bind("<Tab>",    _commit)
-        entry.bind("<Escape>", lambda _: (
-            popup_ref[0].destroy() if popup_ref[0] and popup_ref[0].winfo_exists() else None,
-            self._dismiss_editor(),
-        ))
-
-        def _on_var_remove(name: str):
-            if self._form is None:
-                return
-            for w in self._form.widgets:
-                if w.variable and w.variable.name == name:
-                    w.variable.name = ""
-                    if self._on_prop_change:
-                        self._on_prop_change(w.id, "__variable__", w.variable)
-            for item in self._form.menu_items:
-                if item.variable == name:
-                    item.variable = ""
-            d = self._current_widget
-            if d is not None:
-                self._populate_props(d, REGISTRY.get(d.type, {}))
-
-        popup_ref[0] = show_variable_popup(
-            anchor=entry,
-            variables=variables,
-            on_select=_on_select,
-            entry_ref=entry,
-            on_remove=_on_var_remove,
-        )
+    # _open_variable_picker replaced by _props_open_variable_picker above
 
     def _open_handler_picker(self, tree: ttk.Treeview, row: str, col: str) -> None:
         """Inline entry + handler picker popup for event handler rows."""
@@ -1201,14 +1535,14 @@ class DesignerProperties(tk.Frame):
         key = row[6:]  # strip "prop__"
         current_list: list = list(d.props.get(key, []))
 
-        bbox = self._props_tree.bbox(row, "#1")
+        bbox = self._props_bbox(row)
         if not bbox:
             return
         _, by, _, bh = bbox
         by = by + bh
-        tree_w = self._props_tree.winfo_width() - 4
+        tree_w = self._props_cv.winfo_width() - 4
 
-        panel = tk.Frame(self._props_tree, bg="#2d2d2d",
+        panel = tk.Frame(self._props_cv, bg="#2d2d2d",
                          highlightthickness=1,
                          highlightbackground="#007acc")
         items_frame = tk.Frame(panel, bg="#2d2d2d")
@@ -1216,7 +1550,7 @@ class DesignerProperties(tk.Frame):
 
         def _do_commit():
             d.props[key] = list(current_list)
-            self._props_tree.set(row, "#1", _display(current_list))
+            self._props_set(row, _display(current_list))
             if self._on_prop_change:
                 self._on_prop_change(d.id, key, list(current_list))
 
@@ -1274,15 +1608,14 @@ class DesignerProperties(tk.Frame):
         _pending: list = []
 
         def _on_focus_out(_=None):
-            aid = self._props_tree.after(100, _maybe_dismiss)
+            aid = self._props_cv.after(100, _maybe_dismiss)
             _pending.append(aid)
 
         def _maybe_dismiss():
             try:
-                fw = self._props_tree.winfo_toplevel().focus_get()
+                fw = self._props_cv.winfo_toplevel().focus_get()
             except Exception:
                 fw = None
-            # Stay open if focus is still inside the panel
             if fw is not None:
                 w = fw
                 while w is not None:
@@ -1297,7 +1630,7 @@ class DesignerProperties(tk.Frame):
         def _do_dismiss(_=None):
             for aid in _pending:
                 try:
-                    self._props_tree.after_cancel(aid)
+                    self._props_cv.after_cancel(aid)
                 except Exception:
                     pass
             try:
@@ -1310,7 +1643,7 @@ class DesignerProperties(tk.Frame):
         entry.bind("<Return>",   _add_item)
         entry.bind("<Escape>",   _do_dismiss)
         entry.bind("<FocusOut>", _on_focus_out)
-        self._props_tree.after_idle(entry.focus_force)
+        self._props_cv.after_idle(entry.focus_force)
 
     def _is_color_row(self, row_iid: str) -> bool:
         if not row_iid.startswith("prop__"):
@@ -1418,13 +1751,12 @@ class DesignerProperties(tk.Frame):
     def _open_anchor_picker(self, row_iid: str) -> None:
         """Show a 3×3 grid popup for selecting the resize anchor preset."""
         self._dismiss_editor()
-        tree = self._props_tree
-        bbox = tree.bbox(row_iid, "#1")
+        bbox = self._props_bbox(row_iid)
         if not bbox:
             return
         x, y, w, h = bbox
 
-        overlay = tk.Frame(tree, bg="#2d2d2d",
+        overlay = tk.Frame(self._props_cv, bg="#2d2d2d",
                            highlightthickness=1,
                            highlightbackground="#007acc")
 
@@ -1439,7 +1771,7 @@ class DesignerProperties(tk.Frame):
         def _pick(anchor_val: str):
             _do_dismiss()
             disp = _ANCHOR_DISPLAY.get(anchor_val, anchor_val or "(none)")
-            tree.set(row_iid, "#1", disp)
+            self._props_set(row_iid, disp)
             self._commit_prop(row_iid, anchor_val)
 
         # 3×3 grid
@@ -1485,15 +1817,20 @@ class DesignerProperties(tk.Frame):
                  font=("Segoe UI", 7), anchor="center").pack(
             fill="x", padx=4, pady=(0, 4))
 
-        # Position: 120px wide, shifted left so it doesn't clip the panel edge
+        # Position: 120px wide; flip above when near the canvas bottom
         popup_w = 120
-        tree.update_idletasks()
-        tree_w = tree.winfo_width()
-        place_x = min(x, max(0, tree_w - popup_w - 2))
+        self._props_cv.update_idletasks()
+        cv_w  = self._props_cv.winfo_width()
+        cv_h  = self._props_cv.winfo_height()
+        place_x = min(x, max(0, cv_w - popup_w - 2))
         overlay.place(x=place_x, y=y + h, width=popup_w)
+        overlay.update_idletasks()
+        popup_h = overlay.winfo_reqheight()
+        if y + h + popup_h > cv_h:
+            overlay.place(x=place_x, y=max(0, y - popup_h), width=popup_w)
         self._entry_editor = overlay
 
-        top = tree.winfo_toplevel()
+        top = self._props_cv.winfo_toplevel()
         _bid: list = []
 
         def _global_click(e):
@@ -1511,14 +1848,14 @@ class DesignerProperties(tk.Frame):
 
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
-        current = self._props_tree.set(row_iid, "#1").strip() or "#ffffff"
+        current = self._props_get(row_iid).strip() or "#ffffff"
         from tkinter.colorchooser import askcolor
-        result = askcolor(current, parent=self._props_tree.winfo_toplevel())
+        result = askcolor(current, parent=self._props_cv.winfo_toplevel())
         color = result[1] if result else None
         if not color:
             return
         color = color.upper()
-        self._props_tree.set(row_iid, "#1", color)
+        self._props_set(row_iid, color)
         self._apply_color_swatch(row_iid, color)
         self._commit_prop(row_iid, color)
 
@@ -1534,7 +1871,7 @@ class DesignerProperties(tk.Frame):
             self._form.menu_items = items
             n = len(items)
             val = f"{n} item{'s' if n != 1 else ''}" if n else "(none)"
-            self._props_tree.set("form__menu_bar", "#1", val)
+            self._props_set("form__menu_bar", val)
             if self._on_prop_change:
                 self._on_prop_change("__form__", "menu_bar", items)
 
@@ -1591,20 +1928,14 @@ class DesignerProperties(tk.Frame):
 
         # Display as "Family, size, style" in the panel; store tuple in props
         display = f"{family}, {size}" + (f", {' '.join(styles)}" if styles else "")
-        self._props_tree.set(row_iid, "#1", display)
+        self._props_set(row_iid, display)
         d.props["font"] = font_tuple
         if self._on_prop_change:
             self._on_prop_change(d.id, "font", font_tuple)
 
     def _apply_color_swatch(self, row_iid: str, color: str) -> None:
-        """Tint the treeview row to preview the color."""
-        try:
-            tag = f"swatch:{row_iid}"
-            fg  = _contrast_color(color)
-            self._props_tree.tag_configure(tag, background=color, foreground=fg)
-            self._props_tree.item(row_iid, tags=(tag,))
-        except Exception:
-            pass
+        """Store color swatch for the row and redraw it."""
+        self._props_set_swatch(row_iid, color)
 
     def _on_event_hover(self, event: tk.Event) -> None:
         tree = self._events_tree
@@ -1653,44 +1984,7 @@ class DesignerProperties(tk.Frame):
             else:
                 self._ev_wire_btn.place_forget()
 
-    def _on_prop_hover(self, event: tk.Event) -> None:
-        tree = self._props_tree
-        row  = tree.identify_row(event.y)
-        if row == self._prop_hover_row:
-            return
-        self._clear_prop_hover()
-        if not row or row == "var__section":
-            return
-        self._prop_hover_saved_tags = tuple(tree.item(row, "tags") or ())
-        self._prop_hover_row = row
-        tree.item(row, tags=(*self._prop_hover_saved_tags, "hover"))
-        val = tree.set(row, "#1").strip()
-        if self._is_prop_clearable(row) and val and (row != "anchor__value" or val != "(none)"):
-            bbox = tree.bbox(row, "#1")
-            if bbox:
-                x, y, w, h = bbox
-                bw = 18
-                self._prop_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
-                self._prop_clear_btn.lift()
-        key = row.split("__", 1)[-1] if "__" in row else row
-        hint = _PROP_HINTS.get(row) or _PROP_HINTS.get(key)
-        if hint:
-            self._show_hint(hint)
-
-    def _on_prop_leave(self, event: tk.Event) -> None:
-        self._clear_prop_hover()
-
-    def _clear_prop_hover(self) -> None:
-        self._prop_clear_btn.place_forget()
-        self._clear_hint()
-        if self._prop_hover_row:
-            try:
-                self._props_tree.item(self._prop_hover_row,
-                                      tags=self._prop_hover_saved_tags)
-            except Exception:
-                pass
-            self._prop_hover_row = None
-            self._prop_hover_saved_tags = ()
+    # _on_prop_hover / _on_prop_leave / _clear_prop_hover replaced by canvas versions above
 
     def _on_event_leave(self, event: tk.Event) -> None:
         if self._ev_hover_row:
@@ -1721,17 +2015,17 @@ class DesignerProperties(tk.Frame):
         self._auto_wire_event(row)
 
     def _on_prop_clear_click(self, event: tk.Event) -> None:
-        row = self._prop_hover_row
-        if not row:
+        if self._props_hov_idx is None:
             return
-        self._clear_prop_hover()
+        row = self._props_rows[self._props_hov_idx]["iid"]
+        self._prop_clear_btn.place_forget()
         if row == "anchor__value":
-            self._props_tree.set(row, "#1", "(none)")
+            self._props_set(row, "(none)")
             self._commit_prop(row, "")
             return
-        self._props_tree.set(row, "#1", "")
+        self._props_set(row, "")
         if self._is_color_row(row):
-            self._props_tree.item(row, tags=())
+            self._props_set_swatch(row, None)
         self._commit_prop(row, "")
 
     def _dismiss_editor(self) -> None:
@@ -1755,15 +2049,14 @@ class DesignerProperties(tk.Frame):
     def _commit_prop(self, row_iid: str, raw: str) -> None:
         if row_iid.startswith("form__"):
             key = row_iid[6:]
-            # Keep border_style and maximize_box in sync
             if key == "border_style":
                 new_max = "True" if raw.lower() == "sizable" else "False"
-                self._props_tree.set("form__maximize_box", "#1", new_max)
+                self._props_set("form__maximize_box", new_max)
                 if self._on_prop_change:
                     self._on_prop_change("__form__", "maximize_box", new_max)
             elif key == "maximize_box":
                 new_style = "sizable" if raw.lower() == "true" else "fixed"
-                self._props_tree.set("form__border_style", "#1", new_style)
+                self._props_set("form__border_style", new_style)
                 if self._on_prop_change:
                     self._on_prop_change("__form__", "border_style", new_style)
             if self._on_prop_change:
@@ -1803,11 +2096,11 @@ class DesignerProperties(tk.Frame):
                 return
             new_name = raw.strip()
             if not new_name or not new_name.isidentifier() or new_name == d.id:
-                self._props_tree.set(row_iid, "#1", d.id)
+                self._props_set(row_iid, d.id)
                 return
             if self._form and any(w.id == new_name for w in self._form.widgets
                                   if w.id != d.id):
-                self._props_tree.set(row_iid, "#1", d.id)
+                self._props_set(row_iid, d.id)
                 self._show_status(f'"{new_name}" is already in use')
                 return
             old_id = d.id
@@ -1843,12 +2136,8 @@ class DesignerProperties(tk.Frame):
                             self._on_prop_change(d.id, color_key, color_defaults[color_key])
                 self.load_widget(d)
             elif key in ("validatecommand", "invalidcommand"):
-                self._props_tree.tag_configure("vcmd_warn", foreground="#ff6b6b")
                 val = str(parsed)
-                if val and not val.startswith("_"):
-                    self._props_tree.item(row_iid, tags=("vcmd_warn",))
-                else:
-                    self._props_tree.item(row_iid, tags=())
+                self._props_set_warn(row_iid, bool(val and not val.startswith("_")))
             elif key == "validate":
                 if parsed != "none" and not d.props.get("validatecommand"):
                     auto = f"_{d.id}_validate"
@@ -1865,7 +2154,7 @@ class DesignerProperties(tk.Frame):
             elif key == "scrollbar" and d.type == "Text":
                 if parsed in ("Horizontal", "Both") and d.props.get("wrap") != "none":
                     d.props["wrap"] = "none"
-                    self._props_tree.set("prop__wrap", "#1", "none")
+                    self._props_set("prop__wrap", "none")
                     if self._on_prop_change:
                         self._on_prop_change(d.id, "wrap", "none")
             elif key in ("char_width", "char_height"):
@@ -1875,15 +2164,15 @@ class DesignerProperties(tk.Frame):
                         if key == "char_width":
                             new_px = max(30, count * _CHAR_PX_W)
                             d.width = new_px
-                            if self._props_tree.exists("geo__width"):
-                                self._props_tree.set("geo__width", "#1", str(new_px))
+                            if self._props_exists("geo__width"):
+                                self._props_set("geo__width", str(new_px))
                             if self._on_prop_change:
                                 self._on_prop_change(d.id, "width", new_px)
                         else:
                             new_px = max(20, count * _CHAR_PX_H)
                             d.height = new_px
-                            if self._props_tree.exists("geo__height"):
-                                self._props_tree.set("geo__height", "#1", str(new_px))
+                            if self._props_exists("geo__height"):
+                                self._props_set("geo__height", str(new_px))
                             if self._on_prop_change:
                                 self._on_prop_change(d.id, "height", new_px)
                 except (ValueError, TypeError):
@@ -1893,8 +2182,8 @@ class DesignerProperties(tk.Frame):
                 reg = REGISTRY.get(d.type, {})
                 if inferred in reg.get("variable_types", []):
                     d.variable.var_type = inferred
-                    if self._props_tree.exists("var__type"):
-                        self._props_tree.set("var__type", "#1", inferred)
+                    if self._props_exists("var__type"):
+                        self._props_set("var__type", inferred)
                     if self._on_prop_change:
                         self._on_prop_change(d.id, "__variable__", d.variable)
         elif row_iid == "anchor__value":
@@ -1922,17 +2211,15 @@ class DesignerProperties(tk.Frame):
                     d.variable.name = name
             else:
                 # Restore original
-                self._props_tree.set(row_iid, "#1",
-                                     d.variable.name if d.variable else "")
+                self._props_set(row_iid, d.variable.name if d.variable else "")
                 return
         elif field in ("type", "initial"):
             if d.variable is None:
-                # Auto-create with default name
                 default_name = f"{d.id}_var"
                 d.variable = VariableBinding(name=default_name,
                                              var_type=var_types[0],
                                              initial="")
-                self._props_tree.set("var__name", "#1", default_name)
+                self._props_set("var__name", default_name)
             if field == "type":
                 d.variable.var_type = raw.strip()
             else:
