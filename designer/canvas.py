@@ -492,6 +492,7 @@ class DesignerCanvas(tk.Canvas):
     def select_form(self) -> None:
         if self._form is None:
             return
+        was_selected = self._form_selected
         self._selected_ids.clear()
         self._primary_id = None
         self._form_selected = True
@@ -499,7 +500,7 @@ class DesignerCanvas(tk.Canvas):
         self.delete("fhandle")
         self._draw_form_handles()
         self.tag_raise("fhandle")
-        if self._on_deselect:
+        if not was_selected and self._on_deselect:
             self._on_deselect()
 
     def rename_widget(self, old_id: str, new_id: str) -> None:
@@ -1219,8 +1220,13 @@ class DesignerCanvas(tk.Canvas):
                     }
             return
 
-        # Clicked form body, title bar, grid, or menu bar background → select form or rubber-band
-        if any(t in ("form_bg", "titlebar", "grid", "menu_bar") for t in tags):
+        # Title bar click → select form and show resize handles
+        if "titlebar" in tags:
+            self.select_form()
+            return
+
+        # Clicked form body, grid, or menu bar background → rubber-band select
+        if any(t in ("form_bg", "grid", "menu_bar") for t in tags):
             if not ctrl:
                 self._selected_ids.clear()
                 self._primary_id = None
@@ -1829,7 +1835,7 @@ class DesignerCanvas(tk.Canvas):
         # but we want the topmost (last in list = drawn last = on top).
         for item in reversed(items):
             tags = self.gettags(item)
-            if any(t in ("grid", "shadow", "titlebar") for t in tags):
+            if any(t in ("grid", "shadow") for t in tags):
                 continue
             return item
         return None
