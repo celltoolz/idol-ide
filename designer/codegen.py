@@ -96,6 +96,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         if bodies.get(f"_open_{_d}", "").strip() == _old:
             del bodies[f"_open_{_d}"]
 
+    # Resolve active handlers from catalog
+    from designer.handlers import handlers_for, HANDLER_CATALOG
+    _all_handler_ids = {h.id for h in HANDLER_CATALOG}
+    _enabled = set(form.enabled_handlers) & _all_handler_ids
+    _catalog  = {h.id: h for h in handlers_for(form.form_type)}
+    active_handlers = [h for h in handlers_for(form.form_type) if h.id in _enabled]
+
     out: list[str] = []
 
     # ── imports ───────────────────────────────────────────────────────────────
@@ -168,8 +175,9 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(f"        {binding_line}")
     if _anchored:
         out.append("        self.bind(\"<Configure>\", self._apply_anchor_layout)")
-    if is_dialog:
-        out.append("        self.protocol(\"WM_DELETE_WINDOW\", self._on_close)")
+    for h in active_handlers:
+        if h.wiring:
+            out.append(f"        {h.wiring}")
     out.append(_INIT_E)
     out.append("")
 
@@ -215,12 +223,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     }
     methods = _collect_methods(form)
     opener_names = [f"_open_{d}" for d in dialogs]
-    if methods or opener_names or is_dialog:
+    if methods or opener_names or active_handlers:
         out.append("    # ── Events " + "─" * 63)
         out.append("")
-        if is_dialog:
-            out.append("    def _on_close(self):")
-            out.extend(_body_lines("_on_close", bodies, "self.withdraw()"))
+        for h in active_handlers:
+            sig_params = f", {h.params}" if h.params else ""
+            out.append(f"    def {h.id}(self{sig_params}):")
+            out.extend(_body_lines(h.id, bodies, h.default_body))
             out.append("")
         for name in methods:
             ev_key = form_ev_map.get(name)

@@ -152,6 +152,7 @@ class FormModel:
     menu_items: list[MenuItemDescriptor]  = field(default_factory=list)
     form_events: dict[str, str]           = field(default_factory=dict)  # {ev_key: method_name}
     linked_dialogs: list[str]             = field(default_factory=list)  # dialog names owned by this form
+    enabled_handlers: list[str]           = field(default_factory=list)  # handler IDs from HANDLER_CATALOG
 
     # ── widget lookup helpers ──────────────────────────────────────────────────
 
@@ -193,6 +194,7 @@ class FormModel:
     # ── serialization ──────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
+
         d: dict = {
             "name": self.name,
             "title": self.title,
@@ -208,10 +210,13 @@ class FormModel:
         }
         if self.linked_dialogs:
             d["linked_dialogs"] = list(self.linked_dialogs)
+        if self.enabled_handlers:
+            d["enabled_handlers"] = list(self.enabled_handlers)
         return d
 
     @staticmethod
     def from_dict(d: dict) -> "FormModel":
+
         # Migrate legacy resizable_x/resizable_y to border_style
         if "border_style" not in d:
             rx = d.get("resizable_x", True)
@@ -232,7 +237,17 @@ class FormModel:
             menu_items    =[MenuItemDescriptor.from_dict(m)  for m in d.get("menu_items", [])],
             form_events   =dict(d.get("form_events", {})),
             linked_dialogs=list(d.get("linked_dialogs", [])),
+            enabled_handlers=_load_enabled_handlers(d),
         )
+
+
+def _load_enabled_handlers(d: dict) -> list[str]:
+    """Return enabled_handlers for a form dict, migrating old files that lack the key."""
+    if "enabled_handlers" in d:
+        return list(d["enabled_handlers"])
+    # Old saved file — seed defaults based on form_type
+    from designer.handlers import default_enabled_for
+    return default_enabled_for(d.get("form_type", "main"))
 
 
 # Short id prefixes per widget type

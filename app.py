@@ -861,6 +861,7 @@ class IDOL(Tk):
             on_select_widget=self._on_designer_selector_pick,
             on_navigate_handler=self._on_designer_event_navigate,
             on_reorder_widget=self._on_designer_reorder_widget,
+            on_handler_toggle=self._on_designer_handler_toggle,
         )
         self._props_panel.configure(width=230)
 
@@ -4690,6 +4691,17 @@ class IDOL(Tk):
         """Order tab drag-drop → move widget in model."""
         self._design_canvas.move_widget_to(widget_id, new_idx)
 
+    def _on_designer_handler_toggle(self, handler_id: str, enabled: bool) -> None:
+        """Handlers tab checkbox → update form.enabled_handlers."""
+        form = self._design_canvas.form
+        if form is None:
+            return
+        if enabled and handler_id not in form.enabled_handlers:
+            form.enabled_handlers.append(handler_id)
+        elif not enabled:
+            form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+        self._designer_dirty = True
+
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""
         from pathlib import Path as _Path
@@ -4919,12 +4931,14 @@ class IDOL(Tk):
             link_to   = link_var.get()
             form_type = type_var.get()
             win.destroy()
+            from designer.handlers import default_enabled_for as _def_handlers
             form = _FormModel(
                 name=name,
                 title=name,
                 width=400,
                 height=300,
                 form_type=form_type,
+                enabled_handlers=_def_handlers(form_type),
             )
             self._designer_forms[name] = form
             if form_type == "dialog" and link_to != "None (unlinked)":

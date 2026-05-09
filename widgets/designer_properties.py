@@ -39,6 +39,7 @@ class DesignerProperties(tk.Frame):
         on_select_widget:    Optional[Callable[[str | None],    None]] = None,
         on_navigate_handler: Optional[Callable[[str],           None]] = None,
         on_reorder_widget:   Optional[Callable[[str, int],      None]] = None,
+        on_handler_toggle:   Optional[Callable[[str, bool],     None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
@@ -47,6 +48,7 @@ class DesignerProperties(tk.Frame):
         self._on_select_widget    = on_select_widget
         self._on_navigate_handler = on_navigate_handler
         self._on_reorder_widget   = on_reorder_widget
+        self._on_handler_toggle   = on_handler_toggle
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -161,6 +163,23 @@ class DesignerProperties(tk.Frame):
         self._ev_wire_btn.bind("<Leave>",    lambda e: self._ev_wire_btn.config(fg="#555555"))
         self._ev_wire_btn.bind("<Button-1>", self._on_ev_wire_click)
 
+        # ── Handlers tab ──────────────────────────────────────────────────────
+        self._handlers_frame = tk.Frame(self._nb, bg=_ORD_BG)
+        self._nb.add(self._handlers_frame, text="  Handlers  ")
+
+        self._handlers_cv = tk.Canvas(
+            self._handlers_frame, bg=_ORD_BG, highlightthickness=0,
+        )
+        self._handlers_cv.pack(fill="both", expand=True)
+        self._handlers_cv.bind("<Configure>",  lambda _: self._handlers_redraw())
+        self._handlers_cv.bind("<Motion>",     self._handlers_motion)
+        self._handlers_cv.bind("<Leave>",      self._handlers_leave)
+        self._handlers_cv.bind("<ButtonRelease-1>", self._handlers_click)
+
+        self._handlers_defs:    list = []   # HandlerDef list for current form
+        self._handlers_enabled: set[str] = set()
+        self._handlers_hov_idx: int | None = None
+
         # ── Order tab ─────────────────────────────────────────────────────────
         self._order_frame = tk.Frame(self._nb, bg=_ORD_BG)
         self._nb.add(self._order_frame, text="  Order  ")
@@ -236,6 +255,16 @@ class DesignerProperties(tk.Frame):
             handler = form.form_events.get(ev, "")
             self._events_tree.insert("", "end", iid=f"form_ev__{ev}",
                                      text=ev, values=(handler,))
+
+        self.load_handlers(form)
+
+    def load_handlers(self, form: FormModel) -> None:
+        """Populate the Handlers tab from the form's enabled_handlers list."""
+        from designer.handlers import handlers_for
+        self._handlers_defs    = handlers_for(form.form_type)
+        self._handlers_enabled = set(form.enabled_handlers)
+        self._handlers_hov_idx = None
+        self._handlers_redraw()
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
         """Show shared properties panel for a multi-widget selection."""
@@ -341,6 +370,86 @@ class DesignerProperties(tk.Frame):
         self._order_sel_id  = selected_id
         self._order_bgs.clear()
         self._order_redraw()
+
+    # ── Handlers tab internals ────────────────────────────────────────────────
+
+    def _handlers_redraw(self) -> None:
+        cv = self._handlers_cv
+        cv.delete("all")
+        w = max(cv.winfo_width(), 160)
+        defs = self._handlers_defs
+
+        if not defs:
+            cv.create_text(w // 2, 24, text="Select the form to manage handlers",
+                           fill=_ORD_DIM, font=("Segoe UI", 8), anchor="center")
+            return
+
+        for i, h in enumerate(defs):
+            y0  = i * _ORD_ROW_H
+            y1  = y0 + _ORD_ROW_H
+            mid = (y0 + y1) // 2
+            checked = h.id in self._handlers_enabled
+            is_hov  = i == self._handlers_hov_idx
+
+            bg = _ORD_HOV if is_hov else (_ORD_EVEN if i % 2 == 0 else _ORD_ODD)
+            cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"hr{i}")
+
+            # Checkbox
+            cx, cy, r = 14, mid, 6
+            if checked:
+                cv.create_rectangle(cx - r, cy - r, cx + r, cy + r,
+                                    fill="#007acc", outline="#007acc", tags=f"hr{i}")
+                cv.create_text(cx, cy, text="✓", fill="#ffffff",
+                               font=("Segoe UI", 8, "bold"), tags=f"hr{i}")
+            else:
+                cv.create_rectangle(cx - r, cy - r, cx + r, cy + r,
+                                    fill="", outline="#555555", tags=f"hr{i}")
+
+            # Handler name
+            cv.create_text(cx + r + 8, mid, text=h.label,
+                           fill=_ORD_FG, font=("Consolas", 9), anchor="w", tags=f"hr{i}")
+
+            # Applies-to badge (dimmed, right-aligned)
+            badge = "dialog" if h.applies_to == ("dialog",) else "all forms"
+            cv.create_text(w - 6, mid, text=badge,
+                           fill=_ORD_DIM, font=("Segoe UI", 7), anchor="e", tags=f"hr{i}")
+
+        cv.configure(scrollregion=(0, 0, w, len(defs) * _ORD_ROW_H))
+
+    def _handlers_idx_at(self, y: int) -> int | None:
+        i = int(y) // _ORD_ROW_H
+        return i if 0 <= i < len(self._handlers_defs) else None
+
+    def _handlers_motion(self, event: tk.Event) -> None:
+        idx = self._handlers_idx_at(event.y)
+        if idx == self._handlers_hov_idx:
+            return
+        self._handlers_hov_idx = idx
+        self._handlers_redraw()
+        if idx is not None:
+            self._show_hint(self._handlers_defs[idx].description)
+        else:
+            self._clear_hint()
+
+    def _handlers_leave(self, _event: tk.Event) -> None:
+        if self._handlers_hov_idx is not None:
+            self._handlers_hov_idx = None
+            self._handlers_redraw()
+        self._clear_hint()
+
+    def _handlers_click(self, event: tk.Event) -> None:
+        idx = self._handlers_idx_at(event.y)
+        if idx is None:
+            return
+        h = self._handlers_defs[idx]
+        enabled = h.id not in self._handlers_enabled
+        if enabled:
+            self._handlers_enabled.add(h.id)
+        else:
+            self._handlers_enabled.discard(h.id)
+        self._handlers_redraw()
+        if self._on_handler_toggle:
+            self._on_handler_toggle(h.id, enabled)
 
     # ── Order tab internals ───────────────────────────────────────────────────
 
@@ -509,11 +618,12 @@ class DesignerProperties(tk.Frame):
 
     def _clear_hint(self) -> None:
         if self._status_after is None:
-            # If the Order tab is active keep its permanent description visible
             if self._nb.select() == str(self._order_frame):
                 self._show_hint(
                     "Drag rows to reorder  ·  Tab key visits widgets in this order"
                 )
+            elif self._nb.select() == str(self._handlers_frame):
+                self._show_hint("Click a row to enable or disable the handler")
             else:
                 self._status_label.config(text="")
 
@@ -522,6 +632,8 @@ class DesignerProperties(tk.Frame):
             self._show_hint(
                 "Drag rows to reorder  ·  Tab key visits widgets in this order"
             )
+        elif self._nb.select() == str(self._handlers_frame):
+            self._show_hint("Click a row to enable or disable the handler")
         else:
             self._status_label.config(text="")
 
