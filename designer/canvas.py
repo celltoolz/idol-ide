@@ -1263,15 +1263,18 @@ class DesignerCanvas(tk.Canvas):
             nw, nh   = ow, oh
             nox, noy = oox, ooy
 
+            shift_held = bool(event.state & 0x0001)
+            _s = (lambda v: v) if shift_held else _snap
+
             if "E" in handle:
-                nw = _snap(ow + dx)
+                nw = _s(ow + dx)
             if "W" in handle:
-                nw  = _snap(ow - dx)
+                nw  = _s(ow - dx)
                 nox = oox + (ow - nw)
             if "S" in handle:
-                nh = _snap(oh + dy)
+                nh = _s(oh + dy)
             if "N" in handle:
-                nh  = _snap(oh - dy)
+                nh  = _s(oh - dy)
                 noy = ooy + (oh - nh)
 
             f.width  = max(GRID * 8, nw)
@@ -1280,7 +1283,6 @@ class DesignerCanvas(tk.Canvas):
             self._oy = noy
 
             # Reposition anchored widgets unless Shift is held (suppress anchors)
-            shift_held = bool(event.state & 0x0001)
             if not shift_held:
                 orig_fw = d["orig_w"]
                 orig_fh = d["orig_h"]
