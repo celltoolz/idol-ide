@@ -52,6 +52,7 @@ class ProjectWizard(tk.Toplevel):
         a venv was created, or None otherwise.
         """
         super().__init__(parent)
+        self.withdraw()
         self.title("New Project")
         self.configure(bg=_BG)
         self.resizable(False, False)
@@ -117,6 +118,7 @@ class ProjectWizard(tk.Toplevel):
 
         self._pm.discover_interpreters(self._on_pythons_ready)
         self._render()
+        self.deiconify()
 
     # ── Git availability check ────────────────────────────────────────────────
 
