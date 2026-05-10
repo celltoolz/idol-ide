@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -14,6 +15,8 @@ from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow
 import utils.venv_guide as venv_guide
 import utils.git_remote_guide as git_remote_guide
+import utils.git_install_guide as git_install_guide
+import utils.git_identity_guide as git_identity_guide
 import utils.first_commit_guide as first_commit_guide
 from designer.model import FormModel
 from designer.codegen import generate as designer_codegen
@@ -27,6 +30,7 @@ _DIM     = "#858585"
 _BTN_BG  = "#0e639c"
 _BTN_ACT = "#1177bb"
 _ERR     = "#f14c4c"
+_WARN    = "#e2c08d"
 
 
 class ProjectWizard(tk.Toplevel):
@@ -62,12 +66,15 @@ class ProjectWizard(tk.Toplevel):
         self._on_complete = on_complete
         self._step        = 0
 
+        # Git availability — checked once at startup
+        self._git_ok, self._git_warning = self._check_git()
+
         # Wizard state
         self._name_var    = tk.StringVar()
         self._loc_var     = tk.StringVar(value=str(Path.home()))
         self._python_var  = tk.StringVar()
         self._venv_var    = tk.BooleanVar(value=True)
-        self._git_var     = tk.BooleanVar(value=True)
+        self._git_var     = tk.BooleanVar(value=self._git_ok)
         self._files_var   = tk.BooleanVar(value=True)
         self._type_var    = tk.StringVar(value="cli")   # "cli" | "gui"
 
@@ -110,6 +117,34 @@ class ProjectWizard(tk.Toplevel):
 
         self._pm.discover_interpreters(self._on_pythons_ready)
         self._render()
+
+    # ── Git availability check ────────────────────────────────────────────────
+
+    @staticmethod
+    def _check_git() -> tuple[bool, str]:
+        """Return (ok, warning_message). Runs two quick subprocess calls."""
+        try:
+            subprocess.run(
+                ["git", "--version"],
+                capture_output=True, timeout=5,
+            )
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            return False, "Git is not installed or not found on PATH."
+
+        name = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        email = subprocess.run(
+            ["git", "config", "user.email"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+
+        missing = [f for f, v in [("user.name", name), ("user.email", email)] if not v]
+        if missing:
+            return False, f"Git identity not configured: {', '.join(missing)} missing."
+
+        return True, ""
 
     # ── Python detection (background) ─────────────────────────────────────────
 
@@ -188,28 +223,36 @@ class ProjectWizard(tk.Toplevel):
         e.pack(side="left", fill="x", expand=True, ipady=4, padx=(0, 4))
         return e
 
-    def _check(self, label: str, variable: tk.BooleanVar, detail: str = "") -> None:
-        row = Frame(self._content, bg=_BG, cursor="hand2")
+    def _check(self, label: str, variable: tk.BooleanVar, detail: str = "",
+               disabled: bool = False) -> None:
+        cur = "" if disabled else "hand2"
+        row = Frame(self._content, bg=_BG, cursor=cur)
         row.pack(fill="x", pady=3)
 
-        box = Label(row, bg=_BG, font=("Segoe UI", 11), cursor="hand2")
+        box = Label(row, bg=_BG, font=("Segoe UI", 11), cursor=cur)
         box.pack(side="left", padx=(0, 4))
 
         def _refresh(*_):
-            box.config(text="☑" if variable.get() else "☐",
-                       fg="#569cd6" if variable.get() else _DIM)
+            if disabled:
+                box.config(text="☐", fg=_DIM)
+            else:
+                box.config(text="☑" if variable.get() else "☐",
+                           fg="#569cd6" if variable.get() else _DIM)
 
         def _toggle(_=None):
             variable.set(not variable.get())
             _refresh()
 
         _refresh()
-        box.bind("<Button-1>", _toggle)
-        row.bind("<Button-1>", _toggle)
+        if not disabled:
+            box.bind("<Button-1>", _toggle)
+            row.bind("<Button-1>", _toggle)
 
-        lbl = Label(row, text=label, bg=_BG, fg=_FG, font=("Segoe UI", 9), cursor="hand2")
+        lbl = Label(row, text=label, bg=_BG, fg=_DIM if disabled else _FG,
+                    font=("Segoe UI", 9), cursor=cur)
         lbl.pack(side="left")
-        lbl.bind("<Button-1>", _toggle)
+        if not disabled:
+            lbl.bind("<Button-1>", _toggle)
 
         if detail:
             Label(row, text=f"  {detail}", bg=_BG, fg=_DIM,
@@ -385,13 +428,37 @@ class ProjectWizard(tk.Toplevel):
               bg=_BG, fg=_DIM, font=("Segoe UI", 9)).pack(anchor="w")
         Label(self._content, text="", bg=_BG).pack()  # spacer
 
-        self._check("Initialize git repository", self._git_var)
-        learn_git = Label(self._content, text="? Learn about git repositories",
-                          bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
-        learn_git.pack(anchor="w", pady=(4, 8))
-        learn_git.bind("<Button-1>", lambda _: GuideWindow(
-            self, "Setting Up a Git Remote", git_remote_guide.get_pages()
-        ))
+        self._check("Initialize git repository", self._git_var,
+                    disabled=not self._git_ok)
+
+        if not self._git_ok:
+            Label(self._content, text=f"⚠  {self._git_warning}",
+                  bg=_BG, fg=_WARN, font=("Segoe UI", 8),
+                  anchor="w").pack(fill="x", pady=(2, 0))
+            if "not installed" in self._git_warning:
+                guide_text, guide_title, guide_pages = (
+                    "? How to install Git",
+                    "Installing Git",
+                    git_install_guide.get_pages(),
+                )
+            else:
+                guide_text, guide_title, guide_pages = (
+                    "? How to configure Git identity",
+                    "Git Identity",
+                    git_identity_guide.get_pages(),
+                )
+            guide_lnk = Label(self._content, text=guide_text,
+                              bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
+            guide_lnk.pack(anchor="w", pady=(2, 8))
+            guide_lnk.bind("<Button-1>", lambda _, t=guide_title, p=guide_pages:
+                           GuideWindow(self, t, p))
+        else:
+            learn_git = Label(self._content, text="? Learn about git repositories",
+                              bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
+            learn_git.pack(anchor="w", pady=(4, 8))
+            learn_git.bind("<Button-1>", lambda _: GuideWindow(
+                self, "Setting Up a Git Remote", git_remote_guide.get_pages()
+            ))
 
         self._check("Create starter files", self._files_var,
                     detail="Form1.py / main.py, requirements.txt, .gitignore")
