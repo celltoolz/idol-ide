@@ -60,6 +60,8 @@ class DesignerProperties(tk.Frame):
         # (display_label, widget_id | None)  — None means the form itself
         self._selector_items: list[tuple[str, str | None]] = []
         self._status_after:   str | None                = None
+        self._prop_clearing:  bool                      = False
+        self._ev_clearing:    bool                      = False
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -620,6 +622,9 @@ class DesignerProperties(tk.Frame):
         self._clear_hint()
 
     def _on_event_canvas_click(self, event: tk.Event) -> None:
+        if self._ev_clearing:
+            self._ev_clearing = False
+            return
         iid = self._events_iid_at_y(event.y)
         if not iid:
             return
@@ -1381,6 +1386,9 @@ class DesignerProperties(tk.Frame):
         self._clear_hint()
 
     def _on_prop_canvas_click(self, event: tk.Event) -> None:
+        if self._prop_clearing:
+            self._prop_clearing = False
+            return
         iid = self._props_iid_at_y(event.y)
         if iid:
             self._dispatch_prop_click(iid)
@@ -2217,6 +2225,7 @@ class DesignerProperties(tk.Frame):
     # _on_prop_hover / _on_prop_leave / _clear_prop_hover replaced by canvas versions above
 
     def _on_ev_clear_click(self, event: tk.Event) -> None:
+        self._ev_clearing = True
         idx = self._events_hov_idx
         if idx is None or idx >= len(self._events_rows):
             return
@@ -2226,6 +2235,7 @@ class DesignerProperties(tk.Frame):
         self._commit_event(row, "")
 
     def _on_ev_wire_click(self, event: tk.Event) -> None:
+        self._ev_clearing = True
         idx = self._events_hov_idx
         if idx is None or idx >= len(self._events_rows):
             return
@@ -2236,6 +2246,7 @@ class DesignerProperties(tk.Frame):
         self._auto_wire_event(row)
 
     def _on_prop_clear_click(self, event: tk.Event) -> None:
+        self._prop_clearing = True
         if self._props_hov_idx is None:
             return
         row = self._props_rows[self._props_hov_idx]["iid"]
