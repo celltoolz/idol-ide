@@ -71,7 +71,6 @@ class MenuEditor(tk.Toplevel):
         self.title("Menu Editor")
         self.resizable(False, False)
         self.configure(bg=_BG)
-        self.grab_set()
 
         self._on_save = on_save
         self._form = form
@@ -85,6 +84,7 @@ class MenuEditor(tk.Toplevel):
             self._select(0)
 
         self.update_idletasks()
+        self.grab_set()
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
         pw = parent.winfo_rootx() + parent.winfo_width() // 2
         ph = parent.winfo_rooty() + parent.winfo_height() // 2

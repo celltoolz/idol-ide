@@ -4911,7 +4911,6 @@ class IDOL(Tk):
         win.title("New Form")
         win.resizable(False, False)
         win.configure(bg="#2d2d2d")
-        win.grab_set()
         win.transient(self)
 
         tk.Label(win, text="Form Name:", bg="#2d2d2d", fg="#cccccc",
@@ -5012,6 +5011,7 @@ class IDOL(Tk):
         px = self.winfo_rootx() + self.winfo_width() // 2
         py = self.winfo_rooty() + self.winfo_height() // 2
         win.update_idletasks()
+        win.grab_set()
         win.geometry(f"+{px - win.winfo_width() // 2}+{py - win.winfo_height() // 2}")
 
     def _next_form_name(self) -> str:
@@ -5615,7 +5615,6 @@ class IDOL(Tk):
         dlg.title(title)
         dlg.configure(bg="#1e1e1e")
         dlg.resizable(False, False)
-        dlg.grab_set()
 
         result = ["cancel"]
         suppress_var = _tk.BooleanVar(value=False)
@@ -5707,6 +5706,7 @@ class IDOL(Tk):
         px = self.winfo_rootx() + self.winfo_width() // 2
         py = self.winfo_rooty() + self.winfo_height() // 2
         dlg.geometry(f"{w}x{h}+{px - w // 2}+{py - h // 2}")
+        dlg.grab_set()
 
         self.wait_window(dlg)
         return result[0], suppress_var.get()
