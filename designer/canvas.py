@@ -22,6 +22,7 @@ Public API:
   form -> FormModel | None   — live model (mutated in place on drag/resize)
 """
 
+import sys
 import tkinter as tk
 from typing import Callable, Optional
 
@@ -64,11 +65,18 @@ def _handle_center(hx: int, hy: int, hw: int, hh: int, name: str):
     }[name]
 
 def _handle_cursor(name: str) -> str:
+    if sys.platform == "win32":
+        return {
+            "NW": "size_nw_se", "SE": "size_nw_se",
+            "NE": "size_ne_sw", "SW": "size_ne_sw",
+            "N":  "size_ns",    "S":  "size_ns",
+            "E":  "size_we",    "W":  "size_we",
+        }.get(name, "arrow")
     return {
-        "NW": "size_nw_se", "SE": "size_nw_se",
-        "NE": "size_ne_sw", "SW": "size_ne_sw",
-        "N":  "size_ns",    "S":  "size_ns",
-        "E":  "size_we",    "W":  "size_we",
+        "NW": "top_left_corner",     "SE": "bottom_right_corner",
+        "NE": "top_right_corner",    "SW": "bottom_left_corner",
+        "N":  "sb_v_double_arrow",   "S":  "sb_v_double_arrow",
+        "E":  "sb_h_double_arrow",   "W":  "sb_h_double_arrow",
     }.get(name, "arrow")
 
 
