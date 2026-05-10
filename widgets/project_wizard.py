@@ -302,7 +302,8 @@ class ProjectWizard(tk.Toplevel):
             rb = tk.Radiobutton(
                 rb_frame, variable=self._type_var, value=value,
                 bg=_BG, fg=_FG, selectcolor=_BG, activebackground=_BG,
-                font=(UI_FONT, 9), text=label,
+                activeforeground=_FG, font=(UI_FONT, 9), text=label,
+                highlightthickness=0, relief="flat",
             )
             rb.pack(side="left")
             Label(rb_frame, text=detail, bg=_BG, fg=_DIM,

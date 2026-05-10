@@ -114,13 +114,13 @@ def _detect_pythons() -> list[tuple[str, str]]:
 def categorize_interpreter(exe: str) -> str:
     """Return 'venv' or 'system' for a given interpreter path.
 
-    Detects venvs by looking for pyvenv.cfg in parent directories — authoritative
-    regardless of directory name or symlink layout.
+    Detects venvs by looking for pyvenv.cfg in parent directories of the
+    original path (not resolved) — on Linux, venv pythons are symlinks to
+    the system binary so resolve() would lose the venv directory context.
     """
     from pathlib import Path
     try:
-        p = Path(exe).resolve()
-        for parent in list(p.parents)[:4]:
+        for parent in list(Path(exe).parents)[:4]:
             if (parent / "pyvenv.cfg").exists():
                 return "venv"
     except OSError:
