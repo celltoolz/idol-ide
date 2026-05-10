@@ -1462,6 +1462,9 @@ class DesignerCanvas(tk.Canvas):
             reg = REGISTRY.get(self._active_tool)
             if not reg:
                 return
+            shift_held = bool(event.state & 0x0001)
+            _s = (lambda v: int(v)) if shift_held else _snap
+            _min_sz = 1 if shift_held else GRID * 2
             dx = abs(cx - d["start_cx"])
             dy = abs(cy - d["start_cy"])
             if dx > 5 or dy > 5:
@@ -1474,18 +1477,18 @@ class DesignerCanvas(tk.Canvas):
                 if container:
                     ax, ay = self._abs_xy(container)
                     label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
-                    fw = max(GRID * 2, _snap(cx2 - cx1))
-                    fh = max(GRID * 2, _snap(cy2 - cy1))
-                    fx = _snap(cx1 - ax)
-                    fy = _snap(cy1 - ay - label_h)
+                    fw = max(_min_sz, _s(cx2 - cx1))
+                    fh = max(_min_sz, _s(cy2 - cy1))
+                    fx = _s(cx1 - ax)
+                    fy = _s(cy1 - ay - label_h)
                     fx = max(0, min(fx, container.width  - fw))
                     fy = max(0, min(fy, container.height - label_h - fh))
                     parent_id = container.id
                 else:
-                    fw = max(GRID * 2, _snap(cx2 - cx1))
-                    fh = max(GRID * 2, _snap(cy2 - cy1))
-                    fx = _snap(cx1 - self._ox)
-                    fy = _snap(cy1 - self._oy)
+                    fw = max(_min_sz, _s(cx2 - cx1))
+                    fh = max(_min_sz, _s(cy2 - cy1))
+                    fx = _s(cx1 - self._ox)
+                    fy = _s(cy1 - self._oy)
                     fx = max(0,           min(fx, self._form.width  - fw))
                     fy = max(self._min_y, min(fy, self._form.height - fh))
                     parent_id = None
@@ -1496,14 +1499,14 @@ class DesignerCanvas(tk.Canvas):
                 if container:
                     ax, ay = self._abs_xy(container)
                     label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
-                    fx = _snap(d["start_cx"] - ax)
-                    fy = _snap(d["start_cy"] - ay - label_h)
+                    fx = _s(d["start_cx"] - ax)
+                    fy = _s(d["start_cy"] - ay - label_h)
                     fx = max(0, min(fx, container.width  - fw))
                     fy = max(0, min(fy, container.height - label_h - fh))
                     parent_id = container.id
                 else:
-                    fx = _snap(d["start_cx"] - self._ox)
-                    fy = _snap(d["start_cy"] - self._oy)
+                    fx = _s(d["start_cx"] - self._ox)
+                    fy = _s(d["start_cy"] - self._oy)
                     fx = max(0,           min(fx, self._form.width  - fw))
                     fy = max(self._min_y, min(fy, self._form.height - fh))
                     parent_id = None
