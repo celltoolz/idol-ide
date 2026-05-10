@@ -149,7 +149,7 @@ class DesignerProperties(tk.Frame):
             font=("Segoe UI", 9), cursor="hand2", padx=2,
         )
         self._prop_clear_btn.bind("<Enter>",    lambda e: self._prop_clear_btn.config(fg="#ff6b6b"))
-        self._prop_clear_btn.bind("<Leave>",    lambda e: self._prop_clear_btn.config(fg="#888888"))
+        self._prop_clear_btn.bind("<Leave>",    self._on_prop_btn_leave)
         self._prop_clear_btn.bind("<Button-1>", self._on_prop_clear_click)
 
         # Events tab — canvas-rendered rows
@@ -184,7 +184,7 @@ class DesignerProperties(tk.Frame):
             font=("Segoe UI", 9), cursor="hand2", padx=2,
         )
         self._ev_clear_btn.bind("<Enter>",    lambda e: self._ev_clear_btn.config(fg="#ff6b6b"))
-        self._ev_clear_btn.bind("<Leave>",    lambda e: self._ev_clear_btn.config(fg="#888888"))
+        self._ev_clear_btn.bind("<Leave>",    self._on_ev_btn_leave)
         self._ev_clear_btn.bind("<Button-1>", self._on_ev_clear_click)
 
         self._ev_wire_btn = tk.Label(
@@ -193,7 +193,7 @@ class DesignerProperties(tk.Frame):
             font=("Segoe UI", 9), cursor="hand2", padx=2,
         )
         self._ev_wire_btn.bind("<Enter>",    lambda e: self._ev_wire_btn.config(fg="#569cd6"))
-        self._ev_wire_btn.bind("<Leave>",    lambda e: self._ev_wire_btn.config(fg="#555555"))
+        self._ev_wire_btn.bind("<Leave>",    self._on_ev_btn_leave)
         self._ev_wire_btn.bind("<Button-1>", self._on_ev_wire_click)
 
         # ── Handlers tab ──────────────────────────────────────────────────────
@@ -592,13 +592,30 @@ class DesignerProperties(tk.Frame):
             else:
                 self._ev_wire_btn.place_forget()
 
-    def _on_event_canvas_leave(self, _event: tk.Event) -> None:
+    def _on_event_canvas_leave(self, event: tk.Event) -> None:
+        dest = self.winfo_containing(event.x_root, event.y_root)
+        if dest in (self._ev_clear_btn, self._ev_wire_btn):
+            return
         if self._events_hov_idx is not None:
             old = self._events_hov_idx
             self._events_hov_idx = None
             self._events_redraw_row(old)
         self._ev_clear_btn.place_forget()
         self._ev_wire_btn.place_forget()
+        self._clear_hint()
+
+    def _on_ev_btn_leave(self, event: tk.Event) -> None:
+        dest = self.winfo_containing(event.x_root, event.y_root)
+        if dest is self._events_cv:
+            return
+        self._ev_clear_btn.config(fg="#888888")
+        self._ev_wire_btn.config(fg="#555555")
+        self._ev_clear_btn.place_forget()
+        self._ev_wire_btn.place_forget()
+        if self._events_hov_idx is not None:
+            old = self._events_hov_idx
+            self._events_hov_idx = None
+            self._events_redraw_row(old)
         self._clear_hint()
 
     def _on_event_canvas_click(self, event: tk.Event) -> None:
@@ -1339,12 +1356,27 @@ class DesignerProperties(tk.Frame):
                 return
         self._prop_clear_btn.place_forget()
 
-    def _on_prop_canvas_leave(self, _event: tk.Event) -> None:
+    def _on_prop_canvas_leave(self, event: tk.Event) -> None:
+        dest = self.winfo_containing(event.x_root, event.y_root)
+        if dest is self._prop_clear_btn:
+            return
         if self._props_hov_idx is not None:
             old = self._props_hov_idx
             self._props_hov_idx = None
             self._props_redraw_row(old)
         self._prop_clear_btn.place_forget()
+        self._clear_hint()
+
+    def _on_prop_btn_leave(self, event: tk.Event) -> None:
+        dest = self.winfo_containing(event.x_root, event.y_root)
+        if dest is self._props_cv:
+            return
+        self._prop_clear_btn.config(fg="#888888")
+        self._prop_clear_btn.place_forget()
+        if self._props_hov_idx is not None:
+            old = self._props_hov_idx
+            self._props_hov_idx = None
+            self._props_redraw_row(old)
         self._clear_hint()
 
     def _on_prop_canvas_click(self, event: tk.Event) -> None:
