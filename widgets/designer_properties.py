@@ -62,6 +62,7 @@ class DesignerProperties(tk.Frame):
         self._status_after:   str | None                = None
         self._prop_clearing:  bool                      = False
         self._ev_clearing:    bool                      = False
+        self._prop_clear_iid: str | None                = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -1359,8 +1360,10 @@ class DesignerProperties(tk.Frame):
                 bw = 18
                 self._prop_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
                 self._prop_clear_btn.lift()
+                self._prop_clear_iid = iid
                 return
         self._prop_clear_btn.place_forget()
+        self._prop_clear_iid = None
 
     def _on_prop_canvas_leave(self, event: tk.Event) -> None:
         dest = self.winfo_containing(event.x_root, event.y_root)
@@ -1375,7 +1378,6 @@ class DesignerProperties(tk.Frame):
 
     def _on_prop_btn_leave(self, event: tk.Event) -> None:
         dest = self.winfo_containing(event.x_root, event.y_root)
-        print(f"[DBG] _on_prop_btn_leave  dest={dest}  hov_idx={self._props_hov_idx}")
         if dest is self._props_cv:
             return
         self._prop_clear_btn.config(fg="#888888")
@@ -1387,8 +1389,6 @@ class DesignerProperties(tk.Frame):
         self._clear_hint()
 
     def _on_prop_canvas_click(self, event: tk.Event) -> None:
-        iid = self._props_iid_at_y(event.y)
-        print(f"[DBG] _on_prop_canvas_click  clearing={self._prop_clearing}  iid={iid}  y={event.y}  widget={event.widget}")
         if self._prop_clearing:
             self._prop_clearing = False
             return
@@ -2134,7 +2134,6 @@ class DesignerProperties(tk.Frame):
 
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
-        import traceback; print(f"[DBG] _open_color_picker  row={row_iid}"); traceback.print_stack(limit=5)
         current = self._props_get(row_iid).strip() or "#ffffff"
         from tkinter.colorchooser import askcolor
         result = askcolor(current, parent=self._props_cv.winfo_toplevel())
@@ -2249,11 +2248,11 @@ class DesignerProperties(tk.Frame):
         self._auto_wire_event(row)
 
     def _on_prop_clear_click(self, event: tk.Event) -> None:
-        print(f"[DBG] _on_prop_clear_click  hov_idx={self._props_hov_idx}  widget={event.widget}")
         self._prop_clearing = True
-        if self._props_hov_idx is None:
+        row = self._prop_clear_iid
+        if not row:
             return
-        row = self._props_rows[self._props_hov_idx]["iid"]
+        self._prop_clear_iid = None
         self._prop_clear_btn.place_forget()
         if row == "anchor__value":
             self._props_set(row, "(none)")
