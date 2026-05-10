@@ -23,7 +23,6 @@ Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 > **What's coming next?** See the [ROADMAP](ROADMAP.md) for in-progress work, the planned backlog, and long-term ideas.
 
 <p align="center">
-  <img src="screenshots/designer-canvas-palette-properties.gif" width="100%">
     <img src="screenshots/editor-main.png" width="100%">
 </p>
 
