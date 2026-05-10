@@ -4,6 +4,7 @@ requests>=2.31
 ptyprocess>=0.7
 pywinpty>=2.0; sys_platform == 'win32'  # Windows only — required by ptyprocess on Windows
 Pygments>=2.18
+pyperclip>=1.8; sys_platform == "linux"
 tkfontchooser>=2.0
 toml>=0.10
 python-lsp-server>=1.12  # LSP backend (pylsp)
