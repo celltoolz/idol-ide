@@ -8,10 +8,10 @@ from typing import Callable
 
 from utils import bind_right_click
 from utils.git_diagnostics import (
-from utils.ui_font import UI_FONT
     classify_file, analyze_files, health_checks, git_installed, git_identity_ok,
     FileInfo, Issue, HealthCheck
 )
+from utils.ui_font import UI_FONT
 from widgets.learning_manager import LearningManager
 from widgets.guide_window import GuideWindow, GuidePage
 

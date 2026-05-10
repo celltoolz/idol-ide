@@ -30,7 +30,6 @@ from editor.bracket_matcher import BracketMatcher
 from editor.key_handler import KeyHandler
 from editor.multi_cursor import MultiCursor
 from widgets.completion_popup import CompletionPopup
-from utils.ui_font import UI_FONT
 from editor.lsp_manager import (
     LspManager,
     detect_server,
@@ -46,6 +45,7 @@ from utils import session as session_utils
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
+from utils.ui_font import UI_FONT
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
@@ -345,7 +345,7 @@ class IDOL(Tk):
         self._learning_reg_map: dict = {}  # widget → lid, built on activate
 
         # Clipboard History
-        self._clip_top: tk.Toplevel | None = None
+        self._clip_top:   tk.Toplevel | None          = None
         self._clip_panel: ClipboardHistoryPanel | None = None
 
         # Split editor
@@ -391,8 +391,8 @@ class IDOL(Tk):
         # Peek at the saved layout before building so panes can be pre-sized
         # to their saved dimensions — eliminates the visible sash jump on startup.
         _saved = session_utils.peek_layout()
-        self._startup_h_sash: int = int(_saved.get("h_sash") or 0) or 220
-        self._startup_v_sash: int = int(_saved.get("v_sash") or 0)
+        self._startup_h_sash: int   = int(_saved.get("h_sash") or 0) or 220
+        self._startup_v_sash: int   = int(_saved.get("v_sash") or 0)
 
         self._build_layout()
         build_menubar(self)
@@ -539,22 +539,13 @@ class IDOL(Tk):
 
         # Encoding fix pill — hidden until a bad paste is detected
         self._encoding_pill = Label(
-            _nav_bar,
-            text=" ⚠ Fix Encoding ",
-            bg=_NAV_BG,
-            fg="#e8a844",
-            font=(UI_FONT, 9),
-            cursor="hand2",
-            padx=2,
-            pady=0,
+            _nav_bar, text=" ⚠ Fix Encoding ",
+            bg=_NAV_BG, fg="#e8a844",
+            font=(UI_FONT, 9), cursor="hand2", padx=2, pady=0,
         )
         self._encoding_pill.bind("<Button-1>", lambda _: self._fix_encoding())
-        self._encoding_pill.bind(
-            "<Enter>", lambda _: self._encoding_pill.config(fg="#ffd080")
-        )
-        self._encoding_pill.bind(
-            "<Leave>", lambda _: self._encoding_pill.config(fg="#e8a844")
-        )
+        self._encoding_pill.bind("<Enter>", lambda _: self._encoding_pill.config(fg="#ffd080"))
+        self._encoding_pill.bind("<Leave>", lambda _: self._encoding_pill.config(fg="#e8a844"))
 
         # Debug controls — hidden until a session is active
         self._debug_bar = tk.Frame(_nav_bar, bg="#1e1e1e")
@@ -857,9 +848,7 @@ class IDOL(Tk):
         _vbar.config(command=self._design_canvas.yview)
         _hbar.config(command=self._design_canvas.xview)
 
-        self._designer_toolbar = DesignerToolbar(
-            self._designer_frame, self._design_canvas
-        )
+        self._designer_toolbar = DesignerToolbar(self._designer_frame, self._design_canvas)
         self._designer_toolbar.pack(fill="x", side="top")
 
         _vbar.pack(side="right", fill="y")
@@ -960,8 +949,8 @@ class IDOL(Tk):
 
         # Ghost-sash: show drag line during drag, resize only on mouse-up
         for _pane, _orient in [
-            (self._h_pane, "horizontal"),
-            (self._v_pane, "vertical"),
+            (self._h_pane,     "horizontal"),
+            (self._v_pane,     "vertical"),
             (self._split_pane, "horizontal"),
         ]:
             self._install_ghost_sash(_pane, _orient)
@@ -983,9 +972,7 @@ class IDOL(Tk):
 
         total = self._v_pane.winfo_height()
         if total > 200:
-            v_target = (
-                self._startup_v_sash if self._startup_v_sash > 0 else (total - 160)
-            )
+            v_target = self._startup_v_sash if self._startup_v_sash > 0 else (total - 160)
             self._v_pane.sashpos(0, v_target)
 
     def _install_ghost_sash(self, pane: tk.Widget, orient: str) -> None:
@@ -1034,11 +1021,8 @@ class IDOL(Tk):
                 return
             _drag["active"] = False
             ghost.place_forget()
-            pos = (
-                (event.y_root - pane.winfo_rooty())
-                if orient == "vertical"
-                else (event.x_root - pane.winfo_rootx())
-            )
+            pos = (event.y_root - pane.winfo_rooty()) if orient == "vertical" \
+                  else (event.x_root - pane.winfo_rootx())
             try:
                 _sash_set(pane, _drag["sash"], max(0, pos))
             except Exception:
@@ -1051,7 +1035,7 @@ class IDOL(Tk):
             if not hit:
                 return
             _drag["active"] = True
-            _drag["sash"] = idx
+            _drag["sash"]   = idx
             _show_ghost(event.x, event.y)
             return "break"
 
@@ -1060,8 +1044,8 @@ class IDOL(Tk):
                 return
             _show_ghost(event.x, event.y)
 
-        pane.bind("<ButtonPress-1>", _on_press)
-        pane.bind("<B1-Motion>", _on_motion)
+        pane.bind("<ButtonPress-1>",   _on_press)
+        pane.bind("<B1-Motion>",       _on_motion)
         # Pane-instance binding fires before class handlers (covers SetCapture case).
         # Toplevel binding fires when mouse is released over a child widget.
         # Both are idempotent — the second caller hits `if not _drag["active"]: return`.
@@ -1198,9 +1182,7 @@ class IDOL(Tk):
         self.bind("<F1>", lambda _: self.view_learning_mode())
         self.bind("<F2>", lambda _: self.view_ai_chat())
         self.bind("<F3>", lambda _: self.view_package_manager())
-        self.bind(
-            "<Control-H>", lambda _: self.view_clipboard_history()
-        )  # Ctrl+Shift+H
+        self.bind("<Control-H>", lambda _: self.view_clipboard_history())   # Ctrl+Shift+H
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -1665,7 +1647,6 @@ class IDOL(Tk):
             if self._clip_panel is None:
                 self._ensure_clip_panel()
             self._clip_panel.push(text, source=source)
-
         codeview.on_copy = _on_cv_copy
 
         codeview.mark_set("insert", "1.0")
@@ -2474,10 +2455,7 @@ class IDOL(Tk):
 
     def _fix_encoding(self) -> None:
         from widgets.codeview import _BAD_PASTE_CHARS
-
-        _REMOVE = frozenset(
-            [0x200B]
-        )  # zero-width — removing is safer than replacing with space
+        _REMOVE = frozenset([0x200b])  # zero-width — removing is safer than replacing with space
         cv = self._current_codeview
         if cv is None:
             return
@@ -2533,7 +2511,7 @@ class IDOL(Tk):
         panel = ClipboardHistoryPanel(top, on_paste=_paste)
         panel.set_window(top)
         panel.pack(fill="both", expand=True)
-        self._clip_top = top
+        self._clip_top   = top
         self._clip_panel = panel
 
     def view_clipboard_history(self) -> None:
@@ -2610,8 +2588,7 @@ class IDOL(Tk):
             50,
             lambda commits: (
                 self._sidebar.source_control.refresh_history(commits)
-                if self._git is git_snap
-                else None
+                if self._git is git_snap else None
             ),
         )
 
@@ -3280,7 +3257,7 @@ class IDOL(Tk):
                 ("Python Scripts", "*.py"),
                 ("Text Documents", "*.txt"),
                 ("All Files", "*.*"),
-            ],
+            ]
         )
         if path:
             self._open_file(path)
@@ -3509,7 +3486,6 @@ class IDOL(Tk):
             return
         if self._designer_forms_dirty and self._designer_forms:
             from tkinter.messagebox import askyesnocancel
-
             result = askyesnocancel(
                 "Unsaved Designer Changes",
                 "Designer forms have unsaved changes. Save before exiting?",
@@ -3517,7 +3493,7 @@ class IDOL(Tk):
             )
             if result is None:  # Cancel
                 return
-            if result:  # Yes
+            if result:          # Yes
                 self._designer_autosave()
         self._exiting = True
         session_utils.save(self)
@@ -3642,17 +3618,17 @@ class IDOL(Tk):
         m = self._edit_menu
         if self._designer_mode:
             canvas = self._design_canvas
-            has_sel = bool(canvas.selected_ids)
-            has_clip = canvas._clipboard is not None
-            can_undo = canvas.can_undo
-            can_redo = canvas.can_redo
-            has_form = canvas.form is not None
-            m.entryconfigure("Undo", state="normal" if can_undo else "disabled")
-            m.entryconfigure("Redo", state="normal" if can_redo else "disabled")
-            m.entryconfigure("Cut", state="normal" if has_sel else "disabled")
-            m.entryconfigure("Copy", state="normal" if has_sel else "disabled")
-            m.entryconfigure("Paste", state="normal" if has_clip else "disabled")
-            m.entryconfigure("Select All", state="normal" if has_form else "disabled")
+            has_sel   = bool(canvas.selected_ids)
+            has_clip  = canvas._clipboard is not None
+            can_undo  = canvas.can_undo
+            can_redo  = canvas.can_redo
+            has_form  = canvas.form is not None
+            m.entryconfigure("Undo",            state="normal" if can_undo else "disabled")
+            m.entryconfigure("Redo",            state="normal" if can_redo else "disabled")
+            m.entryconfigure("Cut",             state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Copy",            state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Paste",           state="normal" if has_clip else "disabled")
+            m.entryconfigure("Select All",      state="normal" if has_form else "disabled")
             m.entryconfigure("Find & Replace...", state="disabled")
         else:
             cv = self._current_codeview
@@ -3667,13 +3643,13 @@ class IDOL(Tk):
                     has_sel = True
                 except Exception:
                     pass
-            m.entryconfigure("Undo", state="normal")
-            m.entryconfigure("Redo", state="normal")
-            m.entryconfigure("Cut", state="normal" if has_sel else "disabled")
-            m.entryconfigure("Copy", state="normal" if has_sel else "disabled")
-            m.entryconfigure("Paste", state="normal" if has_clip else "disabled")
-            m.entryconfigure("Select All", state="normal" if cv else "disabled")
-            m.entryconfigure("Find & Replace...", state="normal" if cv else "disabled")
+            m.entryconfigure("Undo",              state="normal")
+            m.entryconfigure("Redo",              state="normal")
+            m.entryconfigure("Cut",               state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Copy",              state="normal" if has_sel  else "disabled")
+            m.entryconfigure("Paste",             state="normal" if has_clip else "disabled")
+            m.entryconfigure("Select All",        state="normal" if cv       else "disabled")
+            m.entryconfigure("Find & Replace...", state="normal" if cv       else "disabled")
 
     def edit_undo(self) -> None:
         if self._designer_mode:
@@ -4442,7 +4418,7 @@ class IDOL(Tk):
         form_loaded = getattr(self._design_canvas, "_form", None) is not None
         state = "normal" if form_loaded else "disabled"
         menu.entryconfigure("Generate Code", state=state)
-        menu.entryconfigure("Save Form", state=state)
+        menu.entryconfigure("Save Form",     state=state)
 
     def _show_mode_bar(self) -> None:
         """Pack the [Editor] | [Designer] strip above the notebook."""
@@ -4763,9 +4739,7 @@ class IDOL(Tk):
         if enabled and handler_id not in form.enabled_handlers:
             form.enabled_handlers.append(handler_id)
         elif not enabled:
-            form.enabled_handlers = [
-                h for h in form.enabled_handlers if h != handler_id
-            ]
+            form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
         self._set_designer_dirty()
 
     def _on_designer_double_click(self, widget_id: str) -> None:
@@ -4939,63 +4913,39 @@ class IDOL(Tk):
         win.grab_set()
         win.transient(self)
 
-        tk.Label(
-            win, text="Form Name:", bg="#2d2d2d", fg="#cccccc", font=(UI_FONT, 9)
-        ).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
+        tk.Label(win, text="Form Name:", bg="#2d2d2d", fg="#cccccc",
+                 font=(UI_FONT, 9)).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
 
         name_var = tk.StringVar(value=self._next_form_name())
-        name_entry = tk.Entry(
-            win,
-            textvariable=name_var,
-            bg="#3c3c3c",
-            fg="#cccccc",
-            insertbackground="#cccccc",
-            relief="flat",
-            font=(UI_FONT, 9),
-            width=22,
-        )
+        name_entry = tk.Entry(win, textvariable=name_var, bg="#3c3c3c", fg="#cccccc",
+                              insertbackground="#cccccc", relief="flat",
+                              font=(UI_FONT, 9), width=22)
         name_entry.grid(row=0, column=1, padx=(0, 12), pady=(14, 4))
         name_entry.select_range(0, "end")
         name_entry.focus_set()
 
-        tk.Label(win, text="Type:", bg="#2d2d2d", fg="#cccccc", font=(UI_FONT, 9)).grid(
-            row=1, column=0, padx=12, pady=4, sticky="w"
-        )
+        tk.Label(win, text="Type:", bg="#2d2d2d", fg="#cccccc",
+                 font=(UI_FONT, 9)).grid(row=1, column=0, padx=12, pady=4, sticky="w")
 
         type_var = tk.StringVar(value="dialog")
         type_frame = tk.Frame(win, bg="#2d2d2d")
         type_frame.grid(row=1, column=1, padx=(0, 12), pady=4, sticky="w")
         for lbl, val in [("Main Window", "main"), ("Dialog Window", "dialog")]:
             tk.Radiobutton(
-                type_frame,
-                text=lbl,
-                variable=type_var,
-                value=val,
-                bg="#2d2d2d",
-                fg="#cccccc",
-                selectcolor="#094771",
-                activebackground="#2d2d2d",
-                font=(UI_FONT, 9),
+                type_frame, text=lbl, variable=type_var, value=val,
+                bg="#2d2d2d", fg="#cccccc", selectcolor="#094771",
+                activebackground="#2d2d2d", font=(UI_FONT, 9),
             ).pack(side="left", padx=(0, 8))
 
-        tk.Label(
-            win, text="Link to:", bg="#2d2d2d", fg="#cccccc", font=(UI_FONT, 9)
-        ).grid(row=2, column=0, padx=12, pady=4, sticky="w")
+        tk.Label(win, text="Link to:", bg="#2d2d2d", fg="#cccccc",
+                 font=(UI_FONT, 9)).grid(row=2, column=0, padx=12, pady=4, sticky="w")
 
-        main_forms = [
-            f.name for f in self._designer_forms.values() if f.form_type == "main"
-        ]
+        main_forms = [f.name for f in self._designer_forms.values() if f.form_type == "main"]
         link_options = ["None (unlinked)"] + main_forms
-        link_var = tk.StringVar(
-            value=main_forms[0] if main_forms else "None (unlinked)"
-        )
+        link_var = tk.StringVar(value=main_forms[0] if main_forms else "None (unlinked)")
         link_cb = ttk.Combobox(
-            win,
-            textvariable=link_var,
-            values=link_options,
-            state="readonly",
-            font=(UI_FONT, 9),
-            width=20,
+            win, textvariable=link_var, values=link_options,
+            state="readonly", font=(UI_FONT, 9), width=20,
         )
         link_cb.grid(row=2, column=1, padx=(0, 12), pady=4, sticky="w")
 
@@ -5005,7 +4955,6 @@ class IDOL(Tk):
                 link_var.set("None (unlinked)")
             else:
                 link_cb.config(state="readonly")
-
         type_var.trace_add("write", _on_type_change)
 
         btn_frame = tk.Frame(win, bg="#2d2d2d")
@@ -5019,11 +4968,10 @@ class IDOL(Tk):
             if name in self._designer_forms:
                 name_entry.config(bg="#5a1a1a")
                 return
-            link_to = link_var.get()
+            link_to   = link_var.get()
             form_type = type_var.get()
             win.destroy()
             from designer.handlers import default_enabled_for as _def_handlers
-
             form = _FormModel(
                 name=name,
                 title=name,
@@ -5050,16 +4998,9 @@ class IDOL(Tk):
 
         for lbl, cmd in [("Create", _create), ("Cancel", win.destroy)]:
             tk.Button(
-                btn_frame,
-                text=lbl,
-                command=cmd,
-                bg="#3c3c3c",
-                fg="#cccccc",
-                relief="flat",
-                font=(UI_FONT, 9),
-                padx=12,
-                pady=4,
-                cursor="hand2",
+                btn_frame, text=lbl, command=cmd,
+                bg="#3c3c3c", fg="#cccccc", relief="flat",
+                font=(UI_FONT, 9), padx=12, pady=4, cursor="hand2",
             ).pack(side="left", padx=4)
 
         win.bind("<Return>", lambda _: _create())
@@ -5134,17 +5075,13 @@ class IDOL(Tk):
         for form in self._designer_forms.values():
             if form.form_type != "main":
                 self._generate_one_form(
-                    form,
-                    root,
-                    _skip_manual_check=_skip_manual_check,
+                    form, root, _skip_manual_check=_skip_manual_check,
                 )
 
         for form in self._designer_forms.values():
             if form.form_type == "main":
                 self._generate_one_form(
-                    form,
-                    root,
-                    _skip_manual_check=_skip_manual_check,
+                    form, root, _skip_manual_check=_skip_manual_check,
                 )
 
         self._designer_dirty = False
@@ -5172,7 +5109,7 @@ class IDOL(Tk):
         )
 
         json_path = _Path(root) / f"{form.name}.form.json"
-        py_path = _Path(root) / f"{form.name}.py"
+        py_path   = _Path(root) / f"{form.name}.py"
 
         if py_path.exists():
             try:
@@ -5198,18 +5135,13 @@ class IDOL(Tk):
 
         if py_path.exists():
             event_bodies = _bodies(py_path)
-            event_sigs = _sigs(py_path)
+            event_sigs   = _sigs(py_path)
             pre_init, post_init = _init_zones(py_path)
-            helpers = _helpers(py_path)
+            helpers      = _helpers(py_path)
             user_imports = _user_imports(py_path)
         else:
             event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = (
-                {},
-                {},
-                "",
-                "",
-                "",
-                "",
+                {}, {}, "", "", "", "",
             )
 
         code = _gen(
@@ -5220,9 +5152,7 @@ class IDOL(Tk):
             post_init=post_init,
             helpers=helpers,
             user_imports=user_imports,
-            linked_dialogs=list(form.linked_dialogs)
-            if form.form_type == "main"
-            else None,
+            linked_dialogs=list(form.linked_dialogs) if form.form_type == "main" else None,
         )
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
@@ -6065,8 +5995,7 @@ class IDOL(Tk):
         # Also include any open .py tabs that weren't caught by the glob
         # (e.g. files saved outside the project root)
         open_py = [
-            fp
-            for fp in self._files.values()
+            fp for fp in self._files.values()
             if fp and fp.endswith(".py") and fp not in py_files
         ]
         py_files.extend(sorted(open_py, key=lambda f: os.path.basename(f).lower()))
@@ -6687,10 +6616,8 @@ class IDOL(Tk):
         tk.Frame(dlg, bg="#2a2a2a", height=1).pack(fill="x", padx=32)
 
         import platform as _platform
-
         try:
             from importlib.metadata import version as _pkg_ver
-
             pip_ver = _pkg_ver("pip")
         except Exception:
             pip_ver = "unknown"
