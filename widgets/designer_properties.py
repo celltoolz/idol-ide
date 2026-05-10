@@ -1392,6 +1392,7 @@ class DesignerProperties(tk.Frame):
         if self._prop_clearing:
             self._prop_clearing = False
             return
+        iid = self._props_iid_at_y(event.y)
         if iid:
             self._dispatch_prop_click(iid)
 
