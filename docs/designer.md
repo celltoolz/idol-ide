@@ -27,8 +27,9 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 - **Dotted-grid design surface** — form rendered at real size with a simulated title bar and drop shadow
 - **Widgets render realistically** — relief styles (raised, sunken, groove, ridge, solid, flat), disabled state, password dots, progress bars, checked checkboxes, and more; changing the `relief` property in the Properties panel updates the canvas immediately
 - **Click to select** — blue dashed border + 8 white resize handles appear on the selected widget
-- **Drag to move** — repositions with 8px snap-to-grid
-- **Drag a handle to resize** — snapped to the same 8px grid
+- **Click the title bar** — selects the form and reveals its resize handles (dashed border + 8 corner/edge handles)
+- **Drag to move** — repositions with 8px snap-to-grid; hold **Shift** while dragging for 1px precision
+- **Drag a handle to resize** — snapped to the same 8px grid; hold **Shift** for 1px precision
 - **Multi-select** — rubber-band drag to select multiple widgets; Ctrl+Click to toggle individual widgets; drag the group to move all at once
 - **Primary vs secondary selection** — the last-clicked widget is the primary (amber border + full resize handles); all others are secondary (blue border only); resize dragging on any handle propagates the delta to all selected widgets
 - **Copy / Paste** — Ctrl+C / Ctrl+V to duplicate; right-click context menu with Copy, Paste, Delete, Bring to Front, Send to Back
@@ -45,7 +46,7 @@ Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, 
 
 **Placement modes:**
 - **Click** — arms the crosshair tool; click anywhere on the canvas to drop at default size
-- **Click-and-drag on canvas** — after arming, drag out a bounding box on the canvas; the widget is placed at exactly the drawn size (grid-snapped, 16px minimum); a plain click without dragging still drops at default size
+- **Click-and-drag on canvas** — after arming, drag out a bounding box on the canvas; the widget is placed at exactly the drawn size (grid-snapped, 16px minimum); hold **Shift** while dragging to place at exact pixel size (1px minimum); a plain click without dragging still drops at default size
 - **Drag from palette to canvas** — drag a palette item directly onto the canvas; a ghost label follows the cursor; releasing over the canvas drops the widget at default size at that position; releasing outside the canvas cancels
 - **Double-click** — places the widget at the centre of the form immediately, without needing a canvas click
 
@@ -69,7 +70,7 @@ A horizontal strip above the canvas with alignment, snap, and history controls.
 **Center cluster — Sizing** (requires ≥2 selected):
 - Same Width / Same Height across all selected widgets
 
-**Snap toggle** — enable/disable snap-to-grid (8px); blue indicator when active
+**Snap toggle** — enable/disable snap-to-grid (8px); blue indicator when active. Hold **Shift** at any time while the canvas has focus to temporarily disable snap — the button dims immediately on key-down and restores on key-up (works during move, resize, form resize, and widget draw)
 
 **Grid Layout popup** — ⊡ button opens a `Toplevel` with Make Grid and H/V nudge controls for arranging widgets in a regular grid automatically; H/V nudge buttons step by 8px, or **1px when Shift is held**
 
@@ -128,7 +129,7 @@ Codegen emits a `_apply_anchor_layout()` method that is called in `__init__` aft
 When multiple widgets are selected, the Properties panel shows the **intersection** of all their shared property names. Values that differ across the selection are shown blank; typing a new value applies it to all selected widgets at once. Color pickers, enum dropdowns, and text fields all work in multi-select. The font picker and list editor are single-select only.
 
 ### Form Properties
-Click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), and maximize box. Border style and maximize box stay in sync automatically.
+Click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), maximize box, and **always on top** (pins the window above all other windows). Border style and maximize box stay in sync automatically.
 
 ### Menu Bar
 A `menu bar` row in form properties opens the **Menu Editor** — see [Menu Editor](#menu-editor) below.
@@ -142,8 +143,8 @@ A `menu bar` row in form properties opens the **Menu Editor** — see [Menu Edit
 
 Every widget exposes its full event list (click, dblclick, keypress, focusin, change, and more).
 
-- Click an event name to auto-wire a default handler
-- Type a custom method name to override
+- **Click the value column** (right of the name/value split) to open the handler picker or type a custom name; clicking the name column alone does nothing
+- **Double-click a wired row** to jump directly to that handler in the editor (auto-generates code first if dirty)
 - Handler names that don't start with `_` are flagged red — non-underscore names go to the Functions section instead of the Events stub section
 - Wired rows show a `×` button on hover to clear the handler
 - **✦ auto-wire button** appears on hover for unwired rows
@@ -157,7 +158,20 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 
 **Handler picker** — every event handler cell has a ▾ button that opens a scrollable popup listing all handlers already defined on the form. Hover a row to preview the name in the entry field. Useful for reusing an existing handler across multiple events. The Menu Editor Command field has the same picker.
 
-**Double-click a wired event row** to auto-generate code (if dirty) and jump directly to that handler in the editor.
+## Handlers Tab
+
+The **Handlers** tab (visible when a widget or the form is selected) shows every method that IDOL can generate for the selected widget — not just event callbacks but also utility methods (e.g. `_set_always_on_top`, validate helpers).
+
+**Checkbox column (x ≤ 28px):**
+- **Click** the checkbox area to toggle a handler on or off; unchecked handlers are not emitted during codegen
+- **Double-clicking** the checkbox area also toggles, matching single-click behavior
+
+**Name column (right of checkbox):**
+- **Single-click** does nothing — prevents accidental navigation
+- **Double-click an unchecked row** — checks the handler and enables it
+- **Double-click a checked row** — auto-generates code if dirty and navigates to that handler in the editor (same behavior as double-clicking a wired event row in Events tab)
+
+A short **hint bar** at the bottom of the Handlers tab shows a description of the hovered handler.
 
 ## Order Tab
 
@@ -202,6 +216,8 @@ Double-clicking a widget with events:
 Double-clicking a widget with no events switches to the Events tab.
 
 **Double-clicking a wired event row** in the Events tab jumps directly to that specific handler in the editor.
+
+**Double-clicking a checked handler row** in the Handlers tab also navigates to that handler (double-clicking an unchecked row enables it instead).
 
 **Double-clicking a wired event row in the Properties panel** (the property name column) also jumps to that handler — so you can navigate to code from any event.
 
@@ -355,6 +371,11 @@ If you edit the generated `.py` by hand, IDOL detects the change via SHA-256 che
 ## Persistent Form Model
 
 The canvas state is stored in a `.form.json` sidecar file next to the generated `.py`. The JSON is the source of truth; the `.py` is a build artifact. Both files are version-control friendly.
+
+**Saving the form JSON:**
+- `Designer → Save Form` writes all open form JSONs to disk immediately; the menu item is enabled whenever there are unsaved designer changes
+- **Exit prompt** — if any form has unsaved changes when you quit IDOL, a dialog asks **Save / Don't Save / Cancel**; choosing Save writes all dirty forms before exiting, Don't Save discards them, and Cancel aborts the exit
+- `Designer → Generate Code` also saves the form JSON as a side effect, so generating code always leaves the JSON in sync
 
 ## Project Type Gating
 
