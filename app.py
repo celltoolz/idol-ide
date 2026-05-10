@@ -3583,11 +3583,12 @@ class IDOL(Tk):
         self._teardown_project()
 
     def workspace_save(self, *_) -> None:
-        """Save project to .idol-project in the explorer root (no dialog needed)."""
+        """Save project to <name>.idol-project in the explorer root (no dialog needed)."""
         root = getattr(self, "_explorer_root", None) or str(
             self._sidebar.explorer._root or os.getcwd()
         )
-        path = os.path.join(root, ".idol-project")
+        project_name = os.path.basename(root) or "project"
+        path = os.path.join(root, f"{project_name}.idol-project")
         session_utils.save(self, path)
 
     def workspace_open(self, *_) -> None:
