@@ -12,7 +12,6 @@ import pygments
 import pygments.lexer
 import pygments.lexers
 import toml
-from pyperclip import copy
 
 from .linenums import TkLineNumbers
 from .minimap import Minimap
@@ -376,7 +375,8 @@ class CodeView(Text):
             text = self.get("sel.first", "sel.last")
             if not text:
                 text = self.get("insert linestart", "insert lineend")
-        copy(text)
+        self.clipboard_clear()
+        self.clipboard_append(text)
         if self.on_copy:
             self.on_copy(text)
         return "break"
