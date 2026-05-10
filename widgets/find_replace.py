@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import tkinter as tk
 from tkinter import BooleanVar, StringVar
+from utils.ui_font import UI_FONT
 
 
 # ── Colour constants ──────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ def _icon_btn(
         pady=2,
         width=width,
         cursor="hand2",
-        font=("Segoe UI", 9),
+        font=(UI_FONT, 9),
     )
     # Hover effect
     btn.bind("<Enter>", lambda _: btn.config(bg=_BTN_HOVER))
@@ -64,7 +65,7 @@ def _toggle_btn(parent: tk.Widget, text: str, var: BooleanVar, command) -> tk.Bu
         pady=2,
         width=3,
         cursor="hand2",
-        font=("Segoe UI", 9),
+        font=(UI_FONT, 9),
     )
     btn._active = False  # type: ignore[attr-defined]
 
@@ -96,7 +97,7 @@ def _styled_entry(parent: tk.Widget, textvariable: StringVar, width: int = 24) -
         bd=0,
         highlightthickness=0,
         width=width,
-        font=("Segoe UI", 9),
+        font=(UI_FONT, 9),
     )
     entry.pack(fill="both", expand=True)
 
@@ -176,7 +177,7 @@ class FindReplaceBar(tk.Frame):
         # Match count label  "1 of 5"
         self._count_lbl = tk.Label(
             find_row, text="", bg=_BG, fg="#858585",
-            font=("Segoe UI", 8), width=8, anchor="w",
+            font=(UI_FONT, 8), width=8, anchor="w",
         )
         self._count_lbl.pack(side="left", padx=(4, 2))
 

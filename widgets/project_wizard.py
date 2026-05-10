@@ -21,6 +21,7 @@ import utils.first_commit_guide as first_commit_guide
 from designer.model import FormModel
 from designer.codegen import generate as designer_codegen
 from designer.persistence import save as designer_save, compute_checksum
+from utils.ui_font import UI_FONT
 
 _BG      = "#252526"
 _HDR_BG  = "#2d2d30"
@@ -89,10 +90,10 @@ class ProjectWizard(tk.Toplevel):
         self._hdr_frame = Frame(self, bg=_HDR_BG, pady=10)
         self._hdr_frame.pack(fill="x")
         self._step_lbl = Label(self._hdr_frame, text="", bg=_HDR_BG, fg=_FG,
-                               font=("Segoe UI", 11, "bold"), padx=14)
+                               font=(UI_FONT, 11, "bold"), padx=14)
         self._step_lbl.pack(anchor="w")
         self._prog_lbl = Label(self._hdr_frame, text="", bg=_HDR_BG, fg=_DIM,
-                               font=("Segoe UI", 8), padx=14)
+                               font=(UI_FONT, 8), padx=14)
         self._prog_lbl.pack(anchor="w")
 
         # ── Content ───────────────────────────────────────────────────────────
@@ -101,7 +102,7 @@ class ProjectWizard(tk.Toplevel):
 
         # ── Error label ───────────────────────────────────────────────────────
         self._err_lbl = Label(self, text="", bg=_BG, fg=_ERR,
-                              font=("Segoe UI", 8), padx=16)
+                              font=(UI_FONT, 8), padx=16)
         self._err_lbl.pack(fill="x")
 
         # ── Navigation ────────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ class ProjectWizard(tk.Toplevel):
 
     def _nav_btn(self, parent, text: str, command: Callable) -> Label:
         lbl = Label(parent, text=text, bg=_BTN_BG, fg="white",
-                    font=("Segoe UI", 9, "bold"), cursor="hand2", padx=10, pady=3)
+                    font=(UI_FONT, 9, "bold"), cursor="hand2", padx=10, pady=3)
         lbl.bind("<Button-1>", lambda _: command())
         lbl.bind("<Enter>", lambda _: lbl.config(bg=_BTN_ACT) if lbl["cursor"] == "hand2" else None)
         lbl.bind("<Leave>", lambda _: lbl.config(bg=_BTN_BG))
@@ -213,7 +214,7 @@ class ProjectWizard(tk.Toplevel):
     def _row(self, label: str) -> Frame:
         """Helper: add a label + return a frame for the input widget."""
         Label(self._content, text=label, bg=_BG, fg=_DIM,
-              font=("Segoe UI", 8), anchor="w").pack(fill="x", pady=(8, 2))
+              font=(UI_FONT, 8), anchor="w").pack(fill="x", pady=(8, 2))
         row = Frame(self._content, bg=_BG)
         row.pack(fill="x")
         return row
@@ -221,7 +222,7 @@ class ProjectWizard(tk.Toplevel):
     def _entry(self, parent, textvariable) -> Entry:
         e = Entry(parent, textvariable=textvariable,
                   bg=_ITEM_BG, fg=_FG, insertbackground=_FG,
-                  relief="flat", font=("Segoe UI", 9))
+                  relief="flat", font=(UI_FONT, 9))
         e.pack(side="left", fill="x", expand=True, ipady=4, padx=(0, 4))
         return e
 
@@ -231,7 +232,7 @@ class ProjectWizard(tk.Toplevel):
         row = Frame(self._content, bg=_BG, cursor=cur)
         row.pack(fill="x", pady=3)
 
-        box = Label(row, bg=_BG, font=("Segoe UI", 11), cursor=cur)
+        box = Label(row, bg=_BG, font=(UI_FONT, 11), cursor=cur)
         box.pack(side="left", padx=(0, 4))
 
         def _refresh(*_):
@@ -251,22 +252,22 @@ class ProjectWizard(tk.Toplevel):
             row.bind("<Button-1>", _toggle)
 
         lbl = Label(row, text=label, bg=_BG, fg=_DIM if disabled else _FG,
-                    font=("Segoe UI", 9), cursor=cur)
+                    font=(UI_FONT, 9), cursor=cur)
         lbl.pack(side="left")
         if not disabled:
             lbl.bind("<Button-1>", _toggle)
 
         if detail:
             Label(row, text=f"  {detail}", bg=_BG, fg=_DIM,
-                  font=("Segoe UI", 8)).pack(side="left")
+                  font=(UI_FONT, 8)).pack(side="left")
 
     def _mini_check(self, parent: Frame, label: str, var: tk.BooleanVar) -> None:
         """Compact inline checkbox for filter rows."""
         f = Frame(parent, bg=_BG, cursor="hand2")
         f.pack(side="left", padx=(0, 10))
-        box = Label(f, bg=_BG, font=("Segoe UI", 9), cursor="hand2")
+        box = Label(f, bg=_BG, font=(UI_FONT, 9), cursor="hand2")
         box.pack(side="left", padx=(0, 2))
-        lbl = Label(f, text=label, bg=_BG, fg=_FG, font=("Segoe UI", 8), cursor="hand2")
+        lbl = Label(f, text=label, bg=_BG, fg=_FG, font=(UI_FONT, 8), cursor="hand2")
         lbl.pack(side="left")
 
         def _refresh(*_):
@@ -284,11 +285,11 @@ class ProjectWizard(tk.Toplevel):
 
     def _render_step_0(self) -> None:
         Label(self._content, text="Set up your new Python project.",
-              bg=_BG, fg=_DIM, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
+              bg=_BG, fg=_DIM, font=(UI_FONT, 9)).pack(anchor="w", pady=(0, 6))
 
         # ── Project type ──────────────────────────────────────────────────────
         Label(self._content, text="Project Type", bg=_BG, fg=_DIM,
-              font=("Segoe UI", 8)).pack(anchor="w")
+              font=(UI_FONT, 8)).pack(anchor="w")
         type_row = Frame(self._content, bg=_BG)
         type_row.pack(fill="x", pady=(2, 10))
 
@@ -301,11 +302,11 @@ class ProjectWizard(tk.Toplevel):
             rb = tk.Radiobutton(
                 rb_frame, variable=self._type_var, value=value,
                 bg=_BG, fg=_FG, selectcolor=_BG, activebackground=_BG,
-                font=("Segoe UI", 9), text=label,
+                font=(UI_FONT, 9), text=label,
             )
             rb.pack(side="left")
             Label(rb_frame, text=detail, bg=_BG, fg=_DIM,
-                  font=("Segoe UI", 8)).pack(side="left", padx=(4, 0))
+                  font=(UI_FONT, 8)).pack(side="left", padx=(4, 0))
 
         row = self._row("Project Name")
         self._entry(row, self._name_var)
@@ -313,13 +314,13 @@ class ProjectWizard(tk.Toplevel):
         row2 = self._row("Location")
         self._entry(row2, self._loc_var)
         browse = Label(row2, text="Browse…", bg=_HDR_BG, fg=_FG,
-                       font=("Segoe UI", 8), cursor="hand2", padx=6, pady=3)
+                       font=(UI_FONT, 8), cursor="hand2", padx=6, pady=3)
         browse.pack(side="left")
         browse.bind("<Button-1>", lambda _: self._browse_location())
 
         # Preview of final path
         self._preview_lbl = Label(self._content, text="", bg=_BG, fg=_DIM,
-                                  font=("Segoe UI", 8), anchor="w")
+                                  font=(UI_FONT, 8), anchor="w")
         self._preview_lbl.pack(fill="x", pady=(6, 0))
         self._update_preview()
         self._name_var.trace_add("write", lambda *_: self._update_preview())
@@ -343,12 +344,12 @@ class ProjectWizard(tk.Toplevel):
     def _render_step_1(self) -> None:
         Label(self._content,
               text="Choose a Python interpreter and configure your virtual environment.",
-              bg=_BG, fg=_DIM, font=("Segoe UI", 9), wraplength=430,
+              bg=_BG, fg=_DIM, font=(UI_FONT, 9), wraplength=430,
               justify="left").pack(anchor="w")
 
         self._row("Python Interpreter")
 
-        combo = ttk.Combobox(self._content, font=("Segoe UI", 9))
+        combo = ttk.Combobox(self._content, font=(UI_FONT, 9))
         combo.pack(fill="x", ipady=3)
 
         if self._detecting:
@@ -358,7 +359,7 @@ class ProjectWizard(tk.Toplevel):
             combo.current(0)
             self._set_nav_enabled(self._next_btn, False)
             Label(self._content, text="Scanning for interpreters, please wait…",
-                  bg=_BG, fg=_DIM, font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+                  bg=_BG, fg=_DIM, font=(UI_FONT, 8)).pack(anchor="w", pady=(2, 0))
         else:
             # ── Ready: populate combo with detected interpreters ──────────────
             combo.configure(state="readonly")
@@ -407,7 +408,7 @@ class ProjectWizard(tk.Toplevel):
             filter_row = Frame(self._content, bg=_BG)
             filter_row.pack(fill="x", pady=(4, 0))
             Label(filter_row, text="Show:", bg=_BG, fg=_DIM,
-                  font=("Segoe UI", 8)).pack(side="left", padx=(0, 6))
+                  font=(UI_FONT, 8)).pack(side="left", padx=(0, 6))
             self._mini_check(filter_row, "venv",   self._show_venv_var)
             self._mini_check(filter_row, "system", self._show_system_var)
 
@@ -417,7 +418,7 @@ class ProjectWizard(tk.Toplevel):
 
         # Learn more link
         learn = Label(self._content, text="? Learn about virtual environments & choosing a Python interpreter",
-                      bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
+                      bg=_BG, fg="#569cd6", font=(UI_FONT, 8), cursor="hand2")
         learn.pack(anchor="w", pady=(10, 0))
         learn.bind("<Button-1>", lambda _: GuideWindow(
             self, "Virtual Environments", venv_guide.get_pages()
@@ -427,7 +428,7 @@ class ProjectWizard(tk.Toplevel):
 
     def _render_step_2(self) -> None:
         Label(self._content, text="Configure additional project options.",
-              bg=_BG, fg=_DIM, font=("Segoe UI", 9)).pack(anchor="w")
+              bg=_BG, fg=_DIM, font=(UI_FONT, 9)).pack(anchor="w")
         Label(self._content, text="", bg=_BG).pack()  # spacer
 
         self._check("Initialize git repository", self._git_var,
@@ -435,7 +436,7 @@ class ProjectWizard(tk.Toplevel):
 
         if not self._git_ok:
             Label(self._content, text=f"⚠  {self._git_warning}",
-                  bg=_BG, fg=_WARN, font=("Segoe UI", 8),
+                  bg=_BG, fg=_WARN, font=(UI_FONT, 8),
                   anchor="w").pack(fill="x", pady=(2, 0))
             if "not installed" in self._git_warning:
                 guide_text, guide_title, guide_pages = (
@@ -450,13 +451,13 @@ class ProjectWizard(tk.Toplevel):
                     git_identity_guide.get_pages(),
                 )
             guide_lnk = Label(self._content, text=guide_text,
-                              bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
+                              bg=_BG, fg="#569cd6", font=(UI_FONT, 8), cursor="hand2")
             guide_lnk.pack(anchor="w", pady=(2, 8))
             guide_lnk.bind("<Button-1>", lambda _, t=guide_title, p=guide_pages:
                            GuideWindow(self, t, p))
         else:
             learn_git = Label(self._content, text="? Learn about git repositories",
-                              bg=_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2")
+                              bg=_BG, fg="#569cd6", font=(UI_FONT, 8), cursor="hand2")
             learn_git.pack(anchor="w", pady=(4, 8))
             learn_git.bind("<Button-1>", lambda _: GuideWindow(
                 self, "Setting Up a Git Remote", git_remote_guide.get_pages()
@@ -474,15 +475,15 @@ class ProjectWizard(tk.Toplevel):
         python   = self._python_var.get()
 
         Label(self._content, text="Review your project settings before creating.",
-              bg=_BG, fg=_DIM, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 8))
+              bg=_BG, fg=_DIM, font=(UI_FONT, 9)).pack(anchor="w", pady=(0, 8))
 
         def _row(label: str, value: str) -> None:
             f = Frame(self._content, bg=_BG)
             f.pack(fill="x", pady=2)
             Label(f, text=label, bg=_BG, fg=_DIM,
-                  font=("Segoe UI", 8), width=20, anchor="w").pack(side="left")
+                  font=(UI_FONT, 8), width=20, anchor="w").pack(side="left")
             Label(f, text=value, bg=_BG, fg=_FG,
-                  font=("Segoe UI", 9), anchor="w").pack(side="left")
+                  font=(UI_FONT, 9), anchor="w").pack(side="left")
 
         type_label = "Tkinter GUI App" if self._type_var.get() == "gui" else "Command Line App"
         _row("Project type:", type_label)
@@ -552,7 +553,7 @@ class ProjectWizard(tk.Toplevel):
         self._prog_lbl.config(text="Please wait")
 
         Label(self._content, text="Setting up your project…",
-              bg=_BG, fg=_DIM, font=("Segoe UI", 9)).pack(pady=(20, 10))
+              bg=_BG, fg=_DIM, font=(UI_FONT, 9)).pack(pady=(20, 10))
 
         self._progress_bar = ttk.Progressbar(
             self._content, mode="indeterminate", length=300
@@ -561,7 +562,7 @@ class ProjectWizard(tk.Toplevel):
         self._progress_bar.start(12)
 
         self._status_lbl = Label(self._content, text="Initializing…",
-                                 bg=_BG, fg=_DIM, font=("Segoe UI", 8))
+                                 bg=_BG, fg=_DIM, font=(UI_FONT, 8))
         self._status_lbl.pack()
 
     def _set_status(self, text: str) -> None:
@@ -589,12 +590,12 @@ class ProjectWizard(tk.Toplevel):
         Label(self._content,
               text=f"✓  {os.path.basename(path)} is ready.",
               bg=_BG, fg="#73c991",
-              font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(16, 4))
+              font=(UI_FONT, 11, "bold")).pack(anchor="w", pady=(16, 4))
 
         Label(self._content,
               text="Your project folder, virtual environment, and git repository\n"
                    "have all been set up. You're ready to start coding.",
-              bg=_BG, fg=_DIM, font=("Segoe UI", 9),
+              bg=_BG, fg=_DIM, font=(UI_FONT, 9),
               justify="left").pack(anchor="w", pady=(0, 16))
 
         if self._git_var.get():
@@ -602,15 +603,15 @@ class ProjectWizard(tk.Toplevel):
             sep.pack(fill="x", pady=(0, 12))
             Label(self._content,
                   text="Ready to make your first commit?",
-                  bg=_BG, fg=_FG, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+                  bg=_BG, fg=_FG, font=(UI_FONT, 9, "bold")).pack(anchor="w")
             Label(self._content,
                   text="Open the Source Control panel, stage your files, write a\n"
                        "commit message, and push to GitHub.",
-                  bg=_BG, fg=_DIM, font=("Segoe UI", 9),
+                  bg=_BG, fg=_DIM, font=(UI_FONT, 9),
                   justify="left").pack(anchor="w", pady=(2, 8))
             guide_btn = Label(self._content, text="? First Commit Guide",
                               bg=_BG, fg="#569cd6",
-                              font=("Segoe UI", 8), cursor="hand2")
+                              font=(UI_FONT, 8), cursor="hand2")
             guide_btn.pack(anchor="w")
             guide_btn.bind("<Button-1>", lambda _: GuideWindow(
                 self, "Your First Commit", first_commit_guide.get_pages()

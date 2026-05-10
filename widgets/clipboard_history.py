@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from tkinter import Canvas, Entry, Frame, Label, Scrollbar, StringVar
 from typing import Callable
+from utils.ui_font import UI_FONT
 
 
 _MAX   = 50      # ring buffer depth
@@ -79,11 +80,11 @@ class ClipboardHistoryPanel(Frame):
         tb.pack_propagate(False)
 
         Label(tb, text="Clipboard History", bg=_TOOLBAR, fg="#cccccc",
-              font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
+              font=(UI_FONT, 9, "bold")).pack(side="left", padx=8)
 
         # Clear-unpinned button
         self._clear_btn = Label(tb, text="🗑", bg=_TOOLBAR, fg="#888",
-                                font=("Segoe UI", 10), cursor="hand2")
+                                font=(UI_FONT, 10), cursor="hand2")
         self._clear_btn.pack(side="right", padx=(0, 8))
         self._clear_btn.bind("<Button-1>", lambda _: self.clear_unpinned())
         self._clear_btn.bind("<Enter>", lambda _: self._clear_btn.config(fg="#cccccc"))
@@ -91,7 +92,7 @@ class ClipboardHistoryPanel(Frame):
 
         # Pin-to-top button
         self._pin_btn = Label(tb, text="📌", bg=_TOOLBAR, fg="#888",
-                              font=("Segoe UI", 10), cursor="hand2")
+                              font=(UI_FONT, 10), cursor="hand2")
         self._pin_btn.pack(side="right", padx=(0, 4))
         self._pin_btn.bind("<Button-1>", lambda _: self._toggle_topmost())
         self._pin_btn.bind("<Enter>",
@@ -107,18 +108,18 @@ class ClipboardHistoryPanel(Frame):
         inner = Frame(sf, bg=_SEARCH)
         inner.pack(fill="x")
         Label(inner, text="⌕", bg=_SEARCH, fg="#888",
-              font=("Segoe UI", 10)).pack(side="left", padx=(6, 2))
+              font=(UI_FONT, 10)).pack(side="left", padx=(6, 2))
         self._q = StringVar()
         self._q.trace_add("write", lambda *_: self._apply_filter())
         self._search = Entry(
             inner, textvariable=self._q, bg=_SEARCH, fg=_FG,
-            insertbackground=_FG, relief="flat", font=("Segoe UI", 9), bd=0,
+            insertbackground=_FG, relief="flat", font=(UI_FONT, 9), bd=0,
         )
         self._search.pack(side="left", fill="x", expand=True, pady=4, padx=(0, 6))
 
         # ── Row count label ───────────────────────────────────────────────────
         self._count_lbl = Label(self, bg=_BG, fg=_FG_META,
-                                font=("Segoe UI", 8), anchor="e")
+                                font=(UI_FONT, 8), anchor="e")
         self._count_lbl.pack(fill="x", padx=8)
 
         # ── Canvas + scrollbar ────────────────────────────────────────────────
@@ -209,7 +210,7 @@ class ClipboardHistoryPanel(Frame):
             cv.create_text(
                 w // 2, 72,
                 text="No clipboard entries yet.\n\nCopy or cut text in the editor\nto start building history.",
-                fill=_FG_META, font=("Segoe UI", 9), justify="center", anchor="n",
+                fill=_FG_META, font=(UI_FONT, 9), justify="center", anchor="n",
             )
             return
         total_h = len(self._visible) * _ROW_H
@@ -254,7 +255,7 @@ class ClipboardHistoryPanel(Frame):
             w - self._PX, y + _ROW_H - self._PY,
             text="  ·  ".join(parts),
             anchor="se", fill=_FG_META,
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
             tags=(tag,),
         )
 

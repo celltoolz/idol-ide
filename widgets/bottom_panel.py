@@ -12,6 +12,7 @@ from .debug_panel import DebugPanel
 from .output import OutputPanel
 from .problems_panel import ProblemsPanel
 from .terminal import TerminalPanel
+from utils.ui_font import UI_FONT
 
 
 class _Tooltip:
@@ -39,7 +40,7 @@ class _Tooltip:
         Label(
             tw, text=self._text,
             bg="#252526", fg="#cccccc",
-            font=("Segoe UI", 8), relief="solid", bd=1,
+            font=(UI_FONT, 8), relief="solid", bd=1,
             padx=6, pady=3,
         ).pack()
 
@@ -92,14 +93,14 @@ class DebugFloatWindow(tk.Toplevel):
         Label(
             bar, text="DEBUG",
             bg=self._BAR_BG, fg=self._TAB_FG_ACT,
-            font=("Segoe UI", 8, "bold"), pady=6,
+            font=(UI_FONT, 8, "bold"), pady=6,
         ).pack(side="left", padx=10)
 
         # ── Right-side controls ───────────────────────────────────────────────
         self._pin_lbl = Label(
             bar, text="📌",
             bg=self._BAR_BG, fg=self._TAB_FG,
-            cursor="hand2", font=("Segoe UI", 10), pady=6,
+            cursor="hand2", font=(UI_FONT, 10), pady=6,
         )
         self._pin_lbl.pack(side="right", padx=(0, 8))
         self._pin_lbl.bind("<Button-1>", lambda _: self._toggle_topmost())
@@ -110,7 +111,7 @@ class DebugFloatWindow(tk.Toplevel):
         dock_lbl = Label(
             bar, text="⬅ Dock",
             bg=self._BAR_BG, fg=self._TAB_FG,
-            cursor="hand2", font=("Segoe UI", 8), pady=6,
+            cursor="hand2", font=(UI_FONT, 8), pady=6,
         )
         dock_lbl.pack(side="right", padx=(0, 8))
         dock_lbl.bind("<Button-1>", lambda _: self._on_dock())
@@ -247,7 +248,7 @@ class BottomPanel(ttk.Frame):
             text=label,
             bg=self._TAB_BG,
             fg=self._TAB_FG,
-            font=("Segoe UI", 8, "bold"),
+            font=(UI_FONT, 8, "bold"),
             cursor="hand2",
             pady=6,
         )
@@ -284,7 +285,7 @@ class BottomPanel(ttk.Frame):
         self._ask_ai_btn = Label(
             self._problems_ctrls, text="✦ Ask AI",
             bg=self._TAB_BG, fg="#c586c0",
-            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+            font=(UI_FONT, 8), cursor="hand2", pady=6, padx=6,
         )
         self._ask_ai_btn.bind("<Button-1>", lambda _: self._fire_ask_ai())
         self._ask_ai_btn.bind("<Enter>", lambda _: self._ask_ai_btn.config(fg="#e0a0f0"))
@@ -295,7 +296,7 @@ class BottomPanel(ttk.Frame):
         self._popout_lbl = Label(
             self._debug_ctrls, text="⊡",
             bg=self._TAB_BG, fg=self._TAB_FG,
-            cursor="hand2", font=("Segoe UI", 11), pady=4, padx=8,
+            cursor="hand2", font=(UI_FONT, 11), pady=4, padx=8,
         )
         self._popout_lbl.pack(side="left")
         self._popout_lbl.bind("<Button-1>", lambda _: self._toggle_debug_float())

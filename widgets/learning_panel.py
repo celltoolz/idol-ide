@@ -6,6 +6,7 @@ from tkinter import ttk
 
 from utils.learning_registry import REGISTRY
 from utils import ollama_client
+from utils.ui_font import UI_FONT
 
 
 _BG         = "#1e1e1e"
@@ -126,7 +127,7 @@ class LearningPanel(tk.Frame):
             self._inner,
             text=f"📖  {payload['title']}",
             bg=_BG, fg=_TITLE_FG,
-            font=("Segoe UI", 11, "bold"),
+            font=(UI_FONT, 11, "bold"),
             anchor="w", justify="left",
         ).pack(fill="x", **pad)
 
@@ -149,7 +150,7 @@ class LearningPanel(tk.Frame):
                 self._inner,
                 text=header,
                 bg=_BG, fg=_SECTION_FG,
-                font=("Segoe UI", 8, "bold"),
+                font=(UI_FONT, 8, "bold"),
                 anchor="w",
             ).pack(fill="x", **pad)
 
@@ -162,7 +163,7 @@ class LearningPanel(tk.Frame):
                 block,
                 text=body,
                 bg=bg_block, fg=fg,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 anchor="nw",
                 justify="left",
                 wraplength=220,
@@ -190,7 +191,7 @@ class LearningPanel(tk.Frame):
             hdr_row,
             text="✦ ASK LOCAL AI",
             bg=_BG, fg=_SECTION_FG,
-            font=("Segoe UI", 8, "bold"),
+            font=(UI_FONT, 8, "bold"),
             anchor="w",
         ).pack(side="left")
 
@@ -199,7 +200,7 @@ class LearningPanel(tk.Frame):
             text="● online" if self._ai_available else "● offline",
             bg=_BG,
             fg="#4ec9b0" if self._ai_available else _DIM_FG,
-            font=("Segoe UI", 7),
+            font=(UI_FONT, 7),
         )
         status_dot.pack(side="right")
 
@@ -223,7 +224,7 @@ class LearningPanel(tk.Frame):
                 ai_block,
                 text="Local AI (Ollama) is not running.",
                 bg=_AI_BG, fg=_WARN_FG,
-                font=("Segoe UI", 9, "bold"),
+                font=(UI_FONT, 9, "bold"),
                 anchor="nw", justify="left",
                 wraplength=220,
             ).pack(fill="x", anchor="w", pady=(0, 6))
@@ -235,7 +236,7 @@ class LearningPanel(tk.Frame):
                     "Step 1 — Install Ollama " + shell_note + ":"
                 ),
                 bg=_AI_BG, fg=_BODY_FG,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 anchor="nw", justify="left",
                 wraplength=220,
             ).pack(fill="x", anchor="w")
@@ -253,7 +254,7 @@ class LearningPanel(tk.Frame):
                 ai_block,
                 text="Step 2 — Install the AI model\n(Warning: ~4GB download):",
                 bg=_AI_BG, fg=_BODY_FG,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 anchor="nw", justify="left",
                 wraplength=220,
             ).pack(fill="x", anchor="w")
@@ -271,7 +272,7 @@ class LearningPanel(tk.Frame):
                 ai_block,
                 text="Once running, reopen the Learning tab to activate.",
                 bg=_AI_BG, fg=_DIM_FG,
-                font=("Segoe UI", 8, "italic"),
+                font=(UI_FONT, 8, "italic"),
                 anchor="nw", justify="left",
                 wraplength=220,
             ).pack(fill="x", anchor="w")
@@ -281,7 +282,7 @@ class LearningPanel(tk.Frame):
                 ai_block,
                 text="Click below to get an AI explanation.",
                 bg=_AI_BG, fg=_DIM_FG,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 anchor="nw", justify="left",
                 wraplength=220,
             )
@@ -294,7 +295,7 @@ class LearningPanel(tk.Frame):
                 self._inner,
                 text="✦ Ask AI",
                 bg=_BTN_BG, fg="white",
-                font=("Segoe UI", 8, "bold"),
+                font=(UI_FONT, 8, "bold"),
                 cursor="hand2", padx=10, pady=4,
             )
             btn.pack(anchor="w", padx=14)

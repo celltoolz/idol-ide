@@ -12,6 +12,7 @@ from editor.pip_manager import PipManager
 from widgets.learning_manager import LearningManager
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow, GuidePage
+from utils.ui_font import UI_FONT
 
 try:
     import requests as _requests
@@ -237,14 +238,14 @@ class PackageManagerPanel(tk.Frame):
         toolbar.pack(fill="x")
 
         tk.Label(toolbar, text="📦 Package Manager", bg=_PANEL_BG, fg=_FG,
-                 font=("Segoe UI", 10, "bold")).pack(side="left", padx=10, pady=6)
+                 font=(UI_FONT, 10, "bold")).pack(side="left", padx=10, pady=6)
 
         self._refresh_btn = self._make_btn(toolbar, "↻ Refresh", self._load_installed)
         self._refresh_btn.pack(side="right", padx=(0, 8), pady=4)
 
         self._guide_lbl = tk.Label(
             toolbar, text="? Learn about Package Manager",
-            bg=_PANEL_BG, fg="#569cd6", font=("Segoe UI", 8), cursor="hand2",
+            bg=_PANEL_BG, fg="#569cd6", font=(UI_FONT, 8), cursor="hand2",
         )
         self._guide_lbl.bind("<Button-1>", lambda _: self._open_guide())
         self._guide_lbl.pack(side="right", padx=(0, 8), pady=4)
@@ -258,7 +259,7 @@ class PackageManagerPanel(tk.Frame):
         self._search_var = tk.StringVar()
         self._search_entry = tk.Entry(search_frame, textvariable=self._search_var,
                                       bg=_INPUT_BG, fg=_FG, insertbackground=_FG,
-                                      font=("Segoe UI", 10), relief="flat", bd=0,
+                                      font=(UI_FONT, 10), relief="flat", bd=0,
                                       highlightthickness=1, highlightbackground=_BORDER,
                                       highlightcolor=_ACCENT)
         self._search_entry.pack(side="left", fill="x", expand=True, ipady=4, padx=(6, 0))
@@ -286,7 +287,7 @@ class PackageManagerPanel(tk.Frame):
         pane.add(left, minsize=180)
 
         self._tree_label = tk.Label(left, text="INSTALLED", bg=_BG, fg=_DIM,
-                                    font=("Segoe UI", 8, "bold"), anchor="w")
+                                    font=(UI_FONT, 8, "bold"), anchor="w")
         self._tree_label.pack(fill="x", padx=8, pady=(4, 2))
 
         tree_frame = tk.Frame(left, bg=_BG)
@@ -296,10 +297,10 @@ class PackageManagerPanel(tk.Frame):
         style.configure("Pkg.Treeview",
                          background=_BG, foreground=_FG,
                          fieldbackground=_BG, borderwidth=0,
-                         rowheight=22, font=("Segoe UI", 9))
+                         rowheight=22, font=(UI_FONT, 9))
         style.configure("Pkg.Treeview.Heading",
                          background=_PANEL_BG, foreground=_DIM,
-                         borderwidth=0, font=("Segoe UI", 8))
+                         borderwidth=0, font=(UI_FONT, 8))
         style.map("Pkg.Treeview",
                   background=[("selected", _SEL_BG)],
                   foreground=[("selected", _FG)])
@@ -733,7 +734,7 @@ class PackageManagerPanel(tk.Frame):
 
     def _make_btn(self, parent, text: str, cmd: Callable) -> tk.Label:
         btn = tk.Label(parent, text=text, bg=_INPUT_BG, fg=_FG,
-                       font=("Segoe UI", 8), cursor="hand2", padx=8, pady=3)
+                       font=(UI_FONT, 8), cursor="hand2", padx=8, pady=3)
         btn.bind("<Button-1>", lambda _: cmd())
         btn.bind("<Enter>",    lambda _: btn.config(bg="#505050"))
         btn.bind("<Leave>",    lambda _: btn.config(bg=_INPUT_BG))
@@ -764,11 +765,11 @@ class _DetailPanel(tk.Frame):
         header.pack(fill="x", padx=16, pady=(14, 0))
 
         self._name_lbl = tk.Label(header, text="", bg=_PANEL_BG, fg=_FG,
-                                  font=("Segoe UI", 14, "bold"), anchor="w")
+                                  font=(UI_FONT, 14, "bold"), anchor="w")
         self._name_lbl.pack(side="left")
 
         self._ver_lbl = tk.Label(header, text="", bg=_PANEL_BG, fg=_DIM,
-                                 font=("Segoe UI", 10), anchor="w")
+                                 font=(UI_FONT, 10), anchor="w")
         self._ver_lbl.pack(side="left", padx=(8, 0))
 
         btn_row = tk.Frame(self, bg=_PANEL_BG)
@@ -798,13 +799,13 @@ class _DetailPanel(tk.Frame):
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x", padx=16, pady=10)
 
         tk.Label(self, text="DESCRIPTION", bg=_PANEL_BG, fg=_DIM,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=16)
+                 font=(UI_FONT, 8, "bold"), anchor="w").pack(fill="x", padx=16)
 
         desc_frame = tk.Frame(self, bg=_PANEL_BG)
         desc_frame.pack(fill="both", expand=True, padx=16, pady=(4, 8))
 
         self._desc_text = tk.Text(desc_frame, bg=_PANEL_BG, fg=_FG,
-                                  font=("Segoe UI", 9), wrap="word",
+                                  font=(UI_FONT, 9), wrap="word",
                                   relief="flat", bd=0,
                                   state="disabled", cursor="arrow",
                                   highlightthickness=0)
@@ -816,7 +817,7 @@ class _DetailPanel(tk.Frame):
 
     def _meta_label(self, parent) -> tk.Label:
         lbl = tk.Label(parent, text="", bg=_PANEL_BG, fg=_DIM,
-                       font=("Segoe UI", 8), anchor="w", justify="left")
+                       font=(UI_FONT, 8), anchor="w", justify="left")
         lbl.pack(fill="x", pady=1)
         return lbl
 
@@ -833,7 +834,7 @@ class _DetailPanel(tk.Frame):
                 return base
 
         btn = tk.Label(parent, text=text, bg=bg, fg="white",
-                       font=("Segoe UI", 8), cursor="hand2",
+                       font=(UI_FONT, 8), cursor="hand2",
                        padx=10, pady=4)
         btn._base_bg = bg
 

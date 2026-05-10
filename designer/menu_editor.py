@@ -8,6 +8,7 @@ from typing import Callable
 from .model import MenuItemDescriptor
 from .var_picker import VariablePickerEntry, HandlerPickerEntry, collect_form_variables
 from widgets.guide_window import GuideWindow, GuidePage
+from utils.ui_font import UI_FONT
 
 _BG       = "#1e1e1e"
 _BG2      = "#2d2d2d"
@@ -100,12 +101,12 @@ class MenuEditor(tk.Toplevel):
 
         def _label(parent, text, row, col):
             tk.Label(parent, text=text, bg=_BG, fg=_FG_DIM,
-                     font=("Segoe UI", 9), anchor="w"
+                     font=(UI_FONT, 9), anchor="w"
                      ).grid(row=row, column=col, sticky="w", padx=(0, 4), pady=3)
 
         def _entry(parent, row, col, width=24):
             e = tk.Entry(parent, bg=_ENTRY_BG, fg=_FG, insertbackground=_FG,
-                         relief="flat", font=("Segoe UI", 9), width=width,
+                         relief="flat", font=(UI_FONT, 9), width=width,
                          highlightthickness=1, highlightcolor=_ACCENT,
                          highlightbackground=_BG3)
             e.grid(row=row, column=col, sticky="ew", padx=(0, 12), pady=3)
@@ -128,7 +129,7 @@ class MenuEditor(tk.Toplevel):
         self._shortcut_cb = ttk.Combobox(
             sc_frame, textvariable=self._shortcut_var,
             values=_SHORTCUTS, state="readonly",
-            width=12, font=("Segoe UI", 9),
+            width=12, font=(UI_FONT, 9),
         )
         _style_combobox(self._shortcut_cb)
         self._shortcut_cb.pack()
@@ -141,14 +142,14 @@ class MenuEditor(tk.Toplevel):
         self._enabled_chk = tk.Checkbutton(
             chk_frame, text="Enabled", variable=self._enabled_var,
             bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
-            activeforeground=_FG, font=("Segoe UI", 9),
+            activeforeground=_FG, font=(UI_FONT, 9),
             command=self._on_field_change,
         )
         self._enabled_chk.grid(row=0, column=0, padx=(0, 12))
         self._visible_chk = tk.Checkbutton(
             chk_frame, text="Visible", variable=self._visible_var,
             bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
-            activeforeground=_FG, font=("Segoe UI", 9),
+            activeforeground=_FG, font=(UI_FONT, 9),
             command=self._on_field_change,
         )
         self._visible_chk.grid(row=0, column=1, padx=(0, 12))
@@ -161,7 +162,7 @@ class MenuEditor(tk.Toplevel):
         self._kind_cb = ttk.Combobox(
             kind_frame, textvariable=self._kind_var,
             values=["Command", "Checkbutton", "Radiobutton"],
-            state="readonly", width=13, font=("Segoe UI", 9),
+            state="readonly", width=13, font=(UI_FONT, 9),
         )
         _style_combobox(self._kind_cb)
         self._kind_cb.pack()
@@ -219,7 +220,7 @@ class MenuEditor(tk.Toplevel):
             b = tk.Button(
                 arrow_frame, text=sym, width=3,
                 bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
-                relief="flat", font=("Segoe UI", 10), cursor="hand2",
+                relief="flat", font=(UI_FONT, 10), cursor="hand2",
                 command=cmd,
             )
             b.pack(side="left", padx=2)
@@ -239,7 +240,7 @@ class MenuEditor(tk.Toplevel):
             b = tk.Button(
                 action_frame, text=text, width=width,
                 bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
-                relief="flat", font=("Segoe UI", 9), cursor="hand2",
+                relief="flat", font=(UI_FONT, 9), cursor="hand2",
                 command=cmd,
             )
             b.pack(side="left", padx=2)
@@ -255,7 +256,7 @@ class MenuEditor(tk.Toplevel):
         self._listbox = tk.Listbox(
             lb_frame, bg=_BG2, fg=_FG,
             selectbackground=_SEL_BG, selectforeground="#ffffff",
-            font=("Segoe UI", 9), relief="flat", borderwidth=0,
+            font=(UI_FONT, 9), relief="flat", borderwidth=0,
             activestyle="none", height=10, width=48,
             yscrollcommand=sb.set,
         )
@@ -275,25 +276,25 @@ class MenuEditor(tk.Toplevel):
             ok_frame, text="OK", width=9,
             bg=_ACCENT, fg="#ffffff", activebackground="#4a8ec2",
             activeforeground="#ffffff", relief="flat",
-            font=("Segoe UI", 9, "bold"), cursor="hand2",
+            font=(UI_FONT, 9, "bold"), cursor="hand2",
             command=self._ok,
         ).pack(side="right", padx=(4, 0))
         tk.Button(
             ok_frame, text="Cancel", width=9,
             bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
-            relief="flat", font=("Segoe UI", 9), cursor="hand2",
+            relief="flat", font=(UI_FONT, 9), cursor="hand2",
             command=self.destroy,
         ).pack(side="right")
         tk.Label(
             ok_frame, text="? Menu Editor", bg=_BG, fg=_ACCENT,
-            font=("Segoe UI", 9), cursor="hand2",
+            font=(UI_FONT, 9), cursor="hand2",
         ).pack(side="left")
         ok_frame.winfo_children()[-1].bind("<Button-1>", lambda _: self._open_guide())
 
         # ── hint bar ──────────────────────────────────────────────────────────
         self._hint_label = tk.Label(
             self, text="", bg=_BG2, fg="#888888",
-            font=("Segoe UI", 8), anchor="nw", padx=8, pady=4,
+            font=(UI_FONT, 8), anchor="nw", padx=8, pady=4,
             wraplength=460, justify="left", height=3,
         )
         self._hint_label.pack(fill="x", padx=8, pady=(0, 8))
@@ -609,7 +610,7 @@ class MenuEditor(tk.Toplevel):
         m = tk.Menu(self, tearoff=0,
                     bg=_BG2, fg=_FG,
                     activebackground=_SEL_BG, activeforeground="#ffffff",
-                    relief="flat", bd=1, font=("Segoe UI", 9))
+                    relief="flat", bd=1, font=(UI_FONT, 9))
 
         m.add_command(label="← Promote",   command=self._promote)
         m.add_command(label="→ Demote",    command=self._demote)
@@ -776,7 +777,7 @@ def _bind_tooltip(widget: tk.Widget, text: str) -> None:
         tip.overrideredirect(True)
         tip.configure(bg="#252526")
         tk.Label(tip, text=text, bg="#252526", fg=_FG,
-                 font=("Segoe UI", 8), padx=4, pady=2).pack()
+                 font=(UI_FONT, 8), padx=4, pady=2).pack()
         tip.geometry(f"+{e.x_root + 12}+{e.y_root + 16}")
 
     def _hide(_e):

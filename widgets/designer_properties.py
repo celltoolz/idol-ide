@@ -8,6 +8,7 @@ from designer.model import FormModel, VariableBinding, WidgetDescriptor
 from designer.registry import REGISTRY
 from widgets.guide_window import GuideWindow, GuidePage
 from widgets.scrollbar import VerticalScrollbar
+from utils.ui_font import UI_FONT
 
 
 # ── Order / Props canvas palette ─────────────────────────────────────────────
@@ -73,7 +74,7 @@ class DesignerProperties(tk.Frame):
         self._selector_label = tk.Label(
             sel_frame, text="Properties",
             bg="#3c3c3c", fg="#cccccc",
-            font=("Segoe UI", 9), anchor="w", padx=6,
+            font=(UI_FONT, 9), anchor="w", padx=6,
             cursor="hand2",
         )
         self._selector_label.pack(side="left", fill="x", expand=True)
@@ -81,7 +82,7 @@ class DesignerProperties(tk.Frame):
         self._selector_arrow = tk.Label(
             sel_frame, text="▼",
             bg="#3c3c3c", fg="#858585",
-            font=("Segoe UI", 7), padx=4,
+            font=(UI_FONT, 7), padx=4,
             cursor="hand2",
         )
         self._selector_arrow.pack(side="right")
@@ -106,7 +107,7 @@ class DesignerProperties(tk.Frame):
         _hint_frame.pack_propagate(False)
         self._status_label = tk.Label(
             _hint_frame, text="", bg="#252526", fg="#ff6b6b",
-            font=("Segoe UI", 8), anchor="nw", padx=6, pady=4,
+            font=(UI_FONT, 8), anchor="nw", padx=6, pady=4,
             justify="left", wraplength=200,
         )
         self._status_label.pack(fill="both", expand=True)
@@ -146,7 +147,7 @@ class DesignerProperties(tk.Frame):
         self._prop_clear_btn = tk.Label(
             self._props_cv, text="×",
             bg="#3a3a3a", fg="#888888",
-            font=("Segoe UI", 9), cursor="hand2", padx=2,
+            font=(UI_FONT, 9), cursor="hand2", padx=2,
         )
         self._prop_clear_btn.bind("<Enter>",    lambda e: self._prop_clear_btn.config(fg="#ff6b6b"))
         self._prop_clear_btn.bind("<Leave>",    self._on_prop_btn_leave)
@@ -181,7 +182,7 @@ class DesignerProperties(tk.Frame):
         self._ev_clear_btn = tk.Label(
             self._events_cv, text="×",
             bg="#3a3a3a", fg="#888888",
-            font=("Segoe UI", 9), cursor="hand2", padx=2,
+            font=(UI_FONT, 9), cursor="hand2", padx=2,
         )
         self._ev_clear_btn.bind("<Enter>",    lambda e: self._ev_clear_btn.config(fg="#ff6b6b"))
         self._ev_clear_btn.bind("<Leave>",    self._on_ev_btn_leave)
@@ -190,7 +191,7 @@ class DesignerProperties(tk.Frame):
         self._ev_wire_btn = tk.Label(
             self._events_cv, text="✦",
             bg="#3a3a3a", fg="#555555",
-            font=("Segoe UI", 9), cursor="hand2", padx=2,
+            font=(UI_FONT, 9), cursor="hand2", padx=2,
         )
         self._ev_wire_btn.bind("<Enter>",    lambda e: self._ev_wire_btn.config(fg="#569cd6"))
         self._ev_wire_btn.bind("<Leave>",    self._on_ev_btn_leave)
@@ -487,13 +488,13 @@ class DesignerProperties(tk.Frame):
 
             if row["kind"] == "guide":
                 cv.create_text(w // 2, mid, text=row["label"],
-                               fill="#569cd6", font=("Segoe UI", 9),
+                               fill="#569cd6", font=(UI_FONT, 9),
                                anchor="center", tags=f"er{i}")
             else:
                 cv.create_line(split_x, y0, split_x, y1,
                                fill="#333333", tags=f"er{i}")
                 cv.create_text(8, mid, text=row["label"],
-                               fill=_ORD_FG, font=("Segoe UI", 9),
+                               fill=_ORD_FG, font=(UI_FONT, 9),
                                anchor="w", tags=f"er{i}")
                 val = row["value"]
                 if val:
@@ -519,13 +520,13 @@ class DesignerProperties(tk.Frame):
 
         if row["kind"] == "guide":
             cv.create_text(w // 2, mid, text=row["label"],
-                           fill="#569cd6", font=("Segoe UI", 9),
+                           fill="#569cd6", font=(UI_FONT, 9),
                            anchor="center", tags=f"er{idx}")
         else:
             cv.create_line(split_x, y0, split_x, y1,
                            fill="#333333", tags=f"er{idx}")
             cv.create_text(8, mid, text=row["label"],
-                           fill=_ORD_FG, font=("Segoe UI", 9),
+                           fill=_ORD_FG, font=(UI_FONT, 9),
                            anchor="w", tags=f"er{idx}")
             val = row["value"]
             if val:
@@ -652,7 +653,7 @@ class DesignerProperties(tk.Frame):
             msg = ("No handlers available for this form type"
                    if self._form else "Select the form to manage handlers")
             cv.create_text(w // 2, 24, text=msg,
-                           fill=_ORD_DIM, font=("Segoe UI", 8), anchor="center")
+                           fill=_ORD_DIM, font=(UI_FONT, 8), anchor="center")
             return
 
         for i, h in enumerate(defs):
@@ -671,7 +672,7 @@ class DesignerProperties(tk.Frame):
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r,
                                     fill="#007acc", outline="#007acc", tags=f"hr{i}")
                 cv.create_text(cx, cy, text="✓", fill="#ffffff",
-                               font=("Segoe UI", 8, "bold"), tags=f"hr{i}")
+                               font=(UI_FONT, 8, "bold"), tags=f"hr{i}")
             else:
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r,
                                     fill="", outline="#555555", tags=f"hr{i}")
@@ -683,7 +684,7 @@ class DesignerProperties(tk.Frame):
             # Applies-to badge (dimmed, right-aligned)
             badge = "dialog" if h.applies_to == ("dialog",) else "all forms"
             cv.create_text(w - 6, mid, text=badge,
-                           fill=_ORD_DIM, font=("Segoe UI", 7), anchor="e", tags=f"hr{i}")
+                           fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e", tags=f"hr{i}")
 
         cv.configure(scrollregion=(0, 0, w, len(defs) * _ORD_ROW_H))
 
@@ -842,7 +843,7 @@ class DesignerProperties(tk.Frame):
                 cv.create_line(6, mid, w - 6, mid, fill=_ORD_DIM, tags=f"pr{i}")
                 # Text centered on full row width
                 tid = cv.create_text(w // 2, mid, text=row["label"],
-                                     fill=_ORD_DIM, font=("Segoe UI", 8),
+                                     fill=_ORD_DIM, font=(UI_FONT, 8),
                                      anchor="center", tags=f"pr{i}")
                 # Mask line behind text with bg rect, then raise text
                 tb = cv.bbox(tid)
@@ -862,7 +863,7 @@ class DesignerProperties(tk.Frame):
                 if row["link"]:
                     lbl_color = "#569cd6"
                 cv.create_text(8, mid, text=row["label"],
-                               fill=lbl_color, font=("Segoe UI", 9),
+                               fill=lbl_color, font=(UI_FONT, 9),
                                anchor="w", tags=f"pr{i}")
 
                 # Value
@@ -873,15 +874,15 @@ class DesignerProperties(tk.Frame):
                                         fill=row["swatch"], outline="#555555",
                                         tags=f"pr{i}")
                     cv.create_text(sx + 16, mid, text=val,
-                                   fill=_ORD_FG, font=("Segoe UI", 9),
+                                   fill=_ORD_FG, font=(UI_FONT, 9),
                                    anchor="w", tags=f"pr{i}")
                 elif row["warn"]:
                     cv.create_text(split_x + 8, mid, text=val,
-                                   fill="#ff6b6b", font=("Segoe UI", 9),
+                                   fill="#ff6b6b", font=(UI_FONT, 9),
                                    anchor="w", tags=f"pr{i}")
                 else:
                     cv.create_text(split_x + 8, mid, text=val,
-                                   fill=_ORD_FG, font=("Segoe UI", 9),
+                                   fill=_ORD_FG, font=(UI_FONT, 9),
                                    anchor="w", tags=f"pr{i}")
 
     def _props_redraw_row(self, idx: int) -> None:
@@ -904,7 +905,7 @@ class DesignerProperties(tk.Frame):
             cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"pr{idx}")
             cv.create_line(6, mid, w - 6, mid, fill=_ORD_DIM, tags=f"pr{idx}")
             tid = cv.create_text(w // 2, mid, text=row["label"],
-                                 fill=_ORD_DIM, font=("Segoe UI", 8),
+                                 fill=_ORD_DIM, font=(UI_FONT, 8),
                                  anchor="center", tags=f"pr{idx}")
             tb = cv.bbox(tid)
             if tb:
@@ -920,7 +921,7 @@ class DesignerProperties(tk.Frame):
             if row["link"]:
                 lbl_color = "#569cd6"
             cv.create_text(8, mid, text=row["label"],
-                           fill=lbl_color, font=("Segoe UI", 9),
+                           fill=lbl_color, font=(UI_FONT, 9),
                            anchor="w", tags=f"pr{idx}")
 
             val = row["value"]
@@ -930,15 +931,15 @@ class DesignerProperties(tk.Frame):
                                     fill=row["swatch"], outline="#555555",
                                     tags=f"pr{idx}")
                 cv.create_text(sx + 16, mid, text=val,
-                               fill=_ORD_FG, font=("Segoe UI", 9),
+                               fill=_ORD_FG, font=(UI_FONT, 9),
                                anchor="w", tags=f"pr{idx}")
             elif row["warn"]:
                 cv.create_text(split_x + 8, mid, text=val,
-                               fill="#ff6b6b", font=("Segoe UI", 9),
+                               fill="#ff6b6b", font=(UI_FONT, 9),
                                anchor="w", tags=f"pr{idx}")
             else:
                 cv.create_text(split_x + 8, mid, text=val,
-                               fill=_ORD_FG, font=("Segoe UI", 9),
+                               fill=_ORD_FG, font=(UI_FONT, 9),
                                anchor="w", tags=f"pr{idx}")
 
     # ── Order tab internals ───────────────────────────────────────────────────
@@ -954,7 +955,7 @@ class DesignerProperties(tk.Frame):
             cv.create_text(
                 w // 2, 40,
                 text="No widgets on form.",
-                fill=_ORD_DIM, font=("Segoe UI", 9), anchor="center",
+                fill=_ORD_DIM, font=(UI_FONT, 9), anchor="center",
             )
             cv.configure(scrollregion=(0, 0, w, 80))
             return
@@ -979,7 +980,7 @@ class DesignerProperties(tk.Frame):
         cv.create_oval(bx - r, by - r, bx + r, by + r,
                        fill=_ORD_NUM, outline="", tags=tag)
         cv.create_text(bx, by, text=str(idx + 1), fill="#ffffff",
-                       font=("Segoe UI", 7, "bold"), anchor="center", tags=tag)
+                       font=(UI_FONT, 7, "bold"), anchor="center", tags=tag)
 
         # Widget ID
         cv.create_text(bx + r + 6, by, text=widget.id,
@@ -988,7 +989,7 @@ class DesignerProperties(tk.Frame):
 
         # Type (dim, right-aligned)
         cv.create_text(w - 8, by, text=widget.type,
-                       fill=_ORD_DIM, font=("Segoe UI", 8),
+                       fill=_ORD_DIM, font=(UI_FONT, 8),
                        anchor="e", tags=tag)
 
         cv.tag_bind(tag, "<Enter>", lambda e, i=idx: self._order_hover_on(i))
@@ -1083,7 +1084,7 @@ class DesignerProperties(tk.Frame):
             def _cmd(w=wid):
                 if self._on_select_widget:
                     self._on_select_widget(w)
-            menu.add_command(label=label, command=_cmd, font=("Segoe UI", 9))
+            menu.add_command(label=label, command=_cmd, font=(UI_FONT, 9))
         try:
             rx = self._selector_label.winfo_rootx()
             ry = self._selector_label.winfo_rooty() + self._selector_label.winfo_height()
@@ -1520,7 +1521,7 @@ class DesignerProperties(tk.Frame):
 
         for val in values:
             lbl = tk.Label(overlay, text=val, bg="#2d2d2d", fg="#cccccc",
-                           font=("Segoe UI", 9), anchor="w",
+                           font=(UI_FONT, 9), anchor="w",
                            padx=6, pady=2, cursor="hand2")
             lbl.pack(fill="x")
 
@@ -1981,7 +1982,7 @@ class DesignerProperties(tk.Frame):
 
         for val in values:
             lbl = tk.Label(overlay, text=val, bg="#2d2d2d", fg="#cccccc",
-                           font=("Segoe UI", 9), anchor="w",
+                           font=(UI_FONT, 9), anchor="w",
                            padx=6, pady=2, cursor="hand2")
             lbl.pack(fill="x")
 
@@ -2067,7 +2068,7 @@ class DesignerProperties(tk.Frame):
                     grid_frame, text=sym,
                     bg="#094771" if active else "#3c3c3c",
                     fg="#ffffff" if active else "#cccccc",
-                    font=("Segoe UI", 10),
+                    font=(UI_FONT, 10),
                     width=3, height=1,
                     relief="flat", cursor="hand2",
                 )
@@ -2089,7 +2090,7 @@ class DesignerProperties(tk.Frame):
         # Shift-key note
         tk.Label(overlay, text="Shift+resize ignores anchors",
                  bg="#2d2d2d", fg="#666666",
-                 font=("Segoe UI", 7), anchor="center").pack(
+                 font=(UI_FONT, 7), anchor="center").pack(
             fill="x", padx=4, pady=(0, 4))
 
         # Position: 120px wide; flip above when near the canvas bottom

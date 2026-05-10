@@ -12,6 +12,7 @@ import tkinter as tk
 from typing import Callable
 
 from widgets.learning_manager import LearningManager
+from utils.ui_font import UI_FONT
 
 _BG       = "#2d2d30"
 _BG_HOVER = "#3e3e42"
@@ -132,7 +133,7 @@ class BreadcrumbBar(tk.Frame):
 
             lbl = tk.Label(
                 self._inner, text=label, bg=_BG, fg=fg,
-                font=("Segoe UI", 9), padx=2, pady=0,
+                font=(UI_FONT, 9), padx=2, pady=0,
             )
             lbl.pack(side="left")
 
@@ -159,7 +160,7 @@ class BreadcrumbBar(tk.Frame):
                 sibs, locs = _get_picker_data(tag, name, start, scope, outline)
                 lbl = tk.Label(
                     self._inner, text=name, bg=_BG, fg=fg,
-                    font=("Segoe UI", 9), padx=2, pady=0,
+                    font=(UI_FONT, 9), padx=2, pady=0,
                     cursor="hand2",
                 )
                 lbl.pack(side="left")
@@ -176,7 +177,7 @@ class BreadcrumbBar(tk.Frame):
                     # Drill-down › after the innermost crumb — clicking shows locals
                     drill = tk.Label(
                         self._inner, text="›", bg=_BG, fg=_FG_DIM,
-                        font=("Segoe UI", 9), padx=3, pady=0,
+                        font=(UI_FONT, 9), padx=3, pady=0,
                         cursor="hand2",
                     )
                     drill.pack(side="left")
@@ -330,10 +331,10 @@ class BreadcrumbBar(tk.Frame):
             row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
             row.pack(fill="x"); row.pack_propagate(False)
             nl = tk.Label(row, text=name, bg=_PICK_BG, fg=fg,
-                          font=("Segoe UI", 9), anchor="w", padx=12, pady=0)
+                          font=(UI_FONT, 9), anchor="w", padx=12, pady=0)
             nl.pack(side="left", fill="y")
             ll = tk.Label(row, text=f":{lineno}", bg=_PICK_BG, fg=_FG_DIM,
-                          font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
+                          font=(UI_FONT, 8), anchor="e", padx=8, pady=0)
             ll.pack(side="right", fill="y")
 
             idx = len(rows); rows.append((row, nl, ll, lineno))
@@ -401,7 +402,7 @@ class BreadcrumbBar(tk.Frame):
             height=1, state="disabled", wrap="none",
             bd=0, highlightthickness=0,
             bg="#1a1a1d", fg=_FG_DIM,
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
             padx=8, pady=6,
             cursor="arrow", takefocus=False,
         )
@@ -508,7 +509,7 @@ class BreadcrumbBar(tk.Frame):
         hdr = tk.Frame(inner, bg=_PICK_BG, height=HDR_H)
         hdr.pack(fill="x"); hdr.pack_propagate(False)
         tk.Label(hdr, text=f"IN  {scope_name.upper()}", bg=_PICK_BG, fg=_FG_DIM,
-                 font=("Segoe UI", 7, "bold"), anchor="w", padx=10).pack(side="left", fill="y")
+                 font=(UI_FONT, 7, "bold"), anchor="w", padx=10).pack(side="left", fill="y")
 
         from collections import defaultdict
         groups: dict[str, list] = defaultdict(list)
@@ -530,7 +531,7 @@ class BreadcrumbBar(tk.Frame):
                 sec = tk.Frame(inner, bg=_PICK_BG, height=SEC_H)
                 sec.pack(fill="x"); sec.pack_propagate(False)
                 tk.Label(sec, text=sec_label, bg=_PICK_BG, fg=_FG_DIM,
-                         font=("Segoe UI", 7), anchor="w", padx=10).pack(side="left", fill="y")
+                         font=(UI_FONT, 7), anchor="w", padx=10).pack(side="left", fill="y")
                 content_h += SEC_H
 
             fg   = _FG_MAP.get(gkey, _LOCAL_FG)
@@ -539,10 +540,10 @@ class BreadcrumbBar(tk.Frame):
                 row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
                 row.pack(fill="x"); row.pack_propagate(False)
                 nl = tk.Label(row, text=f"{icon}  {lname}", bg=_PICK_BG, fg=fg,
-                              font=("Segoe UI", 9), anchor="w", padx=12, pady=0)
+                              font=(UI_FONT, 9), anchor="w", padx=12, pady=0)
                 nl.pack(side="left", fill="y")
                 ll = tk.Label(row, text=f":{lline}", bg=_PICK_BG, fg=_FG_DIM,
-                              font=("Segoe UI", 8), anchor="e", padx=8, pady=0)
+                              font=(UI_FONT, 8), anchor="e", padx=8, pady=0)
                 ll.pack(side="right", fill="y")
 
                 idx = len(rows)
@@ -612,7 +613,7 @@ class BreadcrumbBar(tk.Frame):
 def _sep(parent: tk.Frame) -> None:
     tk.Label(
         parent, text="›", bg=_BG, fg=_FG_SEP,
-        font=("Segoe UI", 9), padx=1, pady=0,
+        font=(UI_FONT, 9), padx=1, pady=0,
     ).pack(side="left")
 
 

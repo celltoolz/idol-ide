@@ -8,6 +8,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
+from utils.ui_font import UI_FONT
 
 
 _BG       = "#252526"
@@ -96,7 +97,7 @@ class CommandPalette(tk.Toplevel):
             fg=_FG,
             insertbackground=_FG,
             relief="flat",
-            font=("Segoe UI", 12),
+            font=(UI_FONT, 12),
             bd=6,
         )
         self._entry.pack(fill="x")
@@ -104,7 +105,7 @@ class CommandPalette(tk.Toplevel):
         # Hint label (shown below input)
         self._hint = tk.Label(
             self, text="  Type @ for symbols  ·  ! for pip commands",
-            bg=_INPUT_BG, fg=_DIM, font=("Segoe UI", 8), anchor="w",
+            bg=_INPUT_BG, fg=_DIM, font=(UI_FONT, 8), anchor="w",
         )
         self._hint.pack(fill="x")
 
@@ -185,7 +186,7 @@ class CommandPalette(tk.Toplevel):
 
             lbl = tk.Label(
                 row, text=label, bg=_BG, fg=_FG,
-                font=("Segoe UI", 10), anchor="w", padx=10, pady=6,
+                font=(UI_FONT, 10), anchor="w", padx=10, pady=6,
             )
             lbl.pack(side="left", fill="x", expand=True)
 
@@ -193,7 +194,7 @@ class CommandPalette(tk.Toplevel):
                 fg = _HINT_FG if self._symbol_mode else _DIM
                 tk.Label(
                     row, text=accel, bg=_BG, fg=fg,
-                    font=("Segoe UI", 9), padx=10,
+                    font=(UI_FONT, 9), padx=10,
                 ).pack(side="right")
 
             idx = i

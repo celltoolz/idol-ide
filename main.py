@@ -3,6 +3,7 @@ import os
 import sys
 import tkinter as tk
 from pathlib import Path
+from utils.ui_font import UI_FONT
 
 
 _SPLASH_MS = 2500  # how long the splash stays up
@@ -34,7 +35,7 @@ def _show_splash(app: tk.Tk) -> None:
             text="IDOL\nIntegrated Development and Objective Learning\n",
             bg="#0d1117",
             fg="#cccccc",
-            font=("Segoe UI", 18, "bold"),
+            font=(UI_FONT, 18, "bold"),
             padx=60,
             pady=40,
         )

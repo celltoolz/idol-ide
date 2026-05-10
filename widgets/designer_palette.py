@@ -5,6 +5,7 @@ from tkinter import ttk
 from typing import Callable, Optional
 
 from designer.registry import REGISTRY, all_types
+from utils.ui_font import UI_FONT
 
 _BG     = "#252526"
 _ITEM   = "#2d2d30"
@@ -50,7 +51,7 @@ class DesignerPalette(tk.Frame):
     def _build_ui(self) -> None:
         # Header
         tk.Label(self, text="WIDGETS", bg=_BG, fg=_DIM,
-                 font=("Segoe UI", 8, "bold"), anchor="w",
+                 font=(UI_FONT, 8, "bold"), anchor="w",
                  padx=8).pack(fill="x", pady=(8, 2))
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
@@ -99,7 +100,7 @@ class DesignerPalette(tk.Frame):
 
         # Label
         lbl = tk.Label(row, text=label, bg=_ITEM, fg=_FG,
-                       font=("Segoe UI", 8), anchor="w")
+                       font=(UI_FONT, 8), anchor="w")
         lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
         # Bind click on all child widgets
@@ -181,7 +182,7 @@ class DesignerPalette(tk.Frame):
         tk.Label(
             self._ghost, text=f"  {type_key}  ",
             bg=_ACT, fg="#ffffff",
-            font=("Segoe UI", 9), relief="solid", bd=1,
+            font=(UI_FONT, 9), relief="solid", bd=1,
         ).pack()
 
     def _move_ghost(self, x_root: int, y_root: int) -> None:

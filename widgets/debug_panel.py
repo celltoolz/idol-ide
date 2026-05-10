@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from tkinter import Frame, Label, PanedWindow, Text, ttk
 from typing import Callable
+from utils.ui_font import UI_FONT
 
 
 class DebugPanel(Frame):
@@ -50,7 +51,7 @@ class DebugPanel(Frame):
             text="BREAKPOINTS",
             bg=self._BG_PANE,
             fg=self._FG_HEAD,
-            font=("Segoe UI", 8, "bold"),
+            font=(UI_FONT, 8, "bold"),
             anchor="w",
             padx=8,
             pady=4,
@@ -62,7 +63,7 @@ class DebugPanel(Frame):
             left,
             bg=self._BG,
             fg=self._FG,
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="arrow",
             bd=0,
             relief="flat",
@@ -81,12 +82,12 @@ class DebugPanel(Frame):
             text="  ⚠ Save file to make breakpoints permanent",
             bg=self._BG,
             fg="#e2c08d",
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
             anchor="w",
             pady=3,
         )
 
-        self._bp_text.tag_configure("dot",   foreground=self._DOT_BP, font=("Segoe UI", 9, "bold"))
+        self._bp_text.tag_configure("dot",   foreground=self._DOT_BP, font=(UI_FONT, 9, "bold"))
         self._bp_text.tag_configure("file",  foreground=self._FG)
         self._bp_text.tag_configure("line",  foreground=self._FG_DIM)
         self._bp_text.tag_configure("hover", background=self._HOVER_BG)
@@ -104,7 +105,7 @@ class DebugPanel(Frame):
             text="LOCALS",
             bg=self._BG_PANE,
             fg=self._FG_HEAD,
-            font=("Segoe UI", 8, "bold"),
+            font=(UI_FONT, 8, "bold"),
             anchor="w",
             padx=8,
             pady=4,

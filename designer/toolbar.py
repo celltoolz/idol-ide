@@ -1,4 +1,5 @@
 from __future__ import annotations
+from utils.ui_font import UI_FONT
 
 """
 DesignerToolbar — horizontal strip above the design canvas.
@@ -127,7 +128,7 @@ class DesignerToolbar(tk.Frame):
             text=text,
             bg=_BTN_BG,
             fg=_BTN_FG,
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
             width=3,
             height=1,
             cursor="hand2",
@@ -269,7 +270,7 @@ class DesignerToolbar(tk.Frame):
 
         def _full_btn(text, cmd):
             lbl = tk.Label(inner, text=text, bg=_BTN_BG, fg=_BTN_FG,
-                           font=("Segoe UI", 8), cursor="hand2",
+                           font=(UI_FONT, 8), cursor="hand2",
                            padx=6, pady=4, anchor="center")
             lbl.pack(fill="x", padx=4, pady=(4, 2))
             lbl.bind("<Enter>",    lambda e: lbl.config(bg=_BTN_ACT, fg="#ffffff"))
@@ -280,10 +281,10 @@ class DesignerToolbar(tk.Frame):
             row = tk.Frame(inner, bg=_BG)
             row.pack(fill="x", padx=4, pady=2)
             tk.Label(row, text=label, bg=_BG, fg="#888888",
-                     font=("Segoe UI", 8), width=2, anchor="w").pack(side="left")
+                     font=(UI_FONT, 8), width=2, anchor="w").pack(side="left")
             for sym, fn in (("−", fn_minus), ("+", fn_plus)):
                 b = tk.Label(row, text=sym, bg=_BTN_BG, fg=_BTN_FG,
-                             font=("Segoe UI", 9), width=3, cursor="hand2", relief="flat")
+                             font=(UI_FONT, 9), width=3, cursor="hand2", relief="flat")
                 b.pack(side="left", padx=2)
                 b.bind("<Enter>",    lambda e, b=b: b.config(bg=_BTN_ACT, fg="#ffffff"))
                 b.bind("<Leave>",    lambda e, b=b: b.config(bg=_BTN_BG,  fg=_BTN_FG))
@@ -341,7 +342,7 @@ def _add_tooltip(widget: tk.Widget, text: str, delay: int = 500) -> None:
             tk.Label(
                 tip, text=text,
                 bg="#2d2d2d", fg="#cccccc",
-                font=("Segoe UI", 8),
+                font=(UI_FONT, 8),
                 relief="solid", bd=1, padx=4, pady=2,
             ).pack()
             _win[0] = tip

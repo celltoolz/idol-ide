@@ -11,6 +11,7 @@ from tkinter import Frame, Label, ttk
 from typing import Callable
 
 from utils.guide_types import GuidePage
+from utils.ui_font import UI_FONT
 
 _BG = "#252526"
 _HDR_BG = "#2d2d30"
@@ -56,11 +57,11 @@ class GuideWindow(tk.Toplevel):
         hdr = Frame(self, bg=_HDR_BG, pady=8)
         hdr.pack(fill="x")
         self._title_lbl = Label(
-            hdr, text="", bg=_HDR_BG, fg=_FG, font=("Segoe UI", 10, "bold"), padx=12
+            hdr, text="", bg=_HDR_BG, fg=_FG, font=(UI_FONT, 10, "bold"), padx=12
         )
         self._title_lbl.pack(anchor="w")
         self._sub_lbl = Label(
-            hdr, text="", bg=_HDR_BG, fg=_DIM, font=("Segoe UI", 8), padx=12
+            hdr, text="", bg=_HDR_BG, fg=_DIM, font=(UI_FONT, 8), padx=12
         )
         self._sub_lbl.pack(anchor="w")
 
@@ -118,7 +119,7 @@ class GuideWindow(tk.Toplevel):
             text=text,
             bg=_HDR_BG,
             fg=_FG,
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="hand2",
             padx=10,
             pady=2,
@@ -181,7 +182,7 @@ class GuideWindow(tk.Toplevel):
                 text=label,
                 bg=_BG,
                 fg=color,
-                font=("Segoe UI", 8, "bold"),
+                font=(UI_FONT, 8, "bold"),
                 anchor="w",
             ).pack(fill="x", pady=(6, 0))
             Label(
@@ -189,7 +190,7 @@ class GuideWindow(tk.Toplevel):
                 text=body,
                 bg=_BG,
                 fg=_DIM,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 anchor="w",
                 justify="left",
                 wraplength=340,
@@ -203,7 +204,7 @@ class GuideWindow(tk.Toplevel):
                 text="IN PLAIN ENGLISH",
                 bg=_PLAIN_BG,
                 fg="#569cd6",
-                font=("Segoe UI", 8, "bold"),
+                font=(UI_FONT, 8, "bold"),
                 anchor="w",
             ).pack(fill="x")
             Label(
@@ -211,7 +212,7 @@ class GuideWindow(tk.Toplevel):
                 text=page.plain_english,
                 bg=_PLAIN_BG,
                 fg=_FG,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 anchor="w",
                 justify="left",
                 wraplength=320,
@@ -228,7 +229,7 @@ class GuideWindow(tk.Toplevel):
                 text=page.action_label,
                 bg=_BTN_BG,
                 fg="white",
-                font=("Segoe UI", 9, "bold"),
+                font=(UI_FONT, 9, "bold"),
                 cursor="hand2",
                 padx=10,
                 pady=4,

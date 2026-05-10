@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
+from utils.ui_font import UI_FONT
 
 _BG        = "#252526"
 _HDR_BG    = "#2d2d2d"
@@ -72,12 +73,12 @@ class FormListPanel(tk.Frame):
 
         tk.Label(
             hdr, text="FORMS", bg=_HDR_BG, fg=_DIM,
-            font=("Segoe UI", 8, "bold"), anchor="w", padx=8,
+            font=(UI_FONT, 8, "bold"), anchor="w", padx=8,
         ).pack(side="left")
 
         self._add_lbl = tk.Label(
             hdr, text="+", bg=_HDR_BG, fg=_DIM,
-            font=("Segoe UI", 12), cursor="hand2", padx=8,
+            font=(UI_FONT, 12), cursor="hand2", padx=8,
         )
         self._add_lbl.pack(side="right")
         self._add_lbl.bind("<Enter>", lambda _: self._add_lbl.config(fg=_FG))
@@ -187,7 +188,7 @@ class FormListPanel(tk.Frame):
                 c.create_line(4, (y0 + y1) // 2, x - 2, (y0 + y1) // 2,
                               fill="#444", width=1)
                 c.create_text(x, (y0 + y1) // 2, text=name, fill="#555",
-                              font=("Segoe UI", 7, "bold"), anchor="w")
+                              font=(UI_FONT, 7, "bold"), anchor="w")
                 continue
 
             # Icon
@@ -197,20 +198,20 @@ class FormListPanel(tk.Frame):
                 icon, icon_fg = "⧉", "#9cdcfe" if kind == "linked" else "#858585"
 
             c.create_text(x, (y0 + y1) // 2, text=icon, fill=icon_fg,
-                          font=("Segoe UI", 9), anchor="w")
+                          font=(UI_FONT, 9), anchor="w")
 
             # Name
             label_x = x + 16
             fg = _FG if is_active else (_FG if kind == "linked" else _DIM)
             c.create_text(label_x, (y0 + y1) // 2, text=name, fill=fg,
-                          font=("Segoe UI", 9), anchor="w")
+                          font=(UI_FONT, 9), anchor="w")
 
             # × unlink button on hover for linked dialog rows
             if kind == "linked" and is_hov and not self._drag_name:
                 c.create_text(
                     cw - 8, (y0 + y1) // 2,
                     text="×", fill=_UNLINK_FG,
-                    font=("Segoe UI", 10, "bold"), anchor="e",
+                    font=(UI_FONT, 10, "bold"), anchor="e",
                     tags=(f"unlink_{i}",),
                 )
 
@@ -333,7 +334,7 @@ class FormListPanel(tk.Frame):
             text=f"  ⧉  {name}  ",
             bg="#094771",
             fg="#ffffff",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             padx=4,
             pady=3,
         ).pack()

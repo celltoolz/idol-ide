@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from tkinter import Frame, Label, Text, ttk
 from typing import Callable
+from utils.ui_font import UI_FONT
 
 
 class ReferencesPanel(ttk.Frame):
@@ -82,8 +83,8 @@ class ReferencesPanel(ttk.Frame):
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _apply_tags(self) -> None:
-        self._list.tag_configure("loc",     foreground=self._accent,     font=("Segoe UI", 9, "bold"))
-        self._list.tag_configure("preview", foreground=self._preview_fg, font=("Segoe UI", 9))
+        self._list.tag_configure("loc",     foreground=self._accent,     font=(UI_FONT, 9, "bold"))
+        self._list.tag_configure("preview", foreground=self._preview_fg, font=(UI_FONT, 9))
         self._list.tag_configure("hover",   background=self._sel)
 
     def _build_ui(self) -> None:
@@ -94,14 +95,14 @@ class ReferencesPanel(ttk.Frame):
         self._word_lbl = Label(
             self._header, text="References",
             bg=self._bg, fg=self._accent,
-            font=("Segoe UI", 8, "bold"), anchor="w", padx=6,
+            font=(UI_FONT, 8, "bold"), anchor="w", padx=6,
         )
         self._word_lbl.pack(side="left", fill="x", expand=True)
 
         self._count_lbl = Label(
             self._header, text="",
             bg=self._bg, fg=self._comment_fg,
-            font=("Segoe UI", 8), padx=6,
+            font=(UI_FONT, 8), padx=6,
         )
         self._count_lbl.pack(side="right")
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from utils.ui_font import UI_FONT
 
 """
 DesignerCanvas — the drag-and-drop design surface for the GUI Designer.
@@ -603,7 +604,7 @@ class DesignerCanvas(tk.Canvas):
                              fill="#007acc", outline="#ffffff", width=1,
                              tags="tab_badge")
             self.create_text(cx, cy, text=str(i + 1), fill="#ffffff",
-                             font=("Segoe UI", 7, "bold"), tags="tab_badge")
+                             font=(UI_FONT, 7, "bold"), tags="tab_badge")
         self.tag_raise("tab_badge")
 
     def move_widget_to(self, widget_id: str, new_idx: int) -> None:
@@ -905,7 +906,7 @@ class DesignerCanvas(tk.Canvas):
                                fill="#0078d4", outline="", tags="titlebar")
         self.create_text(ox + 8, ty + _TITLE // 2, anchor="w",
                          text=f.title or f.name,
-                         fill="#ffffff", font=("Segoe UI", 9), tags="titlebar")
+                         fill="#ffffff", font=(UI_FONT, 9), tags="titlebar")
 
         # Form body
         bg = f.bg or _FORM
@@ -935,7 +936,7 @@ class DesignerCanvas(tk.Canvas):
                                       fill="#f0f0f0", outline="", tags="menu_bar")
                 self.create_text(mx + tw // 2, oy + _MENUBAR // 2,
                                  text=label, fill="#111111",
-                                 font=("Segoe UI", 9), tags="menu_bar")
+                                 font=(UI_FONT, 9), tags="menu_bar")
                 self._menu_hitboxes.append((mx, oy, mx + tw, oy + _MENUBAR, idx))
                 mx += tw + 4
 
@@ -1663,7 +1664,7 @@ class DesignerCanvas(tk.Canvas):
         menu = tk.Menu(self, tearoff=0,
                        bg="#ffffff", fg="#111111",
                        activebackground="#0078d4", activeforeground="#ffffff",
-                       relief="flat", bd=1, font=("Segoe UI", 9))
+                       relief="flat", bd=1, font=(UI_FONT, 9))
 
         def _ul(item):
             u = item.underline_index
@@ -1683,7 +1684,7 @@ class DesignerCanvas(tk.Canvas):
                     sub = tk.Menu(menu, tearoff=0,
                                   bg="#ffffff", fg="#111111",
                                   activebackground="#0078d4", activeforeground="#ffffff",
-                                  relief="flat", bd=1, font=("Segoe UI", 9))
+                                  relief="flat", bd=1, font=(UI_FONT, 9))
                     j = i + 1
                     while j < len(items) and items[j].indent > 1:
                         si = items[j]
@@ -1861,7 +1862,7 @@ def _tag(fn):
 
 
 def _text(c, x, y, x2, y2, txt, anchor="center", color="#111111", bold=False):
-    font = ("Segoe UI", 9, "bold") if bold else ("Segoe UI", 9)
+    font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
     cx = (x + x2) // 2 if anchor == "center" else x + 6
     cy = (y + y2) // 2
     c.create_text(cx, cy, text=txt, fill=color, font=font, anchor=anchor)
@@ -2004,7 +2005,7 @@ def _draw_combobox(c, x, y, x2, y2, text, props):
         bg, fg = "#ffffff", "#444444"
     c.create_rectangle(x, y, x2, y2,     fill=bg,      outline="#abadb3")
     c.create_rectangle(x2-20, y, x2, y2, fill="#e1e1e1", outline="#abadb3")
-    c.create_text(x2-10, (y+y2)//2,      text="▾",     fill="#444444", font=("Segoe UI", 8))
+    c.create_text(x2-10, (y+y2)//2,      text="▾",     fill="#444444", font=(UI_FONT, 8))
     vals = props.get("values", [])
     if vals:
         _text(c, x, y, x2-20, y2, str(vals[0]), anchor="w", color=fg)
@@ -2030,13 +2031,13 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
         if i == 0:
             c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill=sbg, outline="")
             c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
-                          fill=sfg, font=("Segoe UI", 8))
+                          fill=sfg, font=(UI_FONT, 8))
         else:
             row_bg = (alt_bg if (i % 2 == 0 and alt_bg) else bg)
             if row_bg != bg:
                 c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill=row_bg, outline="")
             c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
-                          fill=fg, font=("Segoe UI", 8))
+                          fill=fg, font=(UI_FONT, 8))
 
 
 @_tag
@@ -2083,11 +2084,11 @@ def _draw_labelframe(c, x, y, x2, y2, text, props):
     # Erase the border at the label position to create the notch
     c.create_rectangle(notch[0], notch[1], notch[2], notch[3], fill=bg, outline="")
     if edge == "s":
-        c.create_text(notch[0]+4, y2-8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        c.create_text(notch[0]+4, y2-8, text=label, anchor="w", fill=fg, font=(UI_FONT, 8))
     elif edge in ("w", "e"):
-        c.create_text(notch[0]+4, notch[1]+8, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        c.create_text(notch[0]+4, notch[1]+8, text=label, anchor="w", fill=fg, font=(UI_FONT, 8))
     else:
-        c.create_text(notch[0]+4, by, text=label, anchor="w", fill=fg, font=("Segoe UI", 8))
+        c.create_text(notch[0]+4, by, text=label, anchor="w", fill=fg, font=(UI_FONT, 8))
 
 
 @_tag
@@ -2124,8 +2125,8 @@ def _draw_spinbox(c, x, y, x2, y2, text, props):
     c.create_rectangle(x2-16, y, x2, y2,  fill=btn_bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     mid = (y + y2) // 2
-    c.create_text(x2-8, mid-4, text="▲", fill=btn_fg, font=("Segoe UI", 6))
-    c.create_text(x2-8, mid+4, text="▼", fill=btn_fg, font=("Segoe UI", 6))
+    c.create_text(x2-8, mid-4, text="▲", fill=btn_fg, font=(UI_FONT, 6))
+    c.create_text(x2-8, mid+4, text="▼", fill=btn_fg, font=(UI_FONT, 6))
     values = props.get("values", [])
     val = str(values[0]) if values else str(props.get("from_", "0"))
     _text(c, x, y, x2-16, y2, val, anchor="w", color=fg)

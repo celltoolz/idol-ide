@@ -4,6 +4,7 @@ from tkinter import Label, Menu, PhotoImage, Toplevel, ttk
 from typing import Callable, Optional
 
 from utils import bind_right_click
+from utils.ui_font import UI_FONT
 
 
 class CustomNotebook(ttk.Notebook):
@@ -40,7 +41,7 @@ class CustomNotebook(ttk.Notebook):
         self._hover_btn = Label(
             self,
             text="×",
-            font=("Segoe UI", 9, "bold"),
+            font=(UI_FONT, 9, "bold"),
             fg="#888888",
             bg=self.__class__._COLOR_LIGHT,
             cursor="hand2",
@@ -214,7 +215,7 @@ class CustomNotebook(ttk.Notebook):
             lbl = Label(
                 self._tooltip_win, text=path,
                 bg="#1e1e1e", fg="#cccccc",
-                font=("Segoe UI", 8),
+                font=(UI_FONT, 8),
                 padx=6, pady=3,
                 relief="flat",
                 bd=0,

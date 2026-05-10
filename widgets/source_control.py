@@ -8,6 +8,7 @@ from typing import Callable
 
 from utils import bind_right_click
 from utils.git_diagnostics import (
+from utils.ui_font import UI_FONT
     classify_file, analyze_files, health_checks, git_installed, git_identity_ok,
     FileInfo, Issue, HealthCheck
 )
@@ -54,7 +55,7 @@ class _Tooltip:
         frame = Frame(self._tip, bg="#555555", padx=1, pady=1)
         frame.pack()
         Label(frame, text=text, bg=bg, fg="#cccccc",
-              font=("Segoe UI", 8), justify="left",
+              font=(UI_FONT, 8), justify="left",
               wraplength=220, padx=8, pady=5).pack()
         self._tip.geometry(f"+{x}+{y}")
 
@@ -81,11 +82,11 @@ class _FileRow(Frame):
         name = os.path.basename(path)
 
         lbl = Label(self, text=f"  {name}", bg=bg, fg=color,
-                    font=("Segoe UI", 9), anchor="w")
+                    font=(UI_FONT, 9), anchor="w")
         lbl.pack(side="left", fill="x", expand=True)
 
         Label(self, text=f" {status} ", bg=bg, fg=color,
-              font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 4))
+              font=(UI_FONT, 9, "bold")).pack(side="right", padx=(0, 4))
 
         for w in (self, lbl):
             w.bind("<Enter>",           lambda _: self._hover(True))
@@ -143,15 +144,15 @@ class _Section(Frame):
         hdr.pack_propagate(False)
 
         self._arrow = Label(hdr, text="▾", bg=_HDR_BG, fg=_FG,
-                            font=("Segoe UI", 8))
+                            font=(UI_FONT, 8))
         self._arrow.pack(side="left", padx=(4, 0))
 
         Label(hdr, text=title, bg=_HDR_BG, fg=_FG,
-              font=("Segoe UI", 8, "bold"), anchor="w").pack(
+              font=(UI_FONT, 8, "bold"), anchor="w").pack(
                   side="left", fill="x", expand=True)
 
         self._count_lbl = Label(hdr, text="", bg=_HDR_BG, fg=_DIM,
-                                font=("Segoe UI", 8), padx=6)
+                                font=(UI_FONT, 8), padx=6)
         self._count_lbl.pack(side="right")
 
         for w in hdr.winfo_children():
@@ -366,13 +367,13 @@ class _HistorySection(Frame):
         hdr.pack_propagate(False)
 
         self._arrow = Label(hdr, text="▸", bg=_HDR_BG, fg=_FG,
-                            font=("Segoe UI", 8))
+                            font=(UI_FONT, 8))
         self._arrow.pack(side="left", padx=(4, 0))
         Label(hdr, text="HISTORY", bg=_HDR_BG, fg=_FG,
-              font=("Segoe UI", 8, "bold"), anchor="w").pack(
+              font=(UI_FONT, 8, "bold"), anchor="w").pack(
                   side="left", fill="x", expand=True)
         self._count_lbl = Label(hdr, text="", bg=_HDR_BG, fg=_DIM,
-                                font=("Segoe UI", 8), padx=6)
+                                font=(UI_FONT, 8), padx=6)
         self._count_lbl.pack(side="right")
 
         for w in hdr.winfo_children():
@@ -386,14 +387,14 @@ class _HistorySection(Frame):
         inner.pack(fill="x", padx=6, pady=4)
 
         Label(inner, text="⌕", bg="#3c3c3c", fg=_DIM,
-              font=("Segoe UI", 10), padx=4).pack(side="left")
+              font=(UI_FONT, 10), padx=4).pack(side="left")
 
         self._search_var = tk.StringVar()
         self._search_var.trace_add("write", lambda *_: self._apply_filter())
         self._search_entry = tk.Entry(
             inner, textvariable=self._search_var,
             bg="#3c3c3c", fg=_DIM, insertbackground=_FG,
-            relief="flat", font=("Segoe UI", 8), bd=0,
+            relief="flat", font=(UI_FONT, 8), bd=0,
         )
         self._search_entry.insert(0, "Filter commits…")
         self._search_entry.pack(side="left", fill="x", expand=True, padx=4, pady=3)
@@ -509,7 +510,7 @@ class _HistorySection(Frame):
             btn_f = Frame(self._inner, bg=_BG)
             btn_f.pack(fill="x", pady=4)
             lbl = Label(btn_f, text="  Load 50 more…", bg=_BG, fg=_DIM,
-                        font=("Segoe UI", 8), cursor="hand2", pady=4, anchor="w")
+                        font=(UI_FONT, 8), cursor="hand2", pady=4, anchor="w")
             lbl.pack(fill="x")
             lbl.bind("<Button-1>", lambda _: self._on_load_more())
             lbl.bind("<Enter>", lambda _: lbl.config(fg=_FG))
@@ -536,7 +537,7 @@ class _HistorySection(Frame):
 
         # Dot
         Label(row, text="●", bg=_ITEM_BG, fg="#569cd6",
-              font=("Segoe UI", 7), padx=4).pack(side="left")
+              font=(UI_FONT, 7), padx=4).pack(side="left")
 
         # Ref badges (max 2)
         for i, ref in enumerate(commit.refs[:2]):
@@ -553,7 +554,7 @@ class _HistorySection(Frame):
                 display = display[:9] + "…"
             color = self._ref_color(ref, i)
             Label(row, text=f" {display} ", bg=_ITEM_BG, fg=color,
-                  font=("Segoe UI", 7, "bold"), padx=1).pack(side="left")
+                  font=(UI_FONT, 7, "bold"), padx=1).pack(side="left")
 
         # Short hash
         Label(row, text=commit.short, bg=_ITEM_BG, fg=_DIM,
@@ -562,16 +563,16 @@ class _HistorySection(Frame):
         # Author + time (right side)
         Label(row, text=f"{commit.author}  {commit.rel_time}",
               bg=_ITEM_BG, fg=_DIM,
-              font=("Segoe UI", 7), padx=4).pack(side="right")
+              font=(UI_FONT, 7), padx=4).pack(side="right")
 
         # Subject (fills remaining width)
         Label(row, text=commit.subject, bg=_ITEM_BG, fg=_FG,
-              font=("Segoe UI", 8), anchor="w").pack(
+              font=(UI_FONT, 8), anchor="w").pack(
                   side="left", fill="x", expand=True)
 
         # Expand arrow overlay (bottom-right)
         exp = Label(row, text="▾" if is_expanded else "▸",
-                    bg=_ITEM_BG, fg=_DIM, font=("Segoe UI", 7), padx=4)
+                    bg=_ITEM_BG, fg=_DIM, font=(UI_FONT, 7), padx=4)
         exp.place(relx=0.0, rely=0.5, anchor="w", x=2)
 
         def _hover_enter(e, c=commit, r=row):
@@ -602,7 +603,7 @@ class _HistorySection(Frame):
                 loading = Frame(self._inner, bg=_BG)
                 loading.pack(fill="x")
                 Label(loading, text="     Loading…", bg=_BG, fg=_DIM,
-                      font=("Segoe UI", 8), pady=2).pack(side="left")
+                      font=(UI_FONT, 8), pady=2).pack(side="left")
                 for w in (loading,) + tuple(loading.winfo_children()):
                     w.bind("<MouseWheel>", self._on_wheel)
             else:
@@ -618,12 +619,12 @@ class _HistorySection(Frame):
         row.pack_propagate(False)
 
         Label(row, text="   │ ", bg=_BG, fg=_DIM,
-              font=("Segoe UI", 8)).pack(side="left")
+              font=(UI_FONT, 8)).pack(side="left")
         Label(row, text=os.path.basename(filepath), bg=_BG, fg=color,
-              font=("Segoe UI", 8), anchor="w").pack(
+              font=(UI_FONT, 8), anchor="w").pack(
                   side="left", fill="x", expand=True)
         Label(row, text=f" {status} ", bg=_BG, fg=color,
-              font=("Segoe UI", 8, "bold"), padx=4).pack(side="right")
+              font=(UI_FONT, 8, "bold"), padx=4).pack(side="right")
 
         def _enter(_, r=row):
             r.config(bg=_HOV_BG)
@@ -703,17 +704,17 @@ class _HistorySection(Frame):
               bg="#1e1e1e", fg=_DIM, font=("Consolas", 8)).pack(anchor="w")
         # Author
         Label(body, text=commit.author, bg="#1e1e1e", fg="#73c991",
-              font=("Segoe UI", 8)).pack(anchor="w")
+              font=(UI_FONT, 8)).pack(anchor="w")
         # Absolute time
         abs_display = commit.abs_time[:19].replace("T", "  ")
         Label(body, text=abs_display, bg="#1e1e1e", fg=_DIM,
-              font=("Segoe UI", 7)).pack(anchor="w")
+              font=(UI_FONT, 7)).pack(anchor="w")
 
         Frame(body, bg="#454545", height=1).pack(fill="x", pady=(5, 4))
 
         # Subject (wrapped)
         Label(body, text=commit.subject, bg="#1e1e1e", fg=_FG,
-              font=("Segoe UI", 9), wraplength=300,
+              font=(UI_FONT, 9), wraplength=300,
               justify="left").pack(anchor="w")
 
         # Ref badges
@@ -722,7 +723,7 @@ class _HistorySection(Frame):
             for i, ref in enumerate(commit.refs):
                 color = self._ref_color(ref, i)
                 Label(body, text=f"  {ref}", bg="#1e1e1e", fg=color,
-                      font=("Segoe UI", 8)).pack(anchor="w")
+                      font=(UI_FONT, 8)).pack(anchor="w")
 
         popup.update_idletasks()
         pw = popup.winfo_reqwidth()
@@ -797,12 +798,12 @@ class SourceControlPanel(ttk.Frame):
         self._warn_frame = Frame(self._body_frame, bg="#3c2a00", cursor="hand2")
         self._warn_lbl = Label(self._warn_frame,
                          text="", bg="#3c2a00", fg="#e2c08d",
-                         font=("Segoe UI", 8), justify="left",
+                         font=(UI_FONT, 8), justify="left",
                          padx=8, pady=4, cursor="hand2", wraplength=180)
         self._warn_lbl.pack(side="left", fill="x", expand=True)
         self._warn_details_btn = Label(self._warn_frame, text="Details →",
                                        bg="#3c2a00", fg="#e2c08d",
-                                       font=("Segoe UI", 8, "bold"),
+                                       font=(UI_FONT, 8, "bold"),
                                        padx=6, pady=4, cursor="hand2")
         self._warn_details_btn.pack(side="right")
         for w in (self._warn_frame, self._warn_lbl, self._warn_details_btn):
@@ -956,7 +957,7 @@ class SourceControlPanel(ttk.Frame):
             bg="#3c3c3c",
             fg=_DIM,
             insertbackground=_FG,
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             relief="flat",
             padx=6,
             pady=4,
@@ -974,7 +975,7 @@ class SourceControlPanel(ttk.Frame):
 
         def _btn(parent, text, command):
             lbl = Label(parent, text=text, bg=_BTN_BG, fg="white",
-                        font=("Segoe UI", 8, "bold"), cursor="hand2",
+                        font=(UI_FONT, 8, "bold"), cursor="hand2",
                         padx=8, pady=3)
             lbl.bind("<Button-1>", lambda _: command())
             lbl.bind("<Enter>", lambda _: lbl.config(bg=_BTN_ACT))
@@ -1001,7 +1002,7 @@ class SourceControlPanel(ttk.Frame):
         _reset_id = [None]
 
         lbl = Label(parent, text=label, bg=_BTN_BG, fg="white",
-                    font=("Segoe UI", 8, "bold"), cursor="hand2",
+                    font=(UI_FONT, 8, "bold"), cursor="hand2",
                     padx=8, pady=3)
 
         def _reset():
@@ -1186,13 +1187,13 @@ class SourceControlPanel(ttk.Frame):
         hdr.pack_propagate(False)
 
         self._health_arrow = Label(hdr, text="▸", bg=_HDR_BG, fg=_FG,
-                                   font=("Segoe UI", 8))
+                                   font=(UI_FONT, 8))
         self._health_arrow.pack(side="left", padx=(4, 0))
         Label(hdr, text="GIT HEALTH", bg=_HDR_BG, fg=_FG,
-              font=("Segoe UI", 8, "bold"), anchor="w").pack(
+              font=(UI_FONT, 8, "bold"), anchor="w").pack(
                   side="left", fill="x", expand=True)
         self._health_status_lbl = Label(hdr, text="", bg=_HDR_BG,
-                                        font=("Segoe UI", 8), padx=6)
+                                        font=(UI_FONT, 8), padx=6)
         self._health_status_lbl.pack(side="right")
 
         for w in hdr.winfo_children():
@@ -1257,21 +1258,21 @@ class SourceControlPanel(ttk.Frame):
             icon = "✓" if check.passed else "✗"
             color = "#73c991" if check.passed else "#f14c4c"
             Label(row, text=icon, bg=_BG, fg=color,
-                  font=("Segoe UI", 9, "bold"), width=2).pack(side="left")
+                  font=(UI_FONT, 9, "bold"), width=2).pack(side="left")
             Label(row, text=check.label, bg=_BG, fg=_FG,
-                  font=("Segoe UI", 8), anchor="w").pack(side="left", fill="x", expand=True)
+                  font=(UI_FONT, 8), anchor="w").pack(side="left", fill="x", expand=True)
 
             if check.key == "git_identity" and not check.passed:
                 from utils.git_identity_guide import get_pages as _id_pages
                 btn = Label(row, text="How to Set Up →", bg=_BTN_BG, fg="white",
-                            font=("Segoe UI", 7, "bold"), padx=4, pady=1,
+                            font=(UI_FONT, 7, "bold"), padx=4, pady=1,
                             cursor="hand2")
                 btn.pack(side="right", padx=(0, 2))
                 btn.bind("<Button-1>", lambda _: GuideWindow(self, "Git Identity & GitHub Login",
                                                              _id_pages()))
             elif check.fix_fn:
                 btn = Label(row, text=check.fix_label, bg=_BTN_BG, fg="white",
-                            font=("Segoe UI", 7, "bold"), padx=4, pady=1,
+                            font=(UI_FONT, 7, "bold"), padx=4, pady=1,
                             cursor="hand2")
                 btn.pack(side="right", padx=(0, 2))
                 btn.bind("<Button-1>", lambda _, fn=check.fix_fn: fn())
@@ -1287,12 +1288,12 @@ class SourceControlPanel(ttk.Frame):
         row = Frame(self._health_body, bg=_BG, cursor="hand2")
         row.pack(fill="x", padx=6, pady=1)
         Label(row, text="✗", bg=_BG, fg="#f14c4c",
-              font=("Segoe UI", 9, "bold"), width=2).pack(side="left")
+              font=(UI_FONT, 9, "bold"), width=2).pack(side="left")
         lbl = Label(row, text="Git is not installed", bg=_BG, fg=_FG,
-                    font=("Segoe UI", 8), anchor="w")
+                    font=(UI_FONT, 8), anchor="w")
         lbl.pack(side="left", fill="x", expand=True)
         btn = Label(row, text="How to Install →", bg=_BTN_BG, fg="white",
-                    font=("Segoe UI", 7, "bold"), padx=4, pady=1, cursor="hand2")
+                    font=(UI_FONT, 7, "bold"), padx=4, pady=1, cursor="hand2")
         btn.pack(side="right", padx=(0, 2))
 
         def _open(_=None):

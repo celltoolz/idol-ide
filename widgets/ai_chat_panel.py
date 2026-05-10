@@ -10,6 +10,7 @@ from typing import Callable
 from utils import ollama_client
 from utils import settings as idol_settings
 from widgets.learning_manager import LearningManager
+from utils.ui_font import UI_FONT
 
 _HISTORY_FILE = Path.home() / ".idol" / "ai_history.json"
 _HISTORY_CAP  = 20   # max messages restored from disk
@@ -115,11 +116,11 @@ class AiChatPanel(tk.Frame):
         # its creation-order slot when re-packed inside the same parent.
         self._url_row = tk.Frame(input_outer, bg=_INPUT_BG)
         tk.Label(self._url_row, text="Ollama URL:", bg=_INPUT_BG, fg=_DIM,
-                 font=("Segoe UI", 8)).pack(side="left", padx=(8, 4), pady=4)
+                 font=(UI_FONT, 8)).pack(side="left", padx=(8, 4), pady=4)
         self._url_var = tk.StringVar(value=ollama_client.get_base_url())
         url_entry = tk.Entry(self._url_row, textvariable=self._url_var,
                              bg=_INPUT_BG, fg=_FG, insertbackground=_FG,
-                             font=("Segoe UI", 9), relief="flat", bd=0,
+                             font=(UI_FONT, 9), relief="flat", bd=0,
                              highlightthickness=1, highlightbackground=_BORDER,
                              highlightcolor=_BTN_BG)
         url_entry.pack(side="left", fill="x", expand=True, ipady=2)
@@ -127,7 +128,7 @@ class AiChatPanel(tk.Frame):
         self._apply_btn = self._make_ctx_btn(self._url_row, "Apply", self._apply_url)
         self._apply_btn.pack(side="left", padx=(4, 8))
         self._url_status = tk.Label(self._url_row, text="", bg=_INPUT_BG, fg=_DIM,
-                                    font=("Segoe UI", 8))
+                                    font=(UI_FONT, 8))
         self._url_status.pack(side="left")
         self._url_row_visible = False
 
@@ -151,7 +152,7 @@ class AiChatPanel(tk.Frame):
 
         # Pack send_btn BEFORE the text widget so expand=True doesn't steal its space
         send_btn = tk.Label(input_row, text="↑", bg=_SEND_BG, fg="white",
-                            font=("Segoe UI", 14, "bold"),
+                            font=(UI_FONT, 14, "bold"),
                             cursor="hand2", width=2, pady=4)
         send_btn.pack(side="right", padx=(6, 0), fill="y")
         send_btn.bind("<Button-1>", lambda _: self._send())
@@ -160,7 +161,7 @@ class AiChatPanel(tk.Frame):
 
         self._input = tk.Text(input_row, bg=_INPUT_BG, fg=_FG,
                               insertbackground=_FG,
-                              font=("Segoe UI", 10),
+                              font=(UI_FONT, 10),
                               height=3, wrap="word",
                               relief="flat", bd=0,
                               highlightthickness=1,
@@ -188,11 +189,11 @@ class AiChatPanel(tk.Frame):
         self._sel_btn.pack(side="left")
 
         self._ctx_label = tk.Label(bottom_row, text="", bg=_INPUT_BG, fg=_DIM,
-                                   font=("Segoe UI", 8), anchor="w")
+                                   font=(UI_FONT, 8), anchor="w")
         self._ctx_label.pack(side="left", padx=(8, 0))
 
         self._token_label = tk.Label(bottom_row, text="", bg=_INPUT_BG, fg=_DIM,
-                                     font=("Segoe UI", 7), anchor="e")
+                                     font=(UI_FONT, 7), anchor="e")
         self._token_label.pack(side="right")
 
         self._pending_ctx: str = ""   # attached code context
@@ -399,7 +400,7 @@ class AiChatPanel(tk.Frame):
         f._is_offline_card = True
         f.pack(fill="x", padx=10)
         lbl = tk.Label(f, text="Missing dependency: requests\n\nRun this in your terminal:\n  pip install requests\n\nThen restart IDOL.",
-                       bg=_MSG_BG, fg=_WARN_FG, font=("Segoe UI", 9),
+                       bg=_MSG_BG, fg=_WARN_FG, font=(UI_FONT, 9),
                        wraplength=400, justify="left", anchor="nw")
         lbl.pack(anchor="w")
         self._register_wrap_label(lbl)
@@ -431,7 +432,7 @@ class AiChatPanel(tk.Frame):
                        f"  ollama pull qwen2.5-coder\n\n"
                        f"Then reopen this tab."),
                  bg=_MSG_BG, fg=_WARN_FG,
-                 font=("Segoe UI", 9), wraplength=400,
+                 font=(UI_FONT, 9), wraplength=400,
                  justify="left", anchor="nw")
         lbl.pack(anchor="w")
         self._register_wrap_label(lbl)
@@ -454,7 +455,7 @@ class AiChatPanel(tk.Frame):
 
     def _make_ctx_btn(self, parent, text: str, cmd: Callable) -> tk.Label:
         lbl = tk.Label(parent, text=text, bg="#3c3c3c", fg=_FG,
-                       font=("Segoe UI", 8), cursor="hand2",
+                       font=(UI_FONT, 8), cursor="hand2",
                        padx=6, pady=2)
         def _click():
             if LearningManager.is_active():
@@ -880,9 +881,9 @@ class AiChatPanel(tk.Frame):
         bubble.pack(side="right", anchor="e")
 
         tk.Label(bubble, text="You", bg=_USER_BG, fg=_DIM,
-                 font=("Segoe UI", 7, "bold")).pack(anchor="w")
+                 font=(UI_FONT, 7, "bold")).pack(anchor="w")
         lbl = tk.Label(bubble, text=text, bg=_USER_BG, fg=_USER_FG,
-                       font=("Segoe UI", 10), wraplength=380,
+                       font=(UI_FONT, 10), wraplength=380,
                        justify="left", anchor="nw")
         lbl.pack(anchor="w")
         self._register_wrap_label(lbl)
@@ -898,11 +899,11 @@ class AiChatPanel(tk.Frame):
         bubble.pack(side="left", anchor="w", fill="x", expand=True)
 
         tk.Label(bubble, text="🤖 AI", bg=_AI_BG, fg=_DIM,
-                 font=("Segoe UI", 7, "bold")).pack(anchor="w")
+                 font=(UI_FONT, 7, "bold")).pack(anchor="w")
 
         # Single plain-text widget used during streaming — replaced on completion
         stream_txt = tk.Text(bubble, bg=_AI_BG, fg=_AI_FG,
-                             font=("Segoe UI", 10),
+                             font=(UI_FONT, 10),
                              wrap="word", relief="flat", bd=0,
                              highlightthickness=0,
                              state="disabled", cursor="arrow",
@@ -999,10 +1000,10 @@ class AiChatPanel(tk.Frame):
                 hdr.pack(fill="x", padx=6, pady=(4, 0))
 
                 tk.Label(hdr, text="code", bg=_CODE_BG, fg=_DIM,
-                         font=("Segoe UI", 7)).pack(side="left")
+                         font=(UI_FONT, 7)).pack(side="left")
 
                 copy_btn = tk.Label(hdr, text="⎘ Copy", bg=_CODE_BG, fg=_DIM,
-                                    font=("Segoe UI", 7), cursor="hand2")
+                                    font=(UI_FONT, 7), cursor="hand2")
                 copy_btn.pack(side="right")
 
                 # Bind copy — capture code value
@@ -1040,7 +1041,7 @@ class AiChatPanel(tk.Frame):
                 # ── Plain text ────────────────────────────────────────────────
                 if part.strip():
                     lbl = tk.Label(bubble, text=part, bg=_AI_BG, fg=_AI_FG,
-                                   font=("Segoe UI", 10), wraplength=500,
+                                   font=(UI_FONT, 10), wraplength=500,
                                    justify="left", anchor="nw")
                     lbl.pack(fill="x", anchor="w")
                     lbl.bind("<Button-4>", self._on_mousewheel)
@@ -1052,7 +1053,7 @@ class AiChatPanel(tk.Frame):
         f = tk.Frame(self._msg_inner, bg=_MSG_BG, padx=12, pady=8)
         f.pack(fill="x", padx=10)
         lbl = tk.Label(f, text=text, bg=_MSG_BG, fg=color,
-                       font=("Segoe UI", 9), wraplength=400,
+                       font=(UI_FONT, 9), wraplength=400,
                        justify="left", anchor="nw")
         lbl.pack(anchor="w")
         self._register_wrap_label(lbl)

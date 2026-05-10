@@ -31,6 +31,7 @@ from editor.key_handler import KeyHandler
 from editor.multi_cursor import MultiCursor
 from widgets.completion_popup import CompletionPopup
 from editor.lsp_manager import (
+from utils.ui_font import UI_FONT
     LspManager,
     detect_server,
     uri_to_path,
@@ -74,7 +75,7 @@ def _add_tooltip(widget, text: str, delay: int = 500) -> None:
             text=text,
             bg="#252526",
             fg="#cccccc",
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
             padx=6,
             pady=3,
             relief="flat",
@@ -493,7 +494,7 @@ class IDOL(Tk):
                 text=text,
                 bg=_NAV_BG,
                 fg=fg0,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 cursor="hand2",
                 padx=padx,
                 pady=0,
@@ -540,7 +541,7 @@ class IDOL(Tk):
         self._encoding_pill = Label(
             _nav_bar, text=" ⚠ Fix Encoding ",
             bg=_NAV_BG, fg="#e8a844",
-            font=("Segoe UI", 9), cursor="hand2", padx=2, pady=0,
+            font=(UI_FONT, 9), cursor="hand2", padx=2, pady=0,
         )
         self._encoding_pill.bind("<Button-1>", lambda _: self._fix_encoding())
         self._encoding_pill.bind("<Enter>", lambda _: self._encoding_pill.config(fg="#ffd080"))
@@ -552,7 +553,7 @@ class IDOL(Tk):
         _DBG_BTN_STYLE = dict(
             bg="#1e1e1e",
             fg="#858585",
-            font=("Segoe UI", 10),
+            font=(UI_FONT, 10),
             relief="flat",
             bd=0,
             cursor="hand2",
@@ -619,7 +620,7 @@ class IDOL(Tk):
             text=" ■ ",
             bg=_NAV_BG,
             fg="#555555",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="hand2",
             padx=3,
             pady=0,
@@ -630,7 +631,7 @@ class IDOL(Tk):
             text="▾",
             bg=_NAV_BG,
             fg="#858585",
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
             cursor="hand2",
             padx=1,
             pady=0,
@@ -641,7 +642,7 @@ class IDOL(Tk):
             text=" ▶ ",
             bg=_NAV_BG,
             fg="#4ec94e",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="hand2",
             padx=3,
             pady=0,
@@ -696,7 +697,7 @@ class IDOL(Tk):
             fg="#cccccc",
             activebackground="#094771",
             activeforeground="#ffffff",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
         )
         self._run_menu.add_radiobutton(
             label="\u25b6  Run",
@@ -807,7 +808,7 @@ class IDOL(Tk):
                 text=text,
                 bg=_MB_BG,
                 fg=_MB_DIM,
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 cursor="hand2",
                 padx=12,
                 pady=0,
@@ -4369,7 +4370,7 @@ class IDOL(Tk):
             text="  Esc — Exit Zen  ",
             bg="#3c3c3c",
             fg="#cccccc",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             pady=6,
             padx=4,
         )
@@ -4913,18 +4914,18 @@ class IDOL(Tk):
         win.transient(self)
 
         tk.Label(win, text="Form Name:", bg="#2d2d2d", fg="#cccccc",
-                 font=("Segoe UI", 9)).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
+                 font=(UI_FONT, 9)).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
 
         name_var = tk.StringVar(value=self._next_form_name())
         name_entry = tk.Entry(win, textvariable=name_var, bg="#3c3c3c", fg="#cccccc",
                               insertbackground="#cccccc", relief="flat",
-                              font=("Segoe UI", 9), width=22)
+                              font=(UI_FONT, 9), width=22)
         name_entry.grid(row=0, column=1, padx=(0, 12), pady=(14, 4))
         name_entry.select_range(0, "end")
         name_entry.focus_set()
 
         tk.Label(win, text="Type:", bg="#2d2d2d", fg="#cccccc",
-                 font=("Segoe UI", 9)).grid(row=1, column=0, padx=12, pady=4, sticky="w")
+                 font=(UI_FONT, 9)).grid(row=1, column=0, padx=12, pady=4, sticky="w")
 
         type_var = tk.StringVar(value="dialog")
         type_frame = tk.Frame(win, bg="#2d2d2d")
@@ -4933,18 +4934,18 @@ class IDOL(Tk):
             tk.Radiobutton(
                 type_frame, text=lbl, variable=type_var, value=val,
                 bg="#2d2d2d", fg="#cccccc", selectcolor="#094771",
-                activebackground="#2d2d2d", font=("Segoe UI", 9),
+                activebackground="#2d2d2d", font=(UI_FONT, 9),
             ).pack(side="left", padx=(0, 8))
 
         tk.Label(win, text="Link to:", bg="#2d2d2d", fg="#cccccc",
-                 font=("Segoe UI", 9)).grid(row=2, column=0, padx=12, pady=4, sticky="w")
+                 font=(UI_FONT, 9)).grid(row=2, column=0, padx=12, pady=4, sticky="w")
 
         main_forms = [f.name for f in self._designer_forms.values() if f.form_type == "main"]
         link_options = ["None (unlinked)"] + main_forms
         link_var = tk.StringVar(value=main_forms[0] if main_forms else "None (unlinked)")
         link_cb = ttk.Combobox(
             win, textvariable=link_var, values=link_options,
-            state="readonly", font=("Segoe UI", 9), width=20,
+            state="readonly", font=(UI_FONT, 9), width=20,
         )
         link_cb.grid(row=2, column=1, padx=(0, 12), pady=4, sticky="w")
 
@@ -4999,7 +5000,7 @@ class IDOL(Tk):
             tk.Button(
                 btn_frame, text=lbl, command=cmd,
                 bg="#3c3c3c", fg="#cccccc", relief="flat",
-                font=("Segoe UI", 9), padx=12, pady=4, cursor="hand2",
+                font=(UI_FONT, 9), padx=12, pady=4, cursor="hand2",
             ).pack(side="left", padx=4)
 
         win.bind("<Return>", lambda _: _create())
@@ -5234,14 +5235,14 @@ class IDOL(Tk):
             text="  SPLIT",
             bg="#2d2d30",
             fg="#858585",
-            font=("Segoe UI", 8, "bold"),
+            font=(UI_FONT, 8, "bold"),
         ).pack(side="left")
         close_lbl = tk.Label(
             hdr,
             text="✕",
             bg="#2d2d30",
             fg="#858585",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="hand2",
             padx=6,
         )
@@ -5256,7 +5257,7 @@ class IDOL(Tk):
             text="⇕",
             bg="#2d2d30",
             fg="#007acc" if self._scroll_locked else "#555555",
-            font=("Segoe UI", 10),
+            font=(UI_FONT, 10),
             cursor="hand2",
             padx=4,
         )
@@ -5623,7 +5624,7 @@ class IDOL(Tk):
             text=message,
             bg="#1e1e1e",
             fg="#cccccc",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             justify="left",
             wraplength=380,
             padx=16,
@@ -5641,7 +5642,7 @@ class IDOL(Tk):
             selectcolor="#3c3c3c",
             activebackground="#1e1e1e",
             activeforeground="#cccccc",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
         btn_frame = _tk.Frame(dlg, bg="#1e1e1e")
@@ -5668,7 +5669,7 @@ class IDOL(Tk):
             activebackground="#4a8ec2",
             activeforeground="#ffffff",
             relief="flat",
-            font=("Segoe UI", 9, "bold"),
+            font=(UI_FONT, 9, "bold"),
             cursor="hand2",
             command=_yes,
         ).pack(side="right", padx=(4, 0))
@@ -5681,7 +5682,7 @@ class IDOL(Tk):
             activebackground="#3c3c3c",
             activeforeground="#cccccc",
             relief="flat",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="hand2",
             command=_no,
         ).pack(side="right", padx=(4, 0))
@@ -5695,7 +5696,7 @@ class IDOL(Tk):
                 activebackground="#3c3c3c",
                 activeforeground="#cccccc",
                 relief="flat",
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 cursor="hand2",
                 command=_cancel,
             ).pack(side="right", padx=(0, 4))
@@ -5948,7 +5949,7 @@ class IDOL(Tk):
             text="Select Entry File",
             bg="#252526",
             fg="#cccccc",
-            font=("Segoe UI", 9, "bold"),
+            font=(UI_FONT, 9, "bold"),
             pady=6,
             padx=10,
             anchor="w",
@@ -6088,7 +6089,7 @@ class IDOL(Tk):
             text="Select Python Interpreter",
             bg="#252526",
             fg="#cccccc",
-            font=("Segoe UI", 9, "bold"),
+            font=(UI_FONT, 9, "bold"),
             pady=6,
             padx=10,
             anchor="w",
@@ -6592,7 +6593,7 @@ class IDOL(Tk):
                 text="IDOL",
                 bg="#0d1117",
                 fg="#cccccc",
-                font=("Segoe UI", 28, "bold"),
+                font=(UI_FONT, 28, "bold"),
             ).pack(pady=(24, 8))
 
         # Info
@@ -6601,7 +6602,7 @@ class IDOL(Tk):
             text="Integrated Development and Objective Learning",
             bg="#0d1117",
             fg="#858585",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
         ).pack()
 
         tk.Label(
@@ -6609,7 +6610,7 @@ class IDOL(Tk):
             text="Alex Fero & Claude Sonnet",
             bg="#0d1117",
             fg="#858585",
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
         ).pack(pady=(10, 4))
 
         tk.Frame(dlg, bg="#2a2a2a", height=1).pack(fill="x", padx=32)
@@ -6633,7 +6634,7 @@ class IDOL(Tk):
             text=f"Python {sys.version.split()[0]}   •   pip {pip_ver}   •   {os_str}",
             bg="#0d1117",
             fg="#555555",
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
         ).pack(pady=(4, 10))
 
         # Close button
@@ -6642,7 +6643,7 @@ class IDOL(Tk):
             text="Close",
             bg="#0e639c",
             fg="white",
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="hand2",
             padx=20,
             pady=5,

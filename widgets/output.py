@@ -6,6 +6,7 @@ import tempfile
 import tkinter as tk
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
+from utils.ui_font import UI_FONT
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
 
@@ -121,7 +122,7 @@ class OutputPanel(ttk.Frame):
         self._guide_btn = Label(
             parent, text="? input() & Debug",
             bg="#252526", fg=_GUIDE_FG,
-            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+            font=(UI_FONT, 8), cursor="hand2", pady=6, padx=6,
         )
         self._guide_btn.bind("<Button-1>", lambda _: self._open_debug_guide())
         self._guide_btn.bind("<Enter>", lambda _: self._guide_btn.config(fg=_GUIDE_FG_HOV))
@@ -131,7 +132,7 @@ class OutputPanel(ttk.Frame):
         self._copy_btn = Label(
             parent, text="⎘ Copy",
             bg="#252526", fg="#8a8a8a",
-            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+            font=(UI_FONT, 8), cursor="hand2", pady=6, padx=6,
         )
         self._copy_btn.pack(side="left")
         self._copy_btn.bind("<Button-1>", lambda _: self._copy_all())
@@ -141,7 +142,7 @@ class OutputPanel(ttk.Frame):
         self._clear_btn = Label(
             parent, text="✕ Clear",
             bg="#252526", fg="#8a8a8a",
-            font=("Segoe UI", 8), cursor="hand2", pady=6, padx=6,
+            font=(UI_FONT, 8), cursor="hand2", pady=6, padx=6,
         )
         self._clear_btn.pack(side="left")
         self._clear_btn.bind("<Button-1>", lambda _: self.clear())
@@ -245,7 +246,7 @@ class OutputPanel(ttk.Frame):
         for label, cmd, enabled in items:
             fg = "#cccccc" if enabled else "#555555"
             lbl = tk.Label(overlay, text=label, bg="#2d2d2d", fg=fg,
-                           font=("Segoe UI", 9), anchor="w", padx=12, pady=3)
+                           font=(UI_FONT, 9), anchor="w", padx=12, pady=3)
             lbl.pack(fill="x")
             if enabled:
                 def _enter(e, l=lbl):  l.config(bg="#094771", fg="#ffffff")

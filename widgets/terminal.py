@@ -22,6 +22,7 @@ from tkinter import StringVar, ttk
 from typing import Callable, Optional
 
 import pyte
+from utils.ui_font import UI_FONT
 
 PTY_AVAILABLE = False
 _pty_spawn = None   # callable(cmd, dimensions, env) → pty object
@@ -268,7 +269,7 @@ class TerminalPanel(ttk.Frame):
             btn = tk.Label(
                 parent, text=text,
                 bg=_BG, fg=_FG,
-                font=("Segoe UI", 8), cursor="hand2", pady=6, padx=4,
+                font=(UI_FONT, 8), cursor="hand2", pady=6, padx=4,
             )
             btn.pack(side="left", padx=2)
             btn.bind("<Button-1>", lambda _, c=cmd: c())
@@ -283,7 +284,7 @@ class TerminalPanel(ttk.Frame):
         self._venv_btn = tk.Label(
             parent, text="▶ Activate venv",
             bg="#0e639c", fg="white",
-            font=("Segoe UI", 8), cursor="hand2",
+            font=(UI_FONT, 8), cursor="hand2",
             padx=6, pady=1,
         )
         self._venv_btn.pack(side="right", padx=(4, 6))
@@ -294,7 +295,7 @@ class TerminalPanel(ttk.Frame):
         self._venv_label = tk.Label(
             parent, text="",
             bg="#2d2d30", fg="#50fa7b",
-            font=("Segoe UI", 8),
+            font=(UI_FONT, 8),
         )
         self._update_venv_ui()
 
@@ -833,7 +834,7 @@ class TerminalPanel(ttk.Frame):
         for label, cmd, enabled in items:
             fg = "#cccccc" if enabled else "#555555"
             lbl = tk.Label(overlay, text=label, bg="#2d2d2d", fg=fg,
-                           font=("Segoe UI", 9), anchor="w", padx=12, pady=3)
+                           font=(UI_FONT, 9), anchor="w", padx=12, pady=3)
             lbl.pack(fill="x")
             if enabled:
                 def _enter(e, l=lbl):  l.config(bg="#094771", fg="#ffffff")

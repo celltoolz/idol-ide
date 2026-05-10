@@ -8,6 +8,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
+from utils.ui_font import UI_FONT
 
 _BG      = "#1e1e1e"
 _BG2     = "#2d2d2d"
@@ -121,7 +122,7 @@ def show_variable_popup(
 
     if not variables:
         tk.Label(inner, text="(no variables defined yet)",
-                 bg=_BG2, fg=_FG_DIM, font=("Segoe UI", 8),
+                 bg=_BG2, fg=_FG_DIM, font=(UI_FONT, 8),
                  padx=10, pady=6).pack(fill="x")
         _place_popup(popup, anchor, 1)
         _bind_dismiss(popup, anchor)
@@ -133,13 +134,13 @@ def show_variable_popup(
     def _make_row(name: str, var_type: str) -> tk.Frame:
         row = tk.Frame(sf, bg=_BG2, cursor="hand2")
         tk.Label(row, text=name, bg=_BG2, fg=_FG,
-                 font=("Segoe UI", 9), anchor="w", padx=8, pady=4).pack(side="left")
+                 font=(UI_FONT, 9), anchor="w", padx=8, pady=4).pack(side="left")
         tk.Label(row, text=f"({var_type})", bg=_BG2, fg=_FG_TYPE,
-                 font=("Segoe UI", 8), anchor="e", padx=8, pady=4).pack(side="right")
+                 font=(UI_FONT, 8), anchor="e", padx=8, pady=4).pack(side="right")
         x_lbl = None
         if on_remove is not None:
             x_lbl = tk.Label(row, text="×", bg=_BG2, fg=_BG2,
-                             font=("Segoe UI", 10, "bold"), cursor="hand2", padx=6)
+                             font=(UI_FONT, 10, "bold"), cursor="hand2", padx=6)
             x_lbl.pack(side="right")
 
         def _set_hover(active: bool):
@@ -273,7 +274,7 @@ def show_handler_popup(
 
     if not handlers:
         tk.Label(inner, text="(no handlers defined yet)",
-                 bg=_BG2, fg=_FG_DIM, font=("Segoe UI", 8),
+                 bg=_BG2, fg=_FG_DIM, font=(UI_FONT, 8),
                  padx=10, pady=6).pack(fill="x")
         _place_popup(popup, anchor, 1)
         _bind_dismiss(popup, anchor)
@@ -285,13 +286,13 @@ def show_handler_popup(
     def _make_row(name: str) -> tk.Frame:
         row = tk.Frame(sf, bg=_BG2, cursor="hand2")
         tk.Label(row, text=name, bg=_BG2, fg=_FG,
-                 font=("Segoe UI", 9), anchor="w", padx=8, pady=4).pack(side="left")
+                 font=(UI_FONT, 9), anchor="w", padx=8, pady=4).pack(side="left")
         tk.Label(row, text="(handler)", bg=_BG2, fg=_FG_DIM,
-                 font=("Segoe UI", 8), anchor="e", padx=8, pady=4).pack(side="right")
+                 font=(UI_FONT, 8), anchor="e", padx=8, pady=4).pack(side="right")
         x_lbl = None
         if on_remove is not None:
             x_lbl = tk.Label(row, text="×", bg=_BG2, fg=_BG2,
-                             font=("Segoe UI", 10, "bold"), cursor="hand2", padx=6)
+                             font=(UI_FONT, 10, "bold"), cursor="hand2", padx=6)
             x_lbl.pack(side="right")
 
         def _set_hover(active: bool):
@@ -427,7 +428,7 @@ class HandlerPickerEntry(tk.Frame):
             textvariable=textvariable,
             bg=entry_bg, fg=entry_fg,
             insertbackground=entry_fg,
-            relief="flat", font=("Segoe UI", 9),
+            relief="flat", font=(UI_FONT, 9),
             width=width,
             highlightthickness=1,
             highlightcolor="#569cd6",
@@ -440,7 +441,7 @@ class HandlerPickerEntry(tk.Frame):
             text="▾", width=2,
             bg=btn_bg, fg="#888888",
             activebackground="#4a4a4a", activeforeground="#cccccc",
-            relief="flat", font=("Segoe UI", 8),
+            relief="flat", font=(UI_FONT, 8),
             cursor="hand2",
             command=self._open_picker,
         )
@@ -499,7 +500,7 @@ class VariablePickerEntry(tk.Frame):
             textvariable=textvariable,
             bg=entry_bg, fg=entry_fg,
             insertbackground=entry_fg,
-            relief="flat", font=("Segoe UI", 9),
+            relief="flat", font=(UI_FONT, 9),
             width=width,
             highlightthickness=1,
             highlightcolor="#569cd6",
@@ -512,7 +513,7 @@ class VariablePickerEntry(tk.Frame):
             text="▾", width=2,
             bg=btn_bg, fg="#888888",
             activebackground="#4a4a4a", activeforeground="#cccccc",
-            relief="flat", font=("Segoe UI", 8),
+            relief="flat", font=(UI_FONT, 8),
             cursor="hand2",
             command=self._open_picker,
         )

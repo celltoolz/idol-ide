@@ -9,6 +9,7 @@ from tkinter import Menu, simpledialog, messagebox, ttk
 from typing import Callable
 
 from utils import bind_right_click
+from utils.ui_font import UI_FONT
 
 
 class FileExplorer(ttk.Frame):
@@ -364,7 +365,7 @@ class FileExplorer(ttk.Frame):
                 bg="#2d2d30", fg="#f8f8f2",
                 insertbackground="#f8f8f2",
                 relief="flat",
-                font=("Segoe UI", 9),
+                font=(UI_FONT, 9),
                 highlightthickness=1,
                 highlightcolor="#007acc",
                 highlightbackground="#007acc",

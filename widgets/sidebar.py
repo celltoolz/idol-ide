@@ -9,6 +9,7 @@ from .outline import OutlinePanel
 from .references import ReferencesPanel
 from .explorer import FileExplorer
 from .source_control import SourceControlPanel
+from utils.ui_font import UI_FONT
 
 
 _HEADER_H = 28   # px height of each section header
@@ -183,18 +184,18 @@ class Sidebar(ttk.Frame):
         hdr.pack_propagate(False)
 
         arrow = Label(hdr, text="▾", bg="#252526", fg="#cccccc",
-                      font=("Segoe UI", 9))
+                      font=(UI_FONT, 9))
         arrow.pack(side="left", padx=(6, 0))
         hdr._arrow = arrow
 
         lbl = Label(hdr, text=title, bg="#252526", fg="#cccccc",
-                    font=("Segoe UI", 9, "bold"), anchor="w")
+                    font=(UI_FONT, 9, "bold"), anchor="w")
         lbl.pack(side="left", fill="both", expand=True)
 
         if closeable:
             _close_fn = on_close if on_close else self.hide_references
             close_lbl = Label(hdr, text="×", bg="#252526", fg="#858585",
-                              font=("Segoe UI", 10, "bold"), cursor="hand2",
+                              font=(UI_FONT, 10, "bold"), cursor="hand2",
                               padx=6)
             close_lbl.pack(side="right")
             close_lbl.bind("<Enter>", lambda _: close_lbl.config(fg="#cccccc"))

@@ -7,6 +7,7 @@ from tkinter import Frame, Text, ttk
 from typing import Callable
 
 from utils.ruff_rules import lookup as _rule_lookup
+from utils.ui_font import UI_FONT
 
 _CODE_RE = re.compile(r'\(([A-Z]\d+|[a-z][a-z0-9\-]+)\)$')
 
@@ -49,7 +50,7 @@ class ProblemsPanel(Frame):
             self,
             bg=self._BG,
             fg=self._FG,
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
             cursor="arrow",
             bd=0,
             relief="flat",
@@ -69,7 +70,7 @@ class ProblemsPanel(Frame):
             self._text.tag_configure(
                 tag,
                 foreground=_COLORS[sev],
-                font=("Segoe UI", 9, "bold"),
+                font=(UI_FONT, 9, "bold"),
             )
         self._text.tag_configure("msg",  foreground=self._FG)
         self._text.tag_configure("loc",  foreground=self._FG_DIM)
@@ -77,7 +78,7 @@ class ProblemsPanel(Frame):
         self._text.tag_configure(
             "empty",
             foreground=self._FG_DIM,
-            font=("Segoe UI", 9),
+            font=(UI_FONT, 9),
         )
 
         self._text.bind("<Motion>",        self._on_motion)
@@ -206,7 +207,7 @@ class ProblemsPanel(Frame):
         tk.Label(
             inner, text=header,
             bg=bg, fg=sev_color,
-            font=("Segoe UI", 9, "bold"), anchor="w", justify="left",
+            font=(UI_FONT, 9, "bold"), anchor="w", justify="left",
         ).pack(fill="x")
 
         # Separator
@@ -216,7 +217,7 @@ class ProblemsPanel(Frame):
         tk.Label(
             inner, text=description,
             bg=bg, fg="#cccccc",
-            font=("Segoe UI", 9), wraplength=320,
+            font=(UI_FONT, 9), wraplength=320,
             anchor="w", justify="left",
         ).pack(fill="x", pady=(4, 0))
 
@@ -227,7 +228,7 @@ class ProblemsPanel(Frame):
         tk.Label(
             inner, text="Double-click to Ask AI about this problem.",
             bg=bg, fg=dim_color,
-            font=("Segoe UI", 8, "italic"), anchor="w", justify="left",
+            font=(UI_FONT, 8, "italic"), anchor="w", justify="left",
         ).pack(fill="x", pady=(4, 0))
 
         win.update_idletasks()
