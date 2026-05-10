@@ -281,8 +281,8 @@ class DesignerProperties(tk.Frame):
             ("bg",            "background",     form.bg),
         ]:
             self._props_insert(f"form__{key}", label, str(val))
-        # Tint the background row with the current color
-        self._apply_color_swatch("form__bg", (form.bg or "#f5f5f5").upper())
+        # Tint the background row only when a color is explicitly set
+        self._apply_color_swatch("form__bg", form.bg.upper() if form.bg else None)
         # Menu bar row (blue link)
         n = len(form.menu_items)
         menu_val = f"{n} item{'s' if n != 1 else ''}" if n else "(none)"
@@ -1959,7 +1959,7 @@ class DesignerProperties(tk.Frame):
 
     def _is_prop_clearable(self, row_iid: str) -> bool:
         """Return True if this prop row has a value that can be cleared to empty."""
-        if row_iid in ("var__name", "var__initial", "anchor__value"):
+        if row_iid in ("var__name", "var__initial", "anchor__value", "form__bg"):
             return True
         if not row_iid.startswith("prop__"):
             return False
@@ -2260,7 +2260,7 @@ class DesignerProperties(tk.Frame):
             self._commit_prop(row, "")
             return
         self._props_set(row, "")
-        if self._is_color_row(row):
+        if self._is_color_row(row) or row == "form__bg":
             self._props_set_swatch(row, None)
         self._commit_prop(row, "")
 
