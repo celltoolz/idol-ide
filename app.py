@@ -4935,6 +4935,7 @@ class IDOL(Tk):
                 type_frame, text=lbl, variable=type_var, value=val,
                 bg="#2d2d2d", fg="#cccccc", selectcolor="#094771",
                 activebackground="#2d2d2d", font=(UI_FONT, 9),
+                highlightthickness=0, relief="flat",
             ).pack(side="left", padx=(0, 8))
 
         tk.Label(win, text="Link to:", bg="#2d2d2d", fg="#cccccc",
@@ -5610,6 +5611,7 @@ class IDOL(Tk):
         """
         import tkinter as _tk
         from tkinter import ttk as _ttk
+        from widgets.styled_checkbox import StyledCheckbox as _StyledCheckbox
 
         dlg = _tk.Toplevel(self)
         dlg.title(title)
@@ -5633,16 +5635,9 @@ class IDOL(Tk):
 
         _ttk.Separator(dlg, orient="horizontal").pack(fill="x", padx=8)
 
-        _tk.Checkbutton(
-            dlg,
-            text="Don't ask again this session",
-            variable=suppress_var,
-            bg="#1e1e1e",
-            fg="#858585",
-            selectcolor="#3c3c3c",
-            activebackground="#1e1e1e",
-            activeforeground="#cccccc",
-            font=(UI_FONT, 9),
+        _StyledCheckbox(
+            dlg, "Don't ask again this session", suppress_var,
+            bg="#1e1e1e", fg="#858585",
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
         btn_frame = _tk.Frame(dlg, bg="#1e1e1e")

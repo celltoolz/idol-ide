@@ -22,6 +22,7 @@ from designer.model import FormModel
 from designer.codegen import generate as designer_codegen
 from designer.persistence import save as designer_save, compute_checksum
 from utils.ui_font import UI_FONT
+from widgets.styled_checkbox import StyledCheckbox
 
 _BG      = "#252526"
 _HDR_BG  = "#2d2d30"
@@ -228,58 +229,17 @@ class ProjectWizard(tk.Toplevel):
 
     def _check(self, label: str, variable: tk.BooleanVar, detail: str = "",
                disabled: bool = False) -> None:
-        cur = "" if disabled else "hand2"
-        row = Frame(self._content, bg=_BG, cursor=cur)
-        row.pack(fill="x", pady=3)
-
-        box = Label(row, bg=_BG, font=(UI_FONT, 11), cursor=cur)
-        box.pack(side="left", padx=(0, 4))
-
-        def _refresh(*_):
-            if disabled:
-                box.config(text="☐", fg=_DIM)
-            else:
-                box.config(text="☑" if variable.get() else "☐",
-                           fg="#569cd6" if variable.get() else _DIM)
-
-        def _toggle(_=None):
-            variable.set(not variable.get())
-            _refresh()
-
-        _refresh()
-        if not disabled:
-            box.bind("<Button-1>", _toggle)
-            row.bind("<Button-1>", _toggle)
-
-        lbl = Label(row, text=label, bg=_BG, fg=_DIM if disabled else _FG,
-                    font=(UI_FONT, 9), cursor=cur)
-        lbl.pack(side="left")
-        if not disabled:
-            lbl.bind("<Button-1>", _toggle)
-
+        cb = StyledCheckbox(self._content, label, variable, bg=_BG, disabled=disabled)
+        cb.pack(fill="x", pady=3)
         if detail:
-            Label(row, text=f"  {detail}", bg=_BG, fg=_DIM,
+            Label(cb, text=f"  {detail}", bg=_BG, fg=_DIM,
                   font=(UI_FONT, 8)).pack(side="left")
 
     def _mini_check(self, parent: Frame, label: str, var: tk.BooleanVar) -> None:
         """Compact inline checkbox for filter rows."""
-        f = Frame(parent, bg=_BG, cursor="hand2")
-        f.pack(side="left", padx=(0, 10))
-        box = Label(f, bg=_BG, font=(UI_FONT, 9), cursor="hand2")
-        box.pack(side="left", padx=(0, 2))
-        lbl = Label(f, text=label, bg=_BG, fg=_FG, font=(UI_FONT, 8), cursor="hand2")
-        lbl.pack(side="left")
-
-        def _refresh(*_):
-            box.config(text="☑" if var.get() else "☐",
-                       fg="#569cd6" if var.get() else _DIM)
-        def _toggle(_=None):
-            var.set(not var.get())
-            _refresh()
-
-        _refresh()
-        for w in (f, box, lbl):
-            w.bind("<Button-1>", _toggle)
+        StyledCheckbox(
+            parent, label, var, bg=_BG, font_size=8, box_font_size=9,
+        ).pack(side="left", padx=(0, 10))
 
     # ── Step 0: Project details ───────────────────────────────────────────────
 
