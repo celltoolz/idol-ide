@@ -34,8 +34,12 @@ _BINDINGS: dict[str, str] = {
     "listselect":    "<<ListboxSelect>>",
 }
 
-_STUB    = "pass  # TODO"
-_MENUBAR = 20  # menu bar strip height in canvas coords (matches canvas._MENUBAR)
+_STUB        = "pass  # TODO"
+_MENUBAR     = 20  # menu bar strip height in canvas coords (matches canvas._MENUBAR)
+_LF_LABEL_H  = 17  # LabelFrame label strip height (matches canvas._LF_LABEL_H)
+
+# Anchors that change the widget's size (not just its position)
+_SIZE_ANCHORS = {"all", "top", "bottom", "left", "right"}
 
 # Form-level event defaults: {ev_key: (params, default_body)}
 # params="" means no event argument (load/unload are direct callbacks, not .bind())
@@ -208,12 +212,51 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
 
     # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
     if _anchored:
+        # Container widgets with size-changing anchors that have anchored children
+        # need local _pw_XXX / _ph_XXX variables so children can reference them.
+        _dyn_containers: dict[str, "WidgetDescriptor"] = {
+            w.id: w for w in form.widgets
+            if w.anchor in _SIZE_ANCHORS
+            and REGISTRY.get(w.type, {}).get("is_container")
+            and any(c.parent_id == w.id and c.anchor and c.anchor != "top_left"
+                    for c in form.widgets)
+        }
+
         out.append("    def _apply_anchor_layout(self, event):")
         out.append("        if event.widget is not self:")
         out.append("            return")
         out.append("        _fw, _fh = event.width, event.height")
+
+        # Emit local size vars for dynamic parent containers (parents precede
+        # children in form.widgets, so order is safe)
+        for par in form.widgets:
+            if par.id not in _dyn_containers:
+                continue
+            lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+            pw_expr, ph_expr = _container_new_size_exprs(par, form.width, form.height)
+            out.append(f"        _pw_{par.id} = {pw_expr}")
+            if lh:
+                out.append(f"        _ph_{par.id} = {ph_expr} - {lh}")
+            else:
+                out.append(f"        _ph_{par.id} = {ph_expr}")
+
         for w in _anchored:
-            line = _anchor_resize_line(w, form.width, form.height)
+            if w.parent_id:
+                par = form.get_widget(w.parent_id)
+                if par:
+                    lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                    if par.id in _dyn_containers:
+                        line = _anchor_resize_line(
+                            w, par.width, par.height - lh,
+                            f"_pw_{par.id}", f"_ph_{par.id}",
+                        )
+                    else:
+                        # Fixed-size parent: child position never changes, skip
+                        line = ""
+                else:
+                    line = _anchor_resize_line(w, form.width, form.height)
+            else:
+                line = _anchor_resize_line(w, form.width, form.height)
             if line:
                 out.append(line)
         out.append("")
@@ -688,35 +731,58 @@ def _body_lines(method_name: str, bodies: dict[str, str],
 
 # ── Anchor resize codegen ──────────────────────────────────────────────────────
 
-def _anchor_resize_line(w: "WidgetDescriptor", form_w: int, form_h: int) -> str:
-    """Return the self.widget.place(...) line for one anchored widget, or ''."""
+def _container_new_size_exprs(par: "WidgetDescriptor",
+                               form_w: int, form_h: int) -> tuple[str, str]:
+    """Return (new_outer_width_expr, new_outer_height_expr) for a dynamic container."""
+    a = par.anchor
+    x, y, pw, ph = par.x, par.y, par.width, par.height
+    rm = form_w - (x + pw)
+    bm = form_h - (y + ph)
+    if a == "all":
+        return (f"round({pw} * _fw / {form_w})", f"round({ph} * _fh / {form_h})")
+    if a in ("top", "bottom"):
+        return (f"_fw - {x} - {rm}", str(ph))
+    if a in ("left", "right"):
+        return (str(pw), f"_fh - {y} - {bm}")
+    return (str(pw), str(ph))
+
+
+def _anchor_resize_line(w: "WidgetDescriptor", ref_w: int, ref_h: int,
+                         fw_expr: str = "_fw", fh_expr: str = "_fh") -> str:
+    """Return the self.widget.place(...) line for one anchored widget, or ''.
+
+    ref_w/ref_h are the original design-time reference dimensions (form or parent
+    content area).  fw_expr/fh_expr are the Python expressions for those dimensions
+    at runtime (default: '_fw'/'_fh' for form-level; pass a local variable name for
+    children of dynamic parent containers).
+    """
     a = w.anchor
     x, y, ww, wh = w.x, w.y, w.width, w.height
-    rm = form_w - (x + ww)   # right margin
-    bm = form_h - (y + wh)   # bottom margin
+    rm = ref_w - (x + ww)
+    bm = ref_h - (y + wh)
     kwargs: dict[str, str] = {}
 
     if a == "all":
         kwargs = {
-            "x":      f"round({x} * _fw / {form_w})",
-            "y":      f"round({y} * _fh / {form_h})",
-            "width":  f"round({ww} * _fw / {form_w})",
-            "height": f"round({wh} * _fh / {form_h})",
+            "x":      f"round({x} * {fw_expr} / {ref_w})",
+            "y":      f"round({y} * {fh_expr} / {ref_h})",
+            "width":  f"round({ww} * {fw_expr} / {ref_w})",
+            "height": f"round({wh} * {fh_expr} / {ref_h})",
         }
     elif a == "top":          # pin top, stretch H
-        kwargs = {"width": f"_fw - {x} - {rm}"}
+        kwargs = {"width": f"{fw_expr} - {x} - {rm}"}
     elif a == "bottom":       # pin bottom, stretch H
-        kwargs = {"y": f"_fh - {bm} - {wh}", "width": f"_fw - {x} - {rm}"}
+        kwargs = {"y": f"{fh_expr} - {bm} - {wh}", "width": f"{fw_expr} - {x} - {rm}"}
     elif a == "left":         # pin left, stretch V
-        kwargs = {"height": f"_fh - {y} - {bm}"}
+        kwargs = {"height": f"{fh_expr} - {y} - {bm}"}
     elif a == "right":        # pin right, stretch V
-        kwargs = {"x": f"_fw - {rm} - {ww}", "height": f"_fh - {y} - {bm}"}
+        kwargs = {"x": f"{fw_expr} - {rm} - {ww}", "height": f"{fh_expr} - {y} - {bm}"}
     elif a == "top_right":    # pin top-right corner
-        kwargs = {"x": f"_fw - {rm} - {ww}"}
+        kwargs = {"x": f"{fw_expr} - {rm} - {ww}"}
     elif a == "bottom_left":  # pin bottom-left corner
-        kwargs = {"y": f"_fh - {bm} - {wh}"}
+        kwargs = {"y": f"{fh_expr} - {bm} - {wh}"}
     elif a == "bottom_right": # pin bottom-right corner
-        kwargs = {"x": f"_fw - {rm} - {ww}", "y": f"_fh - {bm} - {wh}"}
+        kwargs = {"x": f"{fw_expr} - {rm} - {ww}", "y": f"{fh_expr} - {bm} - {wh}"}
 
     if not kwargs:
         return ""
