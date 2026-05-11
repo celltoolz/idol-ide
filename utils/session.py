@@ -111,7 +111,14 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         if sys.platform.startswith("linux"):
             # Use the continuously-tracked flag — reading attributes("-zoomed")
             # at close time is unreliable on X11 due to event-queue lag.
-            layout["window_maximized"] = bool(getattr(app, "_window_maximized", False))
+            tracked = bool(getattr(app, "_window_maximized", False))
+            try:
+                raw = app.attributes("-zoomed")
+                live = bool(int(raw))
+            except Exception as e:
+                raw, live = f"error:{e}", None
+            print(f"[session.save] linux maximize — tracked={tracked}  live_raw={raw!r}  live={live}  wm_state={app.wm_state()!r}")
+            layout["window_maximized"] = tracked
         else:
             state = app.wm_state()
             is_maximized = (state == "zoomed")
@@ -364,6 +371,7 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         # Restore maximize / fullscreen state — position is not persisted
         maximized  = layout.get("window_maximized", False)
         fullscreen = sys.platform == "darwin" and layout.get("window_fullscreen", False)
+        print(f"[session.restore] window_maximized={maximized!r}  fullscreen={fullscreen!r}  platform={sys.platform!r}")
         if fullscreen:
             # macOS native fullscreen — enter it now; sash restore needs a longer
             # delay because the fullscreen animation takes ~400 ms to settle.
