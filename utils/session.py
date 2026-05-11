@@ -111,14 +111,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         if sys.platform.startswith("linux"):
             # Use the continuously-tracked flag — reading attributes("-zoomed")
             # at close time is unreliable on X11 due to event-queue lag.
-            tracked = bool(getattr(app, "_window_maximized", False))
-            try:
-                raw = app.attributes("-zoomed")
-                live = bool(int(raw))
-            except Exception as e:
-                raw, live = f"error:{e}", None
-            print(f"[session.save] linux maximize — tracked={tracked}  live_raw={raw!r}  live={live}  wm_state={app.wm_state()!r}")
-            layout["window_maximized"] = tracked
+            layout["window_maximized"] = bool(getattr(app, "_window_maximized", False))
         else:
             state = app.wm_state()
             is_maximized = (state == "zoomed")
@@ -371,7 +364,6 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         # Restore maximize / fullscreen state — position is not persisted
         maximized  = layout.get("window_maximized", False)
         fullscreen = sys.platform == "darwin" and layout.get("window_fullscreen", False)
-        print(f"[session.restore] window_maximized={maximized!r}  fullscreen={fullscreen!r}  platform={sys.platform!r}")
         if fullscreen:
             # macOS native fullscreen — enter it now; sash restore needs a longer
             # delay because the fullscreen animation takes ~400 ms to settle.
@@ -389,21 +381,16 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
             except Exception:
                 pass
         elif sys.platform.startswith("linux"):
-            # WM session management can re-maximize windows that were previously
-            # maximized, even when our session says otherwise.  Force normal state
-            # after the WM has had time to apply its own stored state (~300 ms).
-            def _force_normal(attempt: int = 0):
+            # Withdraw before the WM can visually apply its session-management
+            # maximize state, then deiconify with -zoomed False once settled.
+            app.withdraw()
+            def _deiconify_normal():
                 try:
-                    raw = app.attributes("-zoomed")
-                    zoomed = bool(int(raw))
-                    print(f"[session.restore] _force_normal attempt={attempt}  zoomed={zoomed}  raw={raw!r}")
-                    if zoomed:
-                        app.attributes("-zoomed", False)
-                        if attempt < 4:
-                            app.after(150, lambda: _force_normal(attempt + 1))
-                except Exception as e:
-                    print(f"[session.restore] _force_normal error: {e}")
-            app.after(300, _force_normal)
+                    app.attributes("-zoomed", False)
+                except Exception:
+                    pass
+                app.deiconify()
+            app.after(300, _deiconify_normal)
         # Stage 1: set h_pane / v_pane sash positions.
         # Use a longer delay when entering macOS fullscreen so the animation
         # completes before we try to measure pane geometry.

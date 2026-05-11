@@ -405,13 +405,9 @@ class IDOL(Tk):
                 if event.widget is not self:
                     return
                 try:
-                    raw = self.attributes("-zoomed")
-                    zoomed = bool(int(raw))
-                    if zoomed != self._window_maximized:
-                        print(f"[maximize] <Configure> zoomed changed: {self._window_maximized} → {zoomed}  (raw={raw!r})")
-                    self._window_maximized = zoomed
-                except Exception as e:
-                    print(f"[maximize] <Configure> attributes('-zoomed') error: {e}")
+                    self._window_maximized = bool(int(self.attributes("-zoomed")))
+                except Exception:
+                    pass
             self.bind("<Configure>", _track_maximize, add=True)
 
         self._build_layout()
