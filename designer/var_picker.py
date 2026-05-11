@@ -54,14 +54,18 @@ def _scrollable_list(inner: tk.Frame, num_rows: int):
 
 
 def _place_popup(popup: tk.Toplevel, anchor: tk.Widget, num_rows: int) -> None:
-    """Position popup below anchor; when maximized flip above and right-align to screen."""
+    """Position popup below anchor; when maximized/fullscreen flip above and right-align."""
+    import sys
     anchor.update_idletasks()
     ax    = anchor.winfo_rootx()
     ay    = anchor.winfo_rooty() + anchor.winfo_height()
     est_h = min(num_rows, _MAX_VIS) * _ROW_H + 4
     root  = anchor.winfo_toplevel()
 
-    if root.state() == 'zoomed':
+    is_large = (root.state() == 'zoomed') or (
+        sys.platform == "darwin" and bool(root.wm_attributes("-fullscreen"))
+    )
+    if is_large:
         # Right-align to IDOL's right edge, open above anchor
         sb_w = 18 if num_rows > _MAX_VIS else 0   # ttk scrollbar width
         ax = root.winfo_rootx() + root.winfo_width() - _LIST_W - sb_w - 4

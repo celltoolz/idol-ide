@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -105,7 +106,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     # ── Layout ────────────────────────────────────────────────────────────────
     layout: dict = {}
 
-    # ── Window state (maximize only — position is not restored) ──────────────
+    # ── Window state (maximize/fullscreen — position is not restored) ────────
     try:
         state = app.wm_state()
         is_maximized = (state == "zoomed")
@@ -116,6 +117,12 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         layout["window_maximized"] = is_maximized
     except Exception:
         pass
+    # macOS: green button enters native fullscreen, not "zoomed" state
+    if sys.platform == "darwin":
+        try:
+            layout["window_fullscreen"] = bool(app.wm_attributes("-fullscreen"))
+        except Exception:
+            pass
     try:
         h = app._h_pane.sashpos(0)
         if h > 50:  # only save valid non-collapsed positions
@@ -349,23 +356,32 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # ── Layout — two-stage to let pane geometry settle before sidebar measures ──
     layout = data.get("layout")
     if layout:
-        # Restore maximize state only — position is not persisted
-        maximized = layout.get("window_maximized", False)
-        if maximized:
+        # Restore maximize / fullscreen state — position is not persisted
+        maximized  = layout.get("window_maximized", False)
+        fullscreen = sys.platform == "darwin" and layout.get("window_fullscreen", False)
+        if fullscreen:
+            # macOS native fullscreen — enter it now; sash restore needs a longer
+            # delay because the fullscreen animation takes ~400 ms to settle.
             try:
-                app.wm_state("zoomed")      # Windows / macOS
+                app.wm_attributes("-fullscreen", True)
+            except Exception:
+                pass
+        elif maximized:
+            try:
+                app.wm_state("zoomed")      # Windows
             except Exception:
                 pass
             try:
                 app.attributes("-zoomed", True)  # Linux fallback
             except Exception:
                 pass
-        # Stage 1 (50 ms): set h_pane / v_pane sash positions so the sidebar
-        # and editor panels get their correct pixel dimensions.
-        app.after(50,  lambda: _apply_pane_sashes(app, layout))
-        # Stage 2 (250 ms): by now the pane geometry has propagated; apply the
-        # sidebar collapse states, sash heights, and relayout.
-        app.after(250, lambda: _apply_sidebar_layout(app, layout))
+        # Stage 1: set h_pane / v_pane sash positions.
+        # Use a longer delay when entering macOS fullscreen so the animation
+        # completes before we try to measure pane geometry.
+        stage1_delay = 500 if fullscreen else 50
+        stage2_delay = 700 if fullscreen else 250
+        app.after(stage1_delay, lambda: _apply_pane_sashes(app, layout))
+        app.after(stage2_delay, lambda: _apply_sidebar_layout(app, layout))
 
     # Stage 3 (350 ms): final dirty-flag cleanup — any ContentChanged events
     # that fired after _restoring was cleared (layout redraws, LSP) may have
