@@ -447,7 +447,7 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
             bg_part = f', bg="{w.props["bg"]}"' if w.props.get("bg") else ""
             lines.append(f"        {fvar} = tk.Frame(self.{w.id}{bg_part})")
             lines.append(f"        self.{w.id}.add({fvar}, text={repr(tab_name)})")
-        return lines
+        # fall through to emit .bind() lines for wired events (e.g. tabchanged)
 
     if use_scrollbar:
         # Wrap in a Frame so scrollbar(s) and widget pack cleanly inside it
