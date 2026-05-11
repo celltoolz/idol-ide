@@ -23,6 +23,9 @@ _ORD_DIM     = "#636363"
 _ORD_NUM     = "#007acc"
 _ORD_NB_NUM  = "#4ec9b0"   # teal badge for Notebook-scoped widgets
 _ORD_NB_IND  = 16          # indent px for Notebook children
+_ORD_HDR_H   = 22          # height of tab-group header rows
+_ORD_HDR_BG  = "#1a1a1a"
+_ORD_HDR_FG  = "#4ec9b0"
 _PROPS_SPLIT = 0.44   # fraction of width for the label column
 
 
@@ -249,8 +252,11 @@ class DesignerProperties(tk.Frame):
         self._order_widgets: list[WidgetDescriptor] = []
         self._order_sel_id:  str | None = None
         self._order_bgs:     dict[int, int] = {}
-        self._order_drag_idx:   int | None = None
+        self._order_drag_idx:   int | None = None  # display index of dragged row
         self._order_drag_ghost: int | None = None
+        # Display list: ('w', widget, nb_info) | ('h', tab_name)
+        self._order_display: list = []
+        self._disp_to_w:     dict[int, int] = {}   # display_idx → _order_widgets idx
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -973,101 +979,138 @@ class DesignerProperties(tk.Frame):
             )
             cv.configure(scrollregion=(0, 0, w, 80))
             return
-        # Precompute per-notebook-tab scoped indices: widget.id → (scoped_idx, tab_name)
-        _nb_info: dict[str, tuple[int, str]] = {}
-        _nb_counters: dict[tuple, int] = {}
-        for widget in self._order_widgets:
+
+        # Build display list: ('w', widget, nb_info) | ('h', tab_name)
+        display: list = []
+        disp_to_w: dict[int, int] = {}
+        seen_nb_tabs: set = set()
+        nb_counters: dict = {}
+        for w_idx, widget in enumerate(self._order_widgets):
             if widget.parent_id and self._form:
                 par = self._form.get_widget(widget.parent_id)
                 if par and REGISTRY.get(par.type, {}).get("is_notebook"):
                     key = (par.id, widget.tab)
-                    _nb_counters[key] = _nb_counters.get(key, 0) + 1
-                    _nb_info[widget.id] = (_nb_counters[key], widget.tab)
+                    if key not in seen_nb_tabs:
+                        seen_nb_tabs.add(key)
+                        display.append(('h', widget.tab or ""))
+                    nb_counters[key] = nb_counters.get(key, 0) + 1
+                    d_idx = len(display)
+                    display.append(('w', widget, (nb_counters[key], widget.tab)))
+                    disp_to_w[d_idx] = w_idx
+                    continue
+            d_idx = len(display)
+            display.append(('w', widget, None))
+            disp_to_w[d_idx] = w_idx
 
-        total_h = len(self._order_widgets) * _ORD_ROW_H
+        self._order_display = display
+        self._disp_to_w = disp_to_w
+
+        total_h = sum(_ORD_HDR_H if d[0] == 'h' else _ORD_ROW_H for d in display)
         cv.configure(scrollregion=(0, 0, w, total_h))
-        for i, widget in enumerate(self._order_widgets):
-            self._order_draw_row(widget, i, w, _nb_info.get(widget.id))
+        y = 0
+        for d_idx, item in enumerate(display):
+            if item[0] == 'h':
+                self._order_draw_header(item[1], y, w)
+                y += _ORD_HDR_H
+            else:
+                self._order_draw_row(item[1], d_idx, y, w, item[2])
+                y += _ORD_ROW_H
 
-    def _order_draw_row(self, widget: WidgetDescriptor, idx: int, w: int,
+    def _order_draw_header(self, tab_name: str, y: int, w: int) -> None:
+        cv = self._order_cv
+        cv.create_rectangle(0, y, w, y + _ORD_HDR_H - 1,
+                            fill=_ORD_HDR_BG, outline="")
+        cv.create_rectangle(0, y, 3, y + _ORD_HDR_H - 1,
+                            fill=_ORD_HDR_FG, outline="")
+        cv.create_text(_ORD_NB_IND + 6, y + _ORD_HDR_H // 2,
+                       text=tab_name, fill=_ORD_HDR_FG,
+                       font=(UI_FONT, 8), anchor="w")
+
+    def _order_draw_row(self, widget: WidgetDescriptor, d_idx: int, y: int, w: int,
                         nb_info: tuple[int, str] | None = None) -> None:
         cv  = self._order_cv
-        y   = idx * _ORD_ROW_H
-        bg  = self._order_row_color(idx)
-        tag = f"orow{idx}"
+        bg  = self._order_row_color(d_idx)
+        tag = f"orow{d_idx}"
 
         is_nb_child = nb_info is not None
         indent = _ORD_NB_IND if is_nb_child else 0
 
         rect = cv.create_rectangle(0, y, w, y + _ORD_ROW_H - 1,
                                    fill=bg, outline="", tags=tag)
-        self._order_bgs[idx] = rect
+        self._order_bgs[d_idx] = rect
 
-        # Teal left-edge bar for Notebook children
         if is_nb_child:
             cv.create_rectangle(0, y, 3, y + _ORD_ROW_H - 1,
                                 fill=_ORD_NB_NUM, outline="", tags=tag)
 
-        # Number badge
         r = 9
         bx = indent + r + 4
         by = y + _ORD_ROW_H // 2
-        badge_num  = nb_info[0] if is_nb_child else idx + 1
+        w_idx      = self._disp_to_w.get(d_idx, 0)
+        badge_num  = nb_info[0] if is_nb_child else (w_idx + 1)
         badge_fill = _ORD_NB_NUM if is_nb_child else _ORD_NUM
+        badge_fg   = "#1e1e1e" if is_nb_child else "#ffffff"
         cv.create_oval(bx - r, by - r, bx + r, by + r,
                        fill=badge_fill, outline="", tags=tag)
-        cv.create_text(bx, by, text=str(badge_num), fill="#ffffff",
+        cv.create_text(bx, by, text=str(badge_num), fill=badge_fg,
                        font=(UI_FONT, 7, "bold"), anchor="center", tags=tag)
 
-        # Widget ID
         cv.create_text(bx + r + 6, by, text=widget.id,
                        fill=_ORD_FG, font=("Consolas", 9),
                        anchor="w", tags=tag)
 
-        # Tab name pill for Notebook children (dim, just left of type)
-        if is_nb_child:
-            tab_name = nb_info[1] or ""
-            cv.create_text(w - 8, by, text=f"{tab_name}  ·  {widget.type}",
-                           fill=_ORD_DIM, font=(UI_FONT, 8),
-                           anchor="e", tags=tag)
-        else:
-            cv.create_text(w - 8, by, text=widget.type,
-                           fill=_ORD_DIM, font=(UI_FONT, 8),
-                           anchor="e", tags=tag)
+        cv.create_text(w - 8, by, text=widget.type,
+                       fill=_ORD_DIM, font=(UI_FONT, 8),
+                       anchor="e", tags=tag)
 
-        cv.tag_bind(tag, "<Enter>", lambda e, i=idx: self._order_hover_on(i))
-        cv.tag_bind(tag, "<Leave>", lambda e, i=idx: self._order_hover_off(i))
+        cv.tag_bind(tag, "<Enter>", lambda e, i=d_idx: self._order_hover_on(i))
+        cv.tag_bind(tag, "<Leave>", lambda e, i=d_idx: self._order_hover_off(i))
 
-    def _order_row_color(self, idx: int) -> str:
-        if idx < len(self._order_widgets):
-            if self._order_widgets[idx].id == self._order_sel_id:
+    def _order_row_color(self, d_idx: int) -> str:
+        w_idx = self._disp_to_w.get(d_idx)
+        if w_idx is not None and w_idx < len(self._order_widgets):
+            if self._order_widgets[w_idx].id == self._order_sel_id:
                 return _ORD_SEL
-        return _ORD_EVEN if idx % 2 == 0 else _ORD_ODD
+        return _ORD_EVEN if d_idx % 2 == 0 else _ORD_ODD
 
-    def _order_hover_on(self, idx: int) -> None:
-        if idx in self._order_bgs and self._order_drag_idx is None:
-            wid = self._order_widgets[idx].id if idx < len(self._order_widgets) else None
+    def _order_hover_on(self, d_idx: int) -> None:
+        if d_idx in self._order_bgs and self._order_drag_idx is None:
+            w_idx = self._disp_to_w.get(d_idx)
+            wid = self._order_widgets[w_idx].id if w_idx is not None else None
             if wid != self._order_sel_id:
-                self._order_cv.itemconfigure(self._order_bgs[idx], fill=_ORD_HOV)
+                self._order_cv.itemconfigure(self._order_bgs[d_idx], fill=_ORD_HOV)
 
-    def _order_hover_off(self, idx: int) -> None:
-        if idx in self._order_bgs:
-            self._order_cv.itemconfigure(self._order_bgs[idx],
-                                         fill=self._order_row_color(idx))
+    def _order_hover_off(self, d_idx: int) -> None:
+        if d_idx in self._order_bgs:
+            self._order_cv.itemconfigure(self._order_bgs[d_idx],
+                                         fill=self._order_row_color(d_idx))
+
+    def _order_y_to_disp(self, canvas_y: int) -> int:
+        """Return display index for a canvas y coordinate, accounting for header rows."""
+        cy = int(self._order_cv.canvasy(canvas_y))
+        y = 0
+        for i, item in enumerate(self._order_display):
+            h = _ORD_HDR_H if item[0] == 'h' else _ORD_ROW_H
+            if cy < y + h:
+                return i
+            y += h
+        return len(self._order_display)
 
     def _order_press(self, event) -> None:
-        idx = int(self._order_cv.canvasy(event.y)) // _ORD_ROW_H
-        if 0 <= idx < len(self._order_widgets):
-            self._order_drag_idx = idx
-            if self._on_select_widget:
-                self._on_select_widget(self._order_widgets[idx].id)
+        d_idx = self._order_y_to_disp(event.y)
+        if d_idx not in self._disp_to_w:
+            return  # header row — not selectable/draggable
+        self._order_drag_idx = d_idx
+        w_idx = self._disp_to_w[d_idx]
+        if w_idx < len(self._order_widgets) and self._on_select_widget:
+            self._on_select_widget(self._order_widgets[w_idx].id)
 
     def _order_motion(self, event) -> None:
         if self._order_drag_idx is None:
             return
-        cv      = self._order_cv
-        target  = self._order_drop_target(event.y)
-        ghost_y = target * _ORD_ROW_H
+        cv     = self._order_cv
+        target = self._order_drop_target(event.y)
+        ghost_y = self._disp_idx_to_y(target)
         if self._order_drag_ghost is not None:
             cv.coords(self._order_drag_ghost, 0, ghost_y, cv.winfo_width(), ghost_y)
         else:
@@ -1078,28 +1121,48 @@ class DesignerProperties(tk.Frame):
         cv.tag_raise("order_ghost")
 
     def _order_release(self, event) -> None:
-        src = self._order_drag_idx
-        if src is None:
+        src_d = self._order_drag_idx
+        if src_d is None:
             return
         if self._order_drag_ghost is not None:
             self._order_cv.delete(self._order_drag_ghost)
             self._order_drag_ghost = None
         self._order_drag_idx = None
 
-        target = self._order_drop_target(event.y)
-        dst = target if target <= src else target - 1
-        dst = max(0, min(dst, len(self._order_widgets) - 1))
+        if src_d not in self._disp_to_w:
+            return
+        src_w = self._disp_to_w[src_d]
 
-        if dst != src and self._on_reorder_widget and self._order_widgets:
-            self._on_reorder_widget(self._order_widgets[src].id, dst)
+        target_d = self._order_drop_target(event.y)
+        # Count widget rows before target_d to get insertion widget index
+        dst_w = sum(1 for i in range(target_d) if i in self._disp_to_w)
+        if target_d > src_d:
+            dst_w -= 1
+        dst_w = max(0, min(dst_w, len(self._order_widgets) - 1))
+
+        if dst_w != src_w and self._on_reorder_widget and self._order_widgets:
+            self._on_reorder_widget(self._order_widgets[src_w].id, dst_w)
 
     def _order_drop_target(self, canvas_y: int) -> int:
-        """Return insertion index (0..N) from a canvas y coordinate."""
-        cy  = int(self._order_cv.canvasy(canvas_y))
-        idx = cy // _ORD_ROW_H
-        if cy % _ORD_ROW_H > _ORD_ROW_H // 2:
-            idx += 1
-        return max(0, min(idx, len(self._order_widgets)))
+        """Return display insertion index (0..N) from a canvas y coordinate."""
+        cy = int(self._order_cv.canvasy(canvas_y))
+        y = 0
+        for i, item in enumerate(self._order_display):
+            h = _ORD_HDR_H if item[0] == 'h' else _ORD_ROW_H
+            mid = y + h // 2
+            if cy <= mid:
+                return i
+            y += h
+        return len(self._order_display)
+
+    def _disp_idx_to_y(self, d_idx: int) -> int:
+        """Return the canvas y coordinate for display index d_idx."""
+        y = 0
+        for i, item in enumerate(self._order_display):
+            if i == d_idx:
+                return y
+            y += _ORD_HDR_H if item[0] == 'h' else _ORD_ROW_H
+        return y
 
     def _set_selector(self, widget_id: str | None) -> None:
         """Update the selector label to reflect the currently selected item."""
