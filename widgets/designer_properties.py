@@ -3147,7 +3147,7 @@ def _make_tree(parent: tk.Widget, value_col_name: str = "Value") -> ttk.Treeview
     tree.column("#0",     width=110, minwidth=80, stretch=True)
     tree.column("value",  width=110, minwidth=80, stretch=True)
 
-    sb = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
+    sb = VerticalScrollbar(parent, command=tree.yview)
     tree.configure(yscrollcommand=sb.set)
     sb.pack(side="right", fill="y")
     tree.pack(fill="both", expand=True)

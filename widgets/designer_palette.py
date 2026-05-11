@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 from designer.registry import REGISTRY, all_types
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 _BG     = "#252526"
 _ITEM   = "#2d2d30"
@@ -57,7 +58,7 @@ class DesignerPalette(tk.Frame):
 
         # Scrollable list
         canvas = tk.Canvas(self, bg=_BG, highlightthickness=0, bd=0)
-        sb = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        sb = VerticalScrollbar(self, command=canvas.yview)
         canvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)

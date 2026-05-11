@@ -19,6 +19,7 @@ from tkfontchooser import askfont
 from tkinter.colorchooser import askcolor
 
 from widgets.codeview import CodeView
+from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
 from widgets.notebook import CustomNotebook
 from widgets.sidebar import Sidebar
 from widgets.bottom_panel import BottomPanel
@@ -828,8 +829,8 @@ class IDOL(Tk):
         self._designer_frame = tk.Frame(nb_frame, bg="#1e1e1e")
 
         _canvas_area = tk.Frame(self._designer_frame, bg="#1e1e1e")
-        _vbar = ttk.Scrollbar(_canvas_area, orient="vertical")
-        _hbar = ttk.Scrollbar(_canvas_area, orient="horizontal")
+        _vbar = VerticalScrollbar(_canvas_area)
+        _hbar = HorizontalScrollbar(_canvas_area)
 
         self._design_canvas = DesignerCanvas(
             _canvas_area,
@@ -2875,7 +2876,7 @@ class IDOL(Tk):
 
         txt.config(state="disabled")
 
-        sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
+        sb = VerticalScrollbar(frame, command=txt.yview)
         txt.configure(yscrollcommand=sb.set)
         txt.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")

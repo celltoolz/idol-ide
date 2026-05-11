@@ -5,6 +5,7 @@ import os
 import tkinter as tk
 from tkinter import Frame, Label, Menu, ttk
 from typing import Callable
+from widgets.scrollbar import VerticalScrollbar
 
 from utils import bind_right_click
 from utils.git_diagnostics import (
@@ -165,8 +166,7 @@ class _Section(Frame):
 
         self._canvas = tk.Canvas(self._scroll_frame, bg=_ITEM_BG,
                                  highlightthickness=0, bd=0, height=1)
-        self._vs = ttk.Scrollbar(self._scroll_frame, orient="vertical",
-                                 command=self._scroll_to)
+        self._vs = VerticalScrollbar(self._scroll_frame, command=self._scroll_to)
         self._canvas.configure(yscrollcommand=self._vs.set)
         self._canvas.pack(side="left", fill="both", expand=True)
 
@@ -404,7 +404,7 @@ class _HistorySection(Frame):
     def _build_canvas(self) -> None:
         self._canvas_frame = Frame(self, bg=_BG)
 
-        self._vsb = ttk.Scrollbar(self._canvas_frame, orient="vertical")
+        self._vsb = VerticalScrollbar(self._canvas_frame)
         self._vsb.pack(side="right", fill="y")
         self._canvas = tk.Canvas(self._canvas_frame, bg=_BG,
                                  highlightthickness=0, bd=0,
@@ -1069,7 +1069,7 @@ class SourceControlPanel(ttk.Frame):
         self._body_vs_visible = True
         body_outer = Frame(self, bg=_BG)
         body_outer.pack(fill="both", expand=True)
-        self._body_vsb = ttk.Scrollbar(body_outer, orient="vertical")
+        self._body_vsb = VerticalScrollbar(body_outer)
         self._body_vsb.pack(side="right", fill="y")
         self._body_canvas = tk.Canvas(body_outer, bg=_BG, highlightthickness=0, bd=0,
                                       yscrollcommand=self._body_vsb.set)

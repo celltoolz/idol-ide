@@ -9,6 +9,7 @@ from .model import MenuItemDescriptor
 from .var_picker import VariablePickerEntry, HandlerPickerEntry, collect_form_variables
 from widgets.guide_window import GuideWindow, GuidePage
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 _BG       = "#1e1e1e"
 _BG2      = "#2d2d2d"
@@ -242,7 +243,7 @@ class MenuEditor(tk.Toplevel):
         lb_frame = tk.Frame(self, bg=_BG)
         lb_frame.pack(fill="both", expand=True, padx=8, pady=6)
 
-        sb = ttk.Scrollbar(lb_frame, orient="vertical")
+        sb = VerticalScrollbar(lb_frame)
         self._listbox = tk.Listbox(
             lb_frame, bg=_BG2, fg=_FG,
             selectbackground=_SEL_BG, selectforeground="#ffffff",

@@ -7,6 +7,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import Menu, simpledialog, messagebox, ttk
 from typing import Callable
+from widgets.scrollbar import VerticalScrollbar
 
 from utils import bind_right_click
 from utils.ui_font import UI_FONT
@@ -34,7 +35,7 @@ class FileExplorer(ttk.Frame):
             selectmode="browse",
             style="FileTree.Treeview",
         )
-        vs = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
+        vs = VerticalScrollbar(self, command=self._tree.yview)
         self._tree.configure(yscrollcommand=vs.set)
 
         self._tree.grid(row=0, column=0, sticky="nswe")

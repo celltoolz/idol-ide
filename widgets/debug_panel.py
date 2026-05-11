@@ -5,6 +5,7 @@ import os
 from tkinter import Frame, Label, PanedWindow, Text, ttk
 from typing import Callable
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 
 class DebugPanel(Frame):
@@ -57,7 +58,7 @@ class DebugPanel(Frame):
             pady=4,
         ).pack(fill="x")
 
-        bp_sb = ttk.Scrollbar(left, orient="vertical")
+        bp_sb = VerticalScrollbar(left)
         bp_sb.pack(side="right", fill="y")
         self._bp_text = Text(
             left,
@@ -111,7 +112,7 @@ class DebugPanel(Frame):
             pady=4,
         ).pack(fill="x")
 
-        loc_sb = ttk.Scrollbar(right, orient="vertical")
+        loc_sb = VerticalScrollbar(right)
         loc_sb.pack(side="right", fill="y")
         self._loc_text = Text(
             right,

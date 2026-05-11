@@ -20,6 +20,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import StringVar, ttk
 from typing import Callable, Optional
+from widgets.scrollbar import VerticalScrollbar
 
 import pyte
 from utils.ui_font import UI_FONT
@@ -465,7 +466,7 @@ class TerminalPanel(ttk.Frame):
             state="disabled",
             pady=4,
         )
-        vs = ttk.Scrollbar(text_frame, orient="vertical", command=self._on_scroll)
+        vs = VerticalScrollbar(text_frame, command=self._on_scroll)
         self._scrollbar = vs
         self._text.configure(yscrollcommand=self._on_yscroll_update)
         self._text.grid(row=0, column=0, sticky="nswe")

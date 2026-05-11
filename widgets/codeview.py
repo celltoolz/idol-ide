@@ -15,6 +15,7 @@ import toml
 
 from .linenums import TkLineNumbers
 from .minimap import Minimap
+from .scrollbar import HorizontalScrollbar, VerticalScrollbar
 from .sticky_scroll import StickyScroll
 from utils.schemeparser import _parse_scheme
 
@@ -26,19 +27,6 @@ LexerType = Union[Type[pygments.lexer.Lexer], pygments.lexer.Lexer]
 # Commonly injected when copy-pasting from web pages, PDFs, or rich-text editors.
 _BAD_PASTE_CHARS = frozenset("\xa0​      ")
 
-
-class Scrollbar(ttk.Scrollbar):
-    def __init__(self, master: ttk.Frame, autohide: bool, *args, **kwargs) -> None:
-        super().__init__(master, *args, **kwargs)
-        self.autohide = autohide
-
-    def set(self, low: float, high: float) -> None:
-        if self.autohide:
-            if float(low) <= 0.0 and float(high) >= 1.0:
-                self.grid_remove()
-            else:
-                self.grid()
-        super().set(low, high)
 
 
 class CodeView(Text):
@@ -84,16 +72,16 @@ class CodeView(Text):
             colors=linenums_theme,
             borderwidth=kwargs.get("borderwidth", linenums_border),
         )
-        self._vs = Scrollbar(
+        self._vs = VerticalScrollbar(
             self._frame,
             autohide=autohide_scrollbar,
-            orient="vertical",
+            width=16,
             command=self.yview,
         )
-        self._hs = Scrollbar(
+        self._hs = HorizontalScrollbar(
             self._frame,
             autohide=autohide_scrollbar,
-            orient="horizontal",
+            height=16,
             command=self.xview,
         )
 

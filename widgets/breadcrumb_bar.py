@@ -12,6 +12,7 @@ import tkinter as tk
 from typing import Callable
 
 from widgets.learning_manager import LearningManager
+from widgets.scrollbar import VerticalScrollbar
 from utils.ui_font import UI_FONT
 
 _BG       = "#2d2d30"
@@ -223,7 +224,7 @@ class BreadcrumbBar(tk.Frame):
 
         canvas = tk.Canvas(border, bg=_PICK_BG, highlightthickness=0, bd=0,
                            width=popup_w - 2)
-        vsb = ttk.Scrollbar(border, orient="vertical", command=canvas.yview)
+        vsb = VerticalScrollbar(border, command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)

@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from utils.learning_registry import REGISTRY
+from widgets.scrollbar import VerticalScrollbar
 from utils import ollama_client
 from utils.ui_font import UI_FONT
 
@@ -62,7 +63,7 @@ class LearningPanel(tk.Frame):
 
     def _build(self) -> None:
         self._canvas = tk.Canvas(self, bg=_BG, highlightthickness=0, bd=0)
-        self._sb = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        self._sb = VerticalScrollbar(self, command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=self._sb.set)
 
         self._sb.pack(side="right", fill="y")

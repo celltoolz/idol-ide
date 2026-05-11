@@ -4,6 +4,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
+from widgets.scrollbar import VerticalScrollbar
 
 # LSP CompletionItemKind → short label
 _KIND = {
@@ -123,7 +124,7 @@ class CompletionPopup:
             exportselection=False,
             width=30,          # fixed char width so scrollbar always fits
         )
-        sb = ttk.Scrollbar(outer, orient="vertical", command=self._lb.yview)
+        sb = VerticalScrollbar(outer, command=self._lb.yview)
         self._lb.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")        # pack scrollbar first so it's never squeezed
         self._lb.pack(side="left", fill="both", expand=True)

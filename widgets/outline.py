@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from tkinter import ttk
 from typing import Callable, Optional
+from widgets.scrollbar import VerticalScrollbar
 
 
 class OutlinePanel(ttk.Frame):
@@ -52,7 +53,7 @@ class OutlinePanel(ttk.Frame):
         frame.grid_columnconfigure(0, weight=1)
 
         self.tree = ttk.Treeview(frame, show="tree", selectmode="browse", style="Outline.Treeview")
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
+        scrollbar = VerticalScrollbar(frame, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
 
         self.tree.grid(row=0, column=0, sticky="nswe")

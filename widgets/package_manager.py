@@ -7,6 +7,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 from typing import Callable
+from widgets.scrollbar import VerticalScrollbar
 
 from editor.pip_manager import PipManager
 from widgets.learning_manager import LearningManager
@@ -307,8 +308,7 @@ class PackageManagerPanel(tk.Frame):
 
         self._tree = ttk.Treeview(tree_frame, style="Pkg.Treeview",
                                   show="tree", selectmode="browse")
-        tree_sb = ttk.Scrollbar(tree_frame, orient="vertical",
-                                command=self._tree.yview)
+        tree_sb = VerticalScrollbar(tree_frame, command=self._tree.yview)
         self._tree.configure(yscrollcommand=tree_sb.set)
         tree_sb.pack(side="right", fill="y")
         self._tree.pack(fill="both", expand=True)
@@ -809,8 +809,7 @@ class _DetailPanel(tk.Frame):
                                   relief="flat", bd=0,
                                   state="disabled", cursor="arrow",
                                   highlightthickness=0)
-        desc_sb = ttk.Scrollbar(desc_frame, orient="vertical",
-                                command=self._desc_text.yview)
+        desc_sb = VerticalScrollbar(desc_frame, command=self._desc_text.yview)
         self._desc_text.configure(yscrollcommand=desc_sb.set)
         desc_sb.pack(side="right", fill="y")
         self._desc_text.pack(fill="both", expand=True)

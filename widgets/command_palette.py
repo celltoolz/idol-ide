@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 
 _BG       = "#252526"
@@ -116,8 +117,8 @@ class CommandPalette(tk.Toplevel):
         self._canvas = tk.Canvas(
             list_outer, bg=_BG, highlightthickness=0, bd=0,
         )
-        self._scrollbar = ttk.Scrollbar(
-            list_outer, orient="vertical", command=self._canvas.yview
+        self._scrollbar = VerticalScrollbar(
+            list_outer, command=self._canvas.yview
         )
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
 

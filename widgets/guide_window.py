@@ -9,6 +9,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import Frame, Label, ttk
 from typing import Callable
+from widgets.scrollbar import VerticalScrollbar
 
 from utils.guide_types import GuidePage
 from utils.ui_font import UI_FONT
@@ -80,7 +81,7 @@ class GuideWindow(tk.Toplevel):
         scroll_outer.pack(fill="both", expand=True)
 
         # Scrollbar first so canvas doesn't overlap it
-        self._vs = ttk.Scrollbar(scroll_outer, orient="vertical")
+        self._vs = VerticalScrollbar(scroll_outer)
         self._vs.pack(side="right", fill="y")
 
         self._canvas = tk.Canvas(

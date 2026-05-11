@@ -6,6 +6,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox, filedialog
 from typing import Callable
+from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
 
 from utils import ollama_client
 from utils import settings as idol_settings
@@ -75,7 +76,7 @@ class AiChatPanel(tk.Frame):
         msg_frame.pack(fill="both", expand=True)
 
         self._canvas = tk.Canvas(msg_frame, bg=_BG, highlightthickness=0, bd=0)
-        sb = ttk.Scrollbar(msg_frame, orient="vertical", command=self._canvas.yview)
+        sb = VerticalScrollbar(msg_frame, command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         self._canvas.pack(side="left", fill="both", expand=True)
@@ -1028,7 +1029,7 @@ class AiChatPanel(tk.Frame):
                               highlightthickness=0,
                               state="normal", cursor="arrow",
                               height=code_lines + 1)  # +1 = empty line at bottom
-                xscroll = ttk.Scrollbar(code_frame, orient="horizontal", command=txt.xview)
+                xscroll = HorizontalScrollbar(code_frame, command=txt.xview)
                 txt.config(xscrollcommand=xscroll.set)
                 txt.pack(fill="x", padx=6, pady=(2, 0))
                 txt.insert("1.0", code + "\n")        # trailing newline = bottom padding

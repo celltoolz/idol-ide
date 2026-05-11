@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
 
@@ -76,7 +77,7 @@ class OutputPanel(ttk.Frame):
             borderwidth=0,
             insertbackground=self._FG,
         )
-        vs = ttk.Scrollbar(text_frame, orient="vertical", command=self._text.yview)
+        vs = VerticalScrollbar(text_frame, command=self._text.yview)
         self._text.configure(yscrollcommand=vs.set)
         self._text.grid(row=0, column=0, sticky="nsew")
         vs.grid(row=0, column=1, sticky="ns")

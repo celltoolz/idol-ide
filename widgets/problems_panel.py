@@ -5,6 +5,7 @@ import re
 import tkinter as tk
 from tkinter import Frame, Text, ttk
 from typing import Callable
+from widgets.scrollbar import VerticalScrollbar
 
 from utils.ruff_rules import lookup as _rule_lookup
 from utils.ui_font import UI_FONT
@@ -43,7 +44,7 @@ class ProblemsPanel(Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        sb = ttk.Scrollbar(self, orient="vertical")
+        sb = VerticalScrollbar(self)
         sb.pack(side="right", fill="y")
 
         self._text = Text(

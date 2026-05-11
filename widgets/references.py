@@ -5,6 +5,7 @@ import re
 from tkinter import Frame, Label, Text, ttk
 from typing import Callable
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 
 class ReferencesPanel(ttk.Frame):
@@ -110,7 +111,7 @@ class ReferencesPanel(ttk.Frame):
         frame = Frame(self, bg=self._bg)
         frame.pack(fill="both", expand=True)
 
-        vs = ttk.Scrollbar(frame, orient="vertical")
+        vs = VerticalScrollbar(frame)
         vs.pack(side="right", fill="y")
 
         self._list = Text(

@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 _BG      = "#1e1e1e"
 _BG2     = "#2d2d2d"
@@ -45,7 +46,7 @@ def _scrollable_list(inner: tk.Frame, num_rows: int):
     sf.bind("<MouseWheel>", _wheel)
 
     if num_rows > _MAX_VIS:
-        sb = ttk.Scrollbar(inner, orient="vertical", command=canvas.yview)
+        sb = VerticalScrollbar(inner, command=canvas.yview)
         canvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
 
