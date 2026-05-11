@@ -6,7 +6,7 @@
 
 1. **Project type & name** — choose **Command Line App** (standard script) or **Tkinter GUI App** (visual designer enabled); set project name and location with live path preview
 2. **Interpreter & venv** — auto-detects all installed Python versions; create a `.venv` virtual environment
-3. **Git & starter files** — optional git init; scaffold `main.py`, `requirements.txt`, `.gitignore`
+3. **Git & starter files** — optional git init; scaffold `main.py`, `requirements.txt`, `.gitignore`; the Git option is disabled (checkbox greyed out with a status note) when git is not found on PATH or not configured
 4. **Summary** — review all settings before creating
 
 ### GUI App Scaffolding
@@ -22,7 +22,7 @@ The wizard includes paginated guides covering:
 
 ## Project Files
 
-`File → New Project` auto-creates a `.idol-project` file in the project root storing:
+`File → New Project` auto-creates a `<name>.idol-project` file in the project root (where `<name>` matches the project name) storing:
 - Open tabs
 - Layout (sash widths, active panels)
 - Active interpreter
@@ -59,7 +59,7 @@ On exit, IDOL auto-saves:
 - Breakpoints
 - Active interpreter and venv (venv is re-activated in the terminal on next launch)
 
-Session data is written to `~/.idol/session.json`. Named project saves write to `.idol-project` in the project root.
+Session data is written to `~/.idol/session.json`. Named project saves write to `<name>.idol-project` in the project root.
 
 ## Status Bar
 

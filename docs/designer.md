@@ -36,7 +36,7 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 - **Arrow-key nudge** — 1px precision positioning with arrow keys
 - **Z-order** — Bring to Front / Send to Back preserved on every mutation
 - **Menu bar strip** — live menu bar rendered below the title bar from your menu items; clicking a top-level name opens a native dropdown; clicking a command or check/radio item with a handler navigates to that handler in the editor
-- **Canvas scrollbars** — the canvas has horizontal and vertical scrollbars with mousewheel support; the form recenters automatically after a resize drag
+- **Canvas scrollbars** — the canvas has horizontal and vertical scrollbars with mousewheel support on all platforms (Windows/macOS via `<MouseWheel>`; Linux via `<Button-4>`/`<Button-5>`; hold **Shift** to scroll horizontally); the form recenters automatically after a resize drag
 
 ## Widget Palette
 
@@ -98,7 +98,7 @@ Right-side panel with a **control selector dropdown** at the top and Property/Va
 The `font` property row opens a font chooser dialog pre-populated with the widget's current family, size, and style. Supports bold, italic, underline, and overstrike. The result is written back as a string tkinter accepts natively (e.g. `"Arial 12 bold"`).
 
 ### Color Picker
-Background and Foreground properties open `tkinter.colorchooser`. The row tints immediately and the canvas widget updates live. New widgets get sensible default colors automatically. A `×` button appears on hover to clear the value back to default.
+Background and Foreground properties open `tkinter.colorchooser`. The row tints immediately and the canvas widget updates live. Non-input widgets (Button, Label, Frame, etc.) start with no explicit background color, inheriting the OS default. Input widgets (Entry, Text, Listbox) default to white. A `×` button appears on hover to clear a color back to the OS default.
 
 ### State
 Button, Entry, Text, Combobox, and other widgets expose a `state` dropdown (normal / readonly / disabled). Selecting readonly or disabled reveals conditional color rows (`readonlybackground`, `disabledbackground`, `disabledforeground`) that auto-fill with defaults and hide when not applicable.

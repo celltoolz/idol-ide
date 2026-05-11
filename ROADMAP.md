@@ -174,6 +174,19 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ---
 
+## Designer Phase 3 continued — Linux / Cross-Platform Polish (2026-05-10)
+
+- **`grab_set()` ordering** — `designer_new_form()` and `MenuEditor.__init__` now call `grab_set()` after `update_idletasks()` so the window is fully mapped before the grab; fixes "can't grab window" on Linux/X11
+- **`StyledCheckbox`** (`widgets/styled_checkbox.py`) — reusable Unicode-glyph checkbox; identical appearance on all platforms; extracted from ProjectWizard and used in the codegen confirmation dialog
+- **X11 saved-iid pattern** — `_prop_clear_iid`/`_ev_btn_iid` in `designer_properties.py` fix the clear button and ✦ wire button on Linux (X11 spurious `<Leave>` events were clearing hover-index before clicks fired)
+- **Form `bg` clearable** — `form__bg` added to clearable props; no more `#f5f5f5` placeholder when form background is unset
+- **Empty bg defaults in registry** — non-input widgets now default to `"bg": ""` so generated code doesn't hardcode Windows-gray background on other platforms
+- **Tkinter clipboard** — replaced pyperclip with `clipboard_clear()` + `clipboard_append()`; `pyperclip` removed from `requirements.txt`
+- **Linux mousewheel on designer canvas** — `<Button-4>`/`<Button-5>` and `<Shift-Button-4>`/`<Shift-Button-5>` added to `canvas.py`
+- **Cross-platform UI font** — `utils/ui_font.py` exports `UI_FONT` (`"Segoe UI"` / `"Helvetica Neue"` / `"DejaVu Sans"` per platform)
+
+---
+
 ## Planned — Designer
 
 - Persist designer sash positions across sessions
@@ -335,6 +348,7 @@ as first-class entries in the Designer palette alongside the standard Tk widgets
 
 - macOS: fullscreen state not remembered across sessions
 - macOS: 20px canvas/codegen offsets need audit after macOS testing session
+- Linux: IDOL window maximize state not restored on restart — `wm_state("zoomed")` geometry on X11 returns screen size rather than restored size; fix likely needs a separate "was maximized" flag + `wm_attributes('-zoomed', True)` on restore
 - Debugger: global hotkeys (F5/F10/F11/Shift+F11/Shift+F5) require a low-level keyboard hook
   (pynput or keyboard lib) to fire when IDOL doesn't have focus
 - Codegen: removing the last widget reference to a handler silently drops its body on regen
