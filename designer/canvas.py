@@ -2260,13 +2260,12 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
 def _draw_notebook_canvas(c, x, y, x2, y2, props, tag, nb_id, active_tab):
     """Draw a Notebook on the designer canvas (not @_tag — needs nb_id/active_tab)."""
     tabs  = props.get("tabs") or ["Tab 1"]
-    bg    = props.get("bg", "") or "#ffffff"
-    sep_y = y + _NB_TAB_H   # y-coord of strip / content boundary
-
     _BORDER   = "#adadad"
     _STRIP    = "#f0f0f0"
-    _ACT_BG   = "#ffffff"
+    _ACT_BG   = _STRIP
     _INACT_BG = "#e1e1e1"
+    bg    = props.get("bg", "") or _STRIP
+    sep_y = y + _NB_TAB_H   # y-coord of strip / content boundary
 
     tab_w = max(48, min(80, (x2 - x - 4) // max(len(tabs), 1)))
 
