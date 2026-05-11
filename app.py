@@ -4997,12 +4997,21 @@ class IDOL(Tk):
                 self._enter_designer_mode()
             self._refresh_generate_code_state()
 
-        for lbl, cmd in [("Create", _create), ("Cancel", win.destroy)]:
-            tk.Button(
-                btn_frame, text=lbl, command=cmd,
-                bg="#3c3c3c", fg="#cccccc", relief="flat",
-                font=(UI_FONT, 9), padx=12, pady=4, cursor="hand2",
-            ).pack(side="left", padx=4)
+        def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
+            font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
+            b = tk.Label(parent, text=text, bg=bg, fg=fg,
+                         font=font, cursor="hand2", padx=14, pady=4)
+            b.bind("<Button-1>", lambda _: cmd())
+            b.bind("<Enter>",    lambda _: b.config(bg=hover))
+            b.bind("<Leave>",    lambda _: b.config(bg=bg))
+            return b
+
+        _lbtn(btn_frame, "Create", _create,
+              bg="#0e639c", fg="#ffffff", hover="#1177bb", bold=True
+              ).pack(side="left", padx=(0, 4))
+        _lbtn(btn_frame, "Cancel", win.destroy,
+              bg="#3c3c3c", fg="#cccccc", hover="#4a4a4a"
+              ).pack(side="left", padx=(0, 4))
 
         win.bind("<Return>", lambda _: _create())
         win.bind("<Escape>", lambda _: win.destroy())
@@ -5655,46 +5664,25 @@ class IDOL(Tk):
             result[0] = "cancel"
             dlg.destroy()
 
-        _tk.Button(
-            btn_frame,
-            text="Yes",
-            width=9,
-            bg="#569cd6",
-            fg="#ffffff",
-            activebackground="#4a8ec2",
-            activeforeground="#ffffff",
-            relief="flat",
-            font=(UI_FONT, 9, "bold"),
-            cursor="hand2",
-            command=_yes,
-        ).pack(side="right", padx=(4, 0))
-        _tk.Button(
-            btn_frame,
-            text="No",
-            width=9,
-            bg="#3a3a3a",
-            fg="#cccccc",
-            activebackground="#3c3c3c",
-            activeforeground="#cccccc",
-            relief="flat",
-            font=(UI_FONT, 9),
-            cursor="hand2",
-            command=_no,
-        ).pack(side="right", padx=(4, 0))
+        def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
+            font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
+            b = _tk.Label(parent, text=text, bg=bg, fg=fg,
+                          font=font, cursor="hand2", padx=14, pady=4)
+            b.bind("<Button-1>", lambda _: cmd())
+            b.bind("<Enter>",    lambda _: b.config(bg=hover))
+            b.bind("<Leave>",    lambda _: b.config(bg=bg))
+            return b
+
+        _lbtn(btn_frame, "Yes", _yes,
+              bg="#569cd6", fg="#ffffff", hover="#4a8ec2", bold=True
+              ).pack(side="right", padx=(4, 0))
+        _lbtn(btn_frame, "No", _no,
+              bg="#3a3a3a", fg="#cccccc", hover="#4a4a4a"
+              ).pack(side="right", padx=(4, 0))
         if has_cancel:
-            _tk.Button(
-                btn_frame,
-                text="Cancel",
-                width=9,
-                bg="#3a3a3a",
-                fg="#cccccc",
-                activebackground="#3c3c3c",
-                activeforeground="#cccccc",
-                relief="flat",
-                font=(UI_FONT, 9),
-                cursor="hand2",
-                command=_cancel,
-            ).pack(side="right", padx=(0, 4))
+            _lbtn(btn_frame, "Cancel", _cancel,
+                  bg="#3a3a3a", fg="#cccccc", hover="#4a4a4a"
+                  ).pack(side="right", padx=(0, 4))
 
         dlg.update_idletasks()
         w, h = dlg.winfo_reqwidth(), dlg.winfo_reqheight()
