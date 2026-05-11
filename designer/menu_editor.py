@@ -77,6 +77,7 @@ class MenuEditor(tk.Toplevel):
         self._items: list[MenuItemDescriptor] = copy.deepcopy(items)
         self._selected_idx: int | None = None
         self._updating = False
+        self._name_user_edited = False  # True once user manually types in name field
 
         self._build_ui()
         self._refresh_listbox()
@@ -204,9 +205,14 @@ class MenuEditor(tk.Toplevel):
         btn_frame = tk.Frame(self, bg=_BG)
         btn_frame.pack(fill="x", padx=8, pady=(0, 4))
 
-        def _wire_hover(b: tk.Button) -> None:
-            b.bind("<Enter>", lambda _: b.config(fg="#ffffff"), add=True)
-            b.bind("<Leave>", lambda _: b.config(fg=_FG),       add=True)
+        def _make_lbl(parent, text, cmd, font_size=9, padx_inner=8):
+            lbl = tk.Label(parent, text=text, bg=_BTN_BG, fg=_FG,
+                           font=(UI_FONT, font_size), cursor="hand2",
+                           padx=padx_inner, pady=3)
+            lbl.bind("<Button-1>",  lambda _: cmd())
+            lbl.bind("<Enter>", lambda _: lbl.config(fg="#ffffff"))
+            lbl.bind("<Leave>", lambda _: lbl.config(fg=_FG))
+            return lbl
 
         arrow_frame = tk.Frame(btn_frame, bg=_BG)
         arrow_frame.pack(side="left")
@@ -217,34 +223,22 @@ class MenuEditor(tk.Toplevel):
             ("↑", "Move up",               "btn_move_up",   self._move_up),
             ("↓", "Move down",             "btn_move_down", self._move_down),
         ]:
-            b = tk.Button(
-                arrow_frame, text=sym, width=3,
-                bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
-                relief="flat", font=(UI_FONT, 10), cursor="hand2",
-                command=cmd,
-            )
+            b = _make_lbl(arrow_frame, sym, cmd, font_size=10, padx_inner=6)
             b.pack(side="left", padx=2)
             _bind_tooltip(b, tip)
-            _wire_hover(b)
             setattr(self, f"_{hint_key}_btn", b)
 
         action_frame = tk.Frame(btn_frame, bg=_BG)
         action_frame.pack(side="right")
 
-        for text, width, hint_key, cmd in [
-            ("Next",      7, "btn_next",    self._next),
-            ("Insert",    7, "btn_insert",  self._insert),
-            ("Delete",    7, "btn_delete",  self._delete),
-            ("Separator", 9, "separator",   self._insert_separator),
+        for text, hint_key, cmd in [
+            ("Next",      "btn_next",    self._next),
+            ("Insert",    "btn_insert",  self._insert),
+            ("Delete",    "btn_delete",  self._delete),
+            ("Separator", "separator",   self._insert_separator),
         ]:
-            b = tk.Button(
-                action_frame, text=text, width=width,
-                bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
-                relief="flat", font=(UI_FONT, 9), cursor="hand2",
-                command=cmd,
-            )
+            b = _make_lbl(action_frame, text, cmd)
             b.pack(side="left", padx=2)
-            _wire_hover(b)
             setattr(self, f"_{hint_key}_btn", b)
 
         # ── listbox ───────────────────────────────────────────────────────────
@@ -272,19 +266,21 @@ class MenuEditor(tk.Toplevel):
         ok_frame = tk.Frame(self, bg=_BG)
         ok_frame.pack(fill="x", padx=8, pady=6)
 
-        tk.Button(
-            ok_frame, text="OK", width=9,
-            bg=_ACCENT, fg="#ffffff", activebackground="#4a8ec2",
-            activeforeground="#ffffff", relief="flat",
-            font=(UI_FONT, 9, "bold"), cursor="hand2",
-            command=self._ok,
-        ).pack(side="right", padx=(4, 0))
-        tk.Button(
-            ok_frame, text="Cancel", width=9,
-            bg=_BTN_BG, fg=_FG, activebackground=_BG3, activeforeground=_FG,
-            relief="flat", font=(UI_FONT, 9), cursor="hand2",
-            command=self.destroy,
-        ).pack(side="right")
+        ok_lbl = tk.Label(ok_frame, text="OK", bg=_ACCENT, fg="#ffffff",
+                          font=(UI_FONT, 9, "bold"), cursor="hand2",
+                          padx=16, pady=3)
+        ok_lbl.pack(side="right", padx=(4, 0))
+        ok_lbl.bind("<Button-1>", lambda _: self._ok())
+        ok_lbl.bind("<Enter>", lambda _: ok_lbl.config(bg="#4a8ec2"))
+        ok_lbl.bind("<Leave>", lambda _: ok_lbl.config(bg=_ACCENT))
+
+        cancel_lbl = tk.Label(ok_frame, text="Cancel", bg=_BTN_BG, fg=_FG,
+                              font=(UI_FONT, 9), cursor="hand2",
+                              padx=16, pady=3)
+        cancel_lbl.pack(side="right")
+        cancel_lbl.bind("<Button-1>", lambda _: self.destroy())
+        cancel_lbl.bind("<Enter>", lambda _: cancel_lbl.config(fg="#ffffff"))
+        cancel_lbl.bind("<Leave>", lambda _: cancel_lbl.config(fg=_FG))
         tk.Label(
             ok_frame, text="? Menu Editor", bg=_BG, fg=_ACCENT,
             font=(UI_FONT, 9), cursor="hand2",
@@ -305,12 +301,17 @@ class MenuEditor(tk.Toplevel):
 
         # wire field-change callbacks after all widgets exist
         self._caption_var.trace_add("write", lambda *_: self._on_field_change())
-        self._name_var.trace_add("write", lambda *_: self._on_field_change())
+        self._name_var.trace_add("write", lambda *_: self._on_name_typed())
         self._shortcut_var.trace_add("write", lambda *_: self._on_field_change())
         self._kind_var.trace_add("write", lambda *_: self._on_field_change())
         self._variable_var.trace_add("write", lambda *_: self._on_field_change())
         self._command_handler_var.trace_add("write", lambda *_: self._on_field_change())
         self._value_var.trace_add("write", lambda *_: self._on_field_change())
+
+        # caption → auto-name: trigger when focus leaves caption or Enter/Tab pressed
+        self._caption_entry.bind("<FocusOut>", lambda _: self._autofill_name())
+        self._caption_entry.bind("<Return>",   lambda _: self._autofill_name())
+        self._caption_entry.bind("<Tab>",      lambda _: self._autofill_name())
 
         # hover hints
         _h = self._bind_hint
@@ -442,6 +443,7 @@ class MenuEditor(tk.Toplevel):
 
     def _load_fields(self, item: MenuItemDescriptor) -> None:
         self._updating = True
+        self._name_user_edited = bool(item.name)  # existing name = user has set it
         self._caption_var.set(item.caption)
         self._name_var.set(item.name)
         sc = item.shortcut if item.shortcut else "(None)"
@@ -475,6 +477,35 @@ class MenuEditor(tk.Toplevel):
         self._variable_entry.configure(state=var_state)
         self._command_handler_entry.configure(state=cmd_state)
         self._value_entry.configure(state=val_state)
+
+    def _on_name_typed(self) -> None:
+        """Track when the user manually edits the name field."""
+        if not self._updating:
+            self._name_user_edited = True
+        self._on_field_change()
+
+    def _autofill_name(self) -> None:
+        """Auto-generate name from caption if name is still empty or auto-derived."""
+        if self._name_user_edited:
+            return
+        item = self._current_item()
+        if item is None or item.caption == "-" or not item.caption.strip():
+            return
+        if item.name:
+            return
+        import re
+        raw = item.caption
+        raw = raw.replace("&", "")          # strip access-key markers
+        raw = raw.strip().lower()
+        raw = re.sub(r"[^a-z0-9]+", "_", raw)
+        raw = raw.strip("_")
+        if not raw:
+            return
+        self._updating = True
+        self._name_var.set(raw)
+        item.name = raw
+        self._updating = False
+        self._refresh_listbox()
 
     def _on_field_change(self) -> None:
         if self._updating:
