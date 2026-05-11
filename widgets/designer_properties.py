@@ -21,6 +21,8 @@ _ORD_SEL     = "#094771"
 _ORD_FG      = "#cccccc"
 _ORD_DIM     = "#636363"
 _ORD_NUM     = "#007acc"
+_ORD_NB_NUM  = "#4ec9b0"   # teal badge for Notebook-scoped widgets
+_ORD_NB_IND  = 16          # indent px for Notebook children
 _PROPS_SPLIT = 0.44   # fraction of width for the label column
 
 
@@ -971,27 +973,50 @@ class DesignerProperties(tk.Frame):
             )
             cv.configure(scrollregion=(0, 0, w, 80))
             return
+        # Precompute per-notebook-tab scoped indices: widget.id → (scoped_idx, tab_name)
+        _nb_info: dict[str, tuple[int, str]] = {}
+        _nb_counters: dict[tuple, int] = {}
+        for widget in self._order_widgets:
+            if widget.parent_id and self._form:
+                par = self._form.get_widget(widget.parent_id)
+                if par and REGISTRY.get(par.type, {}).get("is_notebook"):
+                    key = (par.id, widget.tab)
+                    _nb_counters[key] = _nb_counters.get(key, 0) + 1
+                    _nb_info[widget.id] = (_nb_counters[key], widget.tab)
+
         total_h = len(self._order_widgets) * _ORD_ROW_H
         cv.configure(scrollregion=(0, 0, w, total_h))
         for i, widget in enumerate(self._order_widgets):
-            self._order_draw_row(widget, i, w)
+            self._order_draw_row(widget, i, w, _nb_info.get(widget.id))
 
-    def _order_draw_row(self, widget: WidgetDescriptor, idx: int, w: int) -> None:
+    def _order_draw_row(self, widget: WidgetDescriptor, idx: int, w: int,
+                        nb_info: tuple[int, str] | None = None) -> None:
         cv  = self._order_cv
         y   = idx * _ORD_ROW_H
         bg  = self._order_row_color(idx)
         tag = f"orow{idx}"
 
+        is_nb_child = nb_info is not None
+        indent = _ORD_NB_IND if is_nb_child else 0
+
         rect = cv.create_rectangle(0, y, w, y + _ORD_ROW_H - 1,
                                    fill=bg, outline="", tags=tag)
         self._order_bgs[idx] = rect
 
+        # Teal left-edge bar for Notebook children
+        if is_nb_child:
+            cv.create_rectangle(0, y, 3, y + _ORD_ROW_H - 1,
+                                fill=_ORD_NB_NUM, outline="", tags=tag)
+
         # Number badge
         r = 9
-        bx, by = r + 4, y + _ORD_ROW_H // 2
+        bx = indent + r + 4
+        by = y + _ORD_ROW_H // 2
+        badge_num  = nb_info[0] if is_nb_child else idx + 1
+        badge_fill = _ORD_NB_NUM if is_nb_child else _ORD_NUM
         cv.create_oval(bx - r, by - r, bx + r, by + r,
-                       fill=_ORD_NUM, outline="", tags=tag)
-        cv.create_text(bx, by, text=str(idx + 1), fill="#ffffff",
+                       fill=badge_fill, outline="", tags=tag)
+        cv.create_text(bx, by, text=str(badge_num), fill="#ffffff",
                        font=(UI_FONT, 7, "bold"), anchor="center", tags=tag)
 
         # Widget ID
@@ -999,10 +1024,16 @@ class DesignerProperties(tk.Frame):
                        fill=_ORD_FG, font=("Consolas", 9),
                        anchor="w", tags=tag)
 
-        # Type (dim, right-aligned)
-        cv.create_text(w - 8, by, text=widget.type,
-                       fill=_ORD_DIM, font=(UI_FONT, 8),
-                       anchor="e", tags=tag)
+        # Tab name pill for Notebook children (dim, just left of type)
+        if is_nb_child:
+            tab_name = nb_info[1] or ""
+            cv.create_text(w - 8, by, text=f"{tab_name}  ·  {widget.type}",
+                           fill=_ORD_DIM, font=(UI_FONT, 8),
+                           anchor="e", tags=tag)
+        else:
+            cv.create_text(w - 8, by, text=widget.type,
+                           fill=_ORD_DIM, font=(UI_FONT, 8),
+                           anchor="e", tags=tag)
 
         cv.tag_bind(tag, "<Enter>", lambda e, i=idx: self._order_hover_on(i))
         cv.tag_bind(tag, "<Leave>", lambda e, i=idx: self._order_hover_off(i))
