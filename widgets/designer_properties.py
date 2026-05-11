@@ -1173,8 +1173,12 @@ class DesignerProperties(tk.Frame):
             self._on_reorder_widget(self._order_widgets[src_w].id, dst_w)
 
     def _nearest_nb_tab(self, d_idx: int) -> str | None:
-        """Return the tab name of the nearest header at or before d_idx, or None."""
-        top = min(d_idx, len(self._order_display) - 1)
+        """Return the tab name of the section that insertion point d_idx falls into.
+
+        d_idx is an insertion point ("insert before item N"), so walk backwards
+        from d_idx-1 to find the enclosing tab header, not the header AT d_idx.
+        """
+        top = min(d_idx - 1, len(self._order_display) - 1)
         for i in range(top, -1, -1):
             if self._order_display[i][0] == 'h':
                 return self._order_display[i][1]
