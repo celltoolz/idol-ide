@@ -1567,9 +1567,9 @@ class DesignerProperties(tk.Frame):
                 self._props_set(iid, v)
                 commit_fn(iid, v)
 
-            lbl.bind("<Enter>",    _enter)
-            lbl.bind("<Leave>",    _leave)
-            lbl.bind("<Button-1>", _click)
+            lbl.bind("<Enter>",          _enter)
+            lbl.bind("<Leave>",          _leave)
+            lbl.bind("<ButtonRelease-1>", _click)
 
         item_w = max(w, max(len(v) * 7 + 24 for v in values) if values else w)
         overlay.place(x=x, y=y + h, width=item_w)
@@ -2206,9 +2206,9 @@ class DesignerProperties(tk.Frame):
                 tree.set(row, col, v)
                 commit_fn(row, v)
 
-            lbl.bind("<Enter>",    _enter)
-            lbl.bind("<Leave>",    _leave)
-            lbl.bind("<Button-1>", _click)
+            lbl.bind("<Enter>",           _enter)
+            lbl.bind("<Leave>",           _leave)
+            lbl.bind("<ButtonRelease-1>", _click)
 
         item_w = max(w, max(len(v) * 7 + 24 for v in values) if values else w)
         overlay.place(x=x, y=y + h, width=item_w)
@@ -2289,9 +2289,9 @@ class DesignerProperties(tk.Frame):
                              fg="#ffffff" if v == cur else "#cccccc")
                     self._clear_hint()
 
-                btn.bind("<Enter>",    _enter)
-                btn.bind("<Leave>",    _leave)
-                btn.bind("<Button-1>", lambda e, v=val: _pick(v))
+                btn.bind("<Enter>",           _enter)
+                btn.bind("<Leave>",           _leave)
+                btn.bind("<ButtonRelease-1>", lambda e, v=val: _pick(v))
 
         # Shift-key note
         tk.Label(overlay, text="Shift+resize ignores anchors",
