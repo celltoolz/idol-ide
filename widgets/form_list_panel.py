@@ -191,14 +191,29 @@ class FormListPanel(tk.Frame):
                               font=(UI_FONT, 7, "bold"), anchor="w")
                 continue
 
-            # Icon
+            # Icon — drawn as canvas primitives for cross-platform consistency
             if kind == "form":
-                icon, icon_fg = "⬜", "#569cd6"
+                icon_fg = "#569cd6"
             else:
-                icon, icon_fg = "⧉", "#9cdcfe" if kind == "linked" else "#858585"
+                icon_fg = "#9cdcfe" if kind == "linked" else "#858585"
 
-            c.create_text(x, (y0 + y1) // 2, text=icon, fill=icon_fg,
-                          font=(UI_FONT, 9), anchor="w")
+            cy = (y0 + y1) // 2
+            if kind == "form":
+                # Miniature window: outer rect + title-bar line
+                c.create_rectangle(x, cy - 5, x + 11, cy + 4,
+                                   outline=icon_fg, fill="", width=1)
+                c.create_line(x + 1, cy - 2, x + 10, cy - 2,
+                              fill=icon_fg, width=1)
+            else:
+                # Two overlapping windows (dialog)
+                c.create_rectangle(x + 3, cy - 5, x + 11, cy + 2,
+                                   outline=icon_fg, fill=bg, width=1)
+                c.create_line(x + 4, cy - 3, x + 10, cy - 3,
+                              fill=icon_fg, width=1)
+                c.create_rectangle(x, cy - 2, x + 8, cy + 4,
+                                   outline=icon_fg, fill=bg, width=1)
+                c.create_line(x + 1, cy, x + 7, cy,
+                              fill=icon_fg, width=1)
 
             # Name
             label_x = x + 16
@@ -331,7 +346,7 @@ class FormListPanel(tk.Frame):
         win.configure(bg="#094771")
         tk.Label(
             win,
-            text=f"  ⧉  {name}  ",
+            text=f"  {name}  ",
             bg="#094771",
             fg="#ffffff",
             font=(UI_FONT, 9),
