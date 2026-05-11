@@ -1138,19 +1138,24 @@ class DesignerCanvas(tk.Canvas):
         cx, cy = self.canvasx(event.x), self.canvasy(event.y)
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
-            # If clicking on an existing widget, de-arm and fall through to
-            # normal click handling so a drag can start immediately.
+            # If clicking a non-container widget, de-arm so the user can drag it
+            # immediately. Clicking a Frame/LabelFrame keeps the tool armed — the
+            # draw begins inside the container.
             item = self._topmost_at(cx, cy)
             if item is not None:
                 tags = self.gettags(item)
                 if any(t.startswith("widget:") for t in tags):
-                    self.cancel_tool()
-                    # fall through to normal hit-testing below
+                    wid_under = next((t.split(":", 1)[1] for t in tags if t.startswith("widget:")), None)
+                    w_under = self._form.get_widget(wid_under) if wid_under else None
+                    if not (w_under and REGISTRY.get(w_under.type, {}).get("is_container")):
+                        self.cancel_tool()
+                        # fall through to normal hit-testing below
             if self._active_tool:  # still armed → begin draw drag
                 self._drag = {
-                    "mode":     "draw_widget",
-                    "start_cx": cx,
-                    "start_cy": cy,
+                    "mode":      "draw_widget",
+                    "start_cx":  cx,
+                    "start_cy":  cy,
+                    "container": self._container_at(cx, cy),
                 }
                 return
             # Tool was cancelled (clicked on widget) → fall through to normal handling
@@ -1186,6 +1191,12 @@ class DesignerCanvas(tk.Canvas):
                         w.id: (w.x, w.y, w.width, w.height)
                         for w in self._form.widgets
                         if w.anchor and w.anchor not in ("", "top_left")
+                    },
+                    "orig_parent_sizes": {
+                        w.id: (p.width, p.height)
+                        for w in self._form.widgets
+                        if w.anchor and w.anchor not in ("", "top_left") and w.parent_id
+                        if (p := self._form.get_widget(w.parent_id)) is not None
                     },
                 }
             return
@@ -1235,11 +1246,12 @@ class DesignerCanvas(tk.Canvas):
                         if (sw := self._form.get_widget(sid))
                     }
                     self._drag = {
-                        "mode":     "move",
-                        "id":       wid,
-                        "start_cx": cx, "start_cy": cy,
-                        "orig_x":   w.x,     "orig_y":   w.y,
+                        "mode":          "move",
+                        "id":            wid,
+                        "start_cx":      cx, "start_cy": cy,
+                        "orig_x":        w.x, "orig_y":  w.y,
                         "orig_positions": orig_positions,
+                        "parent_locked": bool(w.parent_id),
                     }
             return
 
@@ -1309,12 +1321,30 @@ class DesignerCanvas(tk.Canvas):
             if not shift_held:
                 orig_fw = d["orig_w"]
                 orig_fh = d["orig_h"]
+                orig_par_sizes = d.get("orig_parent_sizes", {})
                 for widget in f.widgets:
                     geom = d["orig_widget_geoms"].get(widget.id)
                     if geom:
-                        nx, ny, nww, nwh = _anchor_geom(
-                            geom, widget.anchor, orig_fw, orig_fh, f.width, f.height
-                        )
+                        if widget.parent_id:
+                            # Anchor is relative to parent, not the form.
+                            # Parents appear before children in form.widgets
+                            # (via _reorder_after_parent), so par.width/height
+                            # already reflects any anchor the parent itself had.
+                            par = f.get_widget(widget.parent_id)
+                            if par:
+                                orig_pw, orig_ph = orig_par_sizes.get(widget.id, (par.width, par.height))
+                                lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                                nx, ny, nww, nwh = _anchor_geom(
+                                    geom, widget.anchor,
+                                    orig_pw, orig_ph - lh,
+                                    par.width, par.height - lh,
+                                )
+                            else:
+                                nx, ny, nww, nwh = _anchor_geom(
+                                    geom, widget.anchor, orig_fw, orig_fh, f.width, f.height)
+                        else:
+                            nx, ny, nww, nwh = _anchor_geom(
+                                geom, widget.anchor, orig_fw, orig_fh, f.width, f.height)
                         widget.x, widget.y = nx, ny
                         widget.width, widget.height = max(GRID, nww), max(GRID, nwh)
 
@@ -1342,11 +1372,21 @@ class DesignerCanvas(tk.Canvas):
             y0 = min(d["start_cy"], cy)
             x1 = max(d["start_cx"], cx)
             y1 = max(d["start_cy"], cy)
-            # Clamp preview rect to form boundaries
-            x0 = max(self._ox, x0)
-            y0 = max(self._oy + self._min_y, y0)
-            x1 = min(self._ox + self._form.width, x1)
-            y1 = min(self._oy + self._form.height, y1)
+            # Clamp preview rect to container bounds (if draw started inside one)
+            # or form bounds otherwise.
+            container = d.get("container")
+            if container:
+                ax, ay = self._abs_xy(container)
+                lh = _LF_LABEL_H if container.type == "LabelFrame" else 0
+                x0 = max(ax, x0)
+                y0 = max(ay + lh, y0)
+                x1 = min(ax + container.width, x1)
+                y1 = min(ay + container.height, y1)
+            else:
+                x0 = max(self._ox, x0)
+                y0 = max(self._oy + self._min_y, y0)
+                x1 = min(self._ox + self._form.width, x1)
+                y1 = min(self._oy + self._form.height, y1)
             if x1 > x0 and y1 > y0:
                 self.create_rectangle(x0, y0, x1, y1,
                                       outline=_SEL, dash=(4, 3), fill="",
@@ -1382,8 +1422,20 @@ class DesignerCanvas(tk.Canvas):
                 if sw.parent_id and sw.parent_id in selected_ids:
                     continue
                 if sw.parent_id:
-                    sw.x = ox + actual_dx
-                    sw.y = oy + actual_dy
+                    par = self._form.get_widget(sw.parent_id)
+                    # Single-widget drag: lock to parent until mouse exits parent bounds
+                    if par and d.get("parent_locked") and len(d["orig_positions"]) == 1:
+                        par_ax, par_ay = self._abs_xy(par)
+                        if not (par_ax <= cx <= par_ax + par.width and
+                                par_ay <= cy <= par_ay + par.height):
+                            d["parent_locked"] = False
+                    if par and d.get("parent_locked"):
+                        lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                        sw.x = max(0, min(ox + actual_dx, par.width  - sw.width))
+                        sw.y = max(0, min(oy + actual_dy, par.height - lh - sw.height))
+                    else:
+                        sw.x = ox + actual_dx
+                        sw.y = oy + actual_dy
                 else:
                     sw.x = max(0,            min(ox + actual_dx, self._form.width  - sw.width))
                     sw.y = max(self._min_y, min(oy + actual_dy, self._form.height - sw.height))
@@ -1424,6 +1476,16 @@ class DesignerCanvas(tk.Canvas):
 
             nw = max(GRID * 2, nw)
             nh = max(GRID * 2, nh)
+
+            # Clamp resize within parent container if widget has one
+            if w.parent_id:
+                par = self._form.get_widget(w.parent_id)
+                if par:
+                    lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                    nx = max(0, min(nx, par.width  - GRID * 2))
+                    ny = max(0, min(ny, par.height - lh - GRID * 2))
+                    nw = max(GRID * 2, min(nw, par.width  - nx))
+                    nh = max(GRID * 2, min(nh, par.height - lh - ny))
 
             # Deltas to propagate to secondaries
             ddx = nx - ox
@@ -1657,7 +1719,11 @@ class DesignerCanvas(tk.Canvas):
                 self._clear_hover()
                 self._hover_id = wid
                 if self._active_tool:
-                    self.config(cursor="fleur" if wid in self._selected_ids else "arrow")
+                    w_h = self._form.get_widget(wid) if self._form else None
+                    if w_h and REGISTRY.get(w_h.type, {}).get("is_container"):
+                        self.config(cursor="crosshair")
+                    else:
+                        self.config(cursor="fleur" if wid in self._selected_ids else "arrow")
                 else:
                     self.config(cursor="fleur")
         elif not any(t.startswith("handle:") or t.startswith("fhandle:") for t in tags):
@@ -1668,7 +1734,11 @@ class DesignerCanvas(tk.Canvas):
 
     def _widget_enter(self, event: tk.Event, wid: str) -> None:
         if self._active_tool:
-            self.config(cursor="fleur" if wid in self._selected_ids else "arrow")
+            w = self._form.get_widget(wid) if self._form else None
+            if w and REGISTRY.get(w.type, {}).get("is_container"):
+                self.config(cursor="crosshair")
+            else:
+                self.config(cursor="fleur" if wid in self._selected_ids else "arrow")
         else:
             self.config(cursor="fleur")
 
