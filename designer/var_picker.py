@@ -436,16 +436,18 @@ class HandlerPickerEntry(tk.Frame):
         )
         self.entry.pack(side="left", fill="x", expand=True)
 
-        self._btn = tk.Button(
+        self._btn = tk.Label(
             self,
-            text="▾", width=2,
+            text="▾",
             bg=btn_bg, fg="#888888",
-            activebackground="#4a4a4a", activeforeground="#cccccc",
-            relief="flat", font=(UI_FONT, 8),
+            font=(UI_FONT, 8),
             cursor="hand2",
-            command=self._open_picker,
+            padx=4, pady=1,
         )
         self._btn.pack(side="left")
+        self._btn.bind("<Button-1>",  lambda _: self._open_picker())
+        self._btn.bind("<Enter>", lambda _: self._btn.config(fg="#cccccc"))
+        self._btn.bind("<Leave>", lambda _: self._btn.config(fg="#888888"))
 
     def _open_picker(self) -> None:
         if self._popup and self._popup.winfo_exists():
@@ -508,16 +510,18 @@ class VariablePickerEntry(tk.Frame):
         )
         self.entry.pack(side="left", fill="x", expand=True)
 
-        self._btn = tk.Button(
+        self._btn = tk.Label(
             self,
-            text="▾", width=2,
+            text="▾",
             bg=btn_bg, fg="#888888",
-            activebackground="#4a4a4a", activeforeground="#cccccc",
-            relief="flat", font=(UI_FONT, 8),
+            font=(UI_FONT, 8),
             cursor="hand2",
-            command=self._open_picker,
+            padx=4, pady=1,
         )
         self._btn.pack(side="left")
+        self._btn.bind("<Button-1>",  lambda _: self._open_picker())
+        self._btn.bind("<Enter>", lambda _: self._btn.config(fg="#cccccc"))
+        self._btn.bind("<Leave>", lambda _: self._btn.config(fg="#888888"))
 
     def _open_picker(self) -> None:
         if self._popup and self._popup.winfo_exists():
