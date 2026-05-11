@@ -1153,13 +1153,15 @@ class DesignerProperties(tk.Frame):
 
         target_d = self._order_drop_target(event.y)
 
-        # If dropping onto a tab header, reassign the widget's tab
-        if target_d < len(self._order_display) and self._order_display[target_d][0] == 'h':
-            new_tab = self._order_display[target_d][1]
-            if dragged_widget.tab != new_tab and self._on_prop_change:
-                dragged_widget.tab = new_tab
-                self._on_prop_change(dragged_widget.id, "__tab__", new_tab)
-            return
+        # If dragged widget is a Notebook child, check if drop lands in a different tab section
+        if dragged_widget.parent_id and self._form:
+            par = self._form.get_widget(dragged_widget.parent_id)
+            if par and REGISTRY.get(par.type, {}).get("is_notebook"):
+                target_tab = self._nearest_nb_tab(target_d)
+                if target_tab is not None and target_tab != dragged_widget.tab and self._on_prop_change:
+                    dragged_widget.tab = target_tab
+                    self._on_prop_change(dragged_widget.id, "__tab__", target_tab)
+                    return
 
         # Count widget rows before target_d to get insertion widget index
         dst_w = sum(1 for i in range(target_d) if i in self._disp_to_w)
@@ -1169,6 +1171,14 @@ class DesignerProperties(tk.Frame):
 
         if dst_w != src_w and self._on_reorder_widget and self._order_widgets:
             self._on_reorder_widget(self._order_widgets[src_w].id, dst_w)
+
+    def _nearest_nb_tab(self, d_idx: int) -> str | None:
+        """Return the tab name of the nearest header at or before d_idx, or None."""
+        top = min(d_idx, len(self._order_display) - 1)
+        for i in range(top, -1, -1):
+            if self._order_display[i][0] == 'h':
+                return self._order_display[i][1]
+        return None
 
     def _order_drop_target(self, canvas_y: int) -> int:
         """Return display insertion index (0..N) from a canvas y coordinate."""
