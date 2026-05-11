@@ -2259,40 +2259,82 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
 
 def _draw_notebook_canvas(c, x, y, x2, y2, props, tag, nb_id, active_tab):
     """Draw a Notebook on the designer canvas (not @_tag — needs nb_id/active_tab)."""
-    tabs = props.get("tabs") or ["Tab 1"]
-    bg   = props.get("bg", "#f0f0f0") or "#f0f0f0"
+    tabs  = props.get("tabs") or ["Tab 1"]
+    bg    = props.get("bg", "") or "#ffffff"
+    sep_y = y + _NB_TAB_H   # y-coord of strip / content boundary
 
-    # Content area
-    c.create_rectangle(x, y + _NB_TAB_H, x2, y2,
-                       fill=bg, outline="#808080",
-                       tags=(tag, "widget"))
+    _BORDER   = "#adadad"
+    _STRIP    = "#f0f0f0"
+    _ACT_BG   = "#ffffff"
+    _INACT_BG = "#e1e1e1"
 
-    # Tab strip background
-    c.create_rectangle(x, y, x2, y + _NB_TAB_H,
-                       fill="#d4d4d4", outline="",
-                       tags=(tag, "widget"))
-
-    tab_x = x + 2
     tab_w = max(48, min(80, (x2 - x - 4) // max(len(tabs), 1)))
+
+    # Locate the active tab's x extents so we can leave a gap in the separator
+    act_x1 = act_x2 = None
+    tx = x + 2
+    for tab in tabs:
+        if tab == active_tab:
+            act_x1, act_x2 = tx, tx + tab_w
+        tx += tab_w + 2
+
+    # ── Content area (fill + 3-sided border, top left open for active tab) ─
+    c.create_rectangle(x, sep_y, x2, y2, fill=bg, outline="",
+                       tags=(tag, "widget"))
+    c.create_line(x,  sep_y, x,  y2, fill=_BORDER, tags=(tag, "widget"))
+    c.create_line(x,  y2,    x2, y2, fill=_BORDER, tags=(tag, "widget"))
+    c.create_line(x2, sep_y, x2, y2, fill=_BORDER, tags=(tag, "widget"))
+
+    # Separator line — drawn with a gap under the active tab
+    if act_x1 is not None:
+        if act_x1 > x:
+            c.create_line(x, sep_y, act_x1, sep_y,
+                          fill=_BORDER, tags=(tag, "widget"))
+        if act_x2 < x2:
+            c.create_line(act_x2, sep_y, x2, sep_y,
+                          fill=_BORDER, tags=(tag, "widget"))
+    else:
+        c.create_line(x, sep_y, x2, sep_y, fill=_BORDER, tags=(tag, "widget"))
+
+    # ── Tab strip background + outer border ───────────────────────────────
+    c.create_rectangle(x, y, x2, sep_y, fill=_STRIP, outline="",
+                       tags=(tag, "widget"))
+    c.create_line(x,  y, x,  sep_y, fill=_BORDER, tags=(tag, "widget"))
+    c.create_line(x,  y, x2, y,     fill=_BORDER, tags=(tag, "widget"))
+    c.create_line(x2, y, x2, sep_y, fill=_BORDER, tags=(tag, "widget"))
+
+    # ── Tabs ──────────────────────────────────────────────────────────────
+    tab_x = x + 2
     for tab in tabs:
         is_active = (tab == active_tab)
-        fill  = bg        if is_active else "#c8c8c8"
-        tab_y1 = y + 2
-        tab_y2 = y + _NB_TAB_H + (1 if is_active else -1)
         nb_tag = f"nbtab:{nb_id}:{tab}"
-        c.create_rectangle(tab_x, tab_y1, tab_x + tab_w, tab_y2,
-                           fill=fill, outline="#808080",
-                           tags=(tag, "widget", nb_tag))
-        c.create_text(tab_x + tab_w // 2, (tab_y1 + tab_y2) // 2,
+
+        if is_active:
+            ty1, ty2 = y + 2, sep_y
+            # White fill — covers the strip bg and bridges into the content area
+            c.create_rectangle(tab_x, ty1, tab_x + tab_w, ty2,
+                               fill=_ACT_BG, outline="",
+                               tags=(tag, "widget", nb_tag))
+            # 3-sided border (no bottom — the gap in the separator handles that)
+            c.create_line(tab_x,         ty1, tab_x + tab_w, ty1,
+                          fill=_BORDER, tags=(tag, "widget", nb_tag))
+            c.create_line(tab_x,         ty1, tab_x,         ty2,
+                          fill=_BORDER, tags=(tag, "widget", nb_tag))
+            c.create_line(tab_x + tab_w, ty1, tab_x + tab_w, ty2,
+                          fill=_BORDER, tags=(tag, "widget", nb_tag))
+            text_y = (ty1 + sep_y) // 2
+        else:
+            ty1, ty2 = y + 4, sep_y - 2
+            c.create_rectangle(tab_x, ty1, tab_x + tab_w, ty2,
+                               fill=_INACT_BG, outline=_BORDER,
+                               tags=(tag, "widget", nb_tag))
+            text_y = (ty1 + ty2) // 2
+
+        c.create_text(tab_x + tab_w // 2, text_y,
                       text=tab, fill="#111111",
                       font=(UI_FONT, 8),
                       tags=(tag, "widget", nb_tag))
         tab_x += tab_w + 2
-
-    # Separator line between strip and content
-    c.create_line(x, y + _NB_TAB_H, x2, y + _NB_TAB_H,
-                  fill="#808080",
-                  tags=(tag, "widget"))
 
 
 @_tag
