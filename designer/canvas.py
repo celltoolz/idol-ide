@@ -1112,10 +1112,19 @@ class DesignerCanvas(tk.Canvas):
         for item in self.find_withtag(tag):
             self.tag_bind(item, "<Button-1>",
                           lambda e, wid=w.id: self._widget_clicked(e, wid))
-            self.tag_bind(item, "<Enter>",
-                          lambda e, wid=w.id: self._widget_enter(e, wid))
-            self.tag_bind(item, "<Leave>",
-                          lambda e, wid=w.id: self._widget_leave(e, wid))
+            item_tags = self.gettags(item)
+            if any(t.startswith("nbtab:") for t in item_tags):
+                # Tab strip headers: pointer cursor regardless of armed state
+                self.tag_bind(item, "<Enter>",
+                              lambda e: self.config(cursor="hand2"))
+                self.tag_bind(item, "<Leave>",
+                              lambda e: self.config(
+                                  cursor="crosshair" if self._active_tool else "arrow"))
+            else:
+                self.tag_bind(item, "<Enter>",
+                              lambda e, wid=w.id: self._widget_enter(e, wid))
+                self.tag_bind(item, "<Leave>",
+                              lambda e, wid=w.id: self._widget_leave(e, wid))
 
     # ── Selection handles ─────────────────────────────────────────────────────
 
@@ -1194,12 +1203,21 @@ class DesignerCanvas(tk.Canvas):
     def _on_click(self, event: tk.Event) -> None:
         self.focus_set()
         cx, cy = self.canvasx(event.x), self.canvasy(event.y)
+
+        # Notebook tab-strip click — always intercept before any tool logic
+        item = self._topmost_at(cx, cy)
+        if item is not None:
+            for t in self.gettags(item):
+                if t.startswith("nbtab:"):
+                    _, nb_id, tab_name = t.split(":", 2)
+                    self._switch_nb_tab(nb_id, tab_name)
+                    return
+
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
             # If clicking a non-container widget, de-arm so the user can drag it
             # immediately. Clicking a Frame/LabelFrame keeps the tool armed — the
             # draw begins inside the container.
-            item = self._topmost_at(cx, cy)
             if item is not None:
                 tags = self.gettags(item)
                 if any(t.startswith("widget:") for t in tags):
@@ -1223,15 +1241,6 @@ class DesignerCanvas(tk.Canvas):
             if hx1 <= cx <= hx2 and hy1 <= cy <= hy2:
                 self._show_menu_popup(event, item_idx)
                 return
-
-        # Notebook tab-strip click
-        item = self._topmost_at(cx, cy)
-        if item is not None:
-            for t in self.gettags(item):
-                if t.startswith("nbtab:"):
-                    _, nb_id, tab_name = t.split(":", 2)
-                    self._switch_nb_tab(nb_id, tab_name)
-                    return
 
         if item is None:
             self.deselect()
@@ -1814,6 +1823,13 @@ class DesignerCanvas(tk.Canvas):
                 self._clear_hover()
             return
         tags = self.gettags(item)
+        # nbtab items: always pointer (tab switching, not widget placement)
+        if any(t.startswith("nbtab:") for t in tags):
+            if self._hover_id:
+                self._clear_hover()
+            self.config(cursor="hand2")
+            return
+
         widget_tag = next((t for t in tags if t.startswith("widget:")), None)
         if widget_tag:
             wid = widget_tag.split(":", 1)[1]
@@ -1825,7 +1841,7 @@ class DesignerCanvas(tk.Canvas):
                     if w_h and REGISTRY.get(w_h.type, {}).get("is_container"):
                         self.config(cursor="crosshair")
                     else:
-                        self.config(cursor="fleur" if wid in self._selected_ids else "arrow")
+                        self.config(cursor="hand2")
                 else:
                     self.config(cursor="fleur")
         elif not any(t.startswith("handle:") or t.startswith("fhandle:") for t in tags):
@@ -1840,7 +1856,7 @@ class DesignerCanvas(tk.Canvas):
             if w and REGISTRY.get(w.type, {}).get("is_container"):
                 self.config(cursor="crosshair")
             else:
-                self.config(cursor="fleur" if wid in self._selected_ids else "arrow")
+                self.config(cursor="hand2")
         else:
             self.config(cursor="fleur")
 
