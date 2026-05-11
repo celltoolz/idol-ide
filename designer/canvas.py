@@ -396,6 +396,11 @@ class DesignerCanvas(tk.Canvas):
         self.delete(f"widget:{descriptor.id}")
         self._render_widget(descriptor)
         self._restore_z_order(descriptor.id)
+        for child in self._descendants_of(descriptor.id):
+            self.delete(f"widget:{child.id}")
+            if self._should_render(child):
+                self._render_widget(child)
+                self._restore_z_order(child.id)
         if was_selected:
             self._draw_all_handles()
         self.tag_raise("handle")
