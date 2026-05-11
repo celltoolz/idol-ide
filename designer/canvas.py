@@ -654,13 +654,32 @@ class DesignerCanvas(tk.Canvas):
         if not self._form:
             return
         r = 9
-        for i, w in enumerate(self._form.widgets):
+        form_idx = 0
+        # Cache per-notebook-tab sibling lists for scoped numbering
+        _nb_tab_counts: dict[tuple, int] = {}
+
+        for w in self._form.widgets:
+            if not self._should_render(w):
+                continue
             x, y = self._abs_xy(w)
             cx, cy = x + r + 2, y + r + 2
+
+            par = self._form.get_widget(w.parent_id) if w.parent_id else None
+            if par and REGISTRY.get(par.type, {}).get("is_notebook"):
+                # Scoped within this notebook tab — number independently, teal badge
+                key = (par.id, w.tab)
+                _nb_tab_counts[key] = _nb_tab_counts.get(key, 0) + 1
+                badge_num = _nb_tab_counts[key]
+                fill = "#4ec9b0"
+            else:
+                form_idx += 1
+                badge_num = form_idx
+                fill = "#007acc"
+
             self.create_oval(cx - r, cy - r, cx + r, cy + r,
-                             fill="#007acc", outline="#ffffff", width=1,
+                             fill=fill, outline="#ffffff", width=1,
                              tags="tab_badge")
-            self.create_text(cx, cy, text=str(i + 1), fill="#ffffff",
+            self.create_text(cx, cy, text=str(badge_num), fill="#ffffff",
                              font=(UI_FONT, 7, "bold"), tags="tab_badge")
         self.tag_raise("tab_badge")
 
