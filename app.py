@@ -5980,9 +5980,11 @@ class IDOL(Tk):
         )
         # Also include any open .py tabs that weren't caught by the glob
         # (e.g. files saved outside the project root)
+        _py_norm = {os.path.normcase(os.path.normpath(f)) for f in py_files}
         open_py = [
             fp for fp in self._files.values()
-            if fp and fp.endswith(".py") and fp not in py_files
+            if fp and fp.endswith(".py")
+            and os.path.normcase(os.path.normpath(fp)) not in _py_norm
         ]
         py_files.extend(sorted(open_py, key=lambda f: os.path.basename(f).lower()))
 
