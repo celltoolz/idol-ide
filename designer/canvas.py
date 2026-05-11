@@ -153,10 +153,10 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Right>",           lambda _: self._nudge( (GRID if self.snap_enabled else 1),    0))
         self.bind("<Up>",              lambda _: self._nudge(    0, -(GRID if self.snap_enabled else 1)))
         self.bind("<Down>",            lambda _: self._nudge(    0,  (GRID if self.snap_enabled else 1)))
-        self.bind("<Shift-Left>",      lambda _: self._nudge(-1,  0))
-        self.bind("<Shift-Right>",     lambda _: self._nudge( 1,  0))
-        self.bind("<Shift-Up>",        lambda _: self._nudge( 0, -1))
-        self.bind("<Shift-Down>",      lambda _: self._nudge( 0,  1))
+        self.bind("<Shift-Left>",      lambda _: self._nudge(-(GRID if self.snap_enabled else 1),    0))
+        self.bind("<Shift-Right>",     lambda _: self._nudge( (GRID if self.snap_enabled else 1),    0))
+        self.bind("<Shift-Up>",        lambda _: self._nudge(    0, -(GRID if self.snap_enabled else 1)))
+        self.bind("<Shift-Down>",      lambda _: self._nudge(    0,  (GRID if self.snap_enabled else 1)))
         self.bind("<MouseWheel>",       self._on_mousewheel)
         self.bind("<Button-4>",         self._on_mousewheel)
         self.bind("<Button-5>",         self._on_mousewheel)
@@ -654,7 +654,7 @@ class DesignerCanvas(tk.Canvas):
 
     @property
     def snap_enabled(self) -> bool:
-        return _snap_enabled and not self._shift_snap_override
+        return (not _snap_enabled) if self._shift_snap_override else _snap_enabled
 
     # ── Alignment / distribution / sizing (multi-select operations) ───────────
 
