@@ -1058,6 +1058,7 @@ class DesignerCanvas(tk.Canvas):
     def _switch_nb_tab(self, nb_id: str, tab_name: str) -> None:
         """Make tab_name the active tab for notebook nb_id and redraw."""
         self._active_nb_tabs[nb_id] = tab_name
+        self.select(nb_id)
         self._redraw()
 
     def _redraw(self) -> None:
