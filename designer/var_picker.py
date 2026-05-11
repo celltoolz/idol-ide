@@ -169,16 +169,16 @@ def show_variable_popup(
                 pass
             return "break"
 
-        row.bind("<Enter>",      lambda e: _set_hover(True))
-        row.bind("<Leave>",      lambda e: _set_hover(False))
-        row.bind("<Button-1>",   _click)
-        row.bind("<MouseWheel>", _wheel)
+        row.bind("<Enter>",          lambda e: _set_hover(True))
+        row.bind("<Leave>",          lambda e: _set_hover(False))
+        row.bind("<ButtonRelease-1>", _click)
+        row.bind("<MouseWheel>",     _wheel)
         for child in row.winfo_children():
-            child.bind("<Enter>",      lambda e: _set_hover(True))
-            child.bind("<Leave>",      lambda e: _set_hover(False))
-            child.bind("<MouseWheel>", _wheel)
+            child.bind("<Enter>",          lambda e: _set_hover(True))
+            child.bind("<Leave>",          lambda e: _set_hover(False))
+            child.bind("<MouseWheel>",     _wheel)
             if child is not x_lbl:
-                child.bind("<Button-1>", _click)
+                child.bind("<ButtonRelease-1>", _click)
         if x_lbl is not None:
             x_lbl.bind("<Button-1>", _remove_click)
         row.pack(fill="x")
@@ -321,16 +321,16 @@ def show_handler_popup(
                 pass
             return "break"
 
-        row.bind("<Enter>",      lambda e: _set_hover(True))
-        row.bind("<Leave>",      lambda e: _set_hover(False))
-        row.bind("<Button-1>",   _click)
-        row.bind("<MouseWheel>", _wheel)
+        row.bind("<Enter>",           lambda e: _set_hover(True))
+        row.bind("<Leave>",           lambda e: _set_hover(False))
+        row.bind("<ButtonRelease-1>", _click)
+        row.bind("<MouseWheel>",      _wheel)
         for child in row.winfo_children():
-            child.bind("<Enter>",      lambda e: _set_hover(True))
-            child.bind("<Leave>",      lambda e: _set_hover(False))
-            child.bind("<MouseWheel>", _wheel)
+            child.bind("<Enter>",           lambda e: _set_hover(True))
+            child.bind("<Leave>",           lambda e: _set_hover(False))
+            child.bind("<MouseWheel>",      _wheel)
             if child is not x_lbl:
-                child.bind("<Button-1>", _click)
+                child.bind("<ButtonRelease-1>", _click)
         if x_lbl is not None:
             x_lbl.bind("<Button-1>", _remove_click)
         row.pack(fill="x")
