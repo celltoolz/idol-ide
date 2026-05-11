@@ -63,6 +63,7 @@ class DesignerProperties(tk.Frame):
         self._prop_clearing:  bool                      = False
         self._ev_clearing:    bool                      = False
         self._prop_clear_iid: str | None                = None
+        self._ev_btn_iid:     str | None                = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -571,11 +572,13 @@ class DesignerProperties(tk.Frame):
         if iid == "ev__learn_guide":
             self._ev_clear_btn.place_forget()
             self._ev_wire_btn.place_forget()
+            self._ev_btn_iid = None
             return
         bbox = self._events_bbox(iid)
         if not bbox:
             self._ev_clear_btn.place_forget()
             self._ev_wire_btn.place_forget()
+            self._ev_btn_iid = None
             return
         x, y, w, h = bbox
         bw  = 18
@@ -584,6 +587,7 @@ class DesignerProperties(tk.Frame):
             self._ev_wire_btn.place_forget()
             self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
             self._ev_clear_btn.lift()
+            self._ev_btn_iid = iid
         else:
             self._ev_clear_btn.place_forget()
             can_wire = (
@@ -593,8 +597,10 @@ class DesignerProperties(tk.Frame):
             if can_wire:
                 self._ev_wire_btn.place(x=x + w - bw, y=y, width=bw, height=h)
                 self._ev_wire_btn.lift()
+                self._ev_btn_iid = iid
             else:
                 self._ev_wire_btn.place_forget()
+                self._ev_btn_iid = None
 
     def _on_event_canvas_leave(self, event: tk.Event) -> None:
         dest = self.winfo_containing(event.x_root, event.y_root)
@@ -2229,22 +2235,22 @@ class DesignerProperties(tk.Frame):
 
     def _on_ev_clear_click(self, event: tk.Event) -> None:
         self._ev_clearing = True
-        idx = self._events_hov_idx
-        if idx is None or idx >= len(self._events_rows):
+        row = self._ev_btn_iid
+        if not row:
             return
-        row = self._events_rows[idx]["iid"]
+        self._ev_btn_iid = None
         self._ev_clear_btn.place_forget()
         self._events_set(row, "")
         self._commit_event(row, "")
 
     def _on_ev_wire_click(self, event: tk.Event) -> None:
         self._ev_clearing = True
-        idx = self._events_hov_idx
-        if idx is None or idx >= len(self._events_rows):
+        row = self._ev_btn_iid
+        if not row:
             return
-        row = self._events_rows[idx]["iid"]
         if not row.startswith("ev__") and not row.startswith("form_ev__"):
             return
+        self._ev_btn_iid = None
         self._ev_wire_btn.place_forget()
         self._auto_wire_event(row)
 
