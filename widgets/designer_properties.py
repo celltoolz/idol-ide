@@ -2776,6 +2776,7 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "change":        ("<<Modified>>",           "Content changed"),
     "comboselected": ("<<ComboboxSelected>>",   "Item selected from dropdown"),
     "listselect":    ("<<ListboxSelect>>",      "Item selected from listbox"),
+    "tabchanged":    ("<<NotebookTabChanged>>", "Active tab changed — use self.widget.tab(self.widget.select(), 'text') to get the new tab name"),
     # Form-level events
     "load":       ("after_idle",          "Fired once when the form is fully built and shown"),
     "activate":   ("<FocusIn>",           "Fired when the form window gains focus (guard skips child focus events)"),

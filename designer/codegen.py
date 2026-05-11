@@ -32,6 +32,7 @@ _BINDINGS: dict[str, str] = {
     "change":        "<<Modified>>",
     "comboselected": "<<ComboboxSelected>>",
     "listselect":    "<<ListboxSelect>>",
+    "tabchanged":    "<<NotebookTabChanged>>",
 }
 
 _STUB        = "pass  # TODO"

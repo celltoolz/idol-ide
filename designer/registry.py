@@ -299,7 +299,7 @@ REGISTRY: dict[str, dict] = {
         "tk_class":     "ttk.Notebook",
         "default_size": (240, 180),
         "default_props": {"tabs": ["Tab 1", "Tab 2"], "bg": ""},
-        "events":       _SIMPLE_EVENTS,
+        "events":       ["tabchanged"] + _SIMPLE_EVENTS,
         "draw_preview": _draw_notebook,
         "color_props":  ["bg"],
         "is_container": True,
