@@ -385,9 +385,25 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
             except Exception:
                 pass
             try:
-                app.attributes("-zoomed", True)  # Linux fallback
+                app.attributes("-zoomed", True)  # Linux
             except Exception:
                 pass
+        elif sys.platform.startswith("linux"):
+            # WM session management can re-maximize windows that were previously
+            # maximized, even when our session says otherwise.  Force normal state
+            # after the WM has had time to apply its own stored state (~300 ms).
+            def _force_normal(attempt: int = 0):
+                try:
+                    raw = app.attributes("-zoomed")
+                    zoomed = bool(int(raw))
+                    print(f"[session.restore] _force_normal attempt={attempt}  zoomed={zoomed}  raw={raw!r}")
+                    if zoomed:
+                        app.attributes("-zoomed", False)
+                        if attempt < 4:
+                            app.after(150, lambda: _force_normal(attempt + 1))
+                except Exception as e:
+                    print(f"[session.restore] _force_normal error: {e}")
+            app.after(300, _force_normal)
         # Stage 1: set h_pane / v_pane sash positions.
         # Use a longer delay when entering macOS fullscreen so the animation
         # completes before we try to measure pane geometry.
