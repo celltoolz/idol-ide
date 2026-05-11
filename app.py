@@ -4635,6 +4635,8 @@ class IDOL(Tk):
             return  # model already mutated by properties panel; no canvas redraw needed
         if key == "__tab__":
             self._design_canvas.redraw()
+            sel = next(iter(self._design_canvas.selected_ids), None)
+            self._props_panel.refresh_order(form, sel)
             return
         w = form.get_widget(widget_id)
         if w:

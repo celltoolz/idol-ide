@@ -980,27 +980,44 @@ class DesignerProperties(tk.Frame):
             cv.configure(scrollregion=(0, 0, w, 80))
             return
 
-        # Build display list: ('w', widget, nb_info) | ('h', tab_name)
-        display: list = []
-        disp_to_w: dict[int, int] = {}
-        seen_nb_tabs: set = set()
-        nb_counters: dict = {}
+        # Pre-index Notebook children by nb_id → tab_name → [(w_idx, widget)]
+        nb_children: dict[str, dict[str, list]] = {}
+        nb_child_indices: set[int] = set()
         for w_idx, widget in enumerate(self._order_widgets):
             if widget.parent_id and self._form:
                 par = self._form.get_widget(widget.parent_id)
                 if par and REGISTRY.get(par.type, {}).get("is_notebook"):
-                    key = (par.id, widget.tab)
-                    if key not in seen_nb_tabs:
-                        seen_nb_tabs.add(key)
-                        display.append(('h', widget.tab or ""))
-                    nb_counters[key] = nb_counters.get(key, 0) + 1
-                    d_idx = len(display)
-                    display.append(('w', widget, (nb_counters[key], widget.tab)))
-                    disp_to_w[d_idx] = w_idx
-                    continue
+                    nb_child_indices.add(w_idx)
+                    tab = widget.tab or ""
+                    nb_children.setdefault(par.id, {}).setdefault(tab, []).append(
+                        (w_idx, widget)
+                    )
+
+        # Build display list: ('w', widget, nb_info) | ('h', tab_name)
+        display: list = []
+        disp_to_w: dict[int, int] = {}
+        emitted_nb: set[str] = set()
+        for w_idx, widget in enumerate(self._order_widgets):
+            if w_idx in nb_child_indices:
+                continue  # emitted as part of its Notebook's block
+
             d_idx = len(display)
             display.append(('w', widget, None))
             disp_to_w[d_idx] = w_idx
+
+            if REGISTRY.get(widget.type, {}).get("is_notebook") and widget.id not in emitted_nb:
+                emitted_nb.add(widget.id)
+                tabs = widget.props.get("tabs", [])
+                children_by_tab = nb_children.get(widget.id, {})
+                for tab_name in tabs:
+                    children = children_by_tab.get(tab_name, [])
+                    if not children:
+                        continue
+                    display.append(('h', tab_name))
+                    for i, (cw_idx, cwidget) in enumerate(children, 1):
+                        cd_idx = len(display)
+                        display.append(('w', cwidget, (i, tab_name)))
+                        disp_to_w[cd_idx] = cw_idx
 
         self._order_display = display
         self._disp_to_w = disp_to_w
@@ -1132,8 +1149,18 @@ class DesignerProperties(tk.Frame):
         if src_d not in self._disp_to_w:
             return
         src_w = self._disp_to_w[src_d]
+        dragged_widget = self._order_widgets[src_w]
 
         target_d = self._order_drop_target(event.y)
+
+        # If dropping onto a tab header, reassign the widget's tab
+        if target_d < len(self._order_display) and self._order_display[target_d][0] == 'h':
+            new_tab = self._order_display[target_d][1]
+            if dragged_widget.tab != new_tab and self._on_prop_change:
+                dragged_widget.tab = new_tab
+                self._on_prop_change(dragged_widget.id, "__tab__", new_tab)
+            return
+
         # Count widget rows before target_d to get insertion widget index
         dst_w = sum(1 for i in range(target_d) if i in self._disp_to_w)
         if target_d > src_d:

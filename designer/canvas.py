@@ -1456,7 +1456,8 @@ class DesignerCanvas(tk.Canvas):
             self.delete("all")
             self._draw_form()
             for widget in f.widgets:
-                self._render_widget(widget)
+                if self._should_render(widget):
+                    self._render_widget(widget)
             self._draw_form_handles()
             self.tag_raise("fhandle")
             return
