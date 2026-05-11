@@ -153,8 +153,12 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Right>",           lambda _: self._nudge( 1,  0))
         self.bind("<Up>",              lambda _: self._nudge( 0, -1))
         self.bind("<Down>",            lambda _: self._nudge( 0,  1))
-        self.bind("<MouseWheel>",      self._on_mousewheel)
+        self.bind("<MouseWheel>",       self._on_mousewheel)
+        self.bind("<Button-4>",         self._on_mousewheel)
+        self.bind("<Button-5>",         self._on_mousewheel)
         self.bind("<Shift-MouseWheel>", self._on_mousewheel_h)
+        self.bind("<Shift-Button-4>",   self._on_mousewheel_h)
+        self.bind("<Shift-Button-5>",   self._on_mousewheel_h)
         self.bind("<Escape>",          lambda _: self.cancel_tool())
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -560,10 +564,20 @@ class DesignerCanvas(tk.Canvas):
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def _on_mousewheel(self, event: tk.Event) -> None:
-        self.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        if event.num == 4:
+            self.yview_scroll(-1, "units")
+        elif event.num == 5:
+            self.yview_scroll(1, "units")
+        else:
+            self.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
     def _on_mousewheel_h(self, event: tk.Event) -> None:
-        self.xview_scroll(-1 if event.delta > 0 else 1, "units")
+        if event.num == 4:
+            self.xview_scroll(-1, "units")
+        elif event.num == 5:
+            self.xview_scroll(1, "units")
+        else:
+            self.xview_scroll(-1 if event.delta > 0 else 1, "units")
 
     def _reposition(self) -> None:
         """Center the form on the canvas (when it fits) and update scrollregion."""
