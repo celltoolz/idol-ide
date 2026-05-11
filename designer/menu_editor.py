@@ -140,17 +140,13 @@ class MenuEditor(tk.Toplevel):
         chk_frame.grid(row=1, column=2, columnspan=2, sticky="w", pady=3)
         self._enabled_var = tk.BooleanVar(value=True)
         self._visible_var = tk.BooleanVar(value=True)
-        self._enabled_chk = tk.Checkbutton(
+        self._enabled_chk = _DarkCheckbox(
             chk_frame, text="Enabled", variable=self._enabled_var,
-            bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
-            activeforeground=_FG, font=(UI_FONT, 9),
             command=self._on_field_change,
         )
         self._enabled_chk.grid(row=0, column=0, padx=(0, 12))
-        self._visible_chk = tk.Checkbutton(
+        self._visible_chk = _DarkCheckbox(
             chk_frame, text="Visible", variable=self._visible_var,
-            bg=_BG, fg=_FG, selectcolor=_BG3, activebackground=_BG,
-            activeforeground=_FG, font=(UI_FONT, 9),
             command=self._on_field_change,
         )
         self._visible_chk.grid(row=0, column=1, padx=(0, 12))
@@ -396,8 +392,12 @@ class MenuEditor(tk.Toplevel):
 
     def _bind_hint(self, widget: tk.Widget, key: str) -> None:
         text = _FIELD_HINTS.get(key, "")
-        widget.bind("<Enter>", lambda _: self._show_hint(text), add=True)
-        widget.bind("<Leave>", lambda _: self._clear_hint(),    add=True)
+        targets = [widget]
+        if isinstance(widget, _DarkCheckbox):
+            targets += [widget._cv, widget._lbl]
+        for w in targets:
+            w.bind("<Enter>", lambda _: self._show_hint(text), add=True)
+            w.bind("<Leave>", lambda _: self._clear_hint(),    add=True)
 
     # ── Listbox helpers ───────────────────────────────────────────────────────
 
@@ -789,6 +789,62 @@ class MenuEditor(tk.Toplevel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+class _DarkCheckbox(tk.Frame):
+    """Canvas-drawn checkbox matching the designer's dark theme.
+
+    Drop-in replacement for tk.Checkbutton — accepts `variable`, `text`,
+    and `command` kwargs; exposes `.bind()` via the Frame.
+    """
+    _BOX = 12   # box side length in px
+
+    def __init__(self, master, text: str = "", variable: tk.BooleanVar | None = None,
+                 command=None, **kwargs):
+        super().__init__(master, bg=_BG, cursor="hand2", **kwargs)
+        self._var = variable if variable is not None else tk.BooleanVar(value=False)
+        self._cmd = command
+
+        self._cv = tk.Canvas(self, width=self._BOX, height=self._BOX,
+                             bg=_BG, highlightthickness=0)
+        self._cv.pack(side="left", padx=(0, 4))
+        self._lbl = tk.Label(self, text=text, bg=_BG, fg=_FG,
+                             font=(UI_FONT, 9), cursor="hand2")
+        self._lbl.pack(side="left")
+
+        self._draw()
+        self._var.trace_add("write", lambda *_: self._draw())
+
+        for w in (self, self._cv, self._lbl):
+            w.bind("<Button-1>", self._toggle)
+
+    def _draw(self) -> None:
+        r = self._BOX // 2
+        cx = cy = r
+        self._cv.delete("all")
+        if self._var.get():
+            self._cv.create_rectangle(0, 0, self._BOX, self._BOX,
+                                      fill="#007acc", outline="#007acc")
+            self._cv.create_text(cx, cy, text="✓", fill="#ffffff",
+                                 font=(UI_FONT, 7, "bold"))
+        else:
+            self._cv.create_rectangle(0, 0, self._BOX, self._BOX,
+                                      fill="", outline="#555555")
+
+    def _toggle(self, _=None) -> None:
+        self._var.set(not self._var.get())
+        if self._cmd:
+            self._cmd()
+
+    # Allow callers to read/set state like a real Checkbutton
+    def configure(self, **kw) -> None:  # type: ignore[override]
+        if "state" in kw:
+            state = kw.pop("state")
+            self._lbl.config(fg=_FG_DIM if state == "disabled" else _FG)
+            cursor = "" if state == "disabled" else "hand2"
+            self.config(cursor=cursor)
+            self._lbl.config(cursor=cursor)
+        super().configure(**kw)
+
 
 def _style_combobox(cb: ttk.Combobox) -> None:
     style = ttk.Style()
