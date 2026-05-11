@@ -54,6 +54,7 @@ from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from widgets.form_list_panel import FormListPanel
 from designer.canvas import DesignerCanvas
+from designer.registry import REGISTRY as _DESIGNER_REGISTRY
 from designer.toolbar import DesignerToolbar
 
 
@@ -4611,9 +4612,20 @@ class IDOL(Tk):
             return
         if key in ("__variable__", "__anchor__"):
             return  # model already mutated by properties panel; no canvas redraw needed
+        if key == "__tab__":
+            self._design_canvas.redraw()
+            return
         w = form.get_widget(widget_id)
         if w:
-            self._design_canvas.update_widget(w)
+            if key == "tabs" and _DESIGNER_REGISTRY.get(w.type, {}).get("is_notebook"):
+                # Ensure active tab is still valid after add/rename/remove
+                tabs = w.props.get("tabs") or []
+                active = self._design_canvas._active_nb_tabs.get(w.id, "")
+                if active not in tabs:
+                    self._design_canvas._active_nb_tabs[w.id] = tabs[0] if tabs else ""
+                self._design_canvas.redraw()
+            else:
+                self._design_canvas.update_widget(w)
 
     def _on_designer_event_change(
         self, widget_id: str, event_key: str, handler: str

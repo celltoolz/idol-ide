@@ -1230,6 +1230,11 @@ class DesignerProperties(tk.Frame):
         # Parent container (read-only)
         parent_val = d.parent_id if d.parent_id else "(form)"
         self._props_insert("geo__parent", "parent", parent_val, kind="readonly")
+        # For children of a Notebook: show which tab this widget lives on
+        if d.parent_id and self._form:
+            par = self._form.get_widget(d.parent_id)
+            if par and REGISTRY.get(par.type, {}).get("is_notebook"):
+                self._props_insert("nb__tab", "  tab", d.tab or "")
         # Widget-specific props
         defaults = reg.get("default_props", {})
         color_props = reg.get("color_props", [])
@@ -1405,6 +1410,9 @@ class DesignerProperties(tk.Frame):
     def _dispatch_prop_click(self, row: str) -> None:
         if row in ("var__section", "geo__parent", "anchor__section"):
             return
+        if row == "nb__tab":
+            self._open_nb_tab_picker(row)
+            return
         if row == "anchor__value":
             self._open_anchor_picker(row)
             return
@@ -1445,7 +1453,10 @@ class DesignerProperties(tk.Frame):
                 return
             if isinstance(d_ref.props.get(key), list):
                 if self._current_widget:
-                    self._open_list_editor(row)
+                    if key == "tabs":
+                        self._open_notebook_tabs_editor(row)
+                    else:
+                        self._open_list_editor(row)
                 return
             reg     = REGISTRY.get(d_ref.type, {})
             choices = reg.get("prop_choices", {}).get(key)
@@ -1895,6 +1906,184 @@ class DesignerProperties(tk.Frame):
                 entry.delete(0, "end")
                 _refresh_items()
                 _do_commit()
+            entry.focus_force()
+            return "break"
+
+        _pending: list = []
+
+        def _on_focus_out(_=None):
+            aid = self._props_cv.after(100, _maybe_dismiss)
+            _pending.append(aid)
+
+        def _maybe_dismiss():
+            try:
+                fw = self._props_cv.winfo_toplevel().focus_get()
+            except Exception:
+                fw = None
+            if fw is not None:
+                w = fw
+                while w is not None:
+                    if w is panel:
+                        return
+                    try:
+                        w = w.master
+                    except Exception:
+                        break
+            _do_dismiss()
+
+        def _do_dismiss(_=None):
+            for aid in _pending:
+                try:
+                    self._props_cv.after_cancel(aid)
+                except Exception:
+                    pass
+            try:
+                panel.destroy()
+            except Exception:
+                pass
+            if self._entry_editor is panel:
+                self._entry_editor = None
+
+        entry.bind("<Return>",   _add_item)
+        entry.bind("<Escape>",   _do_dismiss)
+        entry.bind("<FocusOut>", _on_focus_out)
+        self._props_cv.after_idle(entry.focus_force)
+
+    def _open_nb_tab_picker(self, row: str) -> None:
+        """Dropdown to move a Notebook child to a different tab."""
+        d = self._current_widget
+        if d is None or not d.parent_id or not self._form:
+            return
+        par = self._form.get_widget(d.parent_id)
+        if par is None:
+            return
+        tabs = par.props.get("tabs") or []
+        if not tabs:
+            return
+        self._props_open_dropdown(row, tabs, self._commit_prop)
+
+    def _open_notebook_tabs_editor(self, row: str) -> None:
+        """Inline editor for Notebook tabs list with rename/add/remove."""
+        self._dismiss_editor()
+        d = self._current_widget
+        if d is None:
+            return
+        current_list: list = list(d.props.get("tabs", ["Tab 1"]))
+
+        bbox = self._props_bbox(row)
+        if not bbox:
+            return
+        _, by, _, bh = bbox
+        by = by + bh
+        tree_w = self._props_cv.winfo_width() - 4
+
+        panel = tk.Frame(self._props_cv, bg="#2d2d2d",
+                         highlightthickness=1,
+                         highlightbackground="#007acc")
+        items_frame = tk.Frame(panel, bg="#2d2d2d")
+        items_frame.pack(fill="x", padx=2, pady=(2, 0))
+
+        def _do_commit(new_list: list) -> None:
+            d.props["tabs"] = list(new_list)
+            self._props_set(row, _display(new_list))
+            if self._on_prop_change:
+                self._on_prop_change(d.id, "tabs", list(new_list))
+
+        entry_holder: list = []
+
+        def _resize():
+            panel.update_idletasks()
+            h = panel.winfo_reqheight()
+            panel.place(x=0, y=by, width=tree_w, height=max(h, 40))
+
+        def _refresh_items():
+            for child in items_frame.winfo_children():
+                child.destroy()
+            for i, tab in enumerate(current_list):
+                rf = tk.Frame(items_frame, bg="#2d2d2d")
+                rf.pack(fill="x")
+                name_lbl = tk.Label(rf, text=tab, bg="#2d2d2d", fg="#cccccc",
+                                    font=("TkDefaultFont", 8), anchor="w",
+                                    cursor="hand2")
+                name_lbl.pack(side="left", fill="x", expand=True, padx=(4, 0))
+                xl = tk.Label(rf, text="×", bg="#2d2d2d", fg="#858585",
+                              font=("TkDefaultFont", 8), cursor="hand2", padx=4)
+                xl.pack(side="right")
+
+                def _rename(idx=i, lbl=name_lbl):
+                    old_name = current_list[idx]
+                    ren_entry = tk.Entry(items_frame,
+                                        font=("TkDefaultFont", 8),
+                                        bg="#3c3c3c", fg="#cccccc",
+                                        insertbackground="#cccccc",
+                                        relief="flat", bd=0, highlightthickness=1,
+                                        highlightbackground="#007acc")
+                    lbl.pack_forget()
+                    ren_entry.insert(0, old_name)
+                    ren_entry.pack(fill="x", padx=4)
+                    ren_entry.select_range(0, "end")
+                    ren_entry.focus_force()
+
+                    def _commit_rename(_=None):
+                        new_name = ren_entry.get().strip()
+                        if not new_name:
+                            new_name = old_name
+                        # Propagate rename to all children
+                        if new_name != old_name and self._form:
+                            for cw in self._form.widgets:
+                                if cw.parent_id == d.id and cw.tab == old_name:
+                                    cw.tab = new_name
+                        current_list[idx] = new_name
+                        _do_commit(current_list)
+                        _refresh_items()
+
+                    ren_entry.bind("<Return>", _commit_rename)
+                    ren_entry.bind("<Escape>", lambda _: _refresh_items())
+                    ren_entry.bind("<FocusOut>", lambda _: _commit_rename())
+
+                name_lbl.bind("<Button-1>", lambda e, r=_rename: r())
+
+                def _remove(idx=i):
+                    removed = current_list[idx]
+                    del current_list[idx]
+                    remaining = list(current_list)
+                    if remaining and self._form:
+                        fallback = remaining[0]
+                        for cw in self._form.widgets:
+                            if cw.parent_id == d.id and cw.tab == removed:
+                                cw.tab = fallback
+                    elif not remaining and self._form:
+                        for cw in self._form.widgets:
+                            if cw.parent_id == d.id:
+                                cw.tab = ""
+                    _do_commit(current_list)
+                    _refresh_items()
+                    if entry_holder:
+                        entry_holder[0].focus_force()
+
+                xl.bind("<Button-1>", lambda e, r=_remove: r())
+            _resize()
+
+        ttk.Separator(panel, orient="horizontal").pack(fill="x", pady=(2, 0))
+        entry = tk.Entry(panel, font=("TkDefaultFont", 8),
+                         bg="#3c3c3c", fg="#cccccc",
+                         insertbackground="#cccccc",
+                         relief="flat", bd=0,
+                         highlightthickness=0)
+        entry.pack(fill="x", padx=2, pady=2, ipady=2)
+        entry_holder.append(entry)
+
+        _refresh_items()
+        panel.place(x=0, y=by, width=tree_w)
+        self._entry_editor = panel
+
+        def _add_item(_=None):
+            text = entry.get().strip()
+            if text:
+                current_list.append(text)
+                entry.delete(0, "end")
+                _refresh_items()
+                _do_commit(current_list)
             entry.focus_force()
             return "break"
 
@@ -2432,6 +2621,10 @@ class DesignerProperties(tk.Frame):
             d.anchor = raw if raw != "(none)" else ""
             if self._on_prop_change:
                 self._on_prop_change(d.id, "__anchor__", d.anchor)
+        elif row_iid == "nb__tab":
+            d.tab = raw
+            if self._on_prop_change:
+                self._on_prop_change(d.id, "__tab__", raw)
         elif row_iid.startswith("var__"):
             self._commit_variable(d, row_iid, raw)
 

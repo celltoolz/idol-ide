@@ -39,6 +39,8 @@ class WidgetDescriptor:
     # Resize anchor — one of: "" | "top_left" | "top" | "top_right" | "left" | "all"
     #                         | "right" | "bottom_left" | "bottom" | "bottom_right"
     anchor: str = ""
+    # For children of a Notebook widget: the tab name this widget belongs to
+    tab: str = ""
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -57,6 +59,8 @@ class WidgetDescriptor:
             d["parent_id"] = self.parent_id
         if self.anchor:
             d["anchor"] = self.anchor
+        if self.tab:
+            d["tab"] = self.tab
         return d
 
     @staticmethod
@@ -74,6 +78,7 @@ class WidgetDescriptor:
             variable=VariableBinding.from_dict(var_data) if var_data else None,
             parent_id=d.get("parent_id", None),
             anchor=d.get("anchor", ""),
+            tab=d.get("tab", ""),
         )
 
 

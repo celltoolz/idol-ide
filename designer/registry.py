@@ -77,6 +77,18 @@ def _draw_listbox(c, x, y, w, h):
                       fill="#ffffff" if i == 0 else "#cccccc",
                       font=("TkDefaultFont", 6), anchor="w")
 
+def _draw_notebook(c, x, y, w, h):
+    tab_h = 12
+    # Tab strip
+    c.create_rectangle(x+2, y+2, x+w-2, y+tab_h, fill="#2d2d2d", outline="#555")
+    # Two tab headers
+    c.create_rectangle(x+2, y+2, x+22, y+tab_h, fill="#3c3c3c", outline="#555")
+    c.create_text(x+12, y+7, text="T1", fill="#cccccc", font=("TkDefaultFont", 5))
+    c.create_rectangle(x+22, y+2, x+42, y+tab_h, fill="#252526", outline="#555")
+    c.create_text(x+32, y+7, text="T2", fill="#858585", font=("TkDefaultFont", 5))
+    # Content area
+    c.create_rectangle(x+2, y+tab_h, x+w-2, y+h-2, outline="#808080", fill="", dash=(3, 3))
+
 def _draw_frame(c, x, y, w, h):
     c.create_rectangle(x+2, y+2, x+w-2, y+h-2,
                         outline="#808080", fill="", dash=(3, 3))
@@ -281,6 +293,17 @@ REGISTRY: dict[str, dict] = {
                          "exportselection": ["True", "False"]},
         "list_insert_props": ["values"],
         "colorize_prop": True,
+    },
+    "Notebook": {
+        "label":        "Notebook",
+        "tk_class":     "ttk.Notebook",
+        "default_size": (240, 180),
+        "default_props": {"tabs": ["Tab 1", "Tab 2"], "bg": ""},
+        "events":       _SIMPLE_EVENTS,
+        "draw_preview": _draw_notebook,
+        "color_props":  ["bg"],
+        "is_container": True,
+        "is_notebook":  True,
     },
     "Frame": {
         "label":        "Frame",

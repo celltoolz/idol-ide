@@ -37,6 +37,7 @@ _BINDINGS: dict[str, str] = {
 _STUB        = "pass  # TODO"
 _MENUBAR     = 20  # menu bar strip height in canvas coords (matches canvas._MENUBAR)
 _LF_LABEL_H  = 17  # LabelFrame label strip height (matches canvas._LF_LABEL_H)
+_NB_TAB_H    = 26  # Notebook tab-strip height (matches canvas._NB_TAB_H)
 
 # Anchors that change the widget's size (not just its position)
 _SIZE_ANCHORS = {"all", "top", "bottom", "left", "right"}
@@ -207,7 +208,7 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append("")
         y_offset = _MENUBAR if form.menu_items else 0
         for w in form.widgets:
-            out.extend(_widget_lines(w, y_offset=y_offset))
+            out.extend(_widget_lines(w, y_offset=y_offset, form=form))
             out.append("")
 
     # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
@@ -232,7 +233,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         for par in form.widgets:
             if par.id not in _dyn_containers:
                 continue
-            lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+            if par.type == "LabelFrame":
+                lh = _LF_LABEL_H
+            elif REGISTRY.get(par.type, {}).get("is_notebook"):
+                lh = _NB_TAB_H
+            else:
+                lh = 0
             pw_expr, ph_expr = _container_new_size_exprs(par, form.width, form.height)
             out.append(f"        _pw_{par.id} = {pw_expr}")
             if lh:
@@ -244,7 +250,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             if w.parent_id:
                 par = form.get_widget(w.parent_id)
                 if par:
-                    lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                    if par.type == "LabelFrame":
+                        lh = _LF_LABEL_H
+                    elif REGISTRY.get(par.type, {}).get("is_notebook"):
+                        lh = _NB_TAB_H
+                    else:
+                        lh = 0
                     if par.id in _dyn_containers:
                         line = _anchor_resize_line(
                             w, par.width, par.height - lh,
@@ -347,7 +358,7 @@ def _prop_str(key: str, val: Any) -> str:
     return f"{emit_key}={repr(val)}"
 
 
-def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
+def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | None" = None) -> list[str]:
     reg = REGISTRY.get(w.type)
     if not reg:
         return [f"        # Unknown widget type: {w.type}"]
@@ -368,8 +379,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     _list_insert_props = set(reg.get("list_insert_props", []))
     kw_parts: list[str] = []
     for k, v in w.props.items():
-        if k == "scrollbar":
-            continue  # structural prop — handled below, not a tkinter kwarg
+        if k in ("scrollbar", "tabs"):
+            continue  # structural props — not tkinter kwargs
         if k in _all_color_props and v == "":
             continue
         if k in _SKIP_IF_EMPTY and (v == "" or v == () or v == []):
@@ -408,9 +419,34 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0) -> list[str]:
     if command_method:
         kw_parts.append(f"command=self.{command_method}")
 
-    original_parent = f"self.{w.parent_id}" if w.parent_id else "self"
+    # Resolve parent — Notebook children attach to their tab Frame, not the Notebook
+    if w.parent_id:
+        par = form.get_widget(w.parent_id) if form else None
+        if par and REGISTRY.get(par.type, {}).get("is_notebook"):
+            tabs = par.props.get("tabs") or []
+            tab_idx = tabs.index(w.tab) if w.tab in tabs else 0
+            original_parent = f"self._tab_{par.id}_{tab_idx}"
+        else:
+            original_parent = f"self.{w.parent_id}"
+    else:
+        original_parent = "self"
     place_y = w.y if w.parent_id else w.y - y_offset
     lines: list[str] = []
+
+    # ── Notebook: create widget + one Frame per tab ───────────────────────────
+    if REGISTRY.get(w.type, {}).get("is_notebook"):
+        kw_str = ""  # bg on Notebook doesn't apply directly; skip widget kwargs
+        lines.append(f"        self.{w.id} = {tk_class}({original_parent})")
+        lines.append(
+            f"        self.{w.id}.place(x={w.x}, y={place_y},"
+            f" width={w.width}, height={w.height})"
+        )
+        for i, tab_name in enumerate(w.props.get("tabs") or ["Tab 1"]):
+            fvar = f"self._tab_{w.id}_{i}"
+            bg_part = f', bg="{w.props["bg"]}"' if w.props.get("bg") else ""
+            lines.append(f"        {fvar} = tk.Frame(self.{w.id}{bg_part})")
+            lines.append(f"        self.{w.id}.add({fvar}, text={repr(tab_name)})")
+        return lines
 
     if use_scrollbar:
         # Wrap in a Frame so scrollbar(s) and widget pack cleanly inside it

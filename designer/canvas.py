@@ -45,6 +45,7 @@ _TITLE      = 24    # form title bar height (px)
 _MENUBAR    = 20    # menu bar strip height (px)
 _SHADOW     = 4     # form drop-shadow offset (px)
 _LF_LABEL_H = 17    # LabelFrame label area height — measured: child y=0 appears 17px below outer top
+_NB_TAB_H   = 26    # Notebook tab-strip height — content area starts this many px below the widget top
 
 
 # ── Handle positions ──────────────────────────────────────────────────────────
@@ -130,6 +131,7 @@ class DesignerCanvas(tk.Canvas):
         self._undo_stack: list[dict] = []
         self._redo_stack: list[dict] = []
         self._tab_order_visible: bool = False
+        self._active_nb_tabs: dict[str, str] = {}  # nb_id → active tab name
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -215,6 +217,10 @@ class DesignerCanvas(tk.Canvas):
             props=dict(reg["default_props"]),
         )
         self.add_widget(desc)
+        if REGISTRY.get(type_key, {}).get("is_notebook"):
+            tabs = desc.props.get("tabs", [])
+            if tabs:
+                self._active_nb_tabs[wid] = tabs[0]
         self._active_tool = None
         self.config(cursor="arrow")
 
@@ -227,9 +233,17 @@ class DesignerCanvas(tk.Canvas):
             return
         w, h = reg["default_size"]
         container = self._container_at(cx, cy)
+        tab_name = ""
         if container:
             ax, ay = self._abs_xy(container)
-            label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
+            if REGISTRY.get(container.type, {}).get("is_notebook"):
+                label_h = _NB_TAB_H
+                tabs = container.props.get("tabs", [])
+                tab_name = self._active_nb_tabs.get(container.id, tabs[0] if tabs else "")
+            elif container.type == "LabelFrame":
+                label_h = _LF_LABEL_H
+            else:
+                label_h = 0
             fx = _snap(cx - ax)
             fy = _snap(cy - ay - label_h)
             fx = max(0, min(fx, container.width  - w))
@@ -247,6 +261,7 @@ class DesignerCanvas(tk.Canvas):
             x=fx, y=fy, width=w, height=h,
             props=dict(reg["default_props"]),
             parent_id=parent_id,
+            tab=tab_name,
         )
         self.add_widget(desc)
         if parent_id:
@@ -260,6 +275,7 @@ class DesignerCanvas(tk.Canvas):
         self._drag = None
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._active_nb_tabs.clear()
         self._reposition()
 
     # ── Undo / Redo ───────────────────────────────────────────────────────────
@@ -596,13 +612,25 @@ class DesignerCanvas(tk.Canvas):
         self.configure(scrollregion=(0, 0, max(cw, sr_w), max(ch, sr_h)))
         self.redraw()
 
+    def _should_render(self, w: WidgetDescriptor) -> bool:
+        """Return False for children of a Notebook that belong to an inactive tab."""
+        if not w.parent_id or not self._form:
+            return True
+        par = self._form.get_widget(w.parent_id)
+        if par and REGISTRY.get(par.type, {}).get("is_notebook"):
+            tabs = par.props.get("tabs", [])
+            active = self._active_nb_tabs.get(par.id, tabs[0] if tabs else "")
+            return w.tab == active
+        return True
+
     def redraw(self) -> None:
         self.delete("all")
         if self._form is None:
             return
         self._draw_form()
         for w in self._form.widgets:
-            self._render_widget(w)
+            if self._should_render(w):
+                self._render_widget(w)
         if self._tab_order_visible:
             self._draw_tab_badges()
         if self._selected_ids:
@@ -979,7 +1007,12 @@ class DesignerCanvas(tk.Canvas):
             p = self._form.get_widget(w.parent_id)
             if p:
                 px, py = self._abs_xy(p)
-                label_h = _LF_LABEL_H if p.type == "LabelFrame" else 0
+                if p.type == "LabelFrame":
+                    label_h = _LF_LABEL_H
+                elif REGISTRY.get(p.type, {}).get("is_notebook"):
+                    label_h = _NB_TAB_H
+                else:
+                    label_h = 0
                 return px + w.x, py + label_h + w.y
         return self._ox + w.x, self._oy + w.y
 
@@ -1000,7 +1033,8 @@ class DesignerCanvas(tk.Canvas):
             if not REGISTRY.get(w.type, {}).get("is_container"):
                 continue
             ax, ay = self._abs_xy(w)
-            if ax <= cx < ax + w.width and ay <= cy < ay + w.height:
+            content_y = ay + _NB_TAB_H if REGISTRY.get(w.type, {}).get("is_notebook") else ay
+            if ax <= cx < ax + w.width and content_y <= cy < ay + w.height:
                 result = w  # keep last match = topmost drawn
         return result
 
@@ -1020,6 +1054,21 @@ class DesignerCanvas(tk.Canvas):
             if i > parent_idx and x.parent_id == parent_id:
                 insert_at = i
         widgets.insert(insert_at + 1, w)
+
+    def _switch_nb_tab(self, nb_id: str, tab_name: str) -> None:
+        """Make tab_name the active tab for notebook nb_id and redraw."""
+        self._active_nb_tabs[nb_id] = tab_name
+        self._redraw()
+
+    def _redraw(self) -> None:
+        """Full redraw keeping selection and handle state."""
+        self.redraw()
+        if self._selected_ids:
+            self._draw_all_handles()
+            self.tag_raise("handle")
+        elif self._form_selected:
+            self._draw_form_handles()
+            self.tag_raise("fhandle")
 
     # ── Widget rendering ──────────────────────────────────────────────────────
 
@@ -1052,7 +1101,12 @@ class DesignerCanvas(tk.Canvas):
         props = w.props
         text  = str(props.get("text", w.id))
 
-        _DRAW.get(w.type, _draw_generic)(self, x, y, x2, y2, text, props, tag)
+        if REGISTRY.get(w.type, {}).get("is_notebook"):
+            tabs   = w.props.get("tabs") or ["Tab 1"]
+            active = self._active_nb_tabs.get(w.id, tabs[0])
+            _draw_notebook_canvas(self, x, y, x2, y2, props, tag, w.id, active)
+        else:
+            _DRAW.get(w.type, _draw_generic)(self, x, y, x2, y2, text, props, tag)
 
         # Bind click → select on every newly created item
         for item in self.find_withtag(tag):
@@ -1170,7 +1224,15 @@ class DesignerCanvas(tk.Canvas):
                 self._show_menu_popup(event, item_idx)
                 return
 
+        # Notebook tab-strip click
         item = self._topmost_at(cx, cy)
+        if item is not None:
+            for t in self.gettags(item):
+                if t.startswith("nbtab:"):
+                    _, nb_id, tab_name = t.split(":", 2)
+                    self._switch_nb_tab(nb_id, tab_name)
+                    return
+
         if item is None:
             self.deselect()
             return
@@ -1381,7 +1443,12 @@ class DesignerCanvas(tk.Canvas):
             container = d.get("container")
             if container:
                 ax, ay = self._abs_xy(container)
-                lh = _LF_LABEL_H if container.type == "LabelFrame" else 0
+                if REGISTRY.get(container.type, {}).get("is_notebook"):
+                    lh = _NB_TAB_H
+                elif container.type == "LabelFrame":
+                    lh = _LF_LABEL_H
+                else:
+                    lh = 0
                 x0 = max(ax, x0)
                 y0 = max(ay + lh, y0)
                 x1 = min(ax + container.width, x1)
@@ -1434,7 +1501,12 @@ class DesignerCanvas(tk.Canvas):
                                 par_ay <= cy <= par_ay + par.height):
                             d["parent_locked"] = False
                     if par and d.get("parent_locked"):
-                        lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                        if REGISTRY.get(par.type, {}).get("is_notebook"):
+                            lh = _NB_TAB_H
+                        elif par.type == "LabelFrame":
+                            lh = _LF_LABEL_H
+                        else:
+                            lh = 0
                         sw.x = max(0, min(ox + actual_dx, par.width  - sw.width))
                         sw.y = max(0, min(oy + actual_dy, par.height - lh - sw.height))
                     else:
@@ -1485,7 +1557,12 @@ class DesignerCanvas(tk.Canvas):
             if w.parent_id:
                 par = self._form.get_widget(w.parent_id)
                 if par:
-                    lh = _LF_LABEL_H if par.type == "LabelFrame" else 0
+                    if REGISTRY.get(par.type, {}).get("is_notebook"):
+                        lh = _NB_TAB_H
+                    elif par.type == "LabelFrame":
+                        lh = _LF_LABEL_H
+                    else:
+                        lh = 0
                     nx = max(0, min(nx, par.width  - GRID * 2))
                     ny = max(0, min(ny, par.height - lh - GRID * 2))
                     nw = max(GRID * 2, min(nw, par.width  - nx))
@@ -1556,6 +1633,7 @@ class DesignerCanvas(tk.Canvas):
             _min_sz = 1 if shift_held else GRID * 2
             dx = abs(cx - d["start_cx"])
             dy = abs(cy - d["start_cy"])
+            tab_name = ""
             if dx > 5 or dy > 5:
                 # Drawn: use the dragged rectangle as the widget bounds
                 cx1 = min(d["start_cx"], cx)
@@ -1565,7 +1643,14 @@ class DesignerCanvas(tk.Canvas):
                 container = self._container_at((cx1 + cx2) // 2, (cy1 + cy2) // 2)
                 if container:
                     ax, ay = self._abs_xy(container)
-                    label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
+                    if REGISTRY.get(container.type, {}).get("is_notebook"):
+                        label_h = _NB_TAB_H
+                        tabs = container.props.get("tabs", [])
+                        tab_name = self._active_nb_tabs.get(container.id, tabs[0] if tabs else "")
+                    elif container.type == "LabelFrame":
+                        label_h = _LF_LABEL_H
+                    else:
+                        label_h = 0
                     fw = max(_min_sz, _s(cx2 - cx1))
                     fh = max(_min_sz, _s(cy2 - cy1))
                     fx = _s(cx1 - ax)
@@ -1587,7 +1672,14 @@ class DesignerCanvas(tk.Canvas):
                 container = self._container_at(d["start_cx"], d["start_cy"])
                 if container:
                     ax, ay = self._abs_xy(container)
-                    label_h = _LF_LABEL_H if container.type == "LabelFrame" else 0
+                    if REGISTRY.get(container.type, {}).get("is_notebook"):
+                        label_h = _NB_TAB_H
+                        tabs = container.props.get("tabs", [])
+                        tab_name = self._active_nb_tabs.get(container.id, tabs[0] if tabs else "")
+                    elif container.type == "LabelFrame":
+                        label_h = _LF_LABEL_H
+                    else:
+                        label_h = 0
                     fx = _s(d["start_cx"] - ax)
                     fy = _s(d["start_cy"] - ay - label_h)
                     fx = max(0, min(fx, container.width  - fw))
@@ -1605,10 +1697,16 @@ class DesignerCanvas(tk.Canvas):
                 x=fx, y=fy, width=fw, height=fh,
                 props=dict(reg["default_props"]),
                 parent_id=parent_id,
+                tab=tab_name,
             )
             self.add_widget(desc)
             if parent_id:
                 self._reorder_after_parent(wid, parent_id)
+            # If a Notebook was just placed, initialise its active tab
+            if REGISTRY.get(self._active_tool, {}).get("is_notebook"):
+                tabs = desc.props.get("tabs", [])
+                if tabs:
+                    self._active_nb_tabs[wid] = tabs[0]
             # Stay in placement mode
             return
 
@@ -2134,6 +2232,44 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
                 c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill=row_bg, outline="")
             c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
                           fill=fg, font=(UI_FONT, 8))
+
+
+def _draw_notebook_canvas(c, x, y, x2, y2, props, tag, nb_id, active_tab):
+    """Draw a Notebook on the designer canvas (not @_tag — needs nb_id/active_tab)."""
+    tabs = props.get("tabs") or ["Tab 1"]
+    bg   = props.get("bg", "#f0f0f0") or "#f0f0f0"
+
+    # Content area
+    c.create_rectangle(x, y + _NB_TAB_H, x2, y2,
+                       fill=bg, outline="#808080",
+                       tags=(tag, "widget"))
+
+    # Tab strip background
+    c.create_rectangle(x, y, x2, y + _NB_TAB_H,
+                       fill="#d4d4d4", outline="",
+                       tags=(tag, "widget"))
+
+    tab_x = x + 2
+    tab_w = max(48, min(80, (x2 - x - 4) // max(len(tabs), 1)))
+    for tab in tabs:
+        is_active = (tab == active_tab)
+        fill  = bg        if is_active else "#c8c8c8"
+        tab_y1 = y + 2
+        tab_y2 = y + _NB_TAB_H + (1 if is_active else -1)
+        nb_tag = f"nbtab:{nb_id}:{tab}"
+        c.create_rectangle(tab_x, tab_y1, tab_x + tab_w, tab_y2,
+                           fill=fill, outline="#808080",
+                           tags=(tag, "widget", nb_tag))
+        c.create_text(tab_x + tab_w // 2, (tab_y1 + tab_y2) // 2,
+                      text=tab, fill="#111111",
+                      font=(UI_FONT, 8),
+                      tags=(tag, "widget", nb_tag))
+        tab_x += tab_w + 2
+
+    # Separator line between strip and content
+    c.create_line(x, y + _NB_TAB_H, x2, y + _NB_TAB_H,
+                  fill="#808080",
+                  tags=(tag, "widget"))
 
 
 @_tag
