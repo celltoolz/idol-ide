@@ -108,13 +108,18 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
 
     # ── Window state (maximize/fullscreen — position is not restored) ────────
     try:
-        state = app.wm_state()
-        is_maximized = (state == "zoomed")
-        try:
-            is_maximized = is_maximized or bool(app.attributes("-zoomed"))
-        except Exception:
-            pass
-        layout["window_maximized"] = is_maximized
+        if sys.platform.startswith("linux"):
+            # Use the continuously-tracked flag — reading attributes("-zoomed")
+            # at close time is unreliable on X11 due to event-queue lag.
+            layout["window_maximized"] = bool(getattr(app, "_window_maximized", False))
+        else:
+            state = app.wm_state()
+            is_maximized = (state == "zoomed")
+            try:
+                is_maximized = is_maximized or bool(int(app.attributes("-zoomed")))
+            except Exception:
+                pass
+            layout["window_maximized"] = is_maximized
     except Exception:
         pass
     # macOS: green button enters native fullscreen, not "zoomed" state

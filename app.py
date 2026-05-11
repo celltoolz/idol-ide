@@ -397,6 +397,19 @@ class IDOL(Tk):
         self._startup_h_sash: int   = int(_saved.get("h_sash") or 0) or 220
         self._startup_v_sash: int   = int(_saved.get("v_sash") or 0)
 
+        # On Linux, wm_attributes("-zoomed") may not reflect the true state at
+        # close time due to X11 event queuing.  Track it continuously instead.
+        self._window_maximized: bool = False
+        if sys.platform.startswith("linux"):
+            def _track_maximize(event):
+                if event.widget is not self:
+                    return
+                try:
+                    self._window_maximized = bool(int(self.attributes("-zoomed")))
+                except Exception:
+                    pass
+            self.bind("<Configure>", _track_maximize, add=True)
+
         self._build_layout()
         build_menubar(self)
         self._bind_shortcuts()
