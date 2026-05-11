@@ -271,7 +271,7 @@ class Minimap(tk.Frame):
 
         # X: just to the left of the minimap (which is right of the scrollbar)
         mm_x = self._peer.winfo_rootx()
-        px   = mm_x - pw - 4
+        px   = mm_x - pw - 9
 
         # Y: centre on mouse, clamped to screen
         screen_h = self._preview.winfo_screenheight()
@@ -287,7 +287,7 @@ class Minimap(tk.Frame):
             return
         pw  = self._preview.winfo_width()
         ph  = self._preview.winfo_height()
-        px  = self._peer.winfo_rootx() - pw - 4
+        px  = self._peer.winfo_rootx() - pw - 9
         screen_h = self._preview.winfo_screenheight()
         py  = max(0, min(mouse_y_root - ph // 2, screen_h - ph))
         self._preview.geometry(f"{pw}x{ph}+{px}+{py}")
