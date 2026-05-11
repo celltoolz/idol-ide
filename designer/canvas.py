@@ -1535,11 +1535,12 @@ class DesignerCanvas(tk.Canvas):
                 self._restore_z_order(sid)
                 rendered.add(sid)
                 # If moving a container, visually update its children too
-                for child in self._children_of(sid):
+                for child in self._descendants_of(sid):
                     if child.id not in rendered:
                         self.delete(f"widget:{child.id}")
-                        self._render_widget(child)
-                        self._restore_z_order(child.id)
+                        if self._should_render(child):
+                            self._render_widget(child)
+                            self._restore_z_order(child.id)
                         rendered.add(child.id)
 
         elif d["mode"] == "resize":
