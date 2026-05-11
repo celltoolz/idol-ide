@@ -382,6 +382,7 @@ class IDOL(Tk):
         )
         self._designer_forms_dirty: bool = False  # True when JSON not yet saved
         self._suppress_codegen_prompt: bool = False  # reset each session
+        self._autogen_after_id: str | None = None   # pending debounced auto-gen timer
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
@@ -3452,6 +3453,23 @@ class IDOL(Tk):
     def _set_designer_dirty(self) -> None:
         self._designer_dirty = True
         self._designer_forms_dirty = True
+        self._schedule_autogen()
+
+    def _schedule_autogen(self) -> None:
+        """Debounced auto code-gen: resets the 1.5s timer on every change."""
+        if self._autogen_after_id:
+            self.after_cancel(self._autogen_after_id)
+        self._autogen_after_id = self.after(1500, self._run_autogen)
+
+    def _run_autogen(self) -> None:
+        """Timer callback — silently regenerate code for the active form."""
+        self._autogen_after_id = None
+        if not self._designer_mode:
+            return
+        if self._design_canvas.form is None:
+            return
+        self.designer_generate_code(_skip_manual_check=True)
+        self._designer_toolbar.flash_autogen()
 
     def designer_save_form(self) -> None:
         """Save all .form.json files (File → Designer → Save Form)."""
@@ -3563,6 +3581,9 @@ class IDOL(Tk):
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
         # Reset designer state
+        if self._autogen_after_id:
+            self.after_cancel(self._autogen_after_id)
+            self._autogen_after_id = None
         self.designer_close_form()
         if self._designer_mode:
             self._enter_editor_mode()
@@ -5048,6 +5069,9 @@ class IDOL(Tk):
 
     def designer_close_form(self) -> None:
         """Unload the current form from the designer canvas."""
+        if self._autogen_after_id:
+            self.after_cancel(self._autogen_after_id)
+            self._autogen_after_id = None
         self._design_canvas._form = None
         self._design_canvas.delete("all")
         self._props_panel.clear()

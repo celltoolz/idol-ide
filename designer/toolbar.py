@@ -43,7 +43,9 @@ class DesignerToolbar(tk.Frame):
         super().__init__(master, bg=_BG, height=28, **kwargs)
         self.pack_propagate(False)
         self._canvas = canvas
-        self._snap_lbl: tk.Label | None = None
+        self._snap_lbl:    tk.Label | None = None
+        self._autogen_lbl: tk.Label | None = None
+        self._autogen_after_id: str | None = None
 
         # Button groups for bulk enable/disable
         self._align_btns: list[tk.Label] = []
@@ -115,6 +117,13 @@ class DesignerToolbar(tk.Frame):
         self._undo_btn  = self._btn("↶", c.undo,          "Undo   (Ctrl+Z)", side="right")
         self._sep(side="right")
 
+        # Auto-gen sync indicator — flashes "✓ synced" briefly after each auto-regen
+        self._autogen_lbl = tk.Label(
+            self, text="", bg=_BG, fg="#4ec9b0",
+            font=(UI_FONT, 8), anchor="w",
+        )
+        self._autogen_lbl.pack(side="left", padx=(8, 2))
+
     def _btn(
         self,
         text: str,
@@ -168,6 +177,17 @@ class DesignerToolbar(tk.Frame):
     def _sep(self, side: str = "left") -> None:
         tk.Frame(self, bg=_SEP_COLOR, width=1).pack(
             side=side, fill="y", padx=4, pady=4
+        )
+
+    def flash_autogen(self) -> None:
+        """Briefly show a ✓ synced indicator after auto code-gen."""
+        if self._autogen_lbl is None:
+            return
+        if self._autogen_after_id:
+            self.after_cancel(self._autogen_after_id)
+        self._autogen_lbl.config(text="✓ synced")
+        self._autogen_after_id = self.after(
+            2000, lambda: self._autogen_lbl.config(text="") if self._autogen_lbl else None
         )
 
     # ── Enable / disable ──────────────────────────────────────────────────────
