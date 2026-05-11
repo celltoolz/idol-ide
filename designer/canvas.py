@@ -337,14 +337,12 @@ class DesignerCanvas(tk.Canvas):
         if not self._selected_ids or self._form is None:
             return
         self.push_undo()
+        # Expand selection to include all descendants of any container being deleted
+        to_delete: set[str] = set(self._selected_ids)
         for wid in list(self._selected_ids):
-            # Un-parent any children so they stay on the form
-            for child in self._children_of(wid):
-                p = self._form.get_widget(wid)
-                if p:
-                    child.x = max(0, child.x + p.x)
-                    child.y = max(self._min_y, child.y + p.y)
-                child.parent_id = None
+            for desc in self._descendants_of(wid):
+                to_delete.add(desc.id)
+        for wid in to_delete:
             self._form.remove_widget(wid)
             self.delete(f"widget:{wid}")
         self.delete("handle")
@@ -1020,6 +1018,13 @@ class DesignerCanvas(tk.Canvas):
         if not self._form:
             return []
         return [w for w in self._form.widgets if w.parent_id == parent_id]
+
+    def _descendants_of(self, parent_id: str) -> list[WidgetDescriptor]:
+        result = []
+        for child in self._children_of(parent_id):
+            result.append(child)
+            result.extend(self._descendants_of(child.id))
+        return result
 
     def _container_at(self, cx: int, cy: int,
                       exclude_id: str | None = None) -> WidgetDescriptor | None:
