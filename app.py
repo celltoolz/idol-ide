@@ -4908,6 +4908,7 @@ class IDOL(Tk):
         from designer.model import FormModel as _FormModel
 
         win = tk.Toplevel(self)
+        win.withdraw()
         win.title("New Form")
         win.resizable(False, False)
         win.configure(bg="#2d2d2d")
@@ -5016,13 +5017,14 @@ class IDOL(Tk):
         win.bind("<Return>", lambda _: _create())
         win.bind("<Escape>", lambda _: win.destroy())
 
-        # Centre on parent
+        # Centre on parent, then reveal
         self.update_idletasks()
         px = self.winfo_rootx() + self.winfo_width() // 2
         py = self.winfo_rooty() + self.winfo_height() // 2
         win.update_idletasks()
-        win.grab_set()
         win.geometry(f"+{px - win.winfo_width() // 2}+{py - win.winfo_height() // 2}")
+        win.deiconify()
+        win.grab_set()
 
     def _next_form_name(self) -> str:
         """Return the next available Dialog{n} name."""
