@@ -374,9 +374,9 @@ Regenerating never discards code you wrote:
 - Helper methods in the `# ── Functions ──` section survive verbatim
 - Code in the two `__init__` user zones (between the IDOL marker blocks) is preserved
 
-## Codegen Confirmation Prompt
+## Codegen — No Confirmation Needed
 
-When Generate Code would overwrite a file, a single dark-themed dialog asks for confirmation. A **"don't ask again this session"** checkbox suppresses subsequent prompts for the rest of the session. The checkbox resets on next launch.
+Code generation runs silently — no confirmation dialog. Manual edits to the `.py` are always preserved (event bodies, signatures, helper methods, `__init__` zones), so regeneration is safe to run at any time without prompting.
 
 ## Manual Edits Detection
 

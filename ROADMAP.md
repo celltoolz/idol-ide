@@ -92,7 +92,7 @@ This document tracks completed milestones, work in progress, and the planned fea
 - Variable binding (StringVar / IntVar / DoubleVar / BooleanVar) + Variable Picker popup
 - Code generation with full preservation: event bodies, signatures, pre/post-init zones,
   helper methods, user imports (IDOL:IMPORTS markers); leading comments in handler bodies preserved on regen
-- **Unified codegen prompt** — single dark-themed dialog (replacing per-action confirmations) with per-session "don't ask again" suppress
+- ~~Unified codegen prompt~~ — removed; code generation is now always silent
 - Menu Builder: caption/name/shortcut, enabled/visible, type, variable, command, value;
   indent/insert/delete; **Separator item**; **& access-key** in captions (display_caption + underline kwarg); codegen with add_checkbutton/add_radiobutton and auto self.bind()
 - Widget containment: Frame/LabelFrame auto-parent dropped widgets; drag-out to reparent
@@ -177,7 +177,7 @@ This document tracks completed milestones, work in progress, and the planned fea
 ## Designer Phase 3 continued — Linux / Cross-Platform Polish (2026-05-10)
 
 - **`grab_set()` ordering** — `designer_new_form()` and `MenuEditor.__init__` now call `grab_set()` after `update_idletasks()` so the window is fully mapped before the grab; fixes "can't grab window" on Linux/X11
-- **`StyledCheckbox`** (`widgets/styled_checkbox.py`) — reusable Unicode-glyph checkbox; identical appearance on all platforms; extracted from ProjectWizard and used in the codegen confirmation dialog
+- **`StyledCheckbox`** (`widgets/styled_checkbox.py`) — reusable Unicode-glyph checkbox; identical appearance on all platforms; extracted from ProjectWizard
 - **X11 saved-iid pattern** — `_prop_clear_iid`/`_ev_btn_iid` in `designer_properties.py` fix the clear button and ✦ wire button on Linux (X11 spurious `<Leave>` events were clearing hover-index before clicks fired)
 - **Form `bg` clearable** — `form__bg` added to clearable props; no more `#f5f5f5` placeholder when form background is unset
 - **Empty bg defaults in registry** — non-input widgets now default to `"bg": ""` so generated code doesn't hardcode Windows-gray background on other platforms

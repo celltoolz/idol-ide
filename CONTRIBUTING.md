@@ -113,7 +113,7 @@ Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `clipbo
 `output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
 `sidebar.py`, `source_control.py`, `statusbar.py`, `sticky_scroll.py`, `styled_checkbox.py`, `terminal.py`
 
-`styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state, custom colors, and font sizes. Used in `project_wizard.py` and the codegen confirmation dialog in `app.py`.
+`styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state, custom colors, and font sizes. Used in `project_wizard.py`.
 
 `clipboard_history.py` — canvas-virtualized clipboard ring (`ClipboardHistoryPanel`). Rows are
 drawn as `Canvas` primitives (background rect + text items); hover state updated via
@@ -223,7 +223,7 @@ Any future static data files belong here, not inside package directories.
 ### Designer-specific decisions
 
 - **One-way codegen.** Designer → Python only. Parsing arbitrary Python edits back into a widget model is a compiler problem — not worth it for v1.
-- **Manual-edits warning on Generate Code only.** When the user clicks Generate Code and the `.py` has been manually edited since last generation (detected via SHA-256 checksum stored in `.form.json`), a dialog warns them. The warning is NOT shown on Designer mode-switch — too disruptive. Event handlers, helper methods, and user `__init__` code are always preserved.
+- **No codegen confirmation.** Code is regenerated silently — on the 1.5 s auto-gen debounce, on explicit `Ctrl+Shift+G`, and on Run when dirty. Event handlers, helper methods, and user `__init__` code are always preserved, so overwriting the `.py` is always safe.
 - **IDOL:BEGIN/END markers.** Generated `__init__` wraps the auto-generated form setup and `_build_ui()` call each in `# ── IDOL:BEGIN` / `# ── IDOL:END` block pairs. The two gaps between those blocks are user-owned zones (pre-build and post-build) that survive regeneration without being overwritten.
 - **Helper method preservation.** The `# ── Functions ──` section at the bottom of the generated class is fully user-owned. Any public method defined there is extracted verbatim and re-injected on regeneration. A comment explains this to the user.
 - **`place()` geometry manager.** Absolute positioning only in v1. `pack()` and `grid()` can't be represented as drag-to-coordinate visually. A "convert to grid layout" option is a future feature.
@@ -353,7 +353,7 @@ Implemented and stable:
 - **Form events** — load / activate / deactivate / unload / resize in the Events tab; codegen emits `.bind()` calls and stubs the handler methods
 - **Double-click wired event row** → auto-generates code if dirty, then jumps to that handler in the editor; double-clicking the property name column in the Properties panel does the same
 - **Preserve leading comments** in event handler bodies — comment lines before the first non-comment line of a handler are extracted and re-injected on regeneration
-- **Unified codegen prompt** — single dark-themed confirmation dialog replaces per-action confirms; per-session "don't ask again" checkbox
+- ~~Unified codegen prompt~~ — removed; code generation is now always silent (auto-gen + Run silently regenerate; manual edits are always preserved)
 - **Scrollbar property** for Listbox and Text — adds `yscrollcommand` wiring and a paired `ttk.Scrollbar` in codegen
 - **Separator item** in Menu Editor — Separator button adds a menu separator row; rendered as `---` in the listbox preview; codegen emits `add_separator()`
 - **& access-key in captions** — `&File` renders as `File` with underline=0; codegen emits `underline=N` kwarg; display_caption strips the `&` for canvas rendering
@@ -384,7 +384,7 @@ Implemented and stable:
 ### Designer — Linux / Cross-Platform Polish — SHIPPED (2026-05-10)
 
 - **`grab_set()` ordering** — `designer_new_form()` and `MenuEditor.__init__` now call `grab_set()` after `update_idletasks()` so the window is fully mapped; fixes "can't grab window" errors on Linux/X11
-- **`StyledCheckbox`** (`widgets/styled_checkbox.py`) — reusable Unicode-glyph checkbox extracted from `project_wizard.py`; used in the codegen confirmation dialog in `app.py`; identical appearance on all platforms
+- **`StyledCheckbox`** (`widgets/styled_checkbox.py`) — reusable Unicode-glyph checkbox extracted from `project_wizard.py`; identical appearance on all platforms
 - **X11 saved-iid pattern** — `_prop_clear_iid`/`_ev_btn_iid` fields in `designer_properties.py`; fixes clear button and ✦ wire button on Linux (spurious `<Leave>` events cleared hover-index before clicks fired)
 - **Form `bg` clearable** — `form__bg` added to clearable props; `load_form` no longer substitutes a placeholder when `bg` is empty; clearing the form bg restores the OS default
 - **Empty bg defaults** — non-input widget registry entries (`"bg": ""`) so generated code doesn't hardcode Windows-gray `bg` on new widgets; OS default background used instead
