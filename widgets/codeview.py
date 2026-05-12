@@ -619,13 +619,7 @@ class CodeView(Text):
         span = last - first
         if span < self._h_span_min:
             self._h_span_min = span
-        # Only override when content fits the viewport (span ≥ 1.0) — TK would
-        # report last=1.0 causing the scrollbar to grow or disappear.  Show a
-        # thumb sized to the viewport/max-content ratio instead.  When the user
-        # IS scrolled into wide content (span < 1.0) use TK's values unchanged.
-        if span >= 1.0 and self._h_span_min < 1.0:
-            last = self._h_span_min
-        self._hs.set(first, last)
+        self._hs.set(first, min(1.0, first + self._h_span_min))
 
     def show_minimap(self) -> None:
         self._minimap.grid()  # also re-shows the border widget
