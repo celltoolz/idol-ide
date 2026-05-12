@@ -944,7 +944,7 @@ class IDOL(Tk):
         self._output.output._on_run_done = _run_done_hook
 
         # Terminal shell integration: OSC 133;D fires when the prompt appears
-        self._output.terminal.on_command_done = lambda: (
+        self._output.terminal.on_command_done = lambda exit_code=None: (
             self._running_file and not self._run_entry_file and self._set_running_file(None)
         )
 

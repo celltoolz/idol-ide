@@ -212,7 +212,7 @@ class TerminalPanel(ttk.Frame):
         self._shell_var = StringVar(value="Auto")
         self.on_venv_activate:   Optional[Callable[[str], None]] = None
         self.on_venv_deactivate: Optional[Callable[[], None]]   = None
-        self.on_command_done:    Optional[Callable[[], None]]   = None
+        self.on_command_done:    Optional[Callable[[Optional[int]], None]] = None
         self._running   = False
         self._cwd: Optional[str] = None
 
@@ -969,7 +969,7 @@ class TerminalPanel(ttk.Frame):
                 ' $p = $PWD.Path;'
                 ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
                 f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v");'
-                ' Write-Host -NoNewline "$([char]27)]133;D$([char]7)";'
+                ' Write-Host -NoNewline "$([char]27)]133;D;$LASTEXITCODE$([char]7)";'
                 ' if (-not $global:_idol_cleared) { $global:_idol_cleared = $true; clear };'
                 ' "PS $p> "'
                 '}\r'
@@ -977,16 +977,18 @@ class TerminalPanel(ttk.Frame):
         elif "zsh" in shell_name:
             hook = (
                 'function _idol_prompt() {'
-                ' printf "\\e]133;D\\a";'
+                ' local _ec=$?;'
+                ' printf "\\e]133;D;%d\\a" "$_ec";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOST" "$PWD";'
                 ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}";'
                 '};'
-                ' precmd_functions+=(_idol_prompt)\r'
+                ' precmd_functions=(_idol_prompt "${precmd_functions[@]}")\r'
             )
         else:
             # bash / sh
             hook = (
-                'export PROMPT_COMMAND=\'printf "\\e]133;D\\a";'
+                'export PROMPT_COMMAND=\'_ec=$?;'
+                ' printf "\\e]133;D;%d\\a" "$_ec";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
                 ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}"\'\r'
             )
@@ -1017,10 +1019,12 @@ class TerminalPanel(ttk.Frame):
                  stdout markers are used so this function is a no-op on Windows."""
 
         # ── OSC 133 shell integration (prompt appearing = command finished) ──
-        if re.search(r'\x1b\]133;[A-Z]', raw):
-            self.after(0, self._on_shell_command_done)
-        # Strip full OSC 133 sequences (ESC ] 133 ; letter  BEL|ST)
-        raw = re.sub(r'\x1b\]133;[A-Z](?:\x07|\x1b\\)?', '', raw)
+        m133 = re.search(r'\x1b\]133;[A-Z](?:;(\d+))?(?:\x07|\x1b\\)?', raw)
+        if m133:
+            exit_code = int(m133.group(1)) if m133.group(1) is not None else None
+            self.after(0, lambda ec=exit_code: self._on_shell_command_done(ec))
+        # Strip full OSC 133 sequences (ESC ] 133 ; letter [;exit_code]  BEL|ST)
+        raw = re.sub(r'\x1b\]133;[A-Z](?:;\d+)?(?:\x07|\x1b\\)?', '', raw)
 
         # ── Unix OSC 7 (ESC ] 7 ; file://host/path BEL) ──────────────────────
         for m in re.finditer(r'\x1b\]7;file://[^/]*(/[^\x07\x1b]*)\x07', raw):
@@ -1057,9 +1061,9 @@ class TerminalPanel(ttk.Frame):
 
         return result
 
-    def _on_shell_command_done(self) -> None:
+    def _on_shell_command_done(self, exit_code: Optional[int] = None) -> None:
         if self.on_command_done:
-            self.on_command_done()
+            self.on_command_done(exit_code)
 
     def _refresh_venv_state(self) -> None:
         """Recompute button state based on current CWD and active venv."""
