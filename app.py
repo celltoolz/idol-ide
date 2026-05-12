@@ -5202,8 +5202,12 @@ class IDOL(Tk):
             if fp and _Path(fp) == py_path:
                 cv = self._codeviews.get(tab_id)
                 if cv:
+                    scroll = cv.yview()[0]
+                    cursor = cv.index("insert")
                     cv.delete("1.0", "end")
                     cv.insert("1.0", code)
+                    cv.yview_moveto(scroll)
+                    cv.mark_set("insert", cursor)
                     self._dirty[tab_id] = False
                     self._refresh_tab_title(tab_id)
                 break

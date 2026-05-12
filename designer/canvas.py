@@ -381,6 +381,9 @@ class DesignerCanvas(tk.Canvas):
                 self.delete(f"widget:{child.id}")
                 self._render_widget(child)
                 self._restore_z_order(child.id)
+        if self._tab_order_visible:
+            self.delete("tab_badge")
+            self._draw_tab_badges()
         self.delete("handle")
         self.delete("fhandle")
         self._draw_all_handles()
@@ -401,6 +404,9 @@ class DesignerCanvas(tk.Canvas):
             if self._should_render(child):
                 self._render_widget(child)
                 self._restore_z_order(child.id)
+        if self._tab_order_visible:
+            self.delete("tab_badge")
+            self._draw_tab_badges()
         if was_selected:
             self._draw_all_handles()
         self.tag_raise("handle")
@@ -1633,6 +1639,9 @@ class DesignerCanvas(tk.Canvas):
                 self._render_widget(sw)
                 self._restore_z_order(sw.id)
 
+        if self._tab_order_visible:
+            self.delete("tab_badge")
+            self._draw_tab_badges()
         self.delete("handle")
         self._draw_all_handles()
         self.tag_raise("handle")
