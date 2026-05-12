@@ -189,7 +189,6 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ## Planned — Designer
 
-- Persist designer sash positions across sessions
 - Open Designer for existing (non-wizard) projects
 - Live Preview mode — eye icon toggles canvas to interactive state without running the app
 - Priority event sorting — most relevant events floated to top per widget type
@@ -215,6 +214,21 @@ This document tracks completed milestones, work in progress, and the planned fea
 - **Validation substitution tooltips** — status bar hints for `%P`, `%S`, `%W` in --args rows
 - **Menu Item Proxies** — generate a `MenuProxy` class per menu item so users can write
   `self.mnu_file.enabled = False` instead of `entryconfig` index gymnastics
+
+---
+
+## Designer Phase 4 — Notebook, Scrollbars & Polish (2026-05-11)
+
+- **ttk.Notebook widget** — first-class container; canvas renders native-style tab strip; each child carries a `widget.tab` string; switching tabs selects the Notebook and hides inactive children; `<<NotebookTabChanged>>` event + codegen
+- **Order panel — Notebook tab grouping** — children indented under teal tab-header rows in `tabs` property order; drag across a header to reassign tab; badges scoped per tab
+- **Draw inside containers** — drawing a widget while cursor is over a Frame/LabelFrame auto-parents it; children clamped to container bounds
+- **Container cascade delete** — deleting a Frame/LabelFrame/Notebook removes all descendants
+- **Arrow-key nudge** — 8 px by default (matches snap grid); Shift+arrow = 1 px; respects snap toggle
+- **Debounced auto-codegen** — any change schedules a codegen run 1.5 s later; rapid edits coalesce
+- **Menu editor polish** — labels-as-buttons throughout; canvas-drawn dark checkboxes; Caption→Name autofill on Tab
+- **Custom IDOL scrollbars** — all `ttk.Scrollbar` instances in IDOL's own UI replaced with canvas-drawn `VerticalScrollbar`/`HorizontalScrollbar`; editor 16 px wide; panels 12 px; no up/down arrows; autohide via `grid_remove()`
+- **macOS fullscreen persist** — state saved to `session.json` and restored on launch
+- **Linux maximize session** — `<Configure>`-tracked flag + `_force_normal` retry at 300 ms to fight WM session management; flash accepted (do not attempt `withdraw()`/`deiconify()`)
 
 ---
 
@@ -346,9 +360,8 @@ as first-class entries in the Designer palette alongside the standard Tk widgets
 
 ## Known Bugs
 
-- macOS: fullscreen state not remembered across sessions
 - macOS: 20px canvas/codegen offsets need audit after macOS testing session
-- Linux: IDOL window maximize state not restored on restart — `wm_state("zoomed")` geometry on X11 returns screen size rather than restored size; fix likely needs a separate "was maximized" flag + `wm_attributes('-zoomed', True)` on restore
+- Linux: IDOL window maximize state has a visible flash on restore (normal → maximize → normal) — WM session management re-maximizes windows asynchronously; `_force_normal` at 300 ms fights it but can't eliminate the flash; `withdraw()`/`deiconify()` makes it worse — accepted limitation
 - Debugger: global hotkeys (F5/F10/F11/Shift+F11/Shift+F5) require a low-level keyboard hook
   (pynput or keyboard lib) to fire when IDOL doesn't have focus
 - Codegen: removing the last widget reference to a handler silently drops its body on regen

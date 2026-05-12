@@ -33,16 +33,16 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 - **Multi-select** — rubber-band drag to select multiple widgets; Ctrl+Click to toggle individual widgets; drag the group to move all at once
 - **Primary vs secondary selection** — the last-clicked widget is the primary (amber border + full resize handles); all others are secondary (blue border only); resize dragging on any handle propagates the delta to all selected widgets
 - **Copy / Paste** — Ctrl+C / Ctrl+V to duplicate; right-click context menu with Copy, Paste, Delete, Bring to Front, Send to Back
-- **Arrow-key nudge** — 1px precision positioning with arrow keys
+- **Arrow-key nudge** — 8px nudge (matching the snap grid) with arrow keys; hold **Shift** for 1px precision
 - **Z-order** — Bring to Front / Send to Back preserved on every mutation
 - **Menu bar strip** — live menu bar rendered below the title bar from your menu items; clicking a top-level name opens a native dropdown; clicking a command or check/radio item with a handler navigates to that handler in the editor
 - **Canvas scrollbars** — the canvas has horizontal and vertical scrollbars with mousewheel support on all platforms (Windows/macOS via `<MouseWheel>`; Linux via `<Button-4>`/`<Button-5>`; hold **Shift** to scroll horizontally); the form recenters automatically after a resize drag
 
 ## Widget Palette
 
-14 widget types in a scrollable toolbox with canvas-drawn mini-previews:
+15 widget types in a scrollable toolbox with canvas-drawn mini-previews:
 
-Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, Scale, Spinbox, Progressbar, Separator
+Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, **Notebook**, Scale, Spinbox, Progressbar, Separator
 
 **Placement modes:**
 - **Click** — arms the crosshair tool; click anywhere on the canvas to drop at default size
@@ -182,15 +182,29 @@ The **Order** tab in the Properties panel shows all widgets on the form as a can
 - The **`⇥` toolbar button** toggles numbered blue badges directly on the canvas widgets so you can see the order at a glance without switching to the Order tab
 - A permanent hint in the status bar reminds you of what the Order tab does when it is active
 
+**Notebook tab grouping** — when the form contains a Notebook, its children appear indented under teal tab-header rows (one per tab, in the Notebook's `tabs` property order). Dragging a child row across a tab header reassigns it to that tab — the canvas and codegen update automatically. Tab order badges are numbered independently within each tab.
+
 ## Widget Containment
 
-Frame and LabelFrame act as parent containers:
+Frame, LabelFrame, and Notebook act as parent containers:
 
-- Dropping a widget onto a Frame/LabelFrame auto-parents it (coordinates stored relative to the container's content area, matching how tkinter's `place()` works)
+- **Dropping or drawing** a widget onto a container auto-parents it (coordinates stored relative to the container's content area, matching how tkinter's `place()` works); children are clamped to the container bounds on drop
 - Drag a widget out of a container to reparent it to the form or another container
 - The `parent` row in Properties is read-only — drag on the canvas to reparent
 - LabelFrame applies a 17px label-area offset automatically
 - Codegen uses the container as the parent argument for `place()`
+- **Deleting** a container removes all of its descendant widgets
+
+## Notebook Widget
+
+`ttk.Notebook` is a first-class container in the designer — drop it onto the canvas, then add widgets to each of its tabs.
+
+- The canvas renders the tab strip with the active tab raised and inactive tabs dimmed, matching the native ttk.Notebook appearance
+- **Switching tabs** on the canvas (click a tab label) selects the Notebook widget, clears resize handles, and shows/hides children so only the active tab's content is visible
+- **Adding children** — with a palette tool armed, hover over the Notebook's content area; the cursor changes to a crosshair; dropping or drawing places the widget inside the active tab
+- Each child has a `tab` property (the tab name string) that determines which tab it belongs to; reassign via the Order tab or by dragging across tab headers
+- The **`<<NotebookTabChanged>>`** event is available in the Events tab; wiring it generates a `.bind()` call and a handler stub
+- Codegen emits the full Notebook hierarchy: `ttk.Notebook`, one `ttk.Frame` per tab added with `.add(frame, text="Tab Name")`, and child widgets placed inside their tab's frame
 
 ## Menu Editor
 
@@ -313,7 +327,7 @@ Key points:
 
 ## Code Generation
 
-`Designer → Generate Code` (`Ctrl+Shift+G`) writes clean, class-based Python:
+**Auto-generation** — code is regenerated automatically 1.5 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+G`).
 
 ```python
 import tkinter as tk
