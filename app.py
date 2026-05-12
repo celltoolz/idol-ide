@@ -370,6 +370,7 @@ class IDOL(Tk):
         self._run_target_var = tk.StringVar(value="output")
         self._run_action_var = tk.StringVar(value="run")
         self._run_entry_file: str | None = None
+        self._running_file: str | None = None  # transient label while a run is active
         self._sidebar_shown = True  # tracks actual pane membership
         self._active_line_color: str | None = None
 
@@ -934,6 +935,14 @@ class IDOL(Tk):
             on_navigate=self._open_file_at,
             on_bp_click=lambda fp, ln: self._open_file_at(fp, ln, 0),
         )
+        # Wrap on_run_done to also restore the status-bar run-entry label
+        _orig_run_done = self._output.output._on_run_done
+        def _run_done_hook(_orig=_orig_run_done):
+            self._set_running_file(None)
+            if _orig:
+                _orig()
+        self._output.output._on_run_done = _run_done_hook
+
         # Keep panel_tab_var in sync whenever the bottom panel switches tabs
         _orig_set_active = self._output._set_active
 
@@ -5726,6 +5735,7 @@ class IDOL(Tk):
             if not self.output_visible_var.get():
                 self.output_visible_var.set(True)
                 self.view_toggle_output()
+            self._set_running_file(filepath)
             self._output.run(filepath, self._active_python)
 
     def run_file_in_terminal(self) -> None:
@@ -5742,6 +5752,7 @@ class IDOL(Tk):
         self._output._set_active("terminal")
         if not self._output.terminal._running:
             self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
+        self._set_running_file(filepath)
         term = self._output.terminal
         import platform as _pl
 
@@ -5856,8 +5867,18 @@ class IDOL(Tk):
 
     def _set_run_entry(self, path: str | None) -> None:
         self._run_entry_file = path or None
+        self._running_file = None
         label = os.path.basename(path) if path else "Active Tab"
         self._statusbar.set_run_entry(label)
+
+    def _set_running_file(self, path: str | None) -> None:
+        """Temporarily show a filename in the run-entry label while a run is active."""
+        self._running_file = path
+        if path:
+            self._statusbar.set_run_entry(os.path.basename(path))
+        else:
+            label = os.path.basename(self._run_entry_file) if self._run_entry_file else "Active Tab"
+            self._statusbar.set_run_entry(label)
 
     def _open_run_entry_picker(self) -> None:
         """Popup above the statusbar to pin a specific entry file for Run/Debug."""
@@ -6131,6 +6152,7 @@ class IDOL(Tk):
         python_exe = self._active_python
         debugpy_site = self._get_debugpy_site()
 
+        self._set_running_file(filepath)
         self._debugger = DebugManager(after_fn=self._safe_after)
         self._debugger.on_stopped = self._on_debug_stopped
         self._debugger.on_continued = self._on_debug_continued
@@ -6284,6 +6306,7 @@ class IDOL(Tk):
         self._debug_current_tab = None
         self._output.output.write("\nProcess finished.\n", "info")
         self._output.output.hide_debug_input_guide_btn()
+        self._set_running_file(None)
         self._refresh_run_buttons()
 
     def _file_uses_input(self, filepath: str) -> bool:
