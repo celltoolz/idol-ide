@@ -606,6 +606,11 @@ class CodeView(Text):
         BaseWidget.destroy(self._frame)
 
     def horizontal_scroll(self, first: str | float, last: str | float) -> None:
+        # DO NOT try to "fix" the scrollbar by tracking max line width or clamping
+        # the span.  Tkinter's Text widget reports xview() relative to the widest
+        # visible line, so any override either causes a tiny thumb when a super-long
+        # line exists, or breaks horizontal scrolling when no long line is in view.
+        # Same lesson as vertical "scroll past last line" — let Tk own the fractions.
         self._hs.set(first, last)
 
     def show_minimap(self) -> None:
