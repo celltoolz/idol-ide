@@ -943,6 +943,11 @@ class IDOL(Tk):
                 _orig()
         self._output.output._on_run_done = _run_done_hook
 
+        # Terminal shell integration: OSC 133;D fires when the prompt appears
+        self._output.terminal.on_command_done = lambda: (
+            self._running_file and not self._run_entry_file and self._set_running_file(None)
+        )
+
         # Keep panel_tab_var in sync whenever the bottom panel switches tabs
         _orig_set_active = self._output._set_active
 

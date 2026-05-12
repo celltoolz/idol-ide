@@ -212,6 +212,7 @@ class TerminalPanel(ttk.Frame):
         self._shell_var = StringVar(value="Auto")
         self.on_venv_activate:   Optional[Callable[[str], None]] = None
         self.on_venv_deactivate: Optional[Callable[[], None]]   = None
+        self.on_command_done:    Optional[Callable[[], None]]   = None
         self._running   = False
         self._cwd: Optional[str] = None
 
@@ -968,6 +969,7 @@ class TerminalPanel(ttk.Frame):
                 ' $p = $PWD.Path;'
                 ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
                 f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v");'
+                ' Write-Host -NoNewline "`e]133;D`a";'
                 ' if (-not $global:_idol_cleared) { $global:_idol_cleared = $true; clear };'
                 ' "PS $p> "'
                 '}\r'
@@ -975,6 +977,7 @@ class TerminalPanel(ttk.Frame):
         elif "zsh" in shell_name:
             hook = (
                 'function _idol_prompt() {'
+                ' printf "\\e]133;D\\a";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOST" "$PWD";'
                 ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}";'
                 '};'
@@ -983,7 +986,8 @@ class TerminalPanel(ttk.Frame):
         else:
             # bash / sh
             hook = (
-                'export PROMPT_COMMAND=\'printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
+                'export PROMPT_COMMAND=\'printf "\\e]133;D\\a";'
+                ' printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
                 ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}"\'\r'
             )
         self._send_silently(hook)
@@ -1011,6 +1015,11 @@ class TerminalPanel(ttk.Frame):
         Unix:    OSC 7 for CWD,  IDOL_VENV:<path> line for venv
         Windows: CWD/VENV are read from a temp file (see _poll_state_file); no
                  stdout markers are used so this function is a no-op on Windows."""
+
+        # ── OSC 133;D (shell integration — prompt appearing, command finished) ──
+        if re.search(r'\x1b\]133;D(?:\x07|\x1b\\)', raw):
+            self.after(0, self._on_shell_command_done)
+        raw = re.sub(r'\x1b\]133;[A-Z](?:\x07|\x1b\\)', '', raw)
 
         # ── Unix OSC 7 (ESC ] 7 ; file://host/path BEL) ──────────────────────
         for m in re.finditer(r'\x1b\]7;file://[^/]*(/[^\x07\x1b]*)\x07', raw):
@@ -1046,6 +1055,10 @@ class TerminalPanel(ttk.Frame):
             self._raw_buf = ""
 
         return result
+
+    def _on_shell_command_done(self) -> None:
+        if self.on_command_done:
+            self.on_command_done()
 
     def _refresh_venv_state(self) -> None:
         """Recompute button state based on current CWD and active venv."""
