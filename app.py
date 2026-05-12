@@ -4593,6 +4593,13 @@ class IDOL(Tk):
 
         self._refresh_mode_bar()
 
+        def _restore_editor_focus():
+            cv = self._current_codeview
+            if cv:
+                cv.focus_set()
+                cv.see("insert")
+        self.after_idle(_restore_editor_focus)
+
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
         """Property panel edit → update canvas rendering."""
         form = self._design_canvas.form
