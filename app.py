@@ -4976,9 +4976,10 @@ class IDOL(Tk):
         tk.Label(win, text="Form Name:", bg="#2d2d2d", fg="#cccccc",
                  font=(UI_FONT, 9)).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
 
-        type_var = tk.StringVar(value="dialog")
+        default_type = "dialog" if self._designer_forms else "main"
+        type_var = tk.StringVar(value=default_type)
 
-        name_var = tk.StringVar(value=self._next_form_name("dialog"))
+        name_var = tk.StringVar(value=self._next_form_name(default_type))
         name_entry = tk.Entry(win, textvariable=name_var, bg="#3c3c3c", fg="#cccccc",
                               insertbackground="#cccccc", relief="flat",
                               font=(UI_FONT, 9), width=22)
