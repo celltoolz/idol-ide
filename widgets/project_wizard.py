@@ -425,7 +425,7 @@ class ProjectWizard(tk.Toplevel):
             ))
 
         self._check("Create starter files", self._files_var,
-                    detail="Form1.py / main.py, requirements.txt, .gitignore")
+                    detail="<ProjectName>.py / main.py, requirements.txt, .gitignore")
 
     # ── Step 3: Summary ───────────────────────────────────────────────────────
 
@@ -615,32 +615,42 @@ class ProjectWizard(tk.Toplevel):
                 return exe, (m.group(1) if m else lbl.split("(")[0].strip())
         return exe, "Python"
 
+    @staticmethod
+    def _form_name_from_project(project_name: str) -> str:
+        """Convert a folder name to a valid Python class identifier."""
+        import re as _re
+        parts = _re.split(r"[\s\-_]+", project_name)
+        name = "".join(p.capitalize() for p in parts if p)
+        name = _re.sub(r"[^A-Za-z0-9_]", "", name)
+        name = name.lstrip("0123456789")
+        return name or "Form"
+
     def _write_starter_files(self, project_path: str) -> None:
         is_gui = self._type_var.get() == "gui"
         project_name = os.path.basename(project_path)
 
         if is_gui:
-            # Generate Form1.py + Form1.form.json
+            form_name = self._form_name_from_project(project_name)
             form = FormModel(
-                name="Form1",
+                name=form_name,
                 title=project_name,
                 width=800,
                 height=600,
             )
-            form_py_path   = Path(project_path) / "Form1.py"
-            form_json_path = Path(project_path) / "Form1.form.json"
+            form_py_path   = Path(project_path) / f"{form_name}.py"
+            form_json_path = Path(project_path) / f"{form_name}.form.json"
             code = designer_codegen(form)
             form_py_path.write_text(code, encoding="utf-8")
             checksum = compute_checksum(form_py_path)
             designer_save(form, form_json_path, py_checksum=checksum)
 
-            # main.py — entry point that imports and runs Form1
+            # main.py — entry point that imports and runs the form
             main_py = os.path.join(project_path, "main.py")
             with open(main_py, "w", encoding="utf-8") as f:
                 f.write(
-                    f"from Form1 import Form1\n\n\n"
+                    f"from {form_name} import {form_name}\n\n\n"
                     f"if __name__ == \"__main__\":\n"
-                    f"    app = Form1()\n"
+                    f"    app = {form_name}()\n"
                     f"    app.mainloop()\n"
                 )
         else:

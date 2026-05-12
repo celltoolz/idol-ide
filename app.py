@@ -3216,13 +3216,12 @@ class IDOL(Tk):
         self._designer_project_type = project_type
         if project_type == "gui":
             self._show_mode_bar()
-            # Load Form1.form.json into the design canvas
             from designer.persistence import load as designer_load
             from pathlib import Path as _Path
 
-            json_path = _Path(project_path) / "Form1.form.json"
-            if json_path.exists():
-                form, _ = designer_load(json_path)
+            json_files = sorted(_Path(project_path).glob("*.form.json"))
+            if json_files:
+                form, _ = designer_load(json_files[0])
                 self._designer_forms[form.name] = form
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
@@ -4976,7 +4975,9 @@ class IDOL(Tk):
         tk.Label(win, text="Form Name:", bg="#2d2d2d", fg="#cccccc",
                  font=(UI_FONT, 9)).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
 
-        name_var = tk.StringVar(value=self._next_form_name())
+        type_var = tk.StringVar(value="dialog")
+
+        name_var = tk.StringVar(value=self._next_form_name("dialog"))
         name_entry = tk.Entry(win, textvariable=name_var, bg="#3c3c3c", fg="#cccccc",
                               insertbackground="#cccccc", relief="flat",
                               font=(UI_FONT, 9), width=22)
@@ -4987,7 +4988,6 @@ class IDOL(Tk):
         tk.Label(win, text="Type:", bg="#2d2d2d", fg="#cccccc",
                  font=(UI_FONT, 9)).grid(row=1, column=0, padx=12, pady=4, sticky="w")
 
-        type_var = tk.StringVar(value="dialog")
         type_frame = tk.Frame(win, bg="#2d2d2d")
         type_frame.grid(row=1, column=1, padx=(0, 12), pady=4, sticky="w")
         for lbl, val in [("Main Window", "main"), ("Dialog Window", "dialog")]:
@@ -5011,7 +5011,12 @@ class IDOL(Tk):
         link_cb.grid(row=2, column=1, padx=(0, 12), pady=4, sticky="w")
 
         def _on_type_change(*_):
-            if type_var.get() == "main":
+            ft = type_var.get()
+            # Auto-update name only when it still matches the previous auto-name
+            old_auto = self._next_form_name("main" if ft == "dialog" else "dialog")
+            if name_var.get() == old_auto:
+                name_var.set(self._next_form_name(ft))
+            if ft == "main":
                 link_cb.config(state="disabled")
                 link_var.set("None (unlinked)")
             else:
@@ -5053,6 +5058,7 @@ class IDOL(Tk):
             self._designer_menu_had_items = False
             self._set_designer_dirty()
             self._refresh_form_list(active=name)
+            self._show_mode_bar()
             if not self._designer_mode:
                 self._enter_designer_mode()
             self._refresh_generate_code_state()
@@ -5085,13 +5091,14 @@ class IDOL(Tk):
         win.deiconify()
         win.grab_set()
 
-    def _next_form_name(self) -> str:
-        """Return the next available Dialog{n} name."""
+    def _next_form_name(self, form_type: str = "dialog") -> str:
+        """Return the next available Form{n} or Dialog{n} name."""
         existing = set(self._designer_forms)
+        prefix = "Form" if form_type == "main" else "Dialog"
         n = 1
-        while f"Dialog{n}" in existing:
+        while f"{prefix}{n}" in existing:
             n += 1
-        return f"Dialog{n}"
+        return f"{prefix}{n}"
 
     def designer_close_form(self) -> None:
         """Unload the current form from the designer canvas."""
