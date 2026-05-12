@@ -1762,6 +1762,8 @@ class IDOL(Tk):
         tab_id = self._current_tab_id
         if tab_id is None:
             return
+        if self._running_file and not self._run_entry_file:
+            self._set_running_file(None)
         self._update_title()
         self._statusbar.set_indent(self._indent_sizes.get(tab_id, 4))
         # Reflect overwrite state of the new tab's handler
