@@ -382,7 +382,6 @@ class IDOL(Tk):
             False  # True when model changed since last Generate Code
         )
         self._designer_forms_dirty: bool = False  # True when JSON not yet saved
-        self._suppress_codegen_prompt: bool = False  # reset each session
         self._autogen_after_id: str | None = None   # pending debounced auto-gen timer
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
@@ -3486,7 +3485,7 @@ class IDOL(Tk):
             return
         if self._design_canvas.form is None:
             return
-        self.designer_generate_code(_skip_manual_check=True)
+        self.designer_generate_code()
         self._designer_toolbar.flash_autogen()
 
     def designer_save_form(self) -> None:
@@ -5130,7 +5129,7 @@ class IDOL(Tk):
 
             showerror("Open Form", f"Could not load form:\n{exc}", parent=self)
 
-    def designer_generate_code(self, *, _skip_manual_check: bool = False) -> None:
+    def designer_generate_code(self) -> None:
         """Regenerate .py for all forms in the project and save checksums."""
         root = getattr(self._sidebar.explorer, "_root", None)
         active_form = self._design_canvas.form
@@ -5143,26 +5142,16 @@ class IDOL(Tk):
         # Generate dialogs first so imports resolve when main form is generated
         for form in self._designer_forms.values():
             if form.form_type != "main":
-                self._generate_one_form(
-                    form, root, _skip_manual_check=_skip_manual_check,
-                )
+                self._generate_one_form(form, root)
 
         for form in self._designer_forms.values():
             if form.form_type == "main":
-                self._generate_one_form(
-                    form, root, _skip_manual_check=_skip_manual_check,
-                )
+                self._generate_one_form(form, root)
 
         self._designer_dirty = False
         self._designer_forms_dirty = False
 
-    def _generate_one_form(
-        self,
-        form,
-        root: str,
-        *,
-        _skip_manual_check: bool = False,
-    ) -> None:
+    def _generate_one_form(self, form, root: str) -> None:
         from pathlib import Path as _Path
         from designer.codegen import generate as _gen
         from designer.persistence import (
@@ -5180,27 +5169,8 @@ class IDOL(Tk):
         json_path = _Path(root) / f"{form.name}.form.json"
         py_path   = _Path(root) / f"{form.name}.py"
 
-        if py_path.exists():
-            try:
-                _, stored_checksum = _load(json_path)
-                if (
-                    _modified(py_path, stored_checksum)
-                    and not _skip_manual_check
-                    and not self._suppress_codegen_prompt
-                ):
-                    answer, suppress = self._codegen_confirm(
-                        "Manual Edits Detected",
-                        f"{py_path.name} has been manually edited since the last code generation.\n\n"
-                        "Event handlers, helper methods, and extra __init__ code will be preserved.\n"
-                        "Only _build_ui will be regenerated from the Designer layout.\n\n"
-                        "Generate code and overwrite?",
-                    )
-                    if suppress:
-                        self._suppress_codegen_prompt = True
-                    if answer != "yes":
-                        return
-            except Exception:
-                pass
+        # Manual edits are always preserved (event bodies, helpers, init zones)
+        # so no confirmation is needed before regenerating.
 
         if py_path.exists():
             event_bodies = _bodies(py_path)
@@ -5669,138 +5639,10 @@ class IDOL(Tk):
         y = btn.winfo_rooty() + btn.winfo_height()
         self._run_menu.tk_popup(x, y)
 
-    def _codegen_confirm(
-        self, title: str, message: str, has_cancel: bool = False
-    ) -> tuple[str, bool]:
-        """Dark-themed modal dialog for codegen prompts.
-
-        Returns (answer, suppress) where answer is 'yes'|'no'|'cancel'.
-        """
-        import tkinter as _tk
-        from tkinter import ttk as _ttk
-        from widgets.styled_checkbox import StyledCheckbox as _StyledCheckbox
-
-        dlg = _tk.Toplevel(self)
-        dlg.title(title)
-        dlg.configure(bg="#1e1e1e")
-        dlg.resizable(False, False)
-
-        result = ["cancel"]
-        suppress_var = _tk.BooleanVar(value=False)
-
-        _tk.Label(
-            dlg,
-            text=message,
-            bg="#1e1e1e",
-            fg="#cccccc",
-            font=(UI_FONT, 9),
-            justify="left",
-            wraplength=380,
-            padx=16,
-            pady=14,
-        ).pack(anchor="w")
-
-        _ttk.Separator(dlg, orient="horizontal").pack(fill="x", padx=8)
-
-        _StyledCheckbox(
-            dlg, "Don't ask again this session", suppress_var,
-            bg="#1e1e1e", fg="#858585",
-        ).pack(anchor="w", padx=12, pady=(8, 2))
-
-        btn_frame = _tk.Frame(dlg, bg="#1e1e1e")
-        btn_frame.pack(fill="x", padx=12, pady=(6, 12))
-
-        def _yes():
-            result[0] = "yes"
-            dlg.destroy()
-
-        def _no():
-            result[0] = "no"
-            dlg.destroy()
-
-        def _cancel():
-            result[0] = "cancel"
-            dlg.destroy()
-
-        def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
-            font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
-            b = _tk.Label(parent, text=text, bg=bg, fg=fg,
-                          font=font, cursor="hand2", padx=14, pady=4)
-            b.bind("<Button-1>", lambda _: cmd())
-            b.bind("<Enter>",    lambda _: b.config(bg=hover))
-            b.bind("<Leave>",    lambda _: b.config(bg=bg))
-            return b
-
-        _lbtn(btn_frame, "Yes", _yes,
-              bg="#569cd6", fg="#ffffff", hover="#4a8ec2", bold=True
-              ).pack(side="right", padx=(4, 0))
-        _lbtn(btn_frame, "No", _no,
-              bg="#3a3a3a", fg="#cccccc", hover="#4a4a4a"
-              ).pack(side="right", padx=(4, 0))
-        if has_cancel:
-            _lbtn(btn_frame, "Cancel", _cancel,
-                  bg="#3a3a3a", fg="#cccccc", hover="#4a4a4a"
-                  ).pack(side="right", padx=(0, 4))
-
-        dlg.update_idletasks()
-        w, h = dlg.winfo_reqwidth(), dlg.winfo_reqheight()
-        px = self.winfo_rootx() + self.winfo_width() // 2
-        py = self.winfo_rooty() + self.winfo_height() // 2
-        dlg.geometry(f"{w}x{h}+{px - w // 2}+{py - h // 2}")
-        dlg.grab_set()
-
-        self.wait_window(dlg)
-        return result[0], suppress_var.get()
-
     def _nav_execute(self) -> None:
         """One-click execute using the mode selected in the run menu."""
         if self._designer_mode and self._designer_dirty:
-            if self._suppress_codegen_prompt:
-                self.designer_generate_code(_skip_manual_check=True)
-            else:
-                from pathlib import Path as _Path
-                from designer.persistence import (
-                    load as _load,
-                    was_modified as _modified,
-                )
-
-                form = self._design_canvas.form
-                root = getattr(self._sidebar.explorer, "_root", None)
-                also_manual = False
-                form_name = form.name if form else "Form"
-                if form and root:
-                    try:
-                        json_path = _Path(root) / f"{form_name}.form.json"
-                        py_path = _Path(root) / f"{form_name}.py"
-                        if py_path.exists():
-                            _, stored = _load(json_path)
-                            also_manual = _modified(py_path, stored)
-                    except Exception:
-                        pass
-
-                if also_manual:
-                    title = "Generate Before Running?"
-                    msg = (
-                        f"{form_name}.py has unsaved designer changes and has been manually "
-                        "edited since the last generation.\n\n"
-                        "Event handlers, helper methods, and extra __init__ code will be "
-                        "preserved — only _build_ui will be regenerated.\n\n"
-                        "Generate code and run?"
-                    )
-                else:
-                    title = "Designer Changes Not Generated"
-                    msg = (
-                        "The Designer has changes that haven't been code-generated yet.\n\n"
-                        "Generate code now before running?"
-                    )
-
-                answer, suppress = self._codegen_confirm(title, msg, has_cancel=True)
-                if suppress:
-                    self._suppress_codegen_prompt = True
-                if answer == "cancel":
-                    return
-                if answer == "yes":
-                    self.designer_generate_code(_skip_manual_check=also_manual)
+            self.designer_generate_code()
 
         if self._run_action_var.get() == "debug":
             self.debug_file()
