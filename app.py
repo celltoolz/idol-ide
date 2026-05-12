@@ -4461,7 +4461,8 @@ class IDOL(Tk):
 
     def _show_mode_bar(self) -> None:
         """Pack the [Editor] | [Designer] strip above the notebook."""
-        self._mode_bar.pack(fill="x", side="top", before=self.notebook)
+        before = self._designer_frame if self._designer_mode else self.notebook
+        self._mode_bar.pack(fill="x", side="top", before=before)
         self._refresh_mode_bar()
 
     def _hide_mode_bar(self) -> None:
@@ -5062,6 +5063,21 @@ class IDOL(Tk):
             if not self._designer_mode:
                 self._enter_designer_mode()
             self._refresh_generate_code_state()
+            # Generate code immediately so the .py exists, then open it
+            root = getattr(self._sidebar.explorer, "_root", None)
+            if root:
+                if self._autogen_after_id:
+                    self.after_cancel(self._autogen_after_id)
+                    self._autogen_after_id = None
+                self.designer_generate_code()
+                from pathlib import Path as _Path
+                py_path = str(_Path(root) / f"{name}.py")
+                if _Path(py_path).exists():
+                    self._open_file(py_path, update_explorer=False)
+                # Refresh explorer so new files appear
+                exp_root = self._sidebar.explorer._root
+                if exp_root:
+                    self._sidebar.explorer.set_root(str(exp_root))
 
         def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
             font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
