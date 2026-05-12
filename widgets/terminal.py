@@ -969,7 +969,7 @@ class TerminalPanel(ttk.Frame):
                 ' $p = $PWD.Path;'
                 ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
                 f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v");'
-                ' Write-Host -NoNewline "`e]133;D`a";'
+                ' Write-Host -NoNewline "$([char]27)]133;D$([char]7)";'
                 ' if (-not $global:_idol_cleared) { $global:_idol_cleared = $true; clear };'
                 ' "PS $p> "'
                 '}\r'
@@ -1016,10 +1016,11 @@ class TerminalPanel(ttk.Frame):
         Windows: CWD/VENV are read from a temp file (see _poll_state_file); no
                  stdout markers are used so this function is a no-op on Windows."""
 
-        # ── OSC 133;D (shell integration — prompt appearing, command finished) ──
-        if re.search(r'\x1b\]133;D(?:\x07|\x1b\\)', raw):
+        # ── OSC 133 shell integration (prompt appearing = command finished) ──
+        if re.search(r'\x1b\]133;[A-Z]', raw):
             self.after(0, self._on_shell_command_done)
-        raw = re.sub(r'\x1b\]133;[A-Z](?:\x07|\x1b\\)', '', raw)
+        # Strip full OSC 133 sequences (ESC ] 133 ; letter  BEL|ST)
+        raw = re.sub(r'\x1b\]133;[A-Z](?:\x07|\x1b\\)?', '', raw)
 
         # ── Unix OSC 7 (ESC ] 7 ; file://host/path BEL) ──────────────────────
         for m in re.finditer(r'\x1b\]7;file://[^/]*(/[^\x07\x1b]*)\x07', raw):
