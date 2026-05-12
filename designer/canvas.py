@@ -1125,9 +1125,12 @@ class DesignerCanvas(tk.Canvas):
             return
         if idx == len(ids) - 1:
             return  # already the topmost widget — correct
-        next_id = ids[idx + 1]
-        if self.find_withtag(f"widget:{next_id}"):
-            self.tag_lower(f"widget:{widget_id}", f"widget:{next_id}")
+        # Walk forward to the first widget that has canvas items (inactive notebook
+        # tab children are absent from the canvas, so skip them).
+        for next_id in ids[idx + 1:]:
+            if self.find_withtag(f"widget:{next_id}"):
+                self.tag_lower(f"widget:{widget_id}", f"widget:{next_id}")
+                return
 
     def _render_widget(self, w: WidgetDescriptor) -> None:
         tag   = f"widget:{w.id}"
