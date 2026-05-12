@@ -5138,6 +5138,16 @@ class IDOL(Tk):
             self._refresh_generate_code_state()
             if not self._designer_mode:
                 self._enter_designer_mode()
+            # Open or focus the companion .py in the editor tab
+            py_path = str(_Path(path).with_suffix("").with_suffix(".py"))
+            if _Path(py_path).exists():
+                existing = next(
+                    (tid for tid, fp in self._files.items() if fp == py_path), None
+                )
+                if existing:
+                    self.notebook.select(existing)
+                else:
+                    self._open_file(py_path, update_explorer=False)
         except Exception as exc:
             from tkinter.messagebox import showerror
 
