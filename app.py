@@ -409,10 +409,6 @@ class IDOL(Tk):
                 except Exception:
                     pass
             self.bind("<Configure>", _track_maximize, add=True)
-            # Withdraw before the WM can visually apply its session-management
-            # maximize state.  Deiconified later in session.restore() or below.
-            if not _saved.get("window_maximized", False):
-                self.withdraw()
 
         self._build_layout()
         build_menubar(self)
@@ -421,16 +417,12 @@ class IDOL(Tk):
 
         if initial_file and os.path.isfile(initial_file):
             self._open_file(initial_file)
-            if sys.platform.startswith("linux"):
-                self.deiconify()
         elif not session_utils.restore(self):
             self._new_tab("Untitled", "")
             self._set_explorer_root(os.getcwd())
             # No session file — trigger sidebar relayout once the window has
             # real pixel dimensions (250 ms is enough for all platforms).
             self.after(250, self._sidebar._relayout)
-            if sys.platform.startswith("linux"):
-                self.deiconify()
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
