@@ -381,16 +381,13 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
             except Exception:
                 pass
         elif sys.platform.startswith("linux"):
-            # Withdraw before the WM can visually apply its session-management
-            # maximize state, then deiconify with -zoomed False once settled.
-            app.withdraw()
-            def _deiconify_normal():
-                try:
-                    app.attributes("-zoomed", False)
-                except Exception:
-                    pass
-                app.deiconify()
-            app.after(300, _deiconify_normal)
+            # Window was withdrawn early in __init__ to prevent the WM from
+            # visually maximizing it.  Un-maximize and show it now.
+            try:
+                app.attributes("-zoomed", False)
+            except Exception:
+                pass
+            app.deiconify()
         # Stage 1: set h_pane / v_pane sash positions.
         # Use a longer delay when entering macOS fullscreen so the animation
         # completes before we try to measure pane geometry.
