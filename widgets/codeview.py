@@ -64,6 +64,10 @@ class CodeView(Text):
 
         super().__init__(self._frame, **kwargs)
         super().grid(row=0, column=1, sticky="nswe")
+        # Tracks the narrowest (last-first) span reported by xscrollcommand,
+        # which corresponds to the widest line ever seen.  Prevents the
+        # horizontal scrollbar from shrinking when scrolling to shorter lines.
+        self._h_span_min: float = 1.0
 
         self._line_numbers = TkLineNumbers(
             self._frame,
@@ -605,8 +609,17 @@ class CodeView(Text):
             BaseWidget.destroy(widget)
         BaseWidget.destroy(self._frame)
 
+    def delete(self, index1: str, index2: str | None = None) -> None:
+        super().delete(index1, index2)
+        if str(index1) == "1.0":
+            self._h_span_min = 1.0
+
     def horizontal_scroll(self, first: str | float, last: str | float) -> None:
-        self._hs.set(first, last)
+        first, last = float(first), float(last)
+        span = last - first
+        if span < self._h_span_min:
+            self._h_span_min = span
+        self._hs.set(first, min(1.0, first + self._h_span_min))
 
     def show_minimap(self) -> None:
         self._minimap.grid()  # also re-shows the border widget
