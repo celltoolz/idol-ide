@@ -278,6 +278,21 @@ class IDOL(Tk):
         self.title("IDOL")
         self.geometry("1280x800")
 
+        # On Linux/X11 the classic Tk file dialog (tk_getOpenFile etc.) uses
+        # a Motif-style widget whose Listbox defaults to invisible selection
+        # colors — the user can't see which file they just clicked. Scope
+        # readable colors to the dialog's widget-name pattern so our own
+        # listboxes (designer list editor, etc.) are unaffected.
+        import platform as _pl_init
+        if _pl_init.system() == "Linux":
+            for _patt in ("*__tk_filedialog*Listbox",
+                          "*tk_chooseDirectory*Listbox",
+                          "*TkFDialog*Listbox"):
+                self.option_add(f"{_patt}.background",       "#ffffff")
+                self.option_add(f"{_patt}.foreground",       "#000000")
+                self.option_add(f"{_patt}.selectBackground", "#0078d4")
+                self.option_add(f"{_patt}.selectForeground", "#ffffff")
+
         self._safe_after = make_thread_safe_after(self)
 
         # Per-tab state  {tab_id -> value}
