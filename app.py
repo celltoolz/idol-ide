@@ -5653,9 +5653,11 @@ class IDOL(Tk):
     # ── Run operations ────────────────────────────────────────────────────────
 
     def _is_anything_running(self) -> bool:
-        """True while a debug session or output-panel run is active."""
-        return (self._debugger is not None) or getattr(
-            self._output.output, "_is_running", False
+        """True while a debug session, output-panel run, or terminal run is active."""
+        return (
+            (self._debugger is not None)
+            or getattr(self._output.output, "_is_running", False)
+            or bool(self._running_file)
         )
 
     def _refresh_run_buttons(self) -> None:
@@ -5717,9 +5719,12 @@ class IDOL(Tk):
             self.run_file()
 
     def run_stop(self) -> None:
-        """Stop the active debug session or output run (Shift+F5)."""
+        """Stop the active debug session, output run, or terminal run (Shift+F5)."""
         if self._debugger:
             self._debug_stop()
+        elif self._running_file:
+            self._output.terminal.send_to_run_session("\x03")   # Ctrl+C
+            self._set_running_file(None)
         else:
             self._output.terminate()
 
@@ -5883,6 +5888,7 @@ class IDOL(Tk):
         else:
             label = os.path.basename(self._run_entry_file) if self._run_entry_file else "Active Tab"
             self._statusbar.set_run_entry(label)
+        self._refresh_run_buttons()
 
     def _open_run_entry_picker(self) -> None:
         """Popup above the statusbar to pin a specific entry file for Run/Debug."""
