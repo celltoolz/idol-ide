@@ -5148,9 +5148,11 @@ class IDOL(Tk):
         from tkinter.filedialog import askopenfilename
         from designer.persistence import load as _load
 
+        initial_dir = str(self._sidebar.explorer._root or os.getcwd())
         path = askopenfilename(
             filetypes=[("Designer Form", "*.form.json"), ("All Files", "*.*")],
             title="Open Form",
+            initialdir=initial_dir,
             parent=self,
         )
         if not path:
