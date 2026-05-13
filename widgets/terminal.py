@@ -215,14 +215,15 @@ class SessionPanel(tk.Canvas):
         self.create_rectangle(0, foot_y, w, foot_y + self._FOOT_H,
                               fill=self._FOOT_BG, outline="")
 
+        cy = foot_y + self._FOOT_H // 2
         new_fg = self._BTN_HOV if self._btn_hover == "btn_new" else self._BTN_FG
         dd_fg  = self._BTN_HOV if self._btn_hover == "btn_dd"  else self._BTN_FG
-        self.create_text(14, foot_y + self._FOOT_H // 2,
-                         text="＋", fill=new_fg, font=(UI_FONT, 10),
-                         anchor="center", tags="btn_new")
-        self.create_text(34, foot_y + self._FOOT_H // 2,
-                         text="⌄", fill=dd_fg,  font=(UI_FONT, 10),
-                         anchor="center", tags="btn_dd")
+        self.create_text(14, cy, text="+", fill=new_fg,
+                         font=(UI_FONT, 10, "bold"), anchor="center", tags="btn_new")
+        # thin separator
+        self.create_line(26, cy - 6, 26, cy + 6, fill="#3e3e42", width=1)
+        self.create_text(36, cy, text="▾", fill=dd_fg,
+                         font=(UI_FONT, 8), anchor="center", tags="btn_dd")
 
     def _draw_row(self, y: int, key: str, data: dict,
                   is_active: bool, is_run: bool, is_hover: bool) -> None:
@@ -474,6 +475,7 @@ class TerminalPanel(ttk.Frame):
         self._sash_ghost:       Optional[tk.Frame] = None
         self._sash_start_x:     int             = 0
         self._sash_dragging:    bool            = False
+        self._anim_gen:         int             = 0   # incremented on each toggle to cancel stale callbacks
 
         # Venv tracking
         self._cwd_current: str = ""        # last CWD from OSC 7 / state file
@@ -1358,33 +1360,33 @@ class TerminalPanel(ttk.Frame):
 
     # ── Panel animation ────────────────────────────────────────────────────────
 
-    def _animate_panel(self, target_w: int) -> None:
-        try:
-            cur = self._session_panel.winfo_width()
-        except Exception:
-            return
-        if cur == target_w:
+    def _animate_panel(self, target_w: int, cur_w: int, gen: int) -> None:
+        if gen != self._anim_gen:
+            return   # stale callback — a newer animation superseded this one
+        if cur_w == target_w:
             if target_w == 0:
                 self._sash.pack_forget()
                 self._session_panel.pack_forget()
             return
-        step = 20
-        nw = cur + (step if target_w > cur else -step)
-        nw = max(0, min(nw, target_w if target_w > cur else max(0, nw)))
+        nw = min(cur_w + 20, target_w) if target_w > cur_w else max(cur_w - 20, target_w)
         self._session_panel.configure(width=nw)
-        self.after(12, lambda: self._animate_panel(target_w))
+        self.after(12, lambda: self._animate_panel(target_w, nw, gen))
 
     def _toggle_panel(self) -> None:
+        self._anim_gen += 1
+        gen = self._anim_gen
         if self._panel_visible:
             self._panel_visible = False
-            self._animate_panel(0)
+            cur = self._session_panel.winfo_width() or self._session_panel_w
+            self._animate_panel(0, cur, gen)
         else:
             self._panel_visible = True
             if not self._sash.winfo_ismapped():
                 self._sash.pack(side="left", fill="y")
                 self._session_panel.pack(side="left", fill="y")
             self._session_panel.configure(width=0)
-            self._animate_panel(self._session_panel_w)
+            # after(0) lets Tk process the pack/configure before we start reading widths
+            self.after(0, lambda: self._animate_panel(self._session_panel_w, 0, gen))
 
     # ── Venv tracking ─────────────────────────────────────────────────────────
 
