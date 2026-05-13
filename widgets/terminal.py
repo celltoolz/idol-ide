@@ -969,7 +969,7 @@ class TerminalPanel(ttk.Frame):
                 ' $p = $PWD.Path;'
                 ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
                 f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v");'
-                ' Write-Host -NoNewline "$([char]27)]133;D;$LASTEXITCODE$([char]7)";'
+                ' Write-Host -NoNewline "$([char]27)]133;D;$([int]$LASTEXITCODE)$([char]7)";'
                 ' if (-not $global:_idol_cleared) { $global:_idol_cleared = $true; clear };'
                 ' "PS $p> "'
                 '}\r'
@@ -1022,11 +1022,12 @@ class TerminalPanel(ttk.Frame):
         Windows: OSC 7 / 7776 are never emitted; CWD/VENV come from a temp file."""
 
         # ── OSC 133 shell integration (prompt appearing = command finished) ──
-        m133 = re.search(r'\x1b\]133;[A-Z](?:;(\d+))?(?:\x07|\x1b\\)?', raw)
+        m133 = re.search(r'\x1b\]133;[A-Z](?:;(\d*))?(?:\x07|\x1b\\)?', raw)
         if m133:
-            exit_code = int(m133.group(1)) if m133.group(1) is not None else None
+            g = m133.group(1)
+            exit_code = int(g) if g else None
             self.after(0, lambda ec=exit_code: self._on_shell_command_done(ec))
-        raw = re.sub(r'\x1b\]133;[A-Z](?:;\d+)?(?:\x07|\x1b\\)?', '', raw)
+        raw = re.sub(r'\x1b\]133;[A-Z](?:;\d*)?(?:\x07|\x1b\\)?', '', raw)
 
         # ── OSC 7: CWD  (file://host/path) ───────────────────────────────────
         for m in re.finditer(r'\x1b\]7;file://[^/]*(/[^\x07\x1b]*)\x07', raw):
