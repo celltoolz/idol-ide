@@ -4165,7 +4165,6 @@ class IDOL(Tk):
         # Tab bar slot controls
         LM.register(self._output.output._guide_btn, "output_panel")
         LM.register(self._output.output._clear_btn, "output_panel")
-        LM.register(self._output.terminal._shell_cb, "terminal_panel")
         LM.register(self._output.terminal._restart_btn, "terminal_panel")
         LM.register(self._output.terminal._term_clear_btn, "terminal_panel")
         LM.register(self._output.terminal._venv_btn, "terminal_panel")
