@@ -48,7 +48,7 @@ Live ✕N ⚠N count on the left of the status bar. Click it to open the Problem
 
 ## LSP Features (pylsp)
 
-Requires `python-lsp-server` installed (`pip install python-lsp-server`).
+Backed by `python-lsp-server`, which ships with `requirements.txt`.
 
 - **Hover documentation** — rest the mouse over any symbol for inline docs
 - **Go to Definition** — F12 or right-click menu

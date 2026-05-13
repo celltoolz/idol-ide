@@ -256,17 +256,17 @@ The **FORMS** panel at the top of the left pane shows the full form hierarchy:
 - **Linked dialogs** appear indented below their parent form with a `⧉` icon
 - **Unlinked dialogs** appear in a dim "Unlinked" section at the bottom
 
-Click any row to switch the canvas to that form (the current form is auto-saved first).
+Click any row to switch the canvas to that form (the current form is auto-saved first). The companion `.py` opens automatically as an editor tab so you can flip between visual and code views without hunting for the file.
 
 ### Creating a New Form
 
 Click the `+` button in the FORMS header or use `Designer → New Form…`. The dialog has:
 
-- **Form Name** — must be a valid Python identifier
-- **Type** — Main Window or Dialog Window
+- **Form Name** — must be a valid Python identifier; auto-fills as `Form{n}` or `Dialog{n}` (next available number) and toggles between the two prefixes when you flip the Type radio, as long as you haven't typed a custom name
+- **Type** — Main Window or Dialog Window; defaults to **Main Window** when the project has no forms yet, otherwise Dialog
 - **Link to** — (Dialog only) choose a parent main form or "None (unlinked)"; defaults to the first existing main form
 
-The new form appears in the tree immediately and the canvas switches to it.
+On create, IDOL writes the `.form.json`, generates the `.py` immediately, opens it as an editor tab, refreshes the Explorer, and switches the canvas to the new form.
 
 ### Linking and Unlinking Dialogs
 

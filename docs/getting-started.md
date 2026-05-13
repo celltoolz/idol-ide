@@ -2,23 +2,33 @@
 
 ## Requirements
 
-Python 3.11 or later. Install dependencies:
+Python 3.11 or later.
 
+## Install (recommended: in a virtual environment)
+
+A venv keeps IDOL's dependencies isolated from your system Python so nothing else on your machine is affected. If you're new to Python, this is the safe default.
+
+From the IDOL folder:
+
+**Windows (PowerShell)**
 ```
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-For LSP features (hover, go-to-definition, autocomplete):
+**macOS / Linux**
 ```
-pip install python-lsp-server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-For diagnostics (multi-error, three-tier severity):
-```
-pip install ruff
-```
+`requirements.txt` covers everything: PTY, LSP (`python-lsp-server`), diagnostics (`ruff`), debugger (`debugpy`), and the rest.
 
 ## Running IDOL
+
+With the venv active:
 
 ```
 python main.py
@@ -29,6 +39,8 @@ Optionally open a file directly:
 ```
 python main.py path/to/file.py
 ```
+
+Next time you open a new terminal, re-activate the venv first (`.\.venv\Scripts\Activate.ps1` on Windows, `source .venv/bin/activate` elsewhere) before running `python main.py`.
 
 ## First Steps
 

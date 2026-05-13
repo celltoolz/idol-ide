@@ -11,9 +11,9 @@
 
 ### GUI App Scaffolding
 Tkinter GUI projects auto-generate:
-- `Form1.py` — clean class-based boilerplate
-- `Form1.form.json` — designer state
-- `main.py` — entry point that launches `Form1`
+- `<ProjectName>.py` — clean class-based boilerplate; the main form's class is derived from the project folder name (CamelCase, invalid characters stripped). For example, a project named `my-tool` scaffolds `MyTool.py` with `class MyTool(tk.Tk)`.
+- `<ProjectName>.form.json` — designer state
+- `main.py` — entry point that imports and launches the derived class
 
 ### Learning Guides
 The wizard includes paginated guides covering:
@@ -70,6 +70,7 @@ The status bar (bottom of the window) shows:
 - **Lexer name** — active syntax highlighter
 - **Active interpreter** — Python version or venv name; click to open the interpreter picker
 - **Run entry selector** — shows which file the ▶ run button targets (`Active Tab` or a pinned filename); click to change; persists with the project
+- **Running filename** — while a script is running or being debugged, the current filename appears as a transient badge in the run-entry slot; it clears automatically when the command finishes (driven by the terminal's OSC 133 shell-integration event) or when you switch to a different editor tab
 - **Indent mode** — spaces ↔ tabs cycle on click
 - **Git branch** — current branch with live polling
 
