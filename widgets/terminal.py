@@ -625,6 +625,11 @@ class TerminalPanel(ttk.Frame):
                 venv_bin = os.path.join(self._idol_venv, "bin") + os.pathsep
                 venv_scripts = os.path.join(self._idol_venv, "Scripts") + os.pathsep
                 env["PATH"] = env.get("PATH", "").replace(venv_bin, "").replace(venv_scripts, "")
+            # sh/dash don't understand zsh-style prompt codes (%{...%}); strip
+            # any inherited PS1 so they fall back to their built-in default.
+            _shell_base = os.path.basename(cmd[0]).lower()
+            if _shell_base in ("sh", "dash", "ash"):
+                env.pop("PS1", None)
             # Reassign (don't .clear()) so we break the reference shared
             # with any session just snapshotted into self._sessions. With
             # .clear() the previously-active session's saved scrollback IS
@@ -669,6 +674,10 @@ class TerminalPanel(ttk.Frame):
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd) and _is_shell:
                 self.after(300, lambda c=_cwd: self._send_silently(f'cd "{c}"\r'))
+                # Auto-source the project venv (if one exists in *cwd*) so the
+                # shell starts already inside it. Skipped for cmd/sh/dash —
+                # those either lack a clean activate path or use bashisms.
+                self.after(600, lambda c=_cwd, n=_cmd_name: self._auto_activate_venv(c, n))
         except Exception as e:
             self._write_error(f"Failed to start shell: {e}\n")
 
@@ -1678,6 +1687,38 @@ class TerminalPanel(ttk.Frame):
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
         except Exception:
             pass
+
+    def _auto_activate_venv(self, cwd: str, shell_name: str) -> None:
+        """If a venv exists under *cwd*, source its activate script in the
+        live shell so the prompt comes up already inside it. Supports
+        PowerShell/pwsh (Activate.ps1) and bash/zsh (bin/activate or
+        Scripts/activate for Git Bash on Windows). Skipped for cmd, sh,
+        dash, fish — those either lack a clean activate path or use
+        bashisms the POSIX-mini shells don't parse."""
+        if not (self._running and self._pty):
+            return
+        is_pwsh = "powershell" in shell_name or "pwsh" in shell_name
+        is_bashlike = ("bash" in shell_name or "zsh" in shell_name) and "rbash" not in shell_name
+        if not (is_pwsh or is_bashlike):
+            return
+        subpaths = ("Scripts/Activate.ps1",) if is_pwsh else ("bin/activate", "Scripts/activate")
+        activate: Path | None = None
+        for name in (".venv", "venv", "env", ".env"):
+            base = Path(cwd) / name
+            for sub in subpaths:
+                cand = base / sub
+                if cand.is_file():
+                    activate = cand
+                    break
+            if activate:
+                break
+        if not activate:
+            return
+        if is_pwsh:
+            self._send_silently(f'& "{activate}"\r')
+        else:
+            # POSIX-style path works on Unix bash/zsh and Git Bash on Windows
+            self._send_silently(f'source "{activate.as_posix()}"\r')
 
     def _inject_shell_hooks(self) -> None:
         """Inject CWD + VENV reporting into the running shell."""

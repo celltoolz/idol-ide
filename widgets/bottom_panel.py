@@ -459,7 +459,7 @@ class BottomPanel(ttk.Frame):
                 if platform.system() == "Windows":
                     self.terminal.after(200, lambda: self.terminal.send_text("\x0c"))
                 else:
-                    self.terminal.after(50, lambda: self.terminal._text.yview_moveto(0))
+                    self.terminal.after(50, lambda: self.terminal._canvas.yview_moveto(0))
         elif key == "problems":
             self.problems.pack(fill="both", expand=True)
         else:  # debug
