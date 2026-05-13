@@ -21,62 +21,10 @@ import tkinter.font as tkfont
 # sandbox into the production scheme system.
 
 THEMES: dict[str, dict] = {
-    "dark-plus": {
-        "palette": {
-            "bg":               "#1e1e1e",
-            "fg":               "#d4d4d4",
-            "caret":            "#aeafad",
-            "select_bg":        "#264f78",
-            "current_line_bg":  "#2a2d2e",
-            "guide":            "#404040",
-            "gutter_bg":        "#1e1e1e",
-            "gutter_fg":        "#858585",
-            "gutter_fg_active": "#c6c6c6",
-        },
-        # category: (color, italic)
-        "tokens": {
-            "comment":      ("#6a9955", True),
-            "string":       ("#ce9178", False),
-            "number":       ("#b5cea8", False),
-            "keyword_flow": ("#c586c0", False),
-            "keyword_decl": ("#569cd6", False),
-            "constant":     ("#569cd6", False),
-            "self_cls":     ("#569cd6", False),
-            "type":         ("#4ec9b0", False),
-            "function":     ("#dcdcaa", False),
-            "decorator":    ("#dcdcaa", False),
-        },
-    },
-    "monokai": {
-        "palette": {
-            "bg":               "#282923",
-            "fg":               "#f8f8f2",
-            "caret":            "#f8f8f2",
-            "select_bg":        "#49483e",
-            "current_line_bg":  "#3e3d32",
-            "guide":            "#3e3d32",
-            "gutter_bg":        "#23241f",
-            "gutter_fg":        "#605d52",
-            "gutter_fg_active": "#a89f97",
-        },
-        "tokens": {
-            "comment":      ("#74705d", True),
-            "string":       ("#e7db74", False),
-            "number":       ("#ac80ff", False),
-            "keyword_flow": ("#f92472", False),
-            "keyword_decl": ("#f92472", False),
-            "constant":     ("#ac80ff", False),
-            "self_cls":     ("#a6e22c", False),
-            "type":         ("#a6e22c", False),
-            "function":     ("#a6e22c", False),
-            "decorator":    ("#67d8ef", False),
-        },
-    },
-    # Monokai syntax palette wearing Dark+'s structural look:
-    # gutter matches bg, brighter active line number, italic comments,
+    # Monokai syntax palette wearing Dark+'s structural look: gutter
+    # matches bg, brighter active line number, italic comments,
     # operators/punctuation left at default fg. Functions go green,
-    # types/classes go cyan, self goes orange — the punchier Monokai
-    # split rather than monokai's "everything green".
+    # types/classes go cyan, self goes orange.
     "monokai-dark-plus": {
         "palette": {
             "bg":               "#272822",
@@ -89,6 +37,7 @@ THEMES: dict[str, dict] = {
             "gutter_fg":        "#90908a",
             "gutter_fg_active": "#c2c2bf",
         },
+        # category: (color, italic)
         "tokens": {
             "comment":      ("#75715e", True),
             "string":       ("#e6db74", False),
@@ -102,9 +51,34 @@ THEMES: dict[str, dict] = {
             "decorator":    ("#a6e22e", False),
         },
     },
+    "dark-plus": {
+        "palette": {
+            "bg":               "#1e1e1e",
+            "fg":               "#d4d4d4",
+            "caret":            "#aeafad",
+            "select_bg":        "#264f78",
+            "current_line_bg":  "#2a2d2e",
+            "guide":            "#404040",
+            "gutter_bg":        "#1e1e1e",
+            "gutter_fg":        "#858585",
+            "gutter_fg_active": "#c6c6c6",
+        },
+        "tokens": {
+            "comment":      ("#6a9955", True),
+            "string":       ("#ce9178", False),
+            "number":       ("#b5cea8", False),
+            "keyword_flow": ("#c586c0", False),
+            "keyword_decl": ("#569cd6", False),
+            "constant":     ("#569cd6", False),
+            "self_cls":     ("#569cd6", False),
+            "type":         ("#4ec9b0", False),
+            "function":     ("#dcdcaa", False),
+            "decorator":    ("#dcdcaa", False),
+        },
+    },
 }
 
-_DEFAULT_THEME = "dark-plus"
+_DEFAULT_THEME = "monokai-dark-plus"
 
 _FONT_FAMILY, _FONT_SIZE = "Consolas", 11
 _GUTTER_W = 56
