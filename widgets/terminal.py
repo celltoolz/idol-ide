@@ -621,8 +621,15 @@ class TerminalPanel(ttk.Frame):
             self._scrollback_open = False
             self._sb_phys_rows = 0
             self._phys_to_log = []
+            # Clear any suppression left over from a previous session, then
+            # wipe the canvas before drawing the new empty screen. Without
+            # this, _switch_session → start() leaves the old session's
+            # canvas items in place and the new shell's output overlays on
+            # top of them until the next session swap.
+            self._render_suppressed = False
             self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
             self._stream = pyte.ByteStream(self._screen)
+            self._redraw_full()
             self._session_id += 1
             sid = self._session_id
             self._pty = _pty_spawn(cmd, dimensions=(self._rows, self._cols), env=env)
