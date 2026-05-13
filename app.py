@@ -51,6 +51,7 @@ from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 from widgets.clipboard_history import ClipboardHistoryPanel
+from widgets.canvas_editor_sandbox import CanvasEditorSandbox
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from widgets.form_list_panel import FormListPanel
@@ -366,6 +367,10 @@ class IDOL(Tk):
         # Clipboard History
         self._clip_top:   tk.Toplevel | None          = None
         self._clip_panel: ClipboardHistoryPanel | None = None
+
+        # Canvas Editor sandbox — preview of the canvas-rendered editor
+        self._canvas_ed_top:   tk.Toplevel | None          = None
+        self._canvas_ed_panel: CanvasEditorSandbox | None  = None
 
         # Split editor
         self._split_active: bool = False
@@ -2583,6 +2588,44 @@ class IDOL(Tk):
         top.lift()
         top.focus_force()
         self._clip_panel.focus_search()
+
+    # ── Canvas Editor sandbox ─────────────────────────────────────────────────
+
+    def _ensure_canvas_ed_panel(self) -> None:
+        """Create the canvas-editor sandbox Toplevel on first use."""
+        if self._canvas_ed_top is not None:
+            return
+        top = tk.Toplevel(self)
+        top.withdraw()
+        top.title("Canvas Editor (Preview)")
+        top.resizable(True, True)
+        top.protocol("WM_DELETE_WINDOW", top.withdraw)
+        top.bind("<Escape>", lambda _: top.withdraw())
+
+        panel = CanvasEditorSandbox(top)
+        panel.pack(fill="both", expand=True)
+        self._canvas_ed_top   = top
+        self._canvas_ed_panel = panel
+
+    def view_canvas_editor_sandbox(self) -> None:
+        """Toggle the Canvas Editor preview window."""
+        self._ensure_canvas_ed_panel()
+        top = self._canvas_ed_top
+        if top.state() != "withdrawn":
+            top.withdraw()
+            return
+        ew = self.winfo_width()
+        eh = self.winfo_height()
+        ex = self.winfo_rootx()
+        ey = self.winfo_rooty()
+        w, h = min(900, max(640, ew - 200)), min(640, max(480, eh - 200))
+        x = ex + (ew - w) // 2
+        y = ey + (eh - h) // 2
+        top.geometry(f"{w}x{h}+{x}+{y}")
+        top.deiconify()
+        top.lift()
+        top.focus_force()
+        self._canvas_ed_panel.canvas.focus_set()
 
     def _sc_open_diff(self, path: str) -> None:
         """Open a read-only diff tab for *path*."""

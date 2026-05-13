@@ -14,7 +14,7 @@ def build_menubar(app) -> Menu:
       edit_find_replace
       view_change_theme, view_change_font, view_toggle_highlight,
       view_active_line_color, view_toggle_output, view_show_panel,
-      view_clipboard_history
+      view_clipboard_history, view_canvas_editor_sandbox
       debug_file, _nav_run, run_line, run_selection, run_stop, run_clear
       help_about
       theme_var, highlight_line_var, output_visible_var, panel_tab_var, _run_target_var
@@ -137,6 +137,10 @@ def build_menubar(app) -> Menu:
         label="Clipboard History",
         command=app.view_clipboard_history,
         accelerator="Ctrl+Shift+H",
+    )
+    view_menu.add_command(
+        label="Canvas Editor (Preview)",
+        command=app.view_canvas_editor_sandbox,
     )
     menubar.add_cascade(label="View", menu=view_menu)
 
