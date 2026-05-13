@@ -30,6 +30,8 @@ _THEME = {
     "comment":         "#74705d",
     "builtin":         "#67d8ef",
     "constant":        "#ac80ff",
+    "operator":        "#f83535",
+    "punctuation":     "#f92472",
 }
 
 _FONT_FAMILY, _FONT_SIZE = "Consolas", 11
@@ -81,23 +83,49 @@ class CanvasEditorSandbox(tk.Frame):
         self.folded: set[int] = set()
         self.scroll_y: int = 0           # first visible visual row
 
+        # Rule order matters — earlier rules claim their text, later rules
+        # only run on segments that are still fg-colored. Comments and
+        # strings must come BEFORE keywords so that words like `if` inside
+        # a string or comment aren't keyword-colored.
         self._rules = [
+            # Comments and strings first
             (re.compile(r"#.*"),                              _THEME["comment"]),
-            (re.compile(
-                r"\b(class|def|if|else|elif|return|import|from|as|for|while|"
-                r"with|try|except|finally|raise|yield|lambda|pass|break|"
-                r"continue|in|is|not|and|or|True|False|None)\b"
-            ),                                                _THEME["keyword"]),
-            (re.compile(r"\b(self|cls)\b"),                   _THEME["name"]),
-            (re.compile(
-                r"\b(print|len|range|str|int|float|bool|list|dict|set|tuple|"
-                r"type|isinstance|super|repr|abs|min|max|sum|sorted|"
-                r"reversed|enumerate|zip|map|filter|any|all|open)\b"
-            ),                                                _THEME["builtin"]),
             (re.compile(
                 r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""
             ),                                                _THEME["string"]),
-            (re.compile(r"\b\d+\b"),                          _THEME["constant"]),
+            # Decorators
+            (re.compile(r"@\w+(?:\.\w+)*"),                   _THEME["builtin"]),
+            # Names introduced by class/def — color the identifier green
+            (re.compile(r"(?<=\bclass\s)\w+"),                _THEME["name"]),
+            (re.compile(r"(?<=\bdef\s)\w+"),                  _THEME["name"]),
+            # Keywords
+            (re.compile(
+                r"\b(class|def|if|else|elif|return|import|from|as|for|while|"
+                r"with|try|except|finally|raise|yield|lambda|pass|break|"
+                r"continue|in|is|not|and|or|True|False|None|global|"
+                r"nonlocal|assert|del|async|await)\b"
+            ),                                                _THEME["keyword"]),
+            (re.compile(r"\b(self|cls)\b"),                   _THEME["name"]),
+            # Builtins
+            (re.compile(
+                r"\b(print|len|range|str|int|float|bool|list|dict|set|tuple|"
+                r"type|isinstance|super|repr|abs|min|max|sum|sorted|"
+                r"reversed|enumerate|zip|map|filter|any|all|open|"
+                r"hasattr|getattr|setattr|callable|input|format|chr|ord|"
+                r"hex|oct|bin|round|divmod|pow|iter|next|frozenset|"
+                r"object|Exception|ValueError|TypeError|KeyError|"
+                r"IndexError|AttributeError|FileNotFoundError|"
+                r"StopIteration|RuntimeError|NotImplementedError)\b"
+            ),                                                _THEME["builtin"]),
+            # Attribute / method access after a dot
+            (re.compile(r"(?<=\.)\w+"),                       _THEME["name"]),
+            # Numeric literals (int, float, hex)
+            (re.compile(r"\b(?:0[xX][\dA-Fa-f]+|\d+(?:\.\d+)?)\b"),
+                                                              _THEME["constant"]),
+            # Operators: arithmetic, comparison, logical, assignment
+            (re.compile(r"[+\-*/%<>!&|^~=]"),                  _THEME["operator"]),
+            # Punctuation: brackets, parens, braces, separators
+            (re.compile(r"[(){}\[\],.;:]"),                   _THEME["punctuation"]),
         ]
 
     def _wire_events(self) -> None:
