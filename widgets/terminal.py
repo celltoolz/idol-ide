@@ -1343,7 +1343,7 @@ class TerminalPanel(ttk.Frame):
                 pass
             if top_bid:
                 try:
-                    top.unbind("<Button-1>", top_bid[0])
+                    top.unbind("<ButtonRelease-1>", top_bid[0])
                 except Exception:
                     pass
 
@@ -1371,13 +1371,13 @@ class TerminalPanel(ttk.Frame):
                 def _click(e, c=cmd):
                     _dismiss()
                     c()
-                lbl.bind("<Enter>",    _enter)
-                lbl.bind("<Leave>",    _leave)
-                lbl.bind("<Button-1>", _click)
+                lbl.bind("<Enter>",           _enter)
+                lbl.bind("<Leave>",           _leave)
+                lbl.bind("<ButtonRelease-1>", _click)
 
         overlay.place(x=rel_x, y=rel_y)
         overlay.lift()
-        top_bid.append(top.bind("<Button-1>", _global_click, add=True))
+        top_bid.append(top.bind("<ButtonRelease-1>", _global_click, add=True))
 
     def _on_restart(self) -> None:
         cmd = self._session_meta.get(self._active_shell_key, {}).get("cmd")
