@@ -18,7 +18,7 @@ import shutil
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import StringVar, ttk
+from tkinter import ttk
 from typing import Callable, Optional
 from widgets.scrollbar import VerticalScrollbar
 
@@ -95,6 +95,238 @@ def _default_shell() -> list[str]:
             if path:
                 return [path]
         return ["sh"]
+
+
+def _detect_available_shells() -> list[dict]:
+    """Return [{name, cmd, color}] for every shell found on this system."""
+    result: list[dict] = []
+    system = platform.system()
+
+    def _add(name: str, cmd: list[str], color: str) -> None:
+        if not any(s["name"] == name for s in result):
+            result.append({"name": name, "cmd": cmd, "color": color})
+
+    if system == "Windows":
+        if shutil.which("powershell"):
+            _add("PowerShell", ["powershell.exe", "-NoLogo"], "#2671be")
+        if shutil.which("pwsh"):
+            _add("PowerShell 7", ["pwsh", "-NoLogo"], "#2671be")
+        _add("cmd", ["cmd.exe"], "#858585")
+        git_bash = r"C:\Program Files\Git\bin\bash.exe"
+        if os.path.exists(git_bash):
+            _add("Git Bash", [git_bash], "#4ec9b0")
+        if shutil.which("wsl"):
+            _add("WSL", ["wsl"], "#4ec9b0")
+    else:
+        _SHELL_COLORS = {"bash": "#4ec9b0", "zsh": "#4ec9b0", "sh": "#4ec9b0",
+                         "fish": "#4ec9b0", "dash": "#4ec9b0"}
+        try:
+            with open("/etc/shells") as f:
+                seen: set[str] = set()
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    name = os.path.basename(line)
+                    if name not in seen and shutil.which(name):
+                        seen.add(name)
+                        _add(name, [line], _SHELL_COLORS.get(name, "#8a8a8a"))
+        except Exception:
+            pass
+        for sh in ("bash", "zsh", "sh"):
+            path = shutil.which(sh)
+            if path:
+                _add(sh, [path], "#4ec9b0")
+
+    # Python REPL — always available; derive version string
+    python = shutil.which("python3") or shutil.which("python") or sys.executable
+    if python:
+        try:
+            import subprocess as _sp
+            ver = _sp.check_output([python, "--version"], text=True,
+                                   stderr=_sp.STDOUT, timeout=3).strip()
+            parts = ver.split()
+            version = ".".join(parts[1].split(".")[:2]) if len(parts) > 1 else ""
+            py_name = f"Python {version}" if version else "Python REPL"
+        except Exception:
+            py_name = "Python REPL"
+        _add(py_name, [python, "-i"], "#f7cc43")
+
+    return result
+
+
+class SessionPanel(tk.Canvas):
+    """Canvas-drawn VS Code-style session list (right sidebar of TerminalPanel)."""
+
+    _ROW_H   = 28
+    _FOOT_H  = 36
+    _BG      = "#252526"
+    _ACT_BG  = "#37373d"
+    _HOV_BG  = "#2d2d30"
+    _FOOT_BG = "#1e1e1e"
+    _FG      = "#cccccc"
+    _ACT_FG  = "#ffffff"
+    _ACCENT  = "#0e7fd5"
+    _BTN_FG  = "#8a8a8a"
+    _BTN_HOV = "#cccccc"
+
+    def __init__(self, master, **kwargs) -> None:
+        kwargs.setdefault("bg", self._BG)
+        kwargs.setdefault("highlightthickness", 0)
+        super().__init__(master, **kwargs)
+
+        self._sessions:   dict = {}
+        self._active_key: str  = ""
+        self._run_key:    str  = ""
+        self._hover_row:  Optional[int] = None
+        self._close_hover: bool = False
+        self._btn_hover:  Optional[str] = None  # "btn_new" | "btn_dd"
+
+        self.on_select:   Callable[[str], None]  = lambda k: None
+        self.on_close:    Callable[[str], None]  = lambda k: None
+        self.on_new:      Callable[[], None]     = lambda: None
+        self.on_dropdown: Callable               = lambda e: None
+        self.on_context:  Callable               = lambda k, x, y: None
+
+        self.bind("<Motion>",          self._on_motion)
+        self.bind("<Leave>",           self._on_leave)
+        self.bind("<ButtonRelease-1>", self._on_click)
+        self.bind("<Button-3>",        self._on_right_click)
+        self.bind("<Configure>",       lambda _: self._draw())
+
+    def refresh(self, sessions: dict, active_key: str, run_key: str) -> None:
+        self._sessions   = sessions
+        self._active_key = active_key
+        self._run_key    = run_key
+        self._draw()
+
+    def _draw(self) -> None:
+        self.delete("all")
+        w = max(self.winfo_width(), 1)
+        keys = list(self._sessions.keys())
+
+        for i, key in enumerate(keys):
+            self._draw_row(i * self._ROW_H, key, self._sessions[key],
+                           key == self._active_key,
+                           key == self._run_key,
+                           self._hover_row == i)
+
+        foot_y = len(keys) * self._ROW_H
+        self.create_rectangle(0, foot_y, w, foot_y + self._FOOT_H,
+                              fill=self._FOOT_BG, outline="")
+
+        new_fg = self._BTN_HOV if self._btn_hover == "btn_new" else self._BTN_FG
+        dd_fg  = self._BTN_HOV if self._btn_hover == "btn_dd"  else self._BTN_FG
+        self.create_text(14, foot_y + self._FOOT_H // 2,
+                         text="＋", fill=new_fg, font=(UI_FONT, 10),
+                         anchor="center", tags="btn_new")
+        self.create_text(34, foot_y + self._FOOT_H // 2,
+                         text="⌄", fill=dd_fg,  font=(UI_FONT, 10),
+                         anchor="center", tags="btn_dd")
+
+    def _draw_row(self, y: int, key: str, data: dict,
+                  is_active: bool, is_run: bool, is_hover: bool) -> None:
+        w   = max(self.winfo_width(), 1)
+        cy  = y + self._ROW_H // 2
+        rtag = f"row_{key}"
+        ctag = f"close_{key}"
+
+        bg = self._ACT_BG if is_active else (self._HOV_BG if is_hover else self._BG)
+        self.create_rectangle(0, y, w, y + self._ROW_H,
+                              fill=bg, outline="", tags=rtag)
+
+        if is_active:
+            self.create_rectangle(0, y, 4, y + self._ROW_H,
+                                  fill=self._ACCENT, outline="", tags=rtag)
+
+        icon = data.get("icon_color", "#8a8a8a")
+        self.create_oval(11, cy - 5, 21, cy + 5,
+                         fill=icon, outline="", tags=rtag)
+
+        fg = self._ACT_FG if is_active else self._FG
+        self.create_text(28, cy, text=data.get("display_name", key),
+                         fill=fg, font=(UI_FONT, 9), anchor="w", tags=rtag)
+
+        if is_hover:
+            close_fg = "#ff5555" if self._close_hover else self._BTN_FG
+            self.create_text(w - 8, cy, text="✕", fill=close_fg,
+                             font=(UI_FONT, 8), anchor="e", tags=(rtag, ctag))
+            if is_run:
+                self.create_text(w - 22, cy, text="▶", fill=self._ACCENT,
+                                 font=(UI_FONT, 7), anchor="e", tags=rtag)
+        elif is_run:
+            self.create_text(w - 8, cy, text="▶", fill=self._ACCENT,
+                             font=(UI_FONT, 7), anchor="e", tags=rtag)
+
+    def _on_motion(self, event) -> None:
+        n      = len(self._sessions)
+        foot_y = n * self._ROW_H
+        w      = max(self.winfo_width(), 1)
+
+        prev_hover = self._hover_row
+        prev_close = self._close_hover
+        prev_btn   = self._btn_hover
+
+        if event.y >= foot_y:
+            self._hover_row  = None
+            self._close_hover = False
+            tags_hit: set[str] = set()
+            for item in self.find_overlapping(event.x, event.y, event.x, event.y):
+                tags_hit.update(self.gettags(item))
+            if "btn_new" in tags_hit:
+                self._btn_hover = "btn_new"
+            elif "btn_dd" in tags_hit:
+                self._btn_hover = "btn_dd"
+            else:
+                self._btn_hover = None
+        else:
+            row = event.y // self._ROW_H
+            self._hover_row   = row if row < n else None
+            self._close_hover = (event.x > w - 20) and (self._hover_row is not None)
+            self._btn_hover   = None
+
+        if (self._hover_row != prev_hover or
+                self._close_hover != prev_close or
+                self._btn_hover != prev_btn):
+            self._draw()
+
+    def _on_leave(self, _event) -> None:
+        if self._hover_row is not None or self._close_hover or self._btn_hover:
+            self._hover_row   = None
+            self._close_hover = False
+            self._btn_hover   = None
+            self._draw()
+
+    def _on_click(self, event) -> None:
+        tags_hit: set[str] = set()
+        for item in self.find_overlapping(event.x, event.y, event.x, event.y):
+            tags_hit.update(self.gettags(item))
+
+        for tag in tags_hit:
+            if tag.startswith("close_"):
+                self.on_close(tag[len("close_"):])
+                return
+
+        if "btn_new" in tags_hit:
+            self.on_new()
+            return
+        if "btn_dd" in tags_hit:
+            self.on_dropdown(event)
+            return
+
+        for tag in tags_hit:
+            if tag.startswith("row_"):
+                key = tag[len("row_"):]
+                if key in self._sessions:
+                    self.on_select(key)
+                return
+
+    def _on_right_click(self, event) -> None:
+        n = len(self._sessions)
+        row = event.y // self._ROW_H
+        if row < n:
+            key = list(self._sessions.keys())[row]
+            self.on_context(key, event.x_root, event.y_root)
 
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
@@ -178,15 +410,6 @@ def _cell_tag(char) -> tuple[str, str, bool]:
 class TerminalPanel(ttk.Frame):
     """Interactive PTY terminal using pyte for VT100 screen buffer."""
 
-    SHELLS = {
-        "Auto":        None,
-        "PowerShell":  ["powershell.exe"],
-        "CMD":         ["cmd.exe"],
-        "Bash":        ["bash"],
-        "Zsh":         ["zsh"],
-        "Python REPL": ["python"],
-    }
-
     _KEY_MAP = {
         "Up":    "\x1b[A",
         "Down":  "\x1b[B",
@@ -209,7 +432,6 @@ class TerminalPanel(ttk.Frame):
         super().__init__(master, **kwargs)
         self._pty:      object = None
         self._queue:    queue.Queue = queue.Queue()
-        self._shell_var = StringVar(value="Auto")
         self.on_venv_activate:   Optional[Callable[[str], None]] = None
         self.on_venv_deactivate: Optional[Callable[[], None]]   = None
         self.on_command_done:    Optional[Callable[[Optional[int]], None]] = None
@@ -225,6 +447,7 @@ class TerminalPanel(ttk.Frame):
         # Scrollback: list of rendered line strings + their tag maps
         # Each entry: list of (text, fg, bg, bold) segments for one row
         self._scrollback: list[list] = []
+        self._scrollback_in_widget: int = 0   # lines already appended to text widget
 
         # Tag cache: (fg, bg, bold) → tag name
         self._tag_cache: dict[tuple, str] = {}
@@ -237,10 +460,20 @@ class TerminalPanel(ttk.Frame):
         self._render_suppressed = False   # True during startup; suppresses _redraw_full until clear fires
         self._clear_timer: str | None = None  # after() handle for the fallback clear
 
-        # Multi-session support: one persistent PTY per shell type
+        # Multi-session support: numbered keys ("s1", "s2", …)
         self._sessions:         dict[str, dict] = {}   # saved background sessions
-        self._active_shell_key: str             = "Auto"
+        self._active_shell_key: str             = ""
         self._sid_to_key:       dict[int, str]  = {}   # session_id → shell key, routes queue
+        self._session_keys:     list[str]       = []   # ordered session keys
+        self._session_counter:  int             = 0
+        self._session_meta:     dict[str, dict] = {}   # key → {display_name, cmd, icon_color}
+        self._run_shell_key:    str             = ""   # targeted by run_file_in_terminal
+        self._detected_shells:  list[dict]      = []   # cached _detect_available_shells()
+        self._panel_visible:    bool            = True
+        self._session_panel_w:  int             = 160
+        self._sash_ghost:       Optional[tk.Frame] = None
+        self._sash_start_x:     int             = 0
+        self._sash_dragging:    bool            = False
 
         # Venv tracking
         self._cwd_current: str = ""        # last CWD from OSC 7 / state file
@@ -260,13 +493,6 @@ class TerminalPanel(ttk.Frame):
         _BG = "#252526"
         _FG = "#8a8a8a"
 
-        self._shell_cb = ttk.Combobox(
-            parent, textvariable=self._shell_var,
-            values=list(self.SHELLS.keys()), width=10, state="readonly",
-        )
-        self._shell_cb.pack(side="left", padx=(6, 2), pady=4)
-        self._shell_cb.bind("<<ComboboxSelected>>", self._on_shell_change)
-
         for text, cmd in (("⟳ Restart", self._on_restart), ("✕ Clear", self.clear)):
             btn = tk.Label(
                 parent, text=text,
@@ -281,6 +507,17 @@ class TerminalPanel(ttk.Frame):
                 self._restart_btn = btn
             else:
                 self._term_clear_btn = btn
+
+        # ≡ toggle button — always visible, rightmost before venv controls
+        toggle_btn = tk.Label(
+            parent, text="≡",
+            bg=_BG, fg=_FG,
+            font=(UI_FONT, 10), cursor="hand2", pady=6, padx=6,
+        )
+        toggle_btn.pack(side="left", padx=(4, 2))
+        toggle_btn.bind("<ButtonRelease-1>", lambda _: self._toggle_panel())
+        toggle_btn.bind("<Enter>", lambda _: toggle_btn.config(fg="#ffffff"))
+        toggle_btn.bind("<Leave>", lambda _: toggle_btn.config(fg=_FG))
 
         # Venv controls — right-aligned
         self._venv_btn = tk.Label(
@@ -307,7 +544,6 @@ class TerminalPanel(ttk.Frame):
               cwd: str | None = None) -> None:
         if cwd is not None:
             self._cwd = cwd
-        self._active_shell_key = self._shell_var.get()
         # Remove this session's old SID mapping; leave background sessions intact
         if self._sid_to_key.get(self._session_id) == self._active_shell_key:
             self._sid_to_key.pop(self._session_id, None)
@@ -450,8 +686,11 @@ class TerminalPanel(ttk.Frame):
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
-        text_frame = ttk.Frame(self)
-        text_frame.pack(fill="both", expand=True)
+        self._body_frame = tk.Frame(self, bg="#1e1e1e")
+        self._body_frame.pack(fill="both", expand=True)
+
+        text_frame = tk.Frame(self._body_frame, bg="#1e1e1e")
+        text_frame.pack(side="left", fill="both", expand=True)
         text_frame.grid_rowconfigure(0, weight=1)
         text_frame.grid_columnconfigure(0, weight=1)
 
@@ -515,6 +754,28 @@ class TerminalPanel(ttk.Frame):
             self._text.bind(f"<{keysym}>",
                             lambda _, s=seq: (self.send(s), "break")[1])
 
+        # Ghost sash (4px canvas, draggable, resizes session panel)
+        self._sash = tk.Canvas(self._body_frame, width=4, bg="#2d2d30",
+                               cursor="sb_h_double_arrow", highlightthickness=0)
+        self._sash.pack(side="left", fill="y")
+        self._sash.bind("<Enter>",          self._on_sash_enter)
+        self._sash.bind("<Leave>",          self._on_sash_leave)
+        self._sash.bind("<ButtonPress-1>",  self._on_sash_press)
+        self._sash.bind("<B1-Motion>",      self._on_sash_drag)
+        self._sash.bind("<ButtonRelease-1>",self._on_sash_release)
+
+        # Session panel (right sidebar)
+        self._session_panel = SessionPanel(self._body_frame)
+        self._session_panel.pack(side="left", fill="y")
+        self._session_panel.pack_propagate(False)
+        self._session_panel.configure(width=self._session_panel_w)
+
+        self._session_panel.on_select   = self._switch_session
+        self._session_panel.on_close    = self._close_session
+        self._session_panel.on_new      = self._new_session
+        self._session_panel.on_dropdown = self._show_shell_picker
+        self._session_panel.on_context  = self._show_session_menu
+
     # ── Scrollback / scroll handling ──────────────────────────────────────────
 
     def _on_scroll(self, *args) -> None:
@@ -567,9 +828,10 @@ class TerminalPanel(ttk.Frame):
         return lines
 
     def _redraw_full(self) -> None:
-        """Redraw the entire text widget from scrollback + current screen."""
+        """Full redraw from scratch (restart / clear). Resets incremental counter."""
         if self._render_suppressed:
             return
+        self._scrollback_in_widget = 0
         self._text.config(state="normal")
         self._text.delete("1.0", "end")
 
@@ -579,46 +841,62 @@ class TerminalPanel(ttk.Frame):
                 tag = self._get_tag(fg, bg, bold)
                 self._text.insert("end", text, tag)
             self._text.insert("end", "\n", "plain")
+        self._scrollback_in_widget = len(self._scrollback)
 
-        # Live screen rows
-        screen_lines = self._screen_to_lines()
-        cursor_row = self._screen.cursor.y
-        cursor_col = self._screen.cursor.x
-
-        for row_idx, seg_list in enumerate(screen_lines):
-            col = 0
-            for text, fg, bg, bold in seg_list:
-                # Insert cursor block on the cursor cell
-                if row_idx == cursor_row:
-                    for ci, ch in enumerate(text):
-                        if col + ci == cursor_col:
-                            self._text.insert("end", ch, "cursor_block")
-                        else:
-                            tag = self._get_tag(fg, bg, bold)
-                            self._text.insert("end", ch, tag)
-                    col += len(text)
-                else:
-                    tag = self._get_tag(fg, bg, bold)
-                    self._text.insert("end", text, tag)
-            if row_idx < len(screen_lines) - 1:
-                self._text.insert("end", "\n", "plain")
+        self._insert_screen_rows()
 
         self._text.config(state="disabled")
-        # Re-apply selection — _redraw clears all tags including sel
         if self._sel_start and self._sel_end:
             try:
                 self._text.tag_add("sel", self._sel_start, self._sel_end)
                 self._text.tag_raise("sel")
             except Exception:
                 pass
-        cursor_line = len(self._scrollback) + cursor_row + 1
+        cursor_line = len(self._scrollback) + self._screen.cursor.y + 1
         self._text.see(f"{cursor_line}.0")
-        self._text.xview_moveto(0)   # prevent horizontal scroll cutting off left edge
+        self._text.xview_moveto(0)
+
+    def _redraw_screen(self) -> None:
+        """Rewrite only the live screen rows (scrollback already appended)."""
+        if self._render_suppressed:
+            return
+        screen_start = self._scrollback_in_widget + 1
+        self._text.config(state="normal")
+        self._text.delete(f"{screen_start}.0", "end")
+        self._insert_screen_rows()
+        self._text.config(state="disabled")
+        if self._sel_start and self._sel_end:
+            try:
+                self._text.tag_add("sel", self._sel_start, self._sel_end)
+                self._text.tag_raise("sel")
+            except Exception:
+                pass
+        cursor_line = self._scrollback_in_widget + self._screen.cursor.y + 1
+        self._text.see(f"{cursor_line}.0")
+        self._text.xview_moveto(0)
+
+    def _insert_screen_rows(self) -> None:
+        """Insert the current pyte screen rows into the text widget (state=normal assumed)."""
+        screen_lines = self._screen_to_lines()
+        cursor_row = self._screen.cursor.y
+        cursor_col = self._screen.cursor.x
+        for row_idx, seg_list in enumerate(screen_lines):
+            col = 0
+            for text, fg, bg, bold in seg_list:
+                if row_idx == cursor_row:
+                    for ci, ch in enumerate(text):
+                        if col + ci == cursor_col:
+                            self._text.insert("end", ch, "cursor_block")
+                        else:
+                            self._text.insert("end", ch, self._get_tag(fg, bg, bold))
+                    col += len(text)
+                else:
+                    self._text.insert("end", text, self._get_tag(fg, bg, bold))
+            if row_idx < len(screen_lines) - 1:
+                self._text.insert("end", "\n", "plain")
 
     def _flush_scrollback(self) -> None:
-        """Move lines that scrolled off the top of the screen into scrollback."""
-        history = self._screen.history
-        # pyte stores scrolled-off lines in screen.history.top (a deque)
+        """Move lines scrolled off the pyte screen into our list, then append new ones to widget."""
         while self._screen.history.top:
             row = self._screen.history.top.popleft()
             segments = []
@@ -643,7 +921,19 @@ class TerminalPanel(ttk.Frame):
 
         # Cap scrollback length
         if len(self._scrollback) > self._SCROLLBACK:
-            self._scrollback = self._scrollback[-self._SCROLLBACK:]
+            trim = len(self._scrollback) - self._SCROLLBACK
+            self._scrollback = self._scrollback[trim:]
+            self._scrollback_in_widget = max(0, self._scrollback_in_widget - trim)
+
+        # Append any new scrollback lines to the text widget
+        if self._scrollback_in_widget < len(self._scrollback) and not self._render_suppressed:
+            self._text.config(state="normal")
+            for seg_list in self._scrollback[self._scrollback_in_widget:]:
+                for text, fg, bg, bold in seg_list:
+                    self._text.insert("end", text, self._get_tag(fg, bg, bold))
+                self._text.insert("end", "\n", "plain")
+            self._scrollback_in_widget = len(self._scrollback)
+            self._text.config(state="disabled")
 
     # ── PTY I/O ───────────────────────────────────────────────────────────────
 
@@ -693,8 +983,8 @@ class TerminalPanel(ttk.Frame):
             for chunk in active_chunks:
                 self._stream.feed(chunk)
             if not self._render_suppressed:
-                self._flush_scrollback()
-                self._redraw_full()
+                self._flush_scrollback()   # appends new scrollback lines to widget
+                self._redraw_screen()      # rewrites only live screen rows
 
         if active_sentinel:
             self._running = False
@@ -853,64 +1143,248 @@ class TerminalPanel(ttk.Frame):
         top_bid.append(top.bind("<Button-1>", _global_click, add=True))
 
     def _on_restart(self) -> None:
-        cmd = self.SHELLS.get(self._shell_var.get())
+        cmd = self._session_meta.get(self._active_shell_key, {}).get("cmd")
         self.start(cmd, cwd=self._cwd)
 
-    def _on_shell_change(self, _=None) -> None:
-        self._switch_shell(self._shell_var.get())
+    # ── Session model ─────────────────────────────────────────────────────────
 
-    def _switch_shell(self, key: str) -> None:
+    def _new_session_key(self) -> str:
+        self._session_counter += 1
+        return f"s{self._session_counter}"
+
+    def _dedup_name(self, base: str) -> str:
+        existing = {m["display_name"] for m in self._session_meta.values()}
+        if base not in existing:
+            return base
+        i = 2
+        while f"{base} ({i})" in existing:
+            i += 1
+        return f"{base} ({i})"
+
+    def _new_session(self, shell_dict: dict | None = None,
+                     cwd: str | None = None) -> None:
+        """Create and switch to a new terminal session."""
+        if not self._detected_shells:
+            self._detected_shells = _detect_available_shells()
+        if shell_dict is None:
+            shell_dict = self._detected_shells[0] if self._detected_shells else {
+                "name": "Shell", "cmd": _default_shell(), "color": "#8a8a8a"
+            }
+        if cwd is not None:
+            self._cwd = cwd
+        key = self._new_session_key()
+        self._session_meta[key] = {
+            "display_name": self._dedup_name(shell_dict["name"]),
+            "cmd":          shell_dict["cmd"],
+            "icon_color":   shell_dict["color"],
+        }
+        self._session_keys.append(key)
+        if not self._run_shell_key:
+            self._run_shell_key = key
+        self._switch_session(key)
+
+    def _switch_session(self, key: str) -> None:
         """Switch to a different shell session, persisting the current one."""
         if key == self._active_shell_key:
             return
-        # Snapshot current session without killing it
-        if self._clear_timer:
-            self.after_cancel(self._clear_timer)
-            self._clear_timer = None
-        self._sessions[self._active_shell_key] = {
-            "pty":              self._pty,
-            "screen":           self._screen,
-            "stream":           self._stream,
-            "scrollback":       self._scrollback,
-            "session_id":       self._session_id,
-            "running":          self._running,
-            "render_suppressed": self._render_suppressed,
-            "raw_buf":          self._raw_buf,
-            "cwd_current":      self._cwd_current,
-            "venv_active":      self._venv_active,
-            "state_file":       self._state_file,
-            "state_file_mtime": self._state_file_mtime,
-        }
-        self._pty     = None
-        self._running = False
-        # Restore existing session or start a fresh one
+        # Snapshot current session (only if we actually have one running)
+        if self._active_shell_key:
+            if self._clear_timer:
+                self.after_cancel(self._clear_timer)
+                self._clear_timer = None
+            self._sessions[self._active_shell_key] = {
+                "pty":               self._pty,
+                "screen":            self._screen,
+                "stream":            self._stream,
+                "scrollback":        self._scrollback,
+                "scrollback_in_widget": self._scrollback_in_widget,
+                "session_id":        self._session_id,
+                "running":           self._running,
+                "render_suppressed": self._render_suppressed,
+                "raw_buf":           self._raw_buf,
+                "cwd_current":       self._cwd_current,
+                "venv_active":       self._venv_active,
+                "state_file":        self._state_file,
+                "state_file_mtime":  self._state_file_mtime,
+            }
+            self._pty     = None
+            self._running = False
+
+        # Restore existing session or start fresh
         if key in self._sessions and self._sessions[key]["running"]:
             sess = self._sessions.pop(key)
-            self._pty               = sess["pty"]
-            self._screen            = sess["screen"]
-            self._stream            = sess["stream"]
-            self._scrollback        = sess["scrollback"]
-            self._session_id        = sess["session_id"]
-            self._running           = sess["running"]
-            self._render_suppressed = sess["render_suppressed"]
-            self._raw_buf           = sess["raw_buf"]
-            self._cwd_current       = sess["cwd_current"]
-            self._venv_active       = sess["venv_active"]
-            self._state_file        = sess["state_file"]
-            self._state_file_mtime  = sess["state_file_mtime"]
-            self._active_shell_key  = key
+            self._pty                   = sess["pty"]
+            self._screen                = sess["screen"]
+            self._stream                = sess["stream"]
+            self._scrollback            = sess["scrollback"]
+            self._scrollback_in_widget  = sess.get("scrollback_in_widget", 0)
+            self._session_id            = sess["session_id"]
+            self._running               = sess["running"]
+            self._render_suppressed     = sess["render_suppressed"]
+            self._raw_buf               = sess["raw_buf"]
+            self._cwd_current           = sess["cwd_current"]
+            self._venv_active           = sess["venv_active"]
+            self._state_file            = sess["state_file"]
+            self._state_file_mtime      = sess["state_file_mtime"]
+            self._active_shell_key      = key
             self._refresh_venv_state()
             self._redraw_full()
-            _rcmd = self.SHELLS.get(key) or []
-            _rname = os.path.basename(_rcmd[0]).lower() if _rcmd else ""
+            _cmd = (self._session_meta.get(key) or {}).get("cmd") or []
+            _name = os.path.basename(_cmd[0]).lower() if _cmd else ""
             _KNOWN = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
-            if platform.system() == "Windows" and any(s in _rname for s in _KNOWN):
+            if platform.system() == "Windows" and any(s in _name for s in _KNOWN):
                 self.after(150, lambda: self.send_text("\x0c"))
             if platform.system() == "Windows" and self._state_file and self._running:
                 self.after(500, self._poll_state_file)
         else:
             self._active_shell_key = key
-            self.start(self.SHELLS.get(key), cwd=self._cwd)
+            cmd = (self._session_meta.get(key) or {}).get("cmd")
+            self.start(cmd, cwd=self._cwd)
+
+        self._refresh_session_panel()
+
+    def _close_session(self, key: str) -> None:
+        """Kill and remove a session. Won't close the last session."""
+        if len(self._session_keys) <= 1:
+            return
+        if key == self._active_shell_key:
+            idx = self._session_keys.index(key)
+            other = self._session_keys[idx - 1 if idx > 0 else idx + 1]
+            self._switch_session(other)
+        # Kill the background session (now safely not active)
+        sess = self._sessions.pop(key, None)
+        if sess and sess.get("pty"):
+            try:
+                sess["pty"].terminate(force=True)
+            except Exception:
+                pass
+        if key in self._session_keys:
+            self._session_keys.remove(key)
+        self._session_meta.pop(key, None)
+        if self._run_shell_key == key:
+            self._run_shell_key = self._active_shell_key
+        self._refresh_session_panel()
+
+    def _set_run_session(self, key: str) -> None:
+        self._run_shell_key = key
+        self._refresh_session_panel()
+
+    def send_to_run_session(self, text: str) -> None:
+        """Send text to the designated run session, switching to it if needed."""
+        target = self._run_shell_key or self._active_shell_key
+        if target and target != self._active_shell_key:
+            self._switch_session(target)
+        self.send_text(text)
+
+    def _refresh_session_panel(self) -> None:
+        if not hasattr(self, "_session_panel"):
+            return
+        running_keys = {k for k, v in self._sessions.items() if v.get("running")}
+        if self._running and self._active_shell_key:
+            running_keys.add(self._active_shell_key)
+        vm = {
+            k: {
+                "display_name": self._session_meta[k]["display_name"],
+                "icon_color":   self._session_meta[k]["icon_color"],
+                "running":      k in running_keys,
+            }
+            for k in self._session_keys if k in self._session_meta
+        }
+        self._session_panel.refresh(vm, self._active_shell_key, self._run_shell_key)
+
+    def _show_shell_picker(self, event=None) -> None:
+        """Show overlay to pick a shell type for a new session."""
+        if not self._detected_shells:
+            self._detected_shells = _detect_available_shells()
+        items = [
+            (sd["name"], lambda sd=sd: self._new_session(sd), True)
+            for sd in self._detected_shells
+        ]
+        x = self._session_panel.winfo_rootx()
+        y = self._session_panel.winfo_rooty()
+        self._show_overlay(x, y, items)
+
+    def _show_session_menu(self, key: str, x_root: int, y_root: int) -> None:
+        """Right-click context menu on a session row."""
+        items = [
+            ("Set as Run Session", lambda k=key: self._set_run_session(k), True),
+        ]
+        self._show_overlay(x_root, y_root, items)
+
+    # ── Ghost sash ────────────────────────────────────────────────────────────
+
+    _MIN_PANEL_W = 80
+
+    def _on_sash_enter(self, _event) -> None:
+        if not self._sash_dragging:
+            self._sash.configure(bg="#007acc")
+
+    def _on_sash_leave(self, _event) -> None:
+        if not self._sash_dragging:
+            self._sash.configure(bg="#2d2d30")
+
+    def _on_sash_press(self, event) -> None:
+        self._sash_dragging = True
+        self._sash_start_x  = event.x_root
+        self._sash_ghost = tk.Frame(self._body_frame, bg="#007acc", width=2)
+        sash_x = self._sash.winfo_x()
+        self._sash_ghost.place(x=sash_x, y=0,
+                               height=self._body_frame.winfo_height())
+
+    def _on_sash_drag(self, event) -> None:
+        if not self._sash_ghost:
+            return
+        body_w = self._body_frame.winfo_width()
+        dx = event.x_root - self._sash_start_x
+        sash_x = self._sash.winfo_x()
+        new_x = sash_x + dx
+        new_x = max(self._MIN_PANEL_W, min(body_w - self._MIN_PANEL_W, new_x))
+        self._sash_ghost.place(x=new_x, y=0,
+                               height=self._body_frame.winfo_height())
+
+    def _on_sash_release(self, event) -> None:
+        self._sash_dragging = False
+        self._sash.configure(bg="#2d2d30")
+        if not self._sash_ghost:
+            return
+        ghost_x = self._sash_ghost.winfo_x()
+        self._sash_ghost.destroy()
+        self._sash_ghost = None
+        body_w = self._body_frame.winfo_width()
+        new_panel_w = max(self._MIN_PANEL_W, body_w - ghost_x - 4)
+        self._session_panel_w = new_panel_w
+        self._session_panel.configure(width=new_panel_w)
+        self._refresh_session_panel()
+
+    # ── Panel animation ────────────────────────────────────────────────────────
+
+    def _animate_panel(self, target_w: int) -> None:
+        try:
+            cur = self._session_panel.winfo_width()
+        except Exception:
+            return
+        if cur == target_w:
+            if target_w == 0:
+                self._sash.pack_forget()
+                self._session_panel.pack_forget()
+            return
+        step = 20
+        nw = cur + (step if target_w > cur else -step)
+        nw = max(0, min(nw, target_w if target_w > cur else max(0, nw)))
+        self._session_panel.configure(width=nw)
+        self.after(12, lambda: self._animate_panel(target_w))
+
+    def _toggle_panel(self) -> None:
+        if self._panel_visible:
+            self._panel_visible = False
+            self._animate_panel(0)
+        else:
+            self._panel_visible = True
+            if not self._sash.winfo_ismapped():
+                self._sash.pack(side="left", fill="y")
+                self._session_panel.pack(side="left", fill="y")
+            self._session_panel.configure(width=0)
+            self._animate_panel(self._session_panel_w)
 
     # ── Venv tracking ─────────────────────────────────────────────────────────
 
@@ -948,7 +1422,7 @@ class TerminalPanel(ttk.Frame):
         if not self._running:
             return
         sys = platform.system()
-        shell_cmd = (self.SHELLS.get(self._shell_var.get()) or _default_shell())
+        shell_cmd = (self._session_meta.get(self._active_shell_key) or {}).get("cmd") or _default_shell()
         shell_name = os.path.basename(shell_cmd[0]).lower() if shell_cmd else ""
         _KNOWN_SHELLS = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
         if not any(s in shell_name for s in _KNOWN_SHELLS):

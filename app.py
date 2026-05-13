@@ -1091,7 +1091,7 @@ class IDOL(Tk):
         self._output.terminal.on_venv_deactivate = self._on_venv_deactivated
         if not self._output.terminal._running:
             cwd = self._output._cwd or os.getcwd()
-            self._output.terminal.start(cwd=cwd)
+            self._output.terminal._new_session(cwd=cwd)
         # If session restore flagged a venv to activate, schedule it 1500 ms after
         # the terminal starts — by then the shell hooks are injected and ready.
         pending = getattr(self, "_pending_venv_activate", None)
@@ -5756,7 +5756,7 @@ class IDOL(Tk):
             self.view_toggle_output()
         self._output._set_active("terminal")
         if not self._output.terminal._running:
-            self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
+            self._output.terminal._new_session(cwd=os.path.dirname(filepath) or os.getcwd())
         self._set_running_file(filepath)
         term = self._output.terminal
         import platform as _pl
@@ -5766,7 +5766,7 @@ class IDOL(Tk):
 
         def _send_when_ready(retries: int = 40) -> None:
             if term.winfo_ismapped() and not term._resize_job:
-                term.after(200, lambda: term.send_text(cmd))
+                term.after(200, lambda: term.send_to_run_session(cmd))
             elif retries > 0:
                 term.after(50, lambda: _send_when_ready(retries - 1))
 
@@ -6202,7 +6202,7 @@ class IDOL(Tk):
 
         self._output._set_active("terminal")
         if not self._output.terminal._running:
-            self._output.terminal.start(cwd=os.path.dirname(filepath) or os.getcwd())
+            self._output.terminal._new_session(cwd=os.path.dirname(filepath) or os.getcwd())
 
         import platform as _pl
 
@@ -6227,7 +6227,7 @@ class IDOL(Tk):
 
         def _send_when_ready(retries: int = 40) -> None:
             if term.winfo_ismapped() and not term._resize_job:
-                term.after(200, lambda: term.send_text(cmd))
+                term.after(200, lambda: term.send_to_run_session(cmd))
             elif retries > 0:
                 term.after(50, lambda: _send_when_ready(retries - 1))
 
