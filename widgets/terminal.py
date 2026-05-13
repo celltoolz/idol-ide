@@ -167,6 +167,15 @@ def _detect_available_shells() -> list[dict]:
             if path:
                 _add(sh, [path], "#4ec9b0")
 
+        # Promote the user's $SHELL to the front so new sessions match their login shell
+        user_shell = os.environ.get("SHELL", "")
+        if user_shell:
+            user_name = os.path.basename(user_shell)
+            for i, entry in enumerate(result):
+                if entry["name"] == user_name:
+                    result.insert(0, result.pop(i))
+                    break
+
     # Python REPL — use sys.executable to avoid Windows Store stubs
     python = sys.executable
     try:
@@ -1473,8 +1482,9 @@ class TerminalPanel(ttk.Frame):
             self._redraw_full()
             _cmd = (self._session_meta.get(key) or {}).get("cmd") or []
             _name = os.path.basename(_cmd[0]).lower() if _cmd else ""
-            _KNOWN = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
-            if platform.system() == "Windows" and any(s in _name for s in _KNOWN):
+            # Only PowerShell/pwsh treats \x0c as ClearScreen; cmd echoes "^L"
+            # and bash treats it as form-feed → wipes the visible buffer.
+            if platform.system() == "Windows" and any(s in _name for s in ("powershell", "pwsh")):
                 self.after(150, lambda: self.send_text("\x0c"))
             if platform.system() == "Windows" and self._state_file and self._running:
                 self.after(500, self._poll_state_file)
