@@ -1667,7 +1667,6 @@ class TerminalPanel(ttk.Frame):
         """Inject CWD + VENV reporting into the running shell."""
         if not self._running:
             return
-        sys = platform.system()
         shell_cmd = (self._session_meta.get(self._active_shell_key) or {}).get("cmd") or _default_shell()
         shell_name = os.path.basename(shell_cmd[0]).lower() if shell_cmd else ""
         _KNOWN_SHELLS = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
@@ -1676,7 +1675,7 @@ class TerminalPanel(ttk.Frame):
         if "cmd" in shell_name:
             return   # cmd has no per-prompt callback; injecting PS syntax would error
 
-        if sys == "Windows":
+        if "powershell" in shell_name or "pwsh" in shell_name:
             # Write CWD/VENV to a temp file instead of stdout — avoids any PTY
             # cursor/encoding interference; Python polls the file every 500 ms.
             import tempfile
@@ -1707,7 +1706,7 @@ class TerminalPanel(ttk.Frame):
                 ' precmd_functions=(_idol_prompt "${precmd_functions[@]}")\r'
             )
         else:
-            # bash / sh
+            # bash / sh (including Git Bash on Windows)
             hook = (
                 'export PROMPT_COMMAND=\'_ec=$?;'
                 ' printf "\\e]133;D;%d\\a" "$_ec";'
