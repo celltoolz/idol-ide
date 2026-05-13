@@ -336,28 +336,35 @@ class SessionPanel(tk.Canvas):
             self._draw()
 
     def _on_click(self, event) -> None:
-        tags_hit: set[str] = set()
-        for item in self.find_overlapping(event.x, event.y, event.x, event.y):
-            tags_hit.update(self.gettags(item))
+        keys = list(self._sessions.keys())
+        n = len(keys)
+        foot_y = n * self._ROW_H
+        w = max(self.winfo_width(), 1)
 
-        for tag in tags_hit:
-            if tag.startswith("close_"):
-                self.on_close(tag[len("close_"):])
-                return
-
-        if "btn_new" in tags_hit:
-            self.on_new()
+        if event.y >= foot_y:
+            # Footer buttons — items are stable here, tag-based hit-test is fine
+            tags_hit: set[str] = set()
+            for item in self.find_overlapping(event.x, event.y,
+                                              event.x, event.y):
+                tags_hit.update(self.gettags(item))
+            if "btn_new" in tags_hit:
+                self.on_new()
+            elif "btn_dd" in tags_hit:
+                self.on_dropdown(event)
             return
-        if "btn_dd" in tags_hit:
-            self.on_dropdown(event)
-            return
 
-        for tag in tags_hit:
-            if tag.startswith("row_"):
-                key = tag[len("row_"):]
-                if key in self._sessions:
-                    self.on_select(key)
-                return
+        # Row hit — geometric, not tag-based. On X11 a spurious <Leave> between
+        # press and release can clear _hover_row and redraw without the "✕"
+        # item, so a tag lookup would miss the close button. event.x > w - 20
+        # matches the close-region rule from _on_motion.
+        row = event.y // self._ROW_H
+        if row < 0 or row >= n:
+            return
+        key = keys[row]
+        if event.x > w - 20:
+            self.on_close(key)
+        else:
+            self.on_select(key)
 
     def _on_right_click(self, event) -> None:
         n = len(self._sessions)
