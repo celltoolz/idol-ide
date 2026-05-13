@@ -280,18 +280,20 @@ class IDOL(Tk):
 
         # On Linux/X11 the classic Tk file dialog (tk_getOpenFile etc.) uses
         # a Motif-style widget whose Listbox defaults to invisible selection
-        # colors — the user can't see which file they just clicked. Scope
-        # readable colors to the dialog's widget-name pattern so our own
-        # listboxes (designer list editor, etc.) are unaffected.
+        # colors — the user can't see which file they just clicked. Set
+        # readable defaults via Tk's option database. Every IDOL tk.Listbox
+        # already passes its own bg/fg/selectbackground/selectforeground in
+        # its constructor, which overrides option_add — so these defaults
+        # only land on listboxes that don't specify their own (i.e. the
+        # file dialog's). Entry/Text are NOT included here because some
+        # IDOL widgets (designer properties, etc.) build dark-themed
+        # entries without explicit bg.
         import platform as _pl_init
         if _pl_init.system() == "Linux":
-            for _patt in ("*__tk_filedialog*Listbox",
-                          "*tk_chooseDirectory*Listbox",
-                          "*TkFDialog*Listbox"):
-                self.option_add(f"{_patt}.background",       "#ffffff")
-                self.option_add(f"{_patt}.foreground",       "#000000")
-                self.option_add(f"{_patt}.selectBackground", "#0078d4")
-                self.option_add(f"{_patt}.selectForeground", "#ffffff")
+            self.option_add("*Listbox.background",       "#ffffff")
+            self.option_add("*Listbox.foreground",       "#000000")
+            self.option_add("*Listbox.selectBackground", "#0078d4")
+            self.option_add("*Listbox.selectForeground", "#ffffff")
 
         self._safe_after = make_thread_safe_after(self)
 
