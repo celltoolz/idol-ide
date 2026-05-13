@@ -1356,9 +1356,20 @@ class TerminalPanel(ttk.Frame):
         new_panel_w = max(self._MIN_PANEL_W, body_w - ghost_x - 4)
         self._session_panel_w = new_panel_w
         self._session_panel.configure(width=new_panel_w)
+        self._trigger_resize_now()
         self._refresh_session_panel()
 
     # ── Panel animation ────────────────────────────────────────────────────────
+
+    def _trigger_resize_now(self) -> None:
+        """Cancel any pending debounce and resize on the next event loop tick.
+        Used after layout changes where we know the final size (animation end, sash
+        release) — avoids the 50ms debounce delay that would otherwise leave the PTY
+        with wrong dimensions."""
+        if self._resize_job:
+            self.after_cancel(self._resize_job)
+            self._resize_job = None
+        self.after(0, self._do_resize)
 
     def _animate_panel(self, target_w: int, cur_w: int, gen: int) -> None:
         if gen != self._anim_gen:
@@ -1367,6 +1378,8 @@ class TerminalPanel(ttk.Frame):
             if target_w == 0:
                 self._sash.pack_forget()
                 self._session_panel.pack_forget()
+            # Resize immediately — don't wait for the 50ms <Configure> debounce
+            self._trigger_resize_now()
             return
         nw = min(cur_w + 20, target_w) if target_w > cur_w else max(cur_w - 20, target_w)
         self._session_panel.configure(width=nw)
