@@ -115,8 +115,9 @@ def _detect_available_shells() -> list[dict]:
         git_bash = r"C:\Program Files\Git\bin\bash.exe"
         if os.path.exists(git_bash):
             _add("Git Bash", [git_bash], "#4ec9b0")
-        if shutil.which("wsl"):
-            _add("WSL", ["wsl"], "#4ec9b0")
+        wsl_path = shutil.which("wsl.exe") or shutil.which("wsl")
+        if wsl_path:
+            _add("WSL", [wsl_path], "#4ec9b0")
     else:
         _SHELL_COLORS = {"bash": "#4ec9b0", "zsh": "#4ec9b0", "sh": "#4ec9b0",
                          "fish": "#4ec9b0", "dash": "#4ec9b0"}
@@ -138,19 +139,18 @@ def _detect_available_shells() -> list[dict]:
             if path:
                 _add(sh, [path], "#4ec9b0")
 
-    # Python REPL — always available; derive version string
-    python = shutil.which("python3") or shutil.which("python") or sys.executable
-    if python:
-        try:
-            import subprocess as _sp
-            ver = _sp.check_output([python, "--version"], text=True,
-                                   stderr=_sp.STDOUT, timeout=3).strip()
-            parts = ver.split()
-            version = ".".join(parts[1].split(".")[:2]) if len(parts) > 1 else ""
-            py_name = f"Python {version}" if version else "Python REPL"
-        except Exception:
-            py_name = "Python REPL"
-        _add(py_name, [python, "-i"], "#f7cc43")
+    # Python REPL — use sys.executable to avoid Windows Store stubs
+    python = sys.executable
+    try:
+        import subprocess as _sp
+        ver = _sp.check_output([python, "--version"], text=True,
+                               stderr=_sp.STDOUT, timeout=3).strip()
+        parts = ver.split()
+        version = ".".join(parts[1].split(".")[:2]) if len(parts) > 1 else ""
+        py_name = f"Python {version}" if version else "Python REPL"
+    except Exception:
+        py_name = "Python REPL"
+    _add(py_name, [python, "-i"], "#f7cc43")
 
     return result
 
