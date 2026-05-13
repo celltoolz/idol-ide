@@ -1362,10 +1362,8 @@ class TerminalPanel(ttk.Frame):
     # ── Panel animation ────────────────────────────────────────────────────────
 
     def _trigger_resize_now(self) -> None:
-        """Cancel any pending debounce and resize on the next event loop tick.
-        Used after layout changes where we know the final size (animation end, sash
-        release) — avoids the 50ms debounce delay that would otherwise leave the PTY
-        with wrong dimensions."""
+        """Cancel any pending debounce and resize on the next event loop tick."""
+        print(f"[DBG] _trigger_resize_now  text_w={self._text.winfo_width()}  panel_w={self._session_panel.winfo_width() if hasattr(self,'_session_panel') else '?'}")
         if self._resize_job:
             self.after_cancel(self._resize_job)
             self._resize_job = None
@@ -1378,6 +1376,7 @@ class TerminalPanel(ttk.Frame):
             if target_w == 0:
                 self._sash.pack_forget()
                 self._session_panel.pack_forget()
+            print(f"[DBG] _animate_panel done  target={target_w}  text_w={self._text.winfo_width()}")
             # Resize immediately — don't wait for the 50ms <Configure> debounce
             self._trigger_resize_now()
             return
@@ -1661,6 +1660,7 @@ class TerminalPanel(ttk.Frame):
             except Exception:
                 pass
         self._resize_job = self.after(50, self._do_resize)
+        print(f"[DBG] _on_resize fired  text_w={self._text.winfo_width()}  text_h={self._text.winfo_height()}")
 
     def _do_resize(self) -> None:
         self._resize_job = None
@@ -1671,12 +1671,14 @@ class TerminalPanel(ttk.Frame):
                                         str(self._text.cget("font")), "-linespace")
             w = self._text.winfo_width()
             h = self._text.winfo_height()
+            print(f"[DBG] _do_resize  text={w}x{h}  font={font_w}x{font_h}  panel_w={self._session_panel.winfo_width() if hasattr(self,'_session_panel') else '?'}")
             if w > 0 and h > 0 and font_w > 0 and font_h > 0:
                 cols = max(10, w  // font_w)
                 rows = max(5,  (h - 8) // font_h)  # -8 accounts for pady=4 top+bottom
+                print(f"[DBG] _do_resize  → resize({rows}, {cols})  prev=({self._rows}, {self._cols})")
                 self.resize(rows, cols)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[DBG] _do_resize  EXCEPTION: {e}")
 
     def _write_error(self, text: str) -> None:
         self._text.config(state="normal")
