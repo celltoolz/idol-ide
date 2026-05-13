@@ -13,26 +13,68 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 
-# Palette matches colorschemes/monokai.toml. Hardcoded here for now; once
-# the prototype matures it will read from the active color scheme.
-_THEME = {
-    "bg":              "#282923",
-    "fg":              "#f8f8f2",
-    "gutter_bg":       "#23241f",
-    "gutter_fg":       "#605d52",
-    "caret":           "#f8f8f2",
-    "select_bg":       "#49483e",
-    "guide":           "#3e3d32",
-    "current_line_bg": "#3e3d32",
-    "keyword":         "#f92472",
-    "name":            "#a6e22c",
-    "string":          "#e7db74",
-    "comment":         "#74705d",
-    "builtin":         "#67d8ef",
-    "constant":        "#ac80ff",
-    "operator":        "#f83535",
-    "punctuation":     "#f92472",
+# ── Themes ────────────────────────────────────────────────────────────────────
+# Each theme has a `palette` (UI colors) and a `tokens` map (category →
+# (color, italic)). Tokenization rules emit category NAMES; the renderer
+# resolves them at draw time, so swapping themes is a one-call recolor.
+# Hardcoded for now; will move to colorschemes/*.toml when we wire the
+# sandbox into the production scheme system.
+
+THEMES: dict[str, dict] = {
+    "dark-plus": {
+        "palette": {
+            "bg":               "#1e1e1e",
+            "fg":               "#d4d4d4",
+            "caret":            "#aeafad",
+            "select_bg":        "#264f78",
+            "current_line_bg":  "#2a2d2e",
+            "guide":            "#404040",
+            "gutter_bg":        "#1e1e1e",
+            "gutter_fg":        "#858585",
+            "gutter_fg_active": "#c6c6c6",
+        },
+        # category: (color, italic)
+        "tokens": {
+            "comment":      ("#6a9955", True),
+            "string":       ("#ce9178", False),
+            "number":       ("#b5cea8", False),
+            "keyword_flow": ("#c586c0", False),
+            "keyword_decl": ("#569cd6", False),
+            "constant":     ("#569cd6", False),
+            "self_cls":     ("#569cd6", False),
+            "type":         ("#4ec9b0", False),
+            "function":     ("#dcdcaa", False),
+            "decorator":    ("#dcdcaa", False),
+        },
+    },
+    "monokai": {
+        "palette": {
+            "bg":               "#282923",
+            "fg":               "#f8f8f2",
+            "caret":            "#f8f8f2",
+            "select_bg":        "#49483e",
+            "current_line_bg":  "#3e3d32",
+            "guide":            "#3e3d32",
+            "gutter_bg":        "#23241f",
+            "gutter_fg":        "#605d52",
+            "gutter_fg_active": "#a89f97",
+        },
+        "tokens": {
+            "comment":      ("#74705d", True),
+            "string":       ("#e7db74", False),
+            "number":       ("#ac80ff", False),
+            "keyword_flow": ("#f92472", False),
+            "keyword_decl": ("#f92472", False),
+            "constant":     ("#ac80ff", False),
+            "self_cls":     ("#a6e22c", False),
+            "type":         ("#a6e22c", False),
+            "function":     ("#a6e22c", False),
+            "decorator":    ("#67d8ef", False),
+        },
+    },
 }
+
+_DEFAULT_THEME = "dark-plus"
 
 _FONT_FAMILY, _FONT_SIZE = "Consolas", 11
 _GUTTER_W = 56
@@ -53,23 +95,43 @@ class IDOL_IDE:
 class CanvasEditorSandbox(tk.Frame):
     """Canvas-rendered editor prototype."""
 
-    def __init__(self, master, **kw):
-        super().__init__(master, bg=_THEME["bg"], **kw)
+    def __init__(self, master, theme: str = _DEFAULT_THEME, **kw):
+        self._theme_name = theme if theme in THEMES else _DEFAULT_THEME
+        self._palette = THEMES[self._theme_name]["palette"]
+        self._token_style = THEMES[self._theme_name]["tokens"]
+        super().__init__(master, bg=self._palette["bg"], **kw)
         self._build_ui()
         self._init_state()
         self._wire_events()
         self.after(500, self._blink_cursor)
         self.after_idle(self.render)
 
+    # ── Theme switching ──────────────────────────────────────────────────────
+
+    def set_theme(self, name: str) -> None:
+        """Swap the active theme. Re-derives palette + token colors and
+        triggers a full redraw. No tokenizer rebuild — rules emit category
+        names that resolve against the active theme at draw time."""
+        if name not in THEMES or name == self._theme_name:
+            return
+        self._theme_name = name
+        self._palette = THEMES[name]["palette"]
+        self._token_style = THEMES[name]["tokens"]
+        self.configure(bg=self._palette["bg"])
+        self.canvas.configure(bg=self._palette["bg"])
+        self.render()
+
     # ── Setup ─────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         self._font = tkfont.Font(family=_FONT_FAMILY, size=_FONT_SIZE)
+        self._font_italic = tkfont.Font(family=_FONT_FAMILY, size=_FONT_SIZE,
+                                        slant="italic")
         self._char_w = self._font.measure("W")
         self._line_h = self._font.metrics("linespace") + 2
 
         self.canvas = tk.Canvas(
-            self, bg=_THEME["bg"], highlightthickness=0,
+            self, bg=self._palette["bg"], highlightthickness=0,
             takefocus=True, cursor="xterm",
         )
         self.canvas.pack(fill="both", expand=True)
@@ -83,49 +145,49 @@ class CanvasEditorSandbox(tk.Frame):
         self.folded: set[int] = set()
         self.scroll_y: int = 0           # first visible visual row
 
-        # Rule order matters — earlier rules claim their text, later rules
-        # only run on segments that are still fg-colored. Comments and
-        # strings must come BEFORE keywords so that words like `if` inside
-        # a string or comment aren't keyword-colored.
+        # Tokenizer rules. Each rule is (regex, category_name). The category
+        # is resolved against the active theme's `tokens` map at render time,
+        # so a `set_theme()` recolors without rebuilding rules.
+        #
+        # Order matters: earlier rules claim text, later rules only see
+        # segments still at default fg. Comments and strings MUST come
+        # before keywords so words like `if` inside a string don't get
+        # keyword-colored.
         self._rules = [
-            # Comments and strings first
-            (re.compile(r"#.*"),                              _THEME["comment"]),
+            (re.compile(r"#.*"),                                  "comment"),
+            (re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""), "string"),
+            (re.compile(r"@\w+(?:\.\w+)*"),                       "decorator"),
+            (re.compile(r"(?<=\bclass\s)\w+"),                    "type"),
+            (re.compile(r"(?<=\bdef\s)\w+"),                      "function"),
             (re.compile(
-                r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""
-            ),                                                _THEME["string"]),
-            # Decorators
-            (re.compile(r"@\w+(?:\.\w+)*"),                   _THEME["builtin"]),
-            # Names introduced by class/def — color the identifier green
-            (re.compile(r"(?<=\bclass\s)\w+"),                _THEME["name"]),
-            (re.compile(r"(?<=\bdef\s)\w+"),                  _THEME["name"]),
-            # Keywords
+                r"\b(class|def|import|from|as|lambda|global|nonlocal)\b"
+            ),                                                    "keyword_decl"),
             (re.compile(
-                r"\b(class|def|if|else|elif|return|import|from|as|for|while|"
-                r"with|try|except|finally|raise|yield|lambda|pass|break|"
-                r"continue|in|is|not|and|or|True|False|None|global|"
-                r"nonlocal|assert|del|async|await)\b"
-            ),                                                _THEME["keyword"]),
-            (re.compile(r"\b(self|cls)\b"),                   _THEME["name"]),
-            # Builtins
+                r"\b(if|else|elif|return|for|while|try|except|finally|raise|"
+                r"yield|pass|break|continue|with|in|is|not|and|or|async|"
+                r"await|assert|del)\b"
+            ),                                                    "keyword_flow"),
+            (re.compile(r"\b(True|False|None)\b"),                "constant"),
+            (re.compile(r"\b(self|cls)\b"),                       "self_cls"),
             (re.compile(
-                r"\b(print|len|range|str|int|float|bool|list|dict|set|tuple|"
-                r"type|isinstance|super|repr|abs|min|max|sum|sorted|"
-                r"reversed|enumerate|zip|map|filter|any|all|open|"
-                r"hasattr|getattr|setattr|callable|input|format|chr|ord|"
-                r"hex|oct|bin|round|divmod|pow|iter|next|frozenset|"
-                r"object|Exception|ValueError|TypeError|KeyError|"
-                r"IndexError|AttributeError|FileNotFoundError|"
-                r"StopIteration|RuntimeError|NotImplementedError)\b"
-            ),                                                _THEME["builtin"]),
-            # Attribute / method access after a dot
-            (re.compile(r"(?<=\.)\w+"),                       _THEME["name"]),
-            # Numeric literals (int, float, hex)
-            (re.compile(r"\b(?:0[xX][\dA-Fa-f]+|\d+(?:\.\d+)?)\b"),
-                                                              _THEME["constant"]),
-            # Operators: arithmetic, comparison, logical, assignment
-            (re.compile(r"[+\-*/%<>!&|^~=]"),                  _THEME["operator"]),
-            # Punctuation: brackets, parens, braces, separators
-            (re.compile(r"[(){}\[\],.;:]"),                   _THEME["punctuation"]),
+                r"\b(int|str|float|bool|list|dict|set|tuple|bytes|bytearray|"
+                r"complex|frozenset|object|type|Exception|BaseException|"
+                r"ValueError|TypeError|KeyError|IndexError|AttributeError|"
+                r"FileNotFoundError|StopIteration|RuntimeError|"
+                r"NotImplementedError|ArithmeticError|ZeroDivisionError|"
+                r"OSError|IOError|LookupError|NameError|"
+                r"UnicodeDecodeError|UnicodeEncodeError)\b"
+            ),                                                    "type"),
+            (re.compile(
+                r"\b(print|len|range|super|abs|min|max|sum|sorted|reversed|"
+                r"enumerate|zip|map|filter|any|all|open|hasattr|getattr|"
+                r"setattr|callable|input|format|chr|ord|hex|oct|bin|round|"
+                r"divmod|pow|iter|next|repr|isinstance|issubclass|delattr|"
+                r"vars|dir|id|globals|locals|exec|eval|compile|"
+                r"breakpoint|help|memoryview|slice|staticmethod|classmethod|"
+                r"property)\b"
+            ),                                                    "function"),
+            (re.compile(r"\b(?:0[xX][\dA-Fa-f]+|\d+(?:\.\d+)?)\b"), "number"),
         ]
 
     def _wire_events(self) -> None:
@@ -153,7 +215,8 @@ class CanvasEditorSandbox(tk.Frame):
         if w < 2 or h < 2:
             return
 
-        c.create_rectangle(0, 0, _GUTTER_W, h, fill=_THEME["gutter_bg"], outline="")
+        c.create_rectangle(0, 0, _GUTTER_W, h,
+                           fill=self._palette["gutter_bg"], outline="")
 
         visible_rows = h // self._line_h + 1
         v_row = 0
@@ -184,9 +247,11 @@ class CanvasEditorSandbox(tk.Frame):
             y = (v_row - self.scroll_y) * self._line_h
 
             # Current-line highlight (only when no selection)
-            if i == self.cur_line and self.sel_anchor is None and self.canvas.focus_get() is self.canvas:
+            if (i == self.cur_line and self.sel_anchor is None
+                    and self.canvas.focus_get() is self.canvas):
                 c.create_rectangle(_GUTTER_W, y, w, y + self._line_h,
-                                   fill=_THEME["current_line_bg"], outline="")
+                                   fill=self._palette["current_line_bg"],
+                                   outline="")
 
             # Selection
             self._draw_selection(i, line, y, w)
@@ -195,30 +260,42 @@ class CanvasEditorSandbox(tk.Frame):
             indent = len(line) - len(line.lstrip())
             for level in range(1, indent // 4 + 1):
                 gx = _TEXT_X + level * 4 * self._char_w - self._char_w // 2
-                c.create_line(gx, y, gx, y + self._line_h, fill=_THEME["guide"])
+                c.create_line(gx, y, gx, y + self._line_h,
+                              fill=self._palette["guide"])
 
-            # Line number
+            # Line number — active line gets brighter color
+            gut_fg = (self._palette["gutter_fg_active"]
+                      if i == self.cur_line else self._palette["gutter_fg"])
             c.create_text(_GUTTER_W - 8, y + 1, text=str(i + 1),
-                          anchor="ne", fill=_THEME["gutter_fg"], font=self._font)
+                          anchor="ne", fill=gut_fg, font=self._font)
 
             # Fold marker (only on lines with indented children)
             if self._line_has_children(i):
                 glyph = "▶" if i in self.folded else "▼"
                 c.create_text(10, y + 1, text=glyph, anchor="nw",
-                              fill=_THEME["gutter_fg"], font=self._font)
+                              fill=self._palette["gutter_fg"],
+                              font=self._font)
 
-            # Tokens
+            # Tokens — resolve each category against the active theme,
+            # using the italic font when the category specifies it.
             x = _TEXT_X
-            for txt, color in self._tokenize(line):
+            fg = self._palette["fg"]
+            for txt, cat in self._tokenize(line):
+                if cat is None:
+                    color, italic = fg, False
+                else:
+                    color, italic = self._token_style.get(cat, (fg, False))
+                font = self._font_italic if italic else self._font
                 c.create_text(x, y + 1, text=txt, anchor="nw",
-                              fill=color, font=self._font)
-                x += self._font.measure(txt)
+                              fill=color, font=font)
+                x += font.measure(txt)
 
             # Caret
-            if i == self.cur_line and self.cursor_visible and self.sel_anchor is None:
+            if (i == self.cur_line and self.cursor_visible
+                    and self.sel_anchor is None):
                 cx = _TEXT_X + self._font.measure(line[:self.cur_col])
                 c.create_line(cx, y + 1, cx, y + self._line_h - 1,
-                              fill=_THEME["caret"], width=1)
+                              fill=self._palette["caret"], width=1)
 
             if i in self.folded:
                 skip_indent = indent
@@ -257,25 +334,30 @@ class CanvasEditorSandbox(tk.Frame):
             x2 = canvas_w   # middle of multi-line selection: full row
         if x1 < x2:
             self.canvas.create_rectangle(x1, y, x2, y + self._line_h,
-                                         fill=_THEME["select_bg"], outline="")
+                                         fill=self._palette["select_bg"],
+                                         outline="")
 
     def _tokenize(self, line: str):
-        segments = [(line, _THEME["fg"])]
-        for pat, color in self._rules:
+        """Return a list of (text, category_or_None) segments.
+
+        Category None means default fg. Categories are resolved to actual
+        colors at render time so the active theme picks the palette."""
+        segments: list = [(line, None)]
+        for pat, category in self._rules:
             new_segs = []
-            for text, cur_color in segments:
-                if cur_color != _THEME["fg"]:
-                    new_segs.append((text, cur_color))
+            for text, cur_cat in segments:
+                if cur_cat is not None:
+                    new_segs.append((text, cur_cat))
                     continue
                 last = 0
                 for m in pat.finditer(text):
                     s, e = m.span()
                     if s > last:
-                        new_segs.append((text[last:s], _THEME["fg"]))
-                    new_segs.append((text[s:e], color))
+                        new_segs.append((text[last:s], None))
+                    new_segs.append((text[s:e], category))
                     last = e
                 if last < len(text):
-                    new_segs.append((text[last:], _THEME["fg"]))
+                    new_segs.append((text[last:], None))
             segments = new_segs
         return [seg for seg in segments if seg[0]]
 
@@ -456,6 +538,19 @@ class CanvasEditorSandbox(tk.Frame):
         menu.add_separator()
         menu.add_command(label="Select All", command=self._select_all,
                          accelerator="Ctrl+A")
+        menu.add_separator()
+        # Theme submenu — live switch between registered themes
+        theme_menu = tk.Menu(menu, tearoff=0,
+                             bg="#252526", fg="#cccccc",
+                             activebackground="#094771",
+                             activeforeground="#ffffff",
+                             relief="flat", borderwidth=0)
+        for name in THEMES:
+            label = ("● " if name == self._theme_name else "   ") + \
+                    name.replace("-", " ").title()
+            theme_menu.add_command(label=label,
+                                   command=lambda n=name: self.set_theme(n))
+        menu.add_cascade(label="Theme", menu=theme_menu)
         menu.tk_popup(event.x_root, event.y_root)
         return "break"
 
