@@ -616,7 +616,13 @@ class TerminalPanel(ttk.Frame):
                 venv_bin = os.path.join(self._idol_venv, "bin") + os.pathsep
                 venv_scripts = os.path.join(self._idol_venv, "Scripts") + os.pathsep
                 env["PATH"] = env.get("PATH", "").replace(venv_bin, "").replace(venv_scripts, "")
-            self._scrollback.clear()
+            # Reassign (don't .clear()) so we break the reference shared
+            # with any session just snapshotted into self._sessions. With
+            # .clear() the previously-active session's saved scrollback IS
+            # this list — emptying it here would erase its history, and as
+            # this new session populates the list both sessions would point
+            # to the same content (bleed-through on switch-back).
+            self._scrollback = []
             self._scrollback_drawn = 0
             self._scrollback_open = False
             self._sb_phys_rows = 0
