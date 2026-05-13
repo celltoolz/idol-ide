@@ -17,10 +17,20 @@ import re
 import shutil
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import ttk
 from typing import Callable, Optional
 from widgets.scrollbar import VerticalScrollbar
+
+# Platform-appropriate monospace font for the terminal canvas
+_PLAT = platform.system()
+if _PLAT == "Darwin":
+    _TERM_FONT_FAMILY, _TERM_FONT_SIZE = "Menlo", 11
+elif _PLAT == "Windows":
+    _TERM_FONT_FAMILY, _TERM_FONT_SIZE = "Consolas", 10
+else:
+    _TERM_FONT_FAMILY, _TERM_FONT_SIZE = "DejaVu Sans Mono", 10
 
 import pyte
 from utils.ui_font import UI_FONT
@@ -50,11 +60,29 @@ class _RobustScreen(pyte.HistoryScreen):
     """pyte.HistoryScreen that:
     - Fixes the private SGR dispatch bug in pyte
     - Tracks whether the running app has enabled mouse reporting
+    - Tags lines that exit via DECAWM wrap so scrollback can reflow on resize
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mouse_enabled = False
+        # True while inside a draw() call; lets carriage_return() distinguish
+        # wrap-induced CR (correct to flag as wrapped) from explicit "\r" in
+        # the byte stream (NOT a wrap — e.g. PSReadLine sending \r\n after
+        # Enter on a command that exactly filled the row to col == columns).
+        self._draw_wrap_pending = False
+
+    def draw(self, data: str) -> None:
+        self._draw_wrap_pending = True
+        try:
+            super().draw(data)
+        finally:
+            self._draw_wrap_pending = False
+
+    def carriage_return(self):
+        if self._draw_wrap_pending and self.cursor.x == self.columns:
+            self.buffer[self.cursor.y].idol_wrapped = True
+        super().carriage_return()
 
     def set_mode(self, *args, private=False, **kwargs):
         # Mouse tracking modes: 9=X10, 1000=normal, 1002=button, 1003=any, 1006=SGR
@@ -445,18 +473,29 @@ class TerminalPanel(ttk.Frame):
         self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
         self._stream = pyte.ByteStream(self._screen)
 
-        # Scrollback: list of rendered line strings + their tag maps
-        # Each entry: list of (text, fg, bg, bold) segments for one row
+        # Scrollback: list of LOGICAL lines (may be wider than self._cols).
+        # Each entry: list of (text, fg, bg, bold) segments for one logical line.
+        # Rendering wraps each logical line to physical canvas rows at draw time,
+        # so resizing the canvas reflows scrollback at the new column count.
         self._scrollback: list[list] = []
-        self._scrollback_in_widget: int = 0   # lines already appended to text widget
+        self._scrollback_drawn: int = 0   # logical lines already drawn to canvas
+        self._scrollback_open: bool = False   # last logical line awaits continuation
+        self._sb_phys_rows: int = 0           # physical canvas rows scrollback occupies
+        # Maps physical scrollback row index → (logical_idx, char_start, char_end).
+        # Rebuilt every redraw; used by copy-selection to extract row text.
+        self._phys_to_log: list[tuple[int, int, int]] = []
 
-        # Tag cache: (fg, bg, bold) → tag name
-        self._tag_cache: dict[tuple, str] = {}
-        self._tag_count = 0
+        # Canvas font objects (set in _build_ui once widget exists)
+        self._char_w: int = 7
+        self._char_h: int = 15
+        self._font:       object = None
+        self._bold_font:  object = None
 
         self._resize_job = None
-        self._sel_start: str | None = None
-        self._sel_end:   str | None = None
+        # Selection in terminal grid coordinates: (row, col) tuples
+        self._sel_anchor:    tuple | None = None
+        self._sel_row_start: tuple | None = None
+        self._sel_row_end:   tuple | None = None
         self._session_id = 0   # incremented on each start(); guards stale sentinels
         self._render_suppressed = False   # True during startup; suppresses _redraw_full until clear fires
         self._clear_timer: str | None = None  # after() handle for the fallback clear
@@ -578,6 +617,10 @@ class TerminalPanel(ttk.Frame):
                 venv_scripts = os.path.join(self._idol_venv, "Scripts") + os.pathsep
                 env["PATH"] = env.get("PATH", "").replace(venv_bin, "").replace(venv_scripts, "")
             self._scrollback.clear()
+            self._scrollback_drawn = 0
+            self._scrollback_open = False
+            self._sb_phys_rows = 0
+            self._phys_to_log = []
             self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
             self._stream = pyte.ByteStream(self._screen)
             self._session_id += 1
@@ -590,7 +633,7 @@ class TerminalPanel(ttk.Frame):
             self._state_file_mtime = 0.0
             self._sid_to_key[sid] = self._active_shell_key
             threading.Thread(target=self._read_loop, args=(sid, self._pty), daemon=True).start()
-            self._text.focus_set()
+            self._canvas.focus_set()
             # Inject OSC 7 CWD + VENV reporting hook after shell is ready.
             # Both the cd and hook injection use _send_silently so the TTY
             # driver never echoes the commands — nothing to clear afterward.
@@ -634,9 +677,9 @@ class TerminalPanel(ttk.Frame):
             except Exception:
                 pass
 
-    def resize(self, rows: int, cols: int) -> None:
+    def resize(self, rows: int, cols: int) -> bool:
         if rows == self._rows and cols == self._cols:
-            return
+            return False
         self._rows = rows
         self._cols = cols
         self._screen.resize(rows, cols)
@@ -652,6 +695,7 @@ class TerminalPanel(ttk.Frame):
                     sess["pty"].setwinsize(rows, cols)
             except Exception:
                 pass
+        return True
 
     def _clear_screen_direct(self) -> None:
         """Reset pyte completely to discard startup noise, lift render suppression,
@@ -660,6 +704,10 @@ class TerminalPanel(ttk.Frame):
             self.after_cancel(self._clear_timer)
             self._clear_timer = None
         self._scrollback.clear()
+        self._scrollback_drawn = 0
+        self._scrollback_open = False
+        self._sb_phys_rows = 0
+        self._phys_to_log = []
         self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
         self._stream = pyte.ByteStream(self._screen)
         self._render_suppressed = False
@@ -692,69 +740,60 @@ class TerminalPanel(ttk.Frame):
         self._body_frame.pack(fill="both", expand=True)
 
         text_frame = tk.Frame(self._body_frame, bg="#1e1e1e")
+        self._text_frame = text_frame
         text_frame.pack(side="left", fill="both", expand=True)
         text_frame.grid_rowconfigure(0, weight=1)
         text_frame.grid_columnconfigure(0, weight=1)
 
-        self._text = tk.Text(
+        # Terminal canvas — pixel-perfect VT100 renderer
+        self._font      = tkfont.Font(family=_TERM_FONT_FAMILY, size=_TERM_FONT_SIZE)
+        self._bold_font = tkfont.Font(family=_TERM_FONT_FAMILY, size=_TERM_FONT_SIZE,
+                                      weight="bold")
+        self._char_w = self._font.measure("W")
+        self._char_h = self._font.metrics("linespace")
+
+        self._canvas = tk.Canvas(
             text_frame,
-            bg=_DEFAULT_BG, fg=_DEFAULT_FG,
-            font=("Consolas", 10),
-            wrap="none",
-            relief="flat", borderwidth=0,
-            insertbackground=_DEFAULT_FG,
-            cursor="xterm",
+            bg=_DEFAULT_BG,
+            highlightthickness=0,
             takefocus=True,
-            state="disabled",
-            pady=4,
+            cursor="xterm",
         )
-        vs = VerticalScrollbar(text_frame, command=self._on_scroll)
+        vs = VerticalScrollbar(text_frame, command=self._canvas.yview)
         self._scrollbar = vs
-        self._text.configure(yscrollcommand=self._on_yscroll_update)
-        self._text.grid(row=0, column=0, sticky="nswe")
+        self._canvas.configure(yscrollcommand=vs.set)
+        self._canvas.grid(row=0, column=0, sticky="nswe")
         vs.grid(row=0, column=1, sticky="ns")
 
-        # Preconfigure base tags
-        self._text.tag_configure("plain", foreground=_DEFAULT_FG, background=_DEFAULT_BG)
-        self._text.tag_configure("error", foreground="#ff5555")
-        self._text.tag_configure("cursor_block",
-                                 background=_DEFAULT_FG, foreground=_DEFAULT_BG)
-        # sel tag needs explicit colours — disabled widget won't show default highlight
-        self._text.tag_configure("sel", background="#264f78", foreground=_DEFAULT_FG)
-        self._text.tag_raise("sel")
-
-        # Remove default Text bindings — we handle everything ourselves
-        self._text.bindtags((str(self._text), '.', 'all'))
-
-        self._text.bind("<ButtonPress-1>",   self._on_click)
-        self._text.bind("<B1-Motion>",      self._on_drag)
-        self._text.bind("<MouseWheel>",     self._on_mousewheel)   # Windows
-        self._text.bind("<Button-4>",       self._on_mousewheel)   # Linux scroll up
-        self._text.bind("<Button-5>",       self._on_mousewheel)   # Linux scroll down
-        self._text.bind("<Button-3>",       self._show_context_menu)
-        self._text.bind("<Control-Shift-C>",lambda _: (self._copy_selection(), "break")[1])
-        self._text.bind("<Control-Shift-V>",lambda _: (self._on_paste(),       "break")[1])
-        self._text.bind("<Key>",            self._on_key)
-        self._text.bind("<Return>",        lambda _: (self.send("\r"),   "break")[1])
-        self._text.bind("<BackSpace>",     lambda _: (self.send("\x7f"), "break")[1])
-        self._text.bind("<Tab>",           lambda _: (self.send("\t"),   "break")[1])
-        self._text.bind("<Escape>",        lambda _: (self.send("\x1b"), "break")[1])
-        self._text.bind("<Control-c>",     lambda _: (self.send("\x03"), "break")[1])
-        self._text.bind("<Control-d>",     lambda _: (self.send("\x04"), "break")[1])
-        self._text.bind("<Control-z>",     lambda _: (self.send("\x1a"), "break")[1])
-        self._text.bind("<Control-l>",     lambda _: (self.send("\x0c"), "break")[1])
-        self._text.bind("<Control-a>",     lambda _: (self.send("\x01"), "break")[1])
-        self._text.bind("<Control-e>",     lambda _: (self.send("\x05"), "break")[1])
-        self._text.bind("<Control-u>",     lambda _: (self.send("\x15"), "break")[1])
-        self._text.bind("<Control-k>",     lambda _: (self.send("\x0b"), "break")[1])
-        self._text.bind("<Control-w>",     lambda _: (self.send("\x17"), "break")[1])
-        self._text.bind("<Control-r>",     lambda _: (self.send("\x12"), "break")[1])
-        self._text.bind("<<Paste>>",       self._on_paste)
-        self._text.bind("<Configure>",     self._on_resize)
+        self._canvas.bind("<ButtonPress-1>",   self._on_click)
+        self._canvas.bind("<B1-Motion>",       self._on_drag)
+        self._canvas.bind("<MouseWheel>",      self._on_mousewheel)   # Windows / macOS
+        self._canvas.bind("<Button-4>",        self._on_mousewheel)   # Linux scroll up
+        self._canvas.bind("<Button-5>",        self._on_mousewheel)   # Linux scroll down
+        self._canvas.bind("<Button-3>",        self._show_context_menu)
+        self._canvas.bind("<Control-Shift-C>", lambda _: (self._copy_selection(), "break")[1])
+        self._canvas.bind("<Control-Shift-V>", lambda _: (self._on_paste(),       "break")[1])
+        self._canvas.bind("<Key>",             self._on_key)
+        self._canvas.bind("<Return>",          lambda _: (self.send("\r"),   "break")[1])
+        self._canvas.bind("<BackSpace>",       lambda _: (self.send("\x7f"), "break")[1])
+        self._canvas.bind("<Tab>",             lambda _: (self.send("\t"),   "break")[1])
+        self._canvas.bind("<Escape>",          lambda _: (self.send("\x1b"), "break")[1])
+        self._canvas.bind("<Control-c>",       lambda _: (self.send("\x03"), "break")[1])
+        self._canvas.bind("<Control-d>",       lambda _: (self.send("\x04"), "break")[1])
+        self._canvas.bind("<Control-z>",       lambda _: (self.send("\x1a"), "break")[1])
+        self._canvas.bind("<Control-l>",       lambda _: (self.send("\x0c"), "break")[1])
+        self._canvas.bind("<Control-a>",       lambda _: (self.send("\x01"), "break")[1])
+        self._canvas.bind("<Control-e>",       lambda _: (self.send("\x05"), "break")[1])
+        self._canvas.bind("<Control-u>",       lambda _: (self.send("\x15"), "break")[1])
+        self._canvas.bind("<Control-k>",       lambda _: (self.send("\x0b"), "break")[1])
+        self._canvas.bind("<Control-w>",       lambda _: (self.send("\x17"), "break")[1])
+        self._canvas.bind("<Control-r>",       lambda _: (self.send("\x12"), "break")[1])
+        self._canvas.bind("<<Paste>>",         self._on_paste)
+        self._canvas.bind("<Configure>",       self._on_resize)
 
         for keysym, seq in self._KEY_MAP.items():
-            self._text.bind(f"<{keysym}>",
-                            lambda _, s=seq: (self.send(s), "break")[1])
+            self._canvas.bind(f"<{keysym}>",
+                              lambda _, s=seq: (self.send(s), "break")[1])
 
         # Ghost sash (4px canvas, draggable, resizes session panel)
         self._sash = tk.Canvas(self._body_frame, width=4, bg="#2d2d30",
@@ -782,26 +821,142 @@ class TerminalPanel(ttk.Frame):
 
     def _on_scroll(self, *args) -> None:
         """Scrollbar drag — scroll through combined scrollback + screen view."""
-        self._text.yview(*args)
+        self._canvas.yview(*args)
 
     def _on_yscroll_update(self, first: str, last: str) -> None:
         self._scrollbar.set(first, last)
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
-    def _get_tag(self, fg: str, bg: str, bold: bool) -> str:
-        """Return (creating if needed) a tk tag for this fg/bg/bold combo."""
-        key = (fg, bg, bold)
-        if key in self._tag_cache:
-            return self._tag_cache[key]
-        self._tag_count += 1
-        name = f"t{self._tag_count}"
-        opts: dict = {"foreground": fg, "background": bg}
-        if bold:
-            opts["font"] = ("Consolas", 10, "bold")
-        self._text.tag_configure(name, **opts)
-        self._tag_cache[key] = name
-        return name
+    def _draw_row(self, canvas_row: int, segments: list, tags: tuple = ()) -> None:
+        """Draw one row of (text, fg, bg, bold) segments at the given canvas row index."""
+        x = 0
+        y = canvas_row * self._char_h
+        for text, fg, bg, bold in segments:
+            w = len(text) * self._char_w
+            if bg != _DEFAULT_BG:
+                self._canvas.create_rectangle(
+                    x, y, x + w, y + self._char_h,
+                    fill=bg, outline="", tags=tags,
+                )
+            self._canvas.create_text(
+                x, y, text=text, fill=fg, anchor="nw",
+                font=self._bold_font if bold else self._font,
+                tags=tags,
+            )
+            x += w
+
+    def _char_at_cursor(self, segments: list, cursor_x: int) -> str:
+        """Return the character at column cursor_x from a segment list."""
+        col = 0
+        for text, _fg, _bg, _bold in segments:
+            if col <= cursor_x < col + len(text):
+                return text[cursor_x - col]
+            col += len(text)
+        return " "
+
+    def _draw_screen_rows(self) -> None:
+        """Draw current pyte screen rows tagged 'live'. Draws cursor on top."""
+        sb = self._sb_phys_rows
+        screen_lines = self._screen_to_lines()
+        cur_y = self._screen.cursor.y
+        cur_x = self._screen.cursor.x
+        for row_idx, segs in enumerate(screen_lines):
+            canvas_row = sb + row_idx
+            self._draw_row(canvas_row, segs, ("live",))
+            if row_idx == cur_y:
+                cx = cur_x * self._char_w
+                cy = canvas_row * self._char_h
+                self._canvas.create_rectangle(
+                    cx, cy, cx + self._char_w, cy + self._char_h,
+                    fill=_DEFAULT_FG, outline="", tags=("cursor", "live"),
+                )
+                self._canvas.create_text(
+                    cx, cy,
+                    text=self._char_at_cursor(segs, cur_x),
+                    fill=_DEFAULT_BG, anchor="nw",
+                    font=self._font,
+                    tags=("cursor", "live"),
+                )
+
+    def _live_used_rows(self) -> int:
+        """Number of pyte visible-buffer rows that contain content or the
+        cursor — i.e. the rows worth scrolling over. Empty rows below this
+        are excluded from the scrollregion so the user can't scroll past
+        the last meaningful row."""
+        last_used = self._screen.cursor.y
+        for y in range(self._screen.lines - 1, last_used, -1):
+            line = self._screen.buffer.get(y)
+            if not line:
+                continue
+            for x in range(self._screen.columns):
+                ch = line.get(x)
+                if ch is None:
+                    continue
+                if (ch.data and ch.data != " ") or ch.bg != "default":
+                    last_used = y
+                    break
+            if last_used > self._screen.cursor.y:
+                break
+        return last_used + 1
+
+    def _update_scrollregion(self) -> None:
+        live_rows = self._live_used_rows()
+        total_h = (self._sb_phys_rows + live_rows) * self._char_h
+        cw = max(self._cols * self._char_w, self._canvas.winfo_width())
+        self._canvas.configure(scrollregion=(0, 0, cw, total_h))
+
+    def _canvas_to_term(self, event) -> tuple:
+        """Convert a canvas mouse event to (row, col) in terminal grid coords."""
+        cx = self._canvas.canvasx(event.x)
+        cy = self._canvas.canvasy(event.y)
+        row = max(0, int(cy // self._char_h))
+        col = max(0, min(int(cx // self._char_w), self._cols - 1))
+        total_rows = self._sb_phys_rows + self._rows
+        row = min(row, total_rows - 1)
+        return row, col
+
+    def _get_row_text(self, row_idx: int) -> str:
+        """Return the plain text for a terminal row (scrollback or live screen)."""
+        if row_idx < self._sb_phys_rows:
+            if row_idx >= len(self._phys_to_log):
+                return ""
+            log_idx, c_start, c_end = self._phys_to_log[row_idx]
+            if log_idx >= len(self._scrollback):
+                return ""
+            full = "".join(t for t, _fg, _bg, _bold in self._scrollback[log_idx])
+            return full[c_start:c_end].rstrip()
+        screen_idx = row_idx - self._sb_phys_rows
+        lines = self._screen_to_lines()
+        if 0 <= screen_idx < len(lines):
+            return "".join(t for t, _fg, _bg, _bold in lines[screen_idx]).rstrip()
+        return ""
+
+    def _draw_selection(self) -> None:
+        """Draw selection highlight rectangles (behind text via tag_lower)."""
+        if not self._sel_row_start or not self._sel_row_end:
+            return
+        r1, c1 = self._sel_row_start
+        r2, c2 = self._sel_row_end
+        if (r1, c1) >= (r2, c2):
+            return
+        for row in range(r1, r2 + 1):
+            if r1 == r2:
+                x1, x2 = c1 * self._char_w, c2 * self._char_w
+            elif row == r1:
+                x1, x2 = c1 * self._char_w, self._cols * self._char_w
+            elif row == r2:
+                x1, x2 = 0, c2 * self._char_w
+            else:
+                x1, x2 = 0, self._cols * self._char_w
+            if x1 >= x2:
+                continue
+            y1 = row * self._char_h
+            self._canvas.create_rectangle(
+                x1, y1, x2, y1 + self._char_h,
+                fill="#264f78", outline="", tags=("sel",),
+            )
+        self._canvas.tag_lower("sel")
 
     def _screen_to_lines(self) -> list[list]:
         """Convert current pyte screen to a list of segment lists."""
@@ -829,113 +984,174 @@ class TerminalPanel(ttk.Frame):
             lines.append(segments)
         return lines
 
+    def _row_effective_wrap(self, line, wrapped: bool) -> bool:
+        """Return True only if this row actually wrap-continues onto the next.
+        Pyte's idol_wrapped flag is set when the cursor reached col == columns,
+        but that state persists even if the line is later cleared, the cursor
+        is repositioned away, or PSReadLine redraws the prompt over the row.
+        Trust the flag ONLY if the row's last cell currently has content,
+        which is the requirement for a real visual wrap."""
+        if not wrapped:
+            return False
+        last_cell = line.get(self._screen.columns - 1)
+        if last_cell is None:
+            return False
+        data = last_cell.data
+        if data and data != " ":
+            return True
+        if last_cell.fg != "default" or last_cell.bg != "default":
+            return True
+        return False
+
+    def _row_segments_for_history(self, line, wrapped: bool) -> list:
+        """Build (text, fg, bg, bold) segments for one pyte history row.
+        Trailing default-attribute spaces are always stripped so the logical
+        line ends at its real content. We strip on wrapped rows too: shells
+        like PSReadLine that redraw prompts can leave cells in a "wrapped but
+        empty trailing" state where the wrap flag was set during the original
+        fill but cells were subsequently erased — keeping those cells leaks
+        as visible left-side gutter on reflowed continuation rows."""
+        segments: list = []
+        run_text = ""
+        run_fg = _DEFAULT_FG
+        run_bg = _DEFAULT_BG
+        run_bold = False
+        for col_idx in range(self._screen.columns):
+            char = line[col_idx]
+            fg, bg, bold = _cell_tag(char)
+            ch = char.data if char.data else " "
+            if fg == run_fg and bg == run_bg and bold == run_bold:
+                run_text += ch
+            else:
+                if run_text:
+                    segments.append((run_text, run_fg, run_bg, run_bold))
+                run_text = ch
+                run_fg, run_bg, run_bold = fg, bg, bold
+        if run_text:
+            segments.append((run_text, run_fg, run_bg, run_bold))
+
+        while segments:
+            t, fg, bg, bold = segments[-1]
+            if fg != _DEFAULT_FG or bg != _DEFAULT_BG or bold:
+                break
+            stripped = t.rstrip(" ")
+            if stripped == t:
+                break
+            if stripped:
+                segments[-1] = (stripped, fg, bg, bold)
+                break
+            segments.pop()
+        return segments
+
+    def _split_segments(self, segments: list, cols: int) -> list:
+        """Split a logical line of segments into a list of (phys_segments, width)
+        rows, each at most `cols` characters wide. Empty input → one empty row."""
+        if cols <= 0:
+            cols = 1
+        rows: list = []
+        cur_segs: list = []
+        cur_w = 0
+        for text, fg, bg, bold in segments:
+            idx = 0
+            while idx < len(text):
+                if cur_w >= cols:
+                    rows.append((cur_segs, cur_w))
+                    cur_segs = []
+                    cur_w = 0
+                take = min(cols - cur_w, len(text) - idx)
+                cur_segs.append((text[idx:idx + take], fg, bg, bold))
+                cur_w += take
+                idx += take
+        if cur_segs or not rows:
+            rows.append((cur_segs, cur_w))
+        return rows
+
+    def _draw_logical_line(self, segments: list, canvas_row_start: int,
+                           tags: tuple) -> tuple:
+        """Wrap a logical line at self._cols and draw each physical chunk.
+        Returns (n_physical_rows, [width_per_row])."""
+        chunks = self._split_segments(segments, self._cols)
+        for i, (phys_segs, _w) in enumerate(chunks):
+            self._draw_row(canvas_row_start + i, phys_segs, tags)
+        return len(chunks), [w for _segs, w in chunks]
+
     def _redraw_full(self) -> None:
-        """Full redraw from scratch (restart / clear). Resets incremental counter."""
+        """Full redraw from scratch (restart / clear / resize). Wraps scrollback
+        at the current self._cols so window/sash resize reflows historical lines."""
         if self._render_suppressed:
             return
-        self._scrollback_in_widget = 0
-        self._text.config(state="normal")
-        self._text.delete("1.0", "end")
-
-        # Scrollback lines
-        for seg_list in self._scrollback:
-            for text, fg, bg, bold in seg_list:
-                tag = self._get_tag(fg, bg, bold)
-                self._text.insert("end", text, tag)
-            self._text.insert("end", "\n", "plain")
-        self._scrollback_in_widget = len(self._scrollback)
-
-        self._insert_screen_rows()
-
-        self._text.config(state="disabled")
-        if self._sel_start and self._sel_end:
-            try:
-                self._text.tag_add("sel", self._sel_start, self._sel_end)
-                self._text.tag_raise("sel")
-            except Exception:
-                pass
-        cursor_line = len(self._scrollback) + self._screen.cursor.y + 1
-        self._text.see(f"{cursor_line}.0")
-        self._text.xview_moveto(0)
+        self._canvas.delete("all")
+        self._sb_phys_rows = 0
+        self._phys_to_log = []
+        for log_idx, segs in enumerate(self._scrollback):
+            n_rows, widths = self._draw_logical_line(
+                segs, self._sb_phys_rows, ("sb",))
+            char_off = 0
+            for w in widths:
+                self._phys_to_log.append((log_idx, char_off, char_off + w))
+                char_off += w
+            self._sb_phys_rows += n_rows
+        self._scrollback_drawn = len(self._scrollback)
+        self._draw_screen_rows()
+        self._draw_selection()
+        self._update_scrollregion()
+        self._canvas.yview_moveto(1.0)
 
     def _redraw_screen(self) -> None:
-        """Rewrite only the live screen rows (scrollback already appended)."""
+        """Rewrite only the live screen rows (scrollback already drawn on canvas)."""
         if self._render_suppressed:
             return
-        screen_start = self._scrollback_in_widget + 1
-        self._text.config(state="normal")
-        self._text.delete(f"{screen_start}.0", "end")
-        self._insert_screen_rows()
-        self._text.config(state="disabled")
-        if self._sel_start and self._sel_end:
-            try:
-                self._text.tag_add("sel", self._sel_start, self._sel_end)
-                self._text.tag_raise("sel")
-            except Exception:
-                pass
-        cursor_line = self._scrollback_in_widget + self._screen.cursor.y + 1
-        self._text.see(f"{cursor_line}.0")
-        self._text.xview_moveto(0)
-
-    def _insert_screen_rows(self) -> None:
-        """Insert the current pyte screen rows into the text widget (state=normal assumed)."""
-        screen_lines = self._screen_to_lines()
-        cursor_row = self._screen.cursor.y
-        cursor_col = self._screen.cursor.x
-        for row_idx, seg_list in enumerate(screen_lines):
-            col = 0
-            for text, fg, bg, bold in seg_list:
-                if row_idx == cursor_row:
-                    for ci, ch in enumerate(text):
-                        if col + ci == cursor_col:
-                            self._text.insert("end", ch, "cursor_block")
-                        else:
-                            self._text.insert("end", ch, self._get_tag(fg, bg, bold))
-                    col += len(text)
-                else:
-                    self._text.insert("end", text, self._get_tag(fg, bg, bold))
-            if row_idx < len(screen_lines) - 1:
-                self._text.insert("end", "\n", "plain")
+        self._canvas.delete("live")
+        self._canvas.delete("sel")
+        self._draw_screen_rows()
+        self._draw_selection()
+        self._update_scrollregion()
+        self._canvas.yview_moveto(1.0)
 
     def _flush_scrollback(self) -> None:
-        """Move lines scrolled off the pyte screen into our list, then append new ones to widget."""
+        """Pull rows out of pyte history, merging wrap-continued rows into one
+        logical line so they can reflow at the current canvas width."""
+        if not self._screen.history.top:
+            return
+        # If the last logical line is "open" (awaits continuation), the first
+        # row pulled from history extends it — that line's physical row count
+        # may grow, so we redraw fully rather than just appending new rows.
+        needs_full = bool(self._scrollback_open and self._scrollback)
         while self._screen.history.top:
             row = self._screen.history.top.popleft()
-            segments = []
-            run_text = ""
-            run_fg = _DEFAULT_FG
-            run_bg = _DEFAULT_BG
-            run_bold = False
-            for col_idx in range(self._screen.columns):
-                char = row[col_idx]
-                fg, bg, bold = _cell_tag(char)
-                ch = char.data if char.data else " "
-                if fg == run_fg and bg == run_bg and bold == run_bold:
-                    run_text += ch
-                else:
-                    if run_text:
-                        segments.append((run_text, run_fg, run_bg, run_bold))
-                    run_text = ch
-                    run_fg, run_bg, run_bold = fg, bg, bold
-            if run_text:
-                segments.append((run_text, run_fg, run_bg, run_bold))
-            self._scrollback.append(segments)
+            wrapped = self._row_effective_wrap(
+                row, bool(getattr(row, "idol_wrapped", False)))
+            segs = self._row_segments_for_history(row, wrapped)
+            if self._scrollback_open and self._scrollback:
+                self._scrollback[-1].extend(segs)
+            else:
+                self._scrollback.append(segs)
+            self._scrollback_open = wrapped
 
-        # Cap scrollback length
+        # Cap scrollback length (logical lines). Trim forces full redraw.
         if len(self._scrollback) > self._SCROLLBACK:
             trim = len(self._scrollback) - self._SCROLLBACK
             self._scrollback = self._scrollback[trim:]
-            self._scrollback_in_widget = max(0, self._scrollback_in_widget - trim)
+            self._scrollback_drawn = max(0, self._scrollback_drawn - trim)
+            needs_full = True
 
-        # Append any new scrollback lines to the text widget
-        if self._scrollback_in_widget < len(self._scrollback) and not self._render_suppressed:
-            self._text.config(state="normal")
-            for seg_list in self._scrollback[self._scrollback_in_widget:]:
-                for text, fg, bg, bold in seg_list:
-                    self._text.insert("end", text, self._get_tag(fg, bg, bold))
-                self._text.insert("end", "\n", "plain")
-            self._scrollback_in_widget = len(self._scrollback)
-            self._text.config(state="disabled")
+        if self._render_suppressed:
+            return
+
+        if needs_full:
+            self._redraw_full()
+            return
+
+        # Incremental: draw only the newly-added logical lines.
+        for i in range(self._scrollback_drawn, len(self._scrollback)):
+            n_rows, widths = self._draw_logical_line(
+                self._scrollback[i], self._sb_phys_rows, ("sb",))
+            char_off = 0
+            for w in widths:
+                self._phys_to_log.append((i, char_off, char_off + w))
+                char_off += w
+            self._sb_phys_rows += n_rows
+        self._scrollback_drawn = len(self._scrollback)
 
     # ── PTY I/O ───────────────────────────────────────────────────────────────
 
@@ -990,10 +1206,8 @@ class TerminalPanel(ttk.Frame):
 
         if active_sentinel:
             self._running = False
-            self._text.config(state="normal")
-            self._text.insert("end", "\n[Process exited]\n", "plain")
-            self._text.config(state="disabled")
-            self._text.see("end")
+            self._scrollback.append([("[Process exited]", _DEFAULT_FG, _DEFAULT_BG, False)])
+            self._redraw_full()
 
         self.after(30, self._poll)
 
@@ -1002,8 +1216,9 @@ class TerminalPanel(ttk.Frame):
     def _on_key(self, event) -> str:
         char = event.char
         if char and char not in ("\r", "\n", "\x08"):
-            self._sel_start = None
-            self._sel_end   = None
+            self._sel_row_start = None
+            self._sel_row_end   = None
+            self._canvas.delete("sel")
             self.send(char)
         return "break"
 
@@ -1019,13 +1234,13 @@ class TerminalPanel(ttk.Frame):
             self.send(f"\x1b[<{btn};{col};{row}M")
         else:
             # Normal shell — scroll the view
-            self._text.yview_scroll(-3 if up else 3, "units")
+            self._canvas.yview_scroll(-3 if up else 3, "units")
 
         return "break"
 
     def _on_paste(self, _=None) -> str:
         try:
-            text = self._text.clipboard_get()
+            text = self._canvas.clipboard_get()
             if text:
                 self.send(text)
         except Exception:
@@ -1036,47 +1251,54 @@ class TerminalPanel(ttk.Frame):
         dismiss = getattr(self, "_ctx_overlay_dismiss", None)
         if dismiss:
             dismiss()
-        self._text.focus_set()
-        # Clear existing selection and set the drag anchor
-        self._sel_start = None
-        self._sel_end   = None
-        self._sel_anchor = self._text.index(f"@{event.x},{event.y}")
-        self._text.tag_remove("sel", "1.0", "end")
+        self._canvas.focus_set()
+        self._sel_anchor    = self._canvas_to_term(event)
+        self._sel_row_start = None
+        self._sel_row_end   = None
+        self._canvas.delete("sel")
         return "break"
 
     def _on_drag(self, event) -> str:
         if not self._sel_anchor:
             return "break"
-        cur = self._text.index(f"@{event.x},{event.y}")
+        cur    = self._canvas_to_term(event)
         anchor = self._sel_anchor
-        if self._text.compare(anchor, "<=", cur):
-            start, end = anchor, cur
+        if anchor <= cur:
+            self._sel_row_start, self._sel_row_end = anchor, cur
         else:
-            start, end = cur, anchor
-        self._sel_start = start
-        self._sel_end   = end
-        self._text.tag_remove("sel", "1.0", "end")
-        self._text.tag_add("sel", start, end)
-        self._text.tag_raise("sel")
+            self._sel_row_start, self._sel_row_end = cur, anchor
+        self._canvas.delete("sel")
+        self._draw_selection()
         return "break"
 
     def _copy_selection(self) -> None:
-        try:
-            text = self._text.get("sel.first", "sel.last")
-            if text:
-                self._text.clipboard_clear()
-                self._text.clipboard_append(text)
-        except Exception:
-            pass
+        if not self._sel_row_start or not self._sel_row_end:
+            return
+        r1, c1 = self._sel_row_start
+        r2, c2 = self._sel_row_end
+        if (r1, c1) >= (r2, c2):
+            return
+        lines = []
+        for row in range(r1, r2 + 1):
+            text = self._get_row_text(row)
+            if r1 == r2:
+                text = text[c1:c2]
+            elif row == r1:
+                text = text[c1:]
+            elif row == r2:
+                text = text[:c2]
+            lines.append(text)
+        result = "\n".join(lines)
+        if result.strip():
+            try:
+                self._canvas.clipboard_clear()
+                self._canvas.clipboard_append(result)
+            except Exception:
+                pass
 
     def _show_context_menu(self, event) -> str:
-        has_sel = False
-        try:
-            self._text.index("sel.first")
-            has_sel = True
-        except Exception:
-            pass
-
+        has_sel = bool(self._sel_row_start and self._sel_row_end
+                       and self._sel_row_start < self._sel_row_end)
         items = [
             ("Copy          Ctrl+Shift+C", self._copy_selection, has_sel),
             ("Paste        Ctrl+Shift+V",  self._on_paste,       True),
@@ -1089,7 +1311,7 @@ class TerminalPanel(ttk.Frame):
         if existing_dismiss:
             existing_dismiss()
 
-        top = self._text.winfo_toplevel()
+        top = self._canvas.winfo_toplevel()
         rel_x = x_root - top.winfo_rootx()
         rel_y = y_root - top.winfo_rooty()
 
@@ -1199,7 +1421,8 @@ class TerminalPanel(ttk.Frame):
                 "screen":            self._screen,
                 "stream":            self._stream,
                 "scrollback":        self._scrollback,
-                "scrollback_in_widget": self._scrollback_in_widget,
+                "scrollback_drawn":  self._scrollback_drawn,
+                "scrollback_open":   self._scrollback_open,
                 "session_id":        self._session_id,
                 "running":           self._running,
                 "render_suppressed": self._render_suppressed,
@@ -1219,7 +1442,11 @@ class TerminalPanel(ttk.Frame):
             self._screen                = sess["screen"]
             self._stream                = sess["stream"]
             self._scrollback            = sess["scrollback"]
-            self._scrollback_in_widget  = sess.get("scrollback_in_widget", 0)
+            self._scrollback_drawn      = sess.get("scrollback_drawn", 0)
+            self._scrollback_open       = sess.get("scrollback_open", False)
+            # _sb_phys_rows + _phys_to_log are rebuilt by _redraw_full below
+            self._sb_phys_rows          = 0
+            self._phys_to_log           = []
             self._session_id            = sess["session_id"]
             self._running               = sess["running"]
             self._render_suppressed     = sess["render_suppressed"]
@@ -1362,12 +1589,12 @@ class TerminalPanel(ttk.Frame):
     # ── Panel animation ────────────────────────────────────────────────────────
 
     def _trigger_resize_now(self) -> None:
-        """Cancel any pending debounce and resize on the next event loop tick."""
-        print(f"[DBG] _trigger_resize_now  text_w={self._text.winfo_width()}  panel_w={self._session_panel.winfo_width() if hasattr(self,'_session_panel') else '?'}")
+        """Cancel any pending debounce, flush geometry, then resize immediately."""
         if self._resize_job:
             self.after_cancel(self._resize_job)
             self._resize_job = None
-        self.after(0, self._do_resize)
+        self.update_idletasks()
+        self._do_resize()
 
     def _animate_panel(self, target_w: int, cur_w: int, gen: int) -> None:
         if gen != self._anim_gen:
@@ -1376,8 +1603,6 @@ class TerminalPanel(ttk.Frame):
             if target_w == 0:
                 self._sash.pack_forget()
                 self._session_panel.pack_forget()
-            print(f"[DBG] _animate_panel done  target={target_w}  text_w={self._text.winfo_width()}")
-            # Resize immediately — don't wait for the 50ms <Configure> debounce
             self._trigger_resize_now()
             return
         nw = min(cur_w + 20, target_w) if target_w > cur_w else max(cur_w - 20, target_w)
@@ -1660,28 +1885,119 @@ class TerminalPanel(ttk.Frame):
             except Exception:
                 pass
         self._resize_job = self.after(50, self._do_resize)
-        print(f"[DBG] _on_resize fired  text_w={self._text.winfo_width()}  text_h={self._text.winfo_height()}")
+
+    def _current_prompt_start_y(self) -> int:
+        """Walk up from the cursor to find the first row of the current
+        prompt's logical line (cursor row + any rows above that wrap-continue
+        into it). Rows above this index are 'historical' content safe to
+        snapshot into scrollback."""
+        y = self._screen.cursor.y
+        while y > 0:
+            prev = self._screen.buffer.get(y - 1)
+            if prev is None:
+                break
+            raw_wrapped = bool(getattr(prev, "idol_wrapped", False))
+            if not self._row_effective_wrap(prev, raw_wrapped):
+                break
+            y -= 1
+        return y
+
+    def _snapshot_visible_to_scrollback(self) -> None:
+        """Move rows above the current prompt's first row into our logical
+        scrollback. The prompt area (cursor row + any wrap-continuation rows
+        above it) stays in pyte's visible buffer so the shell doesn't need
+        to redraw a fresh prompt every time the user resizes — the SIGWINCH
+        from setwinsize triggers an in-place repaint at the new width.
+
+        After capturing, the surviving rows are shifted up so the prompt
+        sits at row 0, eliminating the gap between scrollback and the live
+        area."""
+        live_start = self._current_prompt_start_y()
+        if live_start <= 0:
+            return
+        # Capture rows 0..live_start-1 into scrollback
+        for y in range(live_start):
+            line = self._screen.buffer.get(y)
+            if line is None:
+                continue
+            raw_wrapped = bool(getattr(line, "idol_wrapped", False))
+            wrapped = self._row_effective_wrap(line, raw_wrapped)
+            segs = self._row_segments_for_history(line, wrapped)
+            if self._scrollback_open and self._scrollback:
+                self._scrollback[-1].extend(segs)
+            else:
+                self._scrollback.append(segs)
+            self._scrollback_open = wrapped
+        # Shift prompt area up: row (live_start + k) → row k
+        survivors: dict = {}
+        for new_y in range(self._screen.lines - live_start):
+            src = self._screen.buffer.get(new_y + live_start)
+            if src is not None:
+                survivors[new_y] = src
+        self._screen.buffer.clear()
+        for new_y, line in survivors.items():
+            self._screen.buffer[new_y] = line
+        self._screen.cursor.y = max(0, self._screen.cursor.y - live_start)
+        self._screen.dirty.update(range(self._screen.lines))
 
     def _do_resize(self) -> None:
         self._resize_job = None
         try:
-            font_w = self._text.tk.call("font", "measure",
-                                        str(self._text.cget("font")), "0")
-            font_h = self._text.tk.call("font", "metrics",
-                                        str(self._text.cget("font")), "-linespace")
-            w = self._text.winfo_width()
-            h = self._text.winfo_height()
-            print(f"[DBG] _do_resize  text={w}x{h}  font={font_w}x{font_h}  panel_w={self._session_panel.winfo_width() if hasattr(self,'_session_panel') else '?'}")
-            if w > 0 and h > 0 and font_w > 0 and font_h > 0:
-                cols = max(10, w  // font_w)
-                rows = max(5,  (h - 8) // font_h)  # -8 accounts for pady=4 top+bottom
-                print(f"[DBG] _do_resize  → resize({rows}, {cols})  prev=({self._rows}, {self._cols})")
+            w = self._canvas.winfo_width()
+            h = self._canvas.winfo_height()
+            if w > 1 and h > 1 and self._char_w > 0 and self._char_h > 0:
+                cols = max(10, w // self._char_w)
+                rows = max(5,  h // self._char_h)
+                if cols == self._cols and rows == self._rows:
+                    return
+                # Capture viewport anchor BEFORE mutating state so we can
+                # restore the user's scroll position after reflow. canvasy(0)
+                # gives the top-of-viewport in canvas pixels regardless of
+                # scrollregion shape, which avoids depending on the old
+                # _live_used_rows() calculation.
+                _, last = self._canvas.yview()
+                at_bottom = last >= 0.999
+                top_anchor: Optional[tuple[int, int]] = None
+                if not at_bottom and self._phys_to_log:
+                    top_phys = int(self._canvas.canvasy(0) // self._char_h)
+                    if 0 <= top_phys < len(self._phys_to_log):
+                        log_idx, c_start, _ = self._phys_to_log[top_phys]
+                        top_anchor = (log_idx, c_start)
+                    else:
+                        # Top of viewport is in the live area — treat as bottom.
+                        at_bottom = True
+                # Move rows ABOVE the current prompt into scrollback (and
+                # shift the prompt rows up to start at row 0). The current
+                # prompt stays in pyte's visible buffer, so SIGWINCH from
+                # setwinsize is enough to make the shell repaint it in place
+                # at the new width — no fresh prompt is appended on each
+                # resize.
+                self._snapshot_visible_to_scrollback()
                 self.resize(rows, cols)
-        except Exception as e:
-            print(f"[DBG] _do_resize  EXCEPTION: {e}")
+                # Selection coords live in physical canvas rows that change
+                # meaning after reflow — clear rather than try to remap.
+                self._sel_anchor = None
+                self._sel_row_start = None
+                self._sel_row_end = None
+                self._redraw_full()
+                # Restore viewport anchor. _redraw_full already pegged the
+                # view to the bottom, which is correct when the user was at
+                # the live prompt; otherwise we map the captured logical
+                # anchor to its new physical row and scroll there.
+                if not at_bottom and top_anchor is not None:
+                    total_new = self._sb_phys_rows + self._live_used_rows()
+                    if total_new > 0:
+                        log_idx, c_start = top_anchor
+                        target_phys = self._sb_phys_rows
+                        for i, (lidx, cs, _ce) in enumerate(self._phys_to_log):
+                            if lidx > log_idx or (lidx == log_idx and cs >= c_start):
+                                target_phys = i
+                                break
+                        self._canvas.yview_moveto(target_phys / total_new)
+        except Exception:
+            pass
 
     def _write_error(self, text: str) -> None:
-        self._text.config(state="normal")
-        self._text.insert("end", text, "error")
-        self._text.config(state="disabled")
-        self._text.see("end")
+        for line in text.rstrip("\n").split("\n"):
+            self._scrollback.append([(line, "#ff5555", _DEFAULT_BG, False)])
+        self._redraw_full()
