@@ -1673,6 +1673,8 @@ class TerminalPanel(ttk.Frame):
         _KNOWN_SHELLS = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
         if not any(s in shell_name for s in _KNOWN_SHELLS):
             return   # REPL or unknown program — skip hook injection
+        if "cmd" in shell_name:
+            return   # cmd has no per-prompt callback; injecting PS syntax would error
 
         if sys == "Windows":
             # Write CWD/VENV to a temp file instead of stdout — avoids any PTY
