@@ -72,6 +72,36 @@ THEMES: dict[str, dict] = {
             "decorator":    ("#67d8ef", False),
         },
     },
+    # Monokai syntax palette wearing Dark+'s structural look:
+    # gutter matches bg, brighter active line number, italic comments,
+    # operators/punctuation left at default fg. Functions go green,
+    # types/classes go cyan, self goes orange — the punchier Monokai
+    # split rather than monokai's "everything green".
+    "monokai-dark-plus": {
+        "palette": {
+            "bg":               "#272822",
+            "fg":               "#f8f8f2",
+            "caret":            "#f8f8f0",
+            "select_bg":        "#49483e",
+            "current_line_bg":  "#3e3d32",
+            "guide":            "#3b3a32",
+            "gutter_bg":        "#272822",
+            "gutter_fg":        "#90908a",
+            "gutter_fg_active": "#c2c2bf",
+        },
+        "tokens": {
+            "comment":      ("#75715e", True),
+            "string":       ("#e6db74", False),
+            "number":       ("#ae81ff", False),
+            "keyword_flow": ("#f92672", False),
+            "keyword_decl": ("#f92672", False),
+            "constant":     ("#ae81ff", False),
+            "self_cls":     ("#fd971f", False),
+            "type":         ("#66d9ef", False),
+            "function":     ("#a6e22e", False),
+            "decorator":    ("#a6e22e", False),
+        },
+    },
 }
 
 _DEFAULT_THEME = "dark-plus"
@@ -584,6 +614,14 @@ class CanvasEditorSandbox(tk.Frame):
                 self.sel_anchor = (self.cur_line, self.cur_col)
             elif not shift:
                 self.sel_anchor = None
+
+        # Ctrl+<digit> → switch theme by index (Ctrl+1 = first theme, etc.)
+        if ctrl and ks.isdigit() and len(ks) == 1 and ks != "0":
+            names = list(THEMES.keys())
+            idx = int(ks) - 1
+            if 0 <= idx < len(names):
+                self.set_theme(names[idx])
+            return "break"
 
         # Ctrl shortcuts
         if ctrl and ks.lower() == "a":
