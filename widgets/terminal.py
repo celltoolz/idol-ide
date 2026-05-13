@@ -245,7 +245,7 @@ class TerminalPanel(ttk.Frame):
         # Venv tracking
         self._cwd_current: str = ""        # last CWD from OSC 7 / state file
         self._venv_active:  str = ""        # $VIRTUAL_ENV from shell hook ("" = none)
-        self._raw_buf: str = ""            # partial raw output buffer for marker scanning
+        self._raw_buf: str = ""            # kept for session serialization compat; not used
         # IDOL's own venv — inherited by child shells, ignore for user detection
         self._idol_venv: str = os.environ.get("VIRTUAL_ENV", "")
         # Windows: temp file used to pass CWD/VENV without polluting stdout
@@ -980,7 +980,7 @@ class TerminalPanel(ttk.Frame):
                 ' local _ec=$?;'
                 ' printf "\\e]133;D;%d\\a" "$_ec";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOST" "$PWD";'
-                ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}";'
+                ' printf "\\e]7776;%s\\a" "${VIRTUAL_ENV:-}";'
                 '};'
                 ' precmd_functions=(_idol_prompt "${precmd_functions[@]}")\r'
             )
@@ -990,7 +990,7 @@ class TerminalPanel(ttk.Frame):
                 'export PROMPT_COMMAND=\'_ec=$?;'
                 ' printf "\\e]133;D;%d\\a" "$_ec";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
-                ' printf "IDOL_VENV:%s\\n" "${VIRTUAL_ENV:-}"\'\r'
+                ' printf "\\e]7776;%s\\a" "${VIRTUAL_ENV:-}"\'\r'
             )
         self._send_silently(hook)
 
@@ -1013,53 +1013,37 @@ class TerminalPanel(ttk.Frame):
         self.after(500, self._poll_state_file)
 
     def _process_markers(self, raw: str) -> str:
-        """Scan raw PTY output for Unix CWD/VENV markers and strip them.
-        Unix:    OSC 7 for CWD,  IDOL_VENV:<path> line for venv
-        Windows: CWD/VENV are read from a temp file (see _poll_state_file); no
-                 stdout markers are used so this function is a no-op on Windows."""
+        """Strip IDOL-private OSC sequences from raw PTY output and fire callbacks.
+
+        OSC 133   — shell integration: command finished + exit code
+        OSC 7     — CWD (file:// URI)
+        OSC 7776  — IDOL private: active venv path (replaces in-band IDOL_VENV: line)
+
+        Windows: OSC 7 / 7776 are never emitted; CWD/VENV come from a temp file."""
 
         # ── OSC 133 shell integration (prompt appearing = command finished) ──
         m133 = re.search(r'\x1b\]133;[A-Z](?:;(\d+))?(?:\x07|\x1b\\)?', raw)
         if m133:
             exit_code = int(m133.group(1)) if m133.group(1) is not None else None
             self.after(0, lambda ec=exit_code: self._on_shell_command_done(ec))
-        # Strip full OSC 133 sequences (ESC ] 133 ; letter [;exit_code]  BEL|ST)
         raw = re.sub(r'\x1b\]133;[A-Z](?:;\d+)?(?:\x07|\x1b\\)?', '', raw)
 
-        # ── Unix OSC 7 (ESC ] 7 ; file://host/path BEL) ──────────────────────
+        # ── OSC 7: CWD  (file://host/path) ───────────────────────────────────
         for m in re.finditer(r'\x1b\]7;file://[^/]*(/[^\x07\x1b]*)\x07', raw):
             self._cwd_current = m.group(1)
             self.after(0, self._refresh_venv_state)
         raw = re.sub(r'\x1b\]7;[^\x07]*\x07', '', raw)
 
-        # ── Unix IDOL_VENV: line ───────────────────────────────────────────────
-        self._raw_buf += raw
-        lines = self._raw_buf.split("\n")
-        self._raw_buf = lines.pop()   # hold incomplete last line
-
-        out_lines = []
-        changed = False
-        for line in lines:
-            m = re.match(r'IDOL_VENV:(.*)', line.strip("\r"))
-            if m:
-                self._venv_active = m.group(1).strip()
-                changed = True
-                continue
-            out_lines.append(line)
-
-        if changed:
+        # ── OSC 7776: IDOL venv path ──────────────────────────────────────────
+        venv_changed = False
+        for m in re.finditer(r'\x1b\]7776;([^\x07\x1b]*)(?:\x07|\x1b\\)?', raw):
+            self._venv_active = m.group(1).strip()
+            venv_changed = True
+        raw = re.sub(r'\x1b\]7776;[^\x07\x1b]*(?:\x07|\x1b\\)?', '', raw)
+        if venv_changed:
             self.after(0, self._refresh_venv_state)
 
-        result = "\n".join(out_lines)
-        if out_lines:
-            result += "\n"
-
-        # Flush buffered partial line unless it looks like a partial IDOL_VENV marker
-        if self._raw_buf and not re.match(r'IDOL_VENV:', self._raw_buf):
-            result += self._raw_buf
-            self._raw_buf = ""
-
-        return result
+        return raw
 
     def _on_shell_command_done(self, exit_code: Optional[int] = None) -> None:
         if self.on_command_done:
