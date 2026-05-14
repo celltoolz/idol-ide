@@ -2321,6 +2321,13 @@ class CanvasEditorSandbox(tk.Frame):
         if text:
             self.canvas.clipboard_clear()
             self.canvas.clipboard_append(text)
+            # Notify the host so the clipboard-history ring picks the
+            # copy up. Mirrors `CodeView._copy` calling `cv.on_copy`.
+            if self.on_copy is not None:
+                try:
+                    self.on_copy(text)
+                except Exception:
+                    pass
 
     # User-facing action methods are SELF-RENDERING so they work the same
     # whether called from the keyboard, the right-click menu, or

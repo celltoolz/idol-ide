@@ -1566,6 +1566,18 @@ class IDOL(Tk):
         # legacy CodeView fires via its `<<ContentChanged>>` virtual
         # event — canvas engine routes through `on_change` instead.
         cv.on_change = self._on_content_changed
+
+        # Copy → ClipboardHistory ring. Mirrors the legacy
+        # `_setup_codeview` wiring: when the user hits Ctrl+C, push
+        # the selected text to the clipboard panel tagged with the
+        # tab's filename for the ring's source label.
+        def _on_cv_copy(text: str, _cv=cv) -> None:
+            tid = self._current_tab_id
+            source = os.path.basename(self._files.get(tid, "") or "")
+            if self._clip_panel is None:
+                self._ensure_clip_panel()
+            self._clip_panel.push(text, source=source)
+        cv.on_copy = _on_cv_copy
         if content:
             cv.set_text(content)
         cv.set_filepath(filepath)
