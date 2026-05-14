@@ -102,6 +102,11 @@ _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
 # Matches IDOL/widgets/linenums.py:_SECTION_MARKER.
 _SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
 
+# Characters that auto-pair when typed. Maps opener → closer.
+_PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
+# All openers and closers — used for skip-over-closer detection.
+_CLOSERS = set(_PAIRS.values())
+
 # Matches a string literal whose contents are a CSS-style hex color.
 _HEX_COLOR_RE = re.compile(
     r"""^(['"])#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\1$"""
@@ -778,6 +783,21 @@ class CanvasEditorSandbox(tk.Frame):
         ks = event.keysym
         ctrl = bool(event.state & 0x0004)
         shift = bool(event.state & 0x0001)
+        alt = bool(event.state & 0x20000)   # Mod1 on X11, Alt on Windows
+
+        # Alt+Up/Down  — move current line / selection block
+        # Shift+Alt+Up — duplicate above (cursor stays)
+        # Shift+Alt+Down — duplicate below (cursor follows)
+        if alt and ks in ("Up", "Down"):
+            if shift:
+                self._duplicate_lines(cursor_follows=(ks == "Down"))
+            else:
+                self._move_lines(-1 if ks == "Up" else +1)
+            return "break"
+
+        # Ctrl+/  — toggle line comment
+        if ctrl and ks in ("slash", "question"):   # question = Shift+/ on some kbd
+            self._toggle_comment(); return "break"
 
         # Movement keys manage selection based on Shift
         if ks in ("Left", "Right", "Up", "Down",
@@ -823,7 +843,13 @@ class CanvasEditorSandbox(tk.Frame):
         elif ks == "Down":
             self._move_vertical(+1); moved = True
         elif ks == "Home":
-            self.cur_col = 0; moved = True
+            # Smart Home — position-based, no state needed: if already
+            # at the first non-whitespace col, jump to col 0; else
+            # jump to the first non-whitespace col.
+            line = self.lines[self.cur_line]
+            first_nw = len(line) - len(line.lstrip())
+            self.cur_col = 0 if self.cur_col == first_nw else first_nw
+            moved = True
         elif ks == "End":
             self.cur_col = len(self.lines[self.cur_line]); moved = True
         elif ks == "Prior":
@@ -847,9 +873,7 @@ class CanvasEditorSandbox(tk.Frame):
             self._insert_text("    "); self._ensure_visible(); self.render(); return "break"
 
         if event.char and event.char.isprintable() and not ctrl:
-            if self.sel_anchor:
-                self._delete_selection()
-            self._insert_text(event.char)
+            self._insert_char_with_pairs(event.char)
             self._ensure_visible()
             self.render()
             return "break"
@@ -903,6 +927,52 @@ class CanvasEditorSandbox(tk.Frame):
 
     # ── Edit helpers ──────────────────────────────────────────────────────────
 
+    # ── Auto-pair brackets / quotes ───────────────────────────────────────────
+
+    def _insert_char_with_pairs(self, ch: str) -> None:
+        """Smart insert for a single typed character: auto-pair brackets
+        and quotes, skip over an already-present closer, and avoid
+        pairing when typing into the middle of a word."""
+        line = self.lines[self.cur_line]
+        next_ch = line[self.cur_col] if self.cur_col < len(line) else ""
+
+        # Skip over an already-present closing char (e.g. typed `)` when
+        # the cursor is already sitting on the auto-inserted `)`).
+        if not self.sel_anchor and ch in _CLOSERS and next_ch == ch:
+            self.cur_col += 1
+            return
+
+        # Auto-pair when typing an opener — but only if the cursor is at
+        # end-of-line, before whitespace, or before a closer. Don't pair
+        # when typing into the middle of a word (e.g. typing `(` between
+        # `fo` and `o` in `foo`).
+        if ch in _PAIRS and not next_ch.isalnum() and next_ch != "_":
+            if self.sel_anchor:
+                # Wrap selection in the pair instead of replacing it.
+                wrapped_text = self._selected_text()
+                self._delete_selection()
+                self._insert_text(ch + wrapped_text + _PAIRS[ch])
+                # Move cursor back to just past the closing char so further
+                # typing extends inside the pair.
+                self.cur_col -= 1
+                return
+            # Don't double-pair quotes when one is right behind us (e.g.
+            # typing the closing `"` of a string the user explicitly
+            # opened character-by-character).
+            prev_ch = line[self.cur_col - 1] if self.cur_col > 0 else ""
+            if ch in ("'", '"') and prev_ch == ch:
+                self._insert_text(ch)
+                return
+            self._insert_text(ch + _PAIRS[ch])
+            self.cur_col -= 1
+            return
+
+        if self.sel_anchor:
+            self._delete_selection()
+        self._insert_text(ch)
+
+    # ── Edit helpers ──────────────────────────────────────────────────────────
+
     def _insert_text(self, text: str) -> None:
         if self.sel_anchor:
             self._delete_selection()
@@ -937,6 +1007,15 @@ class CanvasEditorSandbox(tk.Frame):
             return
         if self.cur_col > 0:
             line = self.lines[self.cur_line]
+            prev_ch = line[self.cur_col - 1]
+            next_ch = line[self.cur_col] if self.cur_col < len(line) else ""
+            # Empty bracket-pair: backspacing inside `()` removes both.
+            if prev_ch in _PAIRS and _PAIRS[prev_ch] == next_ch:
+                self.lines[self.cur_line] = (
+                    line[:self.cur_col - 1] + line[self.cur_col + 1:]
+                )
+                self.cur_col -= 1
+                return
             self.lines[self.cur_line] = line[:self.cur_col - 1] + line[self.cur_col:]
             self.cur_col -= 1
         elif self.cur_line > 0:
@@ -1025,5 +1104,85 @@ class CanvasEditorSandbox(tk.Frame):
         last = len(self.lines) - 1
         self.cur_line = last
         self.cur_col = len(self.lines[last])
+        self._ensure_visible()
+        self.render()
+
+    # ── Tier 1 multi-line actions ─────────────────────────────────────────────
+
+    def _selected_line_range(self) -> tuple[int, int]:
+        """Return (start_line, end_line) inclusive. Uses selection if
+        present, otherwise just the cursor's line."""
+        if self.sel_anchor is None:
+            return self.cur_line, self.cur_line
+        a, b = self.sel_anchor, (self.cur_line, self.cur_col)
+        s, e = (a, b) if a <= b else (b, a)
+        # If selection ends at col 0 of a line, that line isn't really
+        # included visually — don't pull it in. Matches VS Code.
+        end_line = e[0] - 1 if e[1] == 0 and e[0] > s[0] else e[0]
+        return s[0], end_line
+
+    def _toggle_comment(self) -> None:
+        """Ctrl+/ — toggle `# ` prefix on the selected lines, or the
+        cursor line. If every non-blank line is already commented,
+        un-comment them all; otherwise add `# ` after each line's
+        existing indent. Mirrors app.py:_toggle_comment."""
+        start, end = self._selected_line_range()
+        block = [self.lines[i] for i in range(start, end + 1)]
+        non_empty = [l for l in block if l.strip()]
+        all_commented = bool(non_empty) and all(
+            l.lstrip().startswith("#") for l in non_empty
+        )
+        for i in range(start, end + 1):
+            text = self.lines[i]
+            ind = len(text) - len(text.lstrip())
+            body = text[ind:]
+            if all_commented:
+                if body.startswith("# "):
+                    self.lines[i] = text[:ind] + body[2:]
+                elif body.startswith("#"):
+                    self.lines[i] = text[:ind] + body[1:]
+            else:
+                if not body:
+                    continue
+                self.lines[i] = text[:ind] + "# " + body
+        # Clamp cur_col so it doesn't dangle past the modified line.
+        self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
+        self.render()
+
+    def _move_lines(self, delta: int) -> None:
+        """Alt+Up/Down — move the selected line block (or current line)
+        up or down by one. Selection and cursor follow."""
+        start, end = self._selected_line_range()
+        if delta < 0 and start == 0:
+            return
+        if delta > 0 and end == len(self.lines) - 1:
+            return
+        block = self.lines[start:end + 1]
+        if delta < 0:
+            above = self.lines[start - 1]
+            self.lines[start - 1:end + 1] = block + [above]
+        else:
+            below = self.lines[end + 1]
+            self.lines[start:end + 2] = [below] + block
+        self.cur_line += delta
+        if self.sel_anchor is not None:
+            sl, sc = self.sel_anchor
+            self.sel_anchor = (sl + delta, sc)
+        self._ensure_visible()
+        self.render()
+
+    def _duplicate_lines(self, cursor_follows: bool) -> None:
+        """Shift+Alt+Down — duplicate selection (or current line) below
+        the original. Shift+Alt+Up — same, but cursor stays on the
+        original copy. Matches IDOL's Alt+Shift up/down behavior."""
+        start, end = self._selected_line_range()
+        block = self.lines[start:end + 1]
+        self.lines[end + 1:end + 1] = list(block)
+        if cursor_follows:
+            span = end - start + 1
+            self.cur_line += span
+            if self.sel_anchor is not None:
+                sl, sc = self.sel_anchor
+                self.sel_anchor = (sl + span, sc)
         self._ensure_visible()
         self.render()
