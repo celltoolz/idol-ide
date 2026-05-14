@@ -288,10 +288,7 @@ class CanvasCodeView(tk.Frame):
         self.folded.clear()
         # Invalidate the content-width cache BEFORE render so the
         # horizontal scrollbar fractions reflect the new line set on
-        # the very first paint (otherwise the cache still holds the
-        # old max, and `_push_scroll_fractions` ships stale numbers
-        # to the scrollbar widget — hides it incorrectly).
-        self._content_w_cache_dirty = True
+        # the very first paint.
         self.render()
         self._fire_change()
 
@@ -304,9 +301,6 @@ class CanvasCodeView(tk.Frame):
         delete, line move/duplicate, comment toggle, paste, cut, etc.)
         so app.py can mark the tab dirty, schedule LSP didChange, and
         refresh the outline without polling."""
-        # Invalidate the content-width cache so the next render picks
-        # up the new max line width for the horizontal scrollbar.
-        self._content_w_cache_dirty = True
         if self.on_change is not None:
             try:
                 self.on_change()
@@ -566,27 +560,19 @@ class CanvasCodeView(tk.Frame):
         return max(1, cw - _TEXT_X - minimap_reserve - _TEXT_RIGHT_PAD)
 
     def _content_width(self) -> int:
-        """Maximum line width in pixels. Drives horizontal scroll
-        fractions + clamping. Cached per-render via `_content_w_cache`
-        so a 5000-line file doesn't re-measure on every scrollbar
-        push.
+        """Maximum line width across the VISIBLE rows, in pixels.
 
-        Uses the WIDER of the regular and italic fonts so max_scroll
-        accounts for italic-token lines — `_font.measure(line)` reports
-        regular-font advance only, but tokens marked italic are drawn
-        with the italic font, which can be a few pixels wider per
-        token. Without this, the last few chars of a line with italic
-        keywords slid past the canvas right edge at max scroll."""
-        if not self.lines:
-            return 0
-        # Cheap memoization — invalidated whenever `_fire_change` runs
-        # (`_content_w_cache_dirty` gets set there).
-        if getattr(self, "_content_w_cache_dirty", True):
-            self._content_w_cache = max(
-                max(self._font.measure(line) for line in self.lines),
-                max(self._font_italic.measure(line) for line in self.lines),
-            )
-            self._content_w_cache_dirty = False
+        Drives the horizontal scrollbar's range + clamping. We
+        deliberately measure only what's on-screen — using the file-
+        wide max would size the scrollbar for a line that may be
+        scrolled out of view vertically, so the user drags H-scroll
+        right and sees empty canvas because their *current* line
+        already fits.
+
+        Set in `render()` from the actual draw-time cumulative-x of
+        each visible row's token loop, so italics, hex-preview
+        squares, and folded "···" indicators are all accounted for —
+        max_scroll always lines up with what was actually drawn."""
         return self._content_w_cache
 
     @property
@@ -694,11 +680,12 @@ class CanvasCodeView(tk.Frame):
         self._hs = HorizontalScrollbar(self, autohide=True, height=16,
                                        command=self.xview)
         self._hs.grid(row=3, column=0, sticky="we")
-        # Horizontal scroll offset (pixels). Phase (a) leaves horizontal
-        # scrolling stubbed: the scrollbar widget is present and tracks
-        # `_scroll_x`, but autohide hides it because we keep first=0,
-        # last=1 until proper horizontal scroll is wired in later phases.
+        # Horizontal scroll offset (pixels). Pairs with
+        # `_content_w_cache` (the widest visible line, set by render)
+        # to drive the H-scrollbar's range; both start at 0 so the
+        # very-first paint doesn't see an unset cache.
         self._scroll_x: int = 0
+        self._content_w_cache: int = 0
         # Sticky-scroll band lives on its OWN embedded canvas so the main
         # canvas's `delete("all")` in render() can't wipe it on every
         # wheel tick (that was the source of the scroll-flicker). We only
@@ -914,6 +901,15 @@ class CanvasCodeView(tk.Frame):
         # Fresh per-render hit-test list for the clickable "···"
         # indicators drawn after each folded line.
         self._fold_dot_rects = []
+        # Track the actual rightmost rendered x across visible rows —
+        # this becomes `_content_w_cache` at the end of render() and
+        # drives horizontal scrollbar range. Measuring at draw time
+        # (rather than from `font.measure(line)` over the whole file)
+        # means italics, hex-preview squares, and folded "···"
+        # indicators are all accounted for, AND the scrollbar's range
+        # tracks what's actually on screen rather than the longest
+        # line anywhere in the file.
+        max_drawn_x = 0
 
         # Tier-2 per-render computations — bracket pair under cursor and
         # the word to highlight occurrences of.
@@ -1080,6 +1076,12 @@ class CanvasCodeView(tk.Frame):
                               fill=color, font=font)
                 x += font.measure(txt)
 
+            # Subtract text_x0 so the cached width is scroll-independent
+            # (the value that `_content_width()` compares against).
+            line_drawn_w = x - text_x0
+            if line_drawn_w > max_drawn_x:
+                max_drawn_x = line_drawn_w
+
             # Bracket-match outline — drawn AFTER tokens so it overlays.
             if bracket_pair is not None:
                 for (r, col) in bracket_pair:
@@ -1181,6 +1183,11 @@ class CanvasCodeView(tk.Frame):
         # top of the viewport so context is visible while scrolled into
         # a nested block. Drawn LAST so it covers the regular rows.
         self._draw_sticky_headers()
+
+        # Stash the measured visible-rows width so `_content_width()`
+        # (called by the scrollbar push below) returns the value that
+        # matches what was actually painted this frame.
+        self._content_w_cache = max_drawn_x
 
         # Sync chrome widgets — scrollbars track scroll_y, breadcrumb
         # tracks cur_line. Both are cheap when state hasn't changed
