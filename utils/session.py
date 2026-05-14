@@ -56,7 +56,9 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
             # Verify the dirty flag isn't spurious — if content matches disk,
             # treat the tab as clean so it doesn't come back as unsaved on restore.
             try:
-                if cv.get("1.0", "end-1c") == Path(fp).read_text(encoding="utf-8"):
+                cur = (cv.get_text() if hasattr(cv, "get_text")
+                       else cv.get("1.0", "end-1c"))
+                if cur == Path(fp).read_text(encoding="utf-8"):
                     dirty = False
             except Exception:
                 pass
@@ -64,7 +66,11 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         if dirty:
             # Write unsaved content to a temp file so the session JSON stays
             # small and the content survives restarts without a save prompt.
-            content = cv.get("1.0", "end-1c")
+            # Duck-type the editor so both `CodeView` (tk.Text) and the
+            # canvas-rendered `CanvasCodeView` (explicit `get_text`)
+            # work — utils/ can't import from widgets/ per project rules.
+            content = (cv.get_text() if hasattr(cv, "get_text")
+                       else cv.get("1.0", "end-1c"))
             existing = app._temp_files.get(tab_id)
             if existing:
                 tmp_path = Path(existing)
@@ -80,7 +86,8 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
                 entry["content"] = content  # fallback if write fails
         elif fp is None:
             # New empty tab — embed the (likely empty) content directly
-            entry["content"] = cv.get("1.0", "end-1c")
+            entry["content"] = (cv.get_text() if hasattr(cv, "get_text")
+                                else cv.get("1.0", "end-1c"))
 
         tabs_data.append(entry)
 
@@ -423,7 +430,9 @@ def _cleanup_dirty_flags(app: "IDOL") -> None:
         if cv is None:
             continue
         try:
-            if cv.get("1.0", "end-1c") == Path(fp).read_text(encoding="utf-8"):
+            cur = (cv.get_text() if hasattr(cv, "get_text")
+                   else cv.get("1.0", "end-1c"))
+            if cur == Path(fp).read_text(encoding="utf-8"):
                 app._dirty[tab_id] = False
                 app._refresh_tab_title(tab_id)
         except Exception:

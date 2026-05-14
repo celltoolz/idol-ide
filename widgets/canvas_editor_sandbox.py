@@ -240,9 +240,22 @@ class CanvasEditorSandbox(tk.Frame):
         self.scroll_y = 0
         self.folded.clear()
         self.render()
+        self._fire_change()
 
     def get_text(self) -> str:
         return "\n".join(self.lines)
+
+    def _fire_change(self) -> None:
+        """Notify the host that the buffer changed. Called from every
+        editing path that mutates `self.lines` (keystroke insert/
+        delete, line move/duplicate, comment toggle, paste, cut, etc.)
+        so app.py can mark the tab dirty, schedule LSP didChange, and
+        refresh the outline without polling."""
+        if self.on_change is not None:
+            try:
+                self.on_change()
+            except Exception:
+                pass
 
     def set_filepath(self, path: str | None) -> None:
         """Associate the buffer with a file path so the host can route
@@ -570,6 +583,14 @@ class CanvasEditorSandbox(tk.Frame):
         # currently-focused match and renders in a brighter color.
         self._find_matches: list[tuple[tuple[int, int], tuple[int, int]]] = []
         self._find_current_idx: int = -1
+        # Host callback hooks — wired by `CanvasCodeView` consumers
+        # (app.py for the editor tab path). Fired from `_fire_change`
+        # after every buffer mutation so dirty tracking, outline
+        # refresh, and LSP didChange notifications can fan out.
+        self.on_change = None
+        self.on_cursor_move = None
+        self.on_lines_changed = None
+        self.on_copy = None
         # Autocomplete provider — async callback the host wires to a
         # completion source (LSP, jedi, etc.). Signature:
         #     callable(prefix: str, trigger_char: str|None,
@@ -2119,6 +2140,7 @@ class CanvasEditorSandbox(tk.Frame):
             self.lines[self.cur_line:self.cur_line + 1] = new
             self.cur_line += len(parts) - 1
             self.cur_col = len(parts[-1])
+        self._fire_change()
 
     def _insert_newline(self) -> None:
         if self.sel_anchor:
@@ -2132,6 +2154,7 @@ class CanvasEditorSandbox(tk.Frame):
         self.lines.insert(self.cur_line + 1, indent + tail)
         self.cur_line += 1
         self.cur_col = len(indent)
+        self._fire_change()
 
     def _delete_back(self) -> None:
         if self.sel_anchor:
@@ -2147,6 +2170,7 @@ class CanvasEditorSandbox(tk.Frame):
                     line[:self.cur_col - 1] + line[self.cur_col + 1:]
                 )
                 self.cur_col -= 1
+                self._fire_change()
                 return
             self.lines[self.cur_line] = line[:self.cur_col - 1] + line[self.cur_col:]
             self.cur_col -= 1
@@ -2157,6 +2181,7 @@ class CanvasEditorSandbox(tk.Frame):
             self.lines[self.cur_line - 1] = prev + curr
             del self.lines[self.cur_line]
             self.cur_line -= 1
+        self._fire_change()
 
     def _delete_forward(self) -> None:
         if self.sel_anchor:
@@ -2168,6 +2193,7 @@ class CanvasEditorSandbox(tk.Frame):
         elif self.cur_line + 1 < len(self.lines):
             self.lines[self.cur_line] = line + self.lines[self.cur_line + 1]
             del self.lines[self.cur_line + 1]
+        self._fire_change()
 
     def _delete_selection(self) -> None:
         if not self.sel_anchor:
@@ -2219,6 +2245,7 @@ class CanvasEditorSandbox(tk.Frame):
         self._delete_selection()
         self._ensure_visible()
         self.render()
+        self._fire_change()
 
     def _paste(self) -> None:
         try:
@@ -2454,6 +2481,7 @@ class CanvasEditorSandbox(tk.Frame):
         # Clamp cur_col so it doesn't dangle past the modified line.
         self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
         self.render()
+        self._fire_change()
 
     def _move_lines(self, delta: int) -> None:
         """Alt+Up/Down — move the selected line block (or current line)
@@ -2476,6 +2504,7 @@ class CanvasEditorSandbox(tk.Frame):
             self.sel_anchor = (sl + delta, sc)
         self._ensure_visible()
         self.render()
+        self._fire_change()
 
     def _duplicate_lines(self, cursor_follows: bool) -> None:
         """Shift+Alt+Down — duplicate selection (or current line) below
@@ -2492,3 +2521,4 @@ class CanvasEditorSandbox(tk.Frame):
                 self.sel_anchor = (sl + span, sc)
         self._ensure_visible()
         self.render()
+        self._fire_change()

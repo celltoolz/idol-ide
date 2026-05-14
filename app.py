@@ -1560,6 +1560,12 @@ class IDOL(Tk):
         # The sandbox already builds its own breadcrumb internally —
         # no separate widget needed at the tab-frame level for now.
         cv.pack(fill="both", expand=True)
+        # Fire `_on_content_changed` whenever the buffer mutates so
+        # dirty tracking, LSP didChange, outline refresh, and the
+        # statusbar diagnostic count all stay current. Same hook the
+        # legacy CodeView fires via its `<<ContentChanged>>` virtual
+        # event — canvas engine routes through `on_change` instead.
+        cv.on_change = self._on_content_changed
         if content:
             cv.set_text(content)
         cv.set_filepath(filepath)
@@ -1591,6 +1597,31 @@ class IDOL(Tk):
             lambda _e: (self.edit_find_replace(), "break")[1],
             add="+",
         )
+
+        # Wire LSP completion through the engine's `on_completion_request`
+        # hook — same async-callback signature `_sync_canvas_ed_panel_
+        # with_active_tab` uses for the preview window. The sandbox's
+        # internal autocomplete popup pops on identifier-y keystrokes
+        # (alnum / `_` / `.`) and delivers labels back via the callback.
+        def _on_completion(prefix, trigger_char, callback, _cv=cv):
+            if not (self._lsp and self._lsp.ready and _cv.filepath):
+                callback([])
+                return
+            def _items_cb(items):
+                labels = [
+                    it.get("label", "")
+                    for it in (items or [])
+                    if it.get("label")
+                ]
+                callback(labels)
+            self._lsp.completion(
+                _cv.filepath,
+                _cv.cur_line,
+                _cv.cur_col,
+                _items_cb,
+                trigger_char=trigger_char,
+            )
+        cv.on_completion_request = _on_completion
 
     def _setup_codeview(
         self, codeview: CodeView, handler: KeyHandler, mc: MultiCursor
@@ -2027,7 +2058,7 @@ class IDOL(Tk):
             clean_crc = self._clean_crcs.get(tab_id)
             if clean_crc is not None and cv:
                 # Fetch text once — reused below for outline/LSP too.
-                text = cv.get("1.0", "end-1c")
+                text = _cv_text(cv)
                 current_crc = zlib.crc32(text.encode())
                 if current_crc == clean_crc:
                     # Content matches the saved baseline — revert dirty flag if set.
@@ -2380,8 +2411,15 @@ class IDOL(Tk):
             entries.extend(_diags_to_entries(diags, filepath, filename))
         return entries
 
-    def _apply_diagnostics(self, codeview: CodeView, diags: list) -> None:
-        """Paint diagnostic underlines onto *codeview*."""
+    def _apply_diagnostics(self, codeview, diags: list) -> None:
+        """Paint diagnostic underlines onto *codeview*. Canvas engine
+        renders squigglies from its own diagnostic list (in the canvas
+        palette colors); legacy CodeView uses Text tags."""
+        if _is_canvas_cv(codeview):
+            codeview.set_diagnostics([
+                self._lsp_diag_to_sandbox(d) for d in diags
+            ])
+            return
         for tag in ("lsp_error", "lsp_warning", "lsp_info"):
             codeview.tag_remove(tag, "1.0", "end")
 
