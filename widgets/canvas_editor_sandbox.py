@@ -201,6 +201,10 @@ class CanvasEditorSandbox(tk.Frame):
         self.folded: set[int] = set()
         self._breakpoints: set[int] = set()
         self._hover_breakpoint_line: int | None = None
+        # Hit-test rectangles for the "···" indicators drawn after each
+        # folded line. Rebuilt every render. Each entry is
+        # (x1, y1, x2, y2, physical_line_index).
+        self._fold_dot_rects: list[tuple[float, float, float, float, int]] = []
         self.scroll_y: int = 0           # first visible visual row
 
         # Tokenizer rules. Each rule is (regex, category_name). The category
@@ -300,6 +304,10 @@ class CanvasEditorSandbox(tk.Frame):
 
         c.create_rectangle(0, 0, _GUTTER_W, h,
                            fill=self._palette["gutter_bg"], outline="")
+
+        # Fresh per-render hit-test list for the clickable "···"
+        # indicators drawn after each folded line.
+        self._fold_dot_rects = []
 
         # Tier-2 per-render computations — bracket pair under cursor and
         # the word to highlight occurrences of.
@@ -470,13 +478,19 @@ class CanvasEditorSandbox(tk.Frame):
                         fill="",
                     )
 
-            # Folded "···" indicator after the line's tokens.
+            # Folded "···" indicator after the line's tokens. Clickable
+            # to unfold — record its hit-test rect.
             if i in self.folded:
+                dots_x = x + 6
                 c.create_text(
-                    x + 6, y + 1, text="···", anchor="nw",
+                    dots_x, y + 1, text="···", anchor="nw",
                     fill=self._palette.get("fold_dots",
                                            self._palette["gutter_fg"]),
                     font=self._font,
+                )
+                dots_w = self._font.measure("···")
+                self._fold_dot_rects.append(
+                    (dots_x - 2, y, dots_x + dots_w + 4, y + self._line_h, i)
                 )
 
             # Caret
@@ -825,6 +839,12 @@ class CanvasEditorSandbox(tk.Frame):
             # Line-number zone (between debug and fold) is intentionally
             # a no-op for now; keeps accidental clicks from doing anything.
             return "break"
+        # Click on a fold-dots indicator unfolds that line.
+        dots_row = self._hit_fold_dots(event.x, event.y)
+        if dots_row is not None:
+            self.folded.discard(dots_row)
+            self.render()
+            return "break"
         self.cur_line, self.cur_col = self._coords_from_pixel(event.x, event.y)
         self.sel_anchor = None
         self._reset_blink()
@@ -839,12 +859,21 @@ class CanvasEditorSandbox(tk.Frame):
         self.render()
         return "break"
 
+    def _hit_fold_dots(self, x: float, y: float) -> int | None:
+        """Return the physical line index of the fold-dots indicator at
+        the given canvas coords, or None."""
+        for x1, y1, x2, y2, row in self._fold_dot_rects:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                return row
+        return None
+
     def _on_motion(self, event):
         """Per-zone cursor swap + breakpoint ghost-dot tracking.
 
         Debug zone   → hand2 cursor, ghost-dot preview on the hovered line
         Linenum/fold → right_ptr arrow (matches IDOL's gutter)
-        Text area    → xterm I-beam
+        Text area    → xterm I-beam, except over a "···" fold indicator
+                       where the cursor becomes hand2 (clickable to unfold).
         """
         if event.x < _DEBUG_W:
             self.canvas.configure(cursor="hand2")
@@ -859,7 +888,8 @@ class CanvasEditorSandbox(tk.Frame):
                 self._hover_breakpoint_line = None
                 self.render()
         else:
-            self.canvas.configure(cursor="xterm")
+            over_dots = self._hit_fold_dots(event.x, event.y) is not None
+            self.canvas.configure(cursor="hand2" if over_dots else "xterm")
             if self._hover_breakpoint_line is not None:
                 self._hover_breakpoint_line = None
                 self.render()
