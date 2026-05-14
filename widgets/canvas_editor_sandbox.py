@@ -228,11 +228,156 @@ class CanvasEditorSandbox(tk.Frame):
         self._char_w = self._font.measure("W")
         self._line_h = self._font.metrics("linespace") + 2
 
+        # Find/Replace bar — packed at the top, hidden by default. Built
+        # eagerly so Ctrl+F just toggles visibility.
+        self._find_bar = self._build_find_bar()
+
         self.canvas = tk.Canvas(
             self, bg=self._palette["bg"], highlightthickness=0,
             takefocus=True, cursor="xterm",
         )
         self.canvas.pack(fill="both", expand=True)
+
+    def _build_find_bar(self) -> tk.Frame:
+        bar = tk.Frame(self, bg="#252526", height=46)
+        # Row 1: Find
+        row1 = tk.Frame(bar, bg="#252526")
+        row1.pack(fill="x", padx=4, pady=(4, 2))
+        tk.Label(row1, text="Find:", bg="#252526", fg="#cccccc",
+                 font=(_FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
+        self._find_entry = tk.Entry(
+            row1, bg="#1e1e1e", fg="#d4d4d4",
+            insertbackground="#d4d4d4", relief="flat", width=30,
+            font=(_FONT_FAMILY, 10),
+        )
+        self._find_entry.pack(side="left", padx=2)
+        self._find_entry.bind("<KeyRelease>", lambda _: self._find_recompute())
+        self._find_entry.bind("<Return>",
+                              lambda _: (self._find_step(+1), "break")[1])
+        self._find_entry.bind("<Shift-Return>",
+                              lambda _: (self._find_step(-1), "break")[1])
+        self._find_entry.bind("<Escape>",
+                              lambda _: (self.hide_find_bar(), "break")[1])
+        self._find_status = tk.Label(row1, text="", bg="#252526",
+                                     fg="#999999", font=(_FONT_FAMILY, 9))
+        self._find_status.pack(side="left", padx=8)
+        for label, cmd in (("◀", lambda: self._find_step(-1)),
+                           ("▶", lambda: self._find_step(+1)),
+                           ("✕", self.hide_find_bar)):
+            b = tk.Label(row1, text=label, bg="#252526", fg="#cccccc",
+                         font=(_FONT_FAMILY, 11), cursor="hand2",
+                         padx=6)
+            b.pack(side="left")
+            b.bind("<Button-1>", lambda _e, c=cmd: c())
+            b.bind("<Enter>", lambda _e, w=b: w.config(fg="#ffffff"))
+            b.bind("<Leave>", lambda _e, w=b: w.config(fg="#cccccc"))
+        # Row 2: Replace
+        row2 = tk.Frame(bar, bg="#252526")
+        row2.pack(fill="x", padx=4, pady=(0, 4))
+        tk.Label(row2, text="Replace:", bg="#252526", fg="#cccccc",
+                 font=(_FONT_FAMILY, 9)).pack(side="left")
+        self._replace_entry = tk.Entry(
+            row2, bg="#1e1e1e", fg="#d4d4d4",
+            insertbackground="#d4d4d4", relief="flat", width=30,
+            font=(_FONT_FAMILY, 10),
+        )
+        self._replace_entry.pack(side="left", padx=2)
+        for label, cmd in (("Replace", self._replace_one),
+                           ("All",     self._replace_all)):
+            b = tk.Label(row2, text=label, bg="#0e639c", fg="#ffffff",
+                         font=(_FONT_FAMILY, 9), cursor="hand2",
+                         padx=8, pady=2)
+            b.pack(side="left", padx=4)
+            b.bind("<Button-1>", lambda _e, c=cmd: c())
+        # Find/Replace state
+        self._find_matches: list[tuple[int, int, int]] = []
+        self._find_index = 0
+        return bar
+
+    def show_find_bar(self) -> None:
+        if not self._find_bar.winfo_manager():
+            self._find_bar.pack(side="top", fill="x", before=self.canvas)
+        # Seed with current selection if it fits on one line
+        if self.sel_anchor is not None:
+            sel = self._selected_text()
+            if sel and "\n" not in sel:
+                self._find_entry.delete(0, "end")
+                self._find_entry.insert(0, sel)
+                self._find_recompute()
+        self._find_entry.focus_set()
+        self._find_entry.select_range(0, "end")
+
+    def hide_find_bar(self) -> None:
+        if self._find_bar.winfo_manager():
+            self._find_bar.pack_forget()
+        self._find_matches = []
+        self._find_status.config(text="")
+        self.canvas.focus_set()
+        self.render()
+
+    def _find_recompute(self) -> None:
+        needle = self._find_entry.get()
+        self._find_matches = []
+        if needle:
+            for i, line in enumerate(self.lines):
+                start = 0
+                while True:
+                    pos = line.find(needle, start)
+                    if pos < 0:
+                        break
+                    self._find_matches.append((i, pos, pos + len(needle)))
+                    start = pos + max(1, len(needle))
+        n = len(self._find_matches)
+        self._find_status.config(text=f"{n} match{'es' if n != 1 else ''}")
+        self._find_index = 0 if n else -1
+        if n:
+            self._find_jump_to(0)
+        else:
+            self.render()
+
+    def _find_step(self, delta: int) -> None:
+        n = len(self._find_matches)
+        if n == 0:
+            return
+        self._find_index = (self._find_index + delta) % n
+        self._find_jump_to(self._find_index)
+
+    def _find_jump_to(self, idx: int) -> None:
+        line_idx, c1, c2 = self._find_matches[idx]
+        self.cur_line = line_idx
+        self.cur_col = c2
+        self.sel_anchor = (line_idx, c1)
+        self._ensure_visible()
+        self._find_status.config(
+            text=f"{idx + 1}/{len(self._find_matches)}"
+        )
+        self.render()
+
+    def _replace_one(self) -> None:
+        if not self._find_matches or self._find_index < 0:
+            return
+        line_idx, c1, c2 = self._find_matches[self._find_index]
+        new_text = self._replace_entry.get()
+        line = self.lines[line_idx]
+        self.lines[line_idx] = line[:c1] + new_text + line[c2:]
+        # Refresh matches and step forward
+        self._find_recompute()
+
+    def _replace_all(self) -> None:
+        needle = self._find_entry.get()
+        if not needle:
+            return
+        repl = self._replace_entry.get()
+        count = 0
+        for i, line in enumerate(self.lines):
+            if needle in line:
+                self.lines[i] = line.replace(needle, repl)
+                count += line.count(needle)
+        # Clamp cursor so it doesn't dangle past the (possibly shorter)
+        # line content after the bulk replace.
+        self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
+        self._find_recompute()
+        self._find_status.config(text=f"replaced {count}")
 
     def _init_state(self) -> None:
         self.lines: list[str] = _SAMPLE.rstrip("\n").split("\n")
@@ -472,6 +617,20 @@ class CanvasEditorSandbox(tk.Frame):
                 c.create_text(_FOLD_X, y + 1, text=glyph, anchor="nw",
                               fill=self._palette["gutter_fg"],
                               font=self._font)
+
+            # Find/Replace match highlights — drawn BEFORE tokens so
+            # text reads on top. Current match gets a brighter outline.
+            for j, (mi, c1, c2) in enumerate(self._find_matches):
+                if mi != i:
+                    continue
+                x1 = _TEXT_X + self._font.measure(line[:c1])
+                x2 = _TEXT_X + self._font.measure(line[:c2])
+                is_current = (j == self._find_index)
+                c.create_rectangle(
+                    x1, y, x2, y + self._line_h,
+                    fill="#664c00" if is_current else "#3a3920",
+                    outline="#dcdcaa" if is_current else "",
+                )
 
             # Word-occurrence highlights — dim backgrounds on every
             # other instance of the word currently under the cursor.
@@ -800,13 +959,16 @@ class CanvasEditorSandbox(tk.Frame):
 
     def _bracket_candidates(self) -> list[tuple[int, int]]:
         out = []
+        if not (0 <= self.cur_line < len(self.lines)):
+            return out
         line = self.lines[self.cur_line]
         # Char AT cursor (if any)
         if 0 <= self.cur_col < len(line) and line[self.cur_col] in _ALL_BRACKETS:
             out.append((self.cur_line, self.cur_col))
         # Char immediately before cursor (more common — cursor sits right
-        # after a typed-or-clicked bracket)
-        if self.cur_col > 0 and line[self.cur_col - 1] in _ALL_BRACKETS:
+        # after a typed-or-clicked bracket). Guard against cur_col
+        # dangling past the end after a destructive edit.
+        if 0 < self.cur_col <= len(line) and line[self.cur_col - 1] in _ALL_BRACKETS:
             out.append((self.cur_line, self.cur_col - 1))
         return out
 
@@ -1259,6 +1421,10 @@ class CanvasEditorSandbox(tk.Frame):
         # Ctrl+/  — toggle line comment
         if ctrl and ks in ("slash", "question"):   # question = Shift+/ on some kbd
             self._toggle_comment(); return "break"
+
+        # Ctrl+F — open Find/Replace bar
+        if ctrl and ks.lower() == "f":
+            self.show_find_bar(); return "break"
 
         # Movement keys manage selection based on Shift
         if ks in ("Left", "Right", "Up", "Down",
