@@ -37,6 +37,16 @@ _TEXT_X    = _GUTTER_W + 12
 _BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
 _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
 
+# Git-diff gutter stripe palette — mirrors widgets/linenums.py's
+# `_GUTTER_COLORS`. Kind names come from `editor/git_manager.py`'s
+# hunk-classification: "added" (new lines), "modified" (edited lines),
+# "deleted" (lines removed — shown as a marker on the survivor below).
+_GIT_HUNK_COLORS = {
+    "added":    "#4ec994",
+    "modified": "#c5a028",
+    "deleted":  "#f14c4c",
+}
+
 # A "# ── Name ─────" section marker — foldable like a block opener.
 # Matches IDOL/widgets/linenums.py:_SECTION_MARKER.
 _SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
@@ -166,6 +176,23 @@ class CanvasEditorSandbox(tk.Frame):
         DOES NOT own breakpoint state when a host is wired — it just
         renders whatever the host pushes via this method."""
         self._breakpoints = set(int(ln) for ln in lines)
+        self.render()
+
+    def set_git_hunks(self, hunks) -> None:
+        """Sync git-diff gutter stripes from the host. *hunks* is a
+        list of `(start_line_1, count, kind)` tuples — same shape
+        `git_manager` produces for the legacy linenums widget. `kind`
+        is "added" | "modified" | "deleted". Stored as a 0-indexed
+        line → kind map and rendered as a 3 px stripe at the far-left
+        of the gutter."""
+        self._git_hunk_map = {}
+        for start, count, kind in (hunks or []):
+            # Legacy hunks use 1-indexed line numbers; canvas engine
+            # uses 0-indexed. Width is `max(count, 1)` so deletions
+            # (count=0 in the diff sense) still get a single-line
+            # marker.
+            for ln in range(start, start + max(count, 1)):
+                self._git_hunk_map[ln - 1] = kind
         self.render()
 
     def set_diagnostics(self, diags: list[dict]) -> None:
@@ -575,6 +602,11 @@ class CanvasEditorSandbox(tk.Frame):
         # sync the dot rendering. When None (standalone preview), the
         # engine falls back to local toggle so the dots still work.
         self.on_breakpoint_toggle = None
+        # Git diff stripe map — 0-indexed line → kind
+        # ("added"/"modified"/"deleted"). Populated by `set_git_hunks`,
+        # rendered as a 3 px colored bar in the far-left of the
+        # gutter. Mirrors the legacy `TkLineNumbers._hunk_map`.
+        self._git_hunk_map: dict[int, str] = {}
         # Hit-test rectangles for the "···" indicators drawn after each
         # folded line. Rebuilt every render. Each entry is
         # (x1, y1, x2, y2, physical_line_index).
@@ -834,6 +866,18 @@ class CanvasEditorSandbox(tk.Frame):
                         else _BREAKPOINT_GHOST_COLOR)
                 c.create_oval(cx - r, cy - r, cx + r, cy + r,
                               fill=fill, outline="")
+
+            # Git-diff gutter stripe — 3 px bar at the far-left
+            # painted in palette colors. Mirrors what
+            # widgets/linenums.py:_draw_line_number does for legacy
+            # CodeView tabs. Doesn't conflict with the breakpoint
+            # dot which sits centered at x=_DEBUG_W/2.
+            git_kind = self._git_hunk_map.get(i)
+            if git_kind:
+                gcolor = _GIT_HUNK_COLORS.get(git_kind)
+                if gcolor:
+                    c.create_rectangle(0, y, 3, y + self._line_h,
+                                       fill=gcolor, outline="")
 
             # Line number — active line gets brighter color
             gut_fg = (self._palette["gutter_fg_active"]

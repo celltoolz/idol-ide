@@ -2048,15 +2048,21 @@ class IDOL(Tk):
             crumb = self._breadcrumbs.get(tab_id)
             if crumb:
                 crumb.invalidate()
-            # Apply cached git hunks + breakpoints to this tab's gutter.
-            # Canvas tabs don't expose a `_line_numbers` widget yet
-            # (Phase d.gutter); skip those calls for the canvas engine
-            # so tab switches don't crash.
-            if not _is_canvas_cv(cv):
+            # Apply cached git hunks + breakpoints to this tab's
+            # gutter. Engines diverge:
+            #   • Legacy CodeView: TkLineNumbers.set_git_hunks /
+            #     set_breakpoints (1-indexed line sets).
+            #   • Canvas: cv.set_git_hunks (same hunk-tuple shape) +
+            #     cv.set_breakpoints (0-indexed line set).
+            if _is_canvas_cv(cv):
+                cv.set_git_hunks(self._git_hunks.get(tab_id, []))
+            else:
                 cv._line_numbers.set_git_hunks(self._git_hunks.get(tab_id, []))
             self._refresh_git_hunks()
             fp = self._files.get(tab_id) or ""
-            if not _is_canvas_cv(cv):
+            if _is_canvas_cv(cv):
+                cv.set_breakpoints({ln - 1 for ln in self._breakpoints.get(fp, set())})
+            else:
                 cv._line_numbers.set_breakpoints(self._breakpoints.get(fp, set()))
             # Sync cursor shape to this tab's overwrite state (legacy
             # CodeView only — canvas has its own caret rendering).
@@ -2710,10 +2716,11 @@ class IDOL(Tk):
         self._git_hunks[tab_id] = hunks
         if tab_id == self._current_tab_id:
             cv = self._codeviews.get(tab_id)
-            # Canvas tabs don't have a `_line_numbers` widget yet
-            # (Phase d.gutter). Skip the gutter sync; the in-memory
-            # `_git_hunks` cache stays current for when we wire it up.
-            if cv and not _is_canvas_cv(cv):
+            if cv is None:
+                return
+            if _is_canvas_cv(cv):
+                cv.set_git_hunks(hunks)
+            else:
                 cv._line_numbers.set_git_hunks(hunks)
 
     def _refresh_sc_panel(self) -> None:
