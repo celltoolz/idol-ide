@@ -52,6 +52,7 @@ THEMES: dict[str, dict] = {
             "function":     ("#66d9ef", False),       # builtins + dunders: blue
             "method":       ("#a6e22e", False),       # user methods: green
             "decorator":    ("#66d9ef", False),
+            "parameter":    ("#ffd866", False),       # kwarg names: soft golden
             "punctuation":  ("#f92672", False),       # ( ) , . : ; [ ] { }
         },
     },
@@ -80,6 +81,7 @@ THEMES: dict[str, dict] = {
             "function":     ("#dcdcaa", False),
             "method":       ("#dcdcaa", False),
             "decorator":    ("#dcdcaa", False),
+            "parameter":    ("#9cdcfe", False),       # kwarg names: light blue
         },
     },
 }
@@ -95,6 +97,23 @@ _GUTTER_W  = _FOLD_X + 14    # total gutter width
 _TEXT_X    = _GUTTER_W + 12
 _BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
 _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
+
+# Matches a string literal whose contents are a CSS-style hex color.
+_HEX_COLOR_RE = re.compile(
+    r"""^(['"])#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\1$"""
+)
+
+
+def _extract_hex_color(token_text: str) -> str | None:
+    """If *token_text* is a quoted hex-color literal (e.g. `"#FF00AA"`),
+    return the hex color as `#RRGGBB`. Otherwise None."""
+    m = _HEX_COLOR_RE.match(token_text)
+    if not m:
+        return None
+    digits = m.group(2)
+    if len(digits) == 3:                 # expand #RGB → #RRGGBB
+        digits = "".join(ch * 2 for ch in digits)
+    return f"#{digits}"
 
 _SAMPLE = """\
 class IDOL_IDE:
@@ -172,8 +191,11 @@ class CanvasEditorSandbox(tk.Frame):
         # before keywords so words like `if` inside a string don't get
         # keyword-colored.
         self._rules = [
-            (re.compile(r"#.*"),                                  "comment"),
+            # Strings BEFORE comments — `#.*` would otherwise eat hex
+            # color strings (`bg="#FFFFFF"`) by matching from the `#`
+            # to end of line, swallowing the rest of the statement.
             (re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""), "string"),
+            (re.compile(r"#.*"),                                  "comment"),
             (re.compile(r"@\w+(?:\.\w+)*"),                       "decorator"),
             (re.compile(r"(?<=\bclass\s)\w+"),                    "type"),
             # def names — dunders (Python protocol methods like __init__)
@@ -215,6 +237,12 @@ class CanvasEditorSandbox(tk.Frame):
             # split so themes can color the two consistently.
             (re.compile(r"(?<=\.)__\w+__(?=\s*\()"),              "function"),
             (re.compile(r"(?<=\.)\w+(?=\s*\()"),                  "method"),
+            # Keyword arguments — identifier directly followed by `=`
+            # (not `==`, not after `.`). Catches `text=...`, `bg=...`
+            # in calls like `tk.Label(text="hi", bg="#fff")`. Skips
+            # `x = 1` style assignments because those have spaces
+            # around `=` by convention.
+            (re.compile(r"(?<!\.)\b\w+(?==(?!=))"),               "parameter"),
             (re.compile(r"\b(?:0[xX][\dA-Fa-f]+|\d+(?:\.\d+)?)\b"), "number"),
             # Punctuation — themes that want a Monokai-style pink can
             # color it via the "punctuation" category. Themes that don't
@@ -358,6 +386,15 @@ class CanvasEditorSandbox(tk.Frame):
                 c.create_text(x, y + 1, text=txt, anchor="nw",
                               fill=color, font=font)
                 x += font.measure(txt)
+                # Color preview square after hex-color string literals.
+                hex_color = _extract_hex_color(txt) if cat == "string" else None
+                if hex_color:
+                    sq = self._line_h - 6
+                    sx = x + 2
+                    sy = y + 3
+                    c.create_rectangle(sx, sy, sx + sq, sy + sq,
+                                       fill=hex_color, outline=fg)
+                    x += sq + 4
 
             # Caret
             if (i == self.cur_line and self.cursor_visible
@@ -367,7 +404,7 @@ class CanvasEditorSandbox(tk.Frame):
                               fill=self._palette["caret"], width=1)
 
             if i in self.folded:
-                skip_indent = indent
+                skip_indent = len(line) - len(line.lstrip())
             v_row += 1
             rendered += 1
             i += 1
