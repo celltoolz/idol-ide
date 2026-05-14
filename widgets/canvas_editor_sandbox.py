@@ -33,6 +33,7 @@ THEMES: dict[str, dict] = {
             "select_bg":        "#49483e",
             "current_line_bg":  "#3e3d32",
             "guide":            "#3b3a32",
+            "guide_active":     "#6f6e5f",
             "gutter_bg":        "#272822",
             "gutter_fg":        "#90908a",
             "gutter_fg_active": "#c2c2bf",
@@ -60,6 +61,7 @@ THEMES: dict[str, dict] = {
             "select_bg":        "#264f78",
             "current_line_bg":  "#2a2d2e",
             "guide":            "#404040",
+            "guide_active":     "#707070",
             "gutter_bg":        "#1e1e1e",
             "gutter_fg":        "#858585",
             "gutter_fg_active": "#c6c6c6",
@@ -90,6 +92,7 @@ THEMES: dict[str, dict] = {
             "select_bg":        "#49483e",
             "current_line_bg":  "#3e3d32",
             "guide":            "#3b3a32",
+            "guide_active":     "#6f6e5f",
             "gutter_bg":        "#272822",
             "gutter_fg":        "#90908a",
             "gutter_fg_active": "#c2c2bf",
@@ -269,6 +272,20 @@ class CanvasEditorSandbox(tk.Frame):
         c.create_rectangle(0, 0, _GUTTER_W, h,
                            fill=self._palette["gutter_bg"], outline="")
 
+        # Precompute per-line "effective indent" for guide-drawing. Blank
+        # lines inherit min(prev_non_blank_indent, next_non_blank_indent)
+        # so guides connect across blank lines INSIDE a block, but stop
+        # when the block ends. Matches VS Code's indent-guide behavior.
+        eff_indent = self._effective_indents()
+
+        # Active indent guide — the one corresponding to the cursor's
+        # containing block. The cursor's own line indent N maps to the
+        # guide at level N // 4 (the column just left of where the
+        # content starts). active_level == 0 means top-level → no
+        # active guide.
+        cur_text = self.lines[self.cur_line] if self.lines else ""
+        active_level = (len(cur_text) - len(cur_text.lstrip())) // 4
+
         visible_rows = h // self._line_h + 1
         v_row = 0
         rendered = 0
@@ -307,12 +324,15 @@ class CanvasEditorSandbox(tk.Frame):
             # Selection
             self._draw_selection(i, line, y, w)
 
-            # Indent guides
-            indent = len(line) - len(line.lstrip())
-            for level in range(1, indent // 4 + 1):
+            # Indent guides — drive off effective indent so guides span
+            # blank lines within the same block. Highlight the guide that
+            # matches the cursor's containing block.
+            guide_dim = self._palette["guide"]
+            guide_hi  = self._palette.get("guide_active", guide_dim)
+            for level in range(1, eff_indent[i] // 4 + 1):
                 gx = _TEXT_X + level * 4 * self._char_w - self._char_w // 2
-                c.create_line(gx, y, gx, y + self._line_h,
-                              fill=self._palette["guide"])
+                color = guide_hi if level == active_level else guide_dim
+                c.create_line(gx, y, gx, y + self._line_h, fill=color)
 
             # Line number — active line gets brighter color
             gut_fg = (self._palette["gutter_fg_active"]
@@ -361,6 +381,38 @@ class CanvasEditorSandbox(tk.Frame):
         nl = self.lines[i + 1]
         ni = len(nl) - len(nl.lstrip())
         return bool(nl.strip()) and ni > ci
+
+    def _effective_indents(self) -> list[int]:
+        """Per-line indent (in chars) for guide-drawing purposes.
+
+        Non-blank lines use their actual leading-space count. Blank /
+        whitespace-only lines inherit `min(prev_non_blank_indent,
+        next_non_blank_indent)` so guide lines connect across blank
+        rows WITHIN a block but stop where the block ends. Matches
+        VS Code's indent-guide behavior — no per-line "stub" lines."""
+        n = len(self.lines)
+        if n == 0:
+            return []
+        prev_ind = [0] * n
+        last = 0
+        for i, line in enumerate(self.lines):
+            if line.strip():
+                last = len(line) - len(line.lstrip())
+            prev_ind[i] = last
+        next_ind = [0] * n
+        nxt = 0
+        for i in range(n - 1, -1, -1):
+            line = self.lines[i]
+            if line.strip():
+                nxt = len(line) - len(line.lstrip())
+            next_ind[i] = nxt
+        out: list[int] = []
+        for i, line in enumerate(self.lines):
+            if line.strip():
+                out.append(len(line) - len(line.lstrip()))
+            else:
+                out.append(min(prev_ind[i], next_ind[i]))
+        return out
 
     def _draw_selection(self, line_idx: int, line_text: str,
                         y: int, canvas_w: int) -> None:
