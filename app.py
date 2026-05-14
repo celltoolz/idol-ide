@@ -19,6 +19,7 @@ from tkfontchooser import askfont
 from tkinter.colorchooser import askcolor
 
 from widgets.codeview import CodeView
+from widgets.canvas_codeview import CanvasCodeView
 from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
 from widgets.notebook import CustomNotebook
 from widgets.sidebar import Sidebar
@@ -35,6 +36,7 @@ from editor.lsp_manager import (
     LspManager,
     detect_server,
     uri_to_path,
+    path_to_uri,
     SEV_ERROR,
     SEV_WARNING,
 )
@@ -389,6 +391,11 @@ class IDOL(Tk):
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
         self.zen_mode_var = BooleanVar(value=False)
+        # Soak switch for the canvas-rendered editor (Phase 2 of the
+        # CodeView → CanvasCodeView migration). When True, new tabs are
+        # built with `CanvasCodeView`; when False, with `CodeView`.
+        # Toggle from View → "New tabs use Canvas Editor".
+        self.canvas_editor_enabled_var = BooleanVar(value=False)
         self._run_target_var = tk.StringVar(value="output")
         self._run_action_var = tk.StringVar(value="run")
         self._run_entry_file: str | None = None
@@ -1322,7 +1329,15 @@ class IDOL(Tk):
             highlight_fn=lambda t, r=cv_ref: _breadcrumb_highlight(r, t),
         )
         crumb.pack(side="top", fill="x")
-        codeview = CodeView(
+        # Pick editor engine — the canvas-rendered drop-in is opt-in
+        # via View → "New tabs use Canvas Editor" during soak; both
+        # classes expose the same API surface so the rest of `_new_tab`
+        # is engine-agnostic.
+        editor_cls = (
+            CanvasCodeView if self.canvas_editor_enabled_var.get()
+            else CodeView
+        )
+        codeview = editor_cls(
             frame,
             lexer=lexer,
             color_scheme=self.theme_var.get(),
@@ -2210,6 +2225,18 @@ class IDOL(Tk):
                 if cv:
                     self._apply_diagnostics(cv, diags)
                 break
+        # Mirror to the Canvas Editor sandbox if it's open on this file —
+        # without this the sandbox only sees the diagnostic snapshot at
+        # open time and never picks up live lint updates.
+        if (self._canvas_ed_panel is not None
+                and self._canvas_ed_top is not None
+                and self._canvas_ed_top.state() != "withdrawn"):
+            panel_path = self._canvas_ed_panel.filepath
+            if (panel_path
+                    and os.path.normcase(panel_path) == os.path.normcase(norm_path)):
+                self._canvas_ed_panel.set_diagnostics([
+                    self._lsp_diag_to_sandbox(d) for d in diags
+                ])
         # Rebuild the full problems list and push to the panel
         entries = self._build_problem_entries()
         self._output.update_problems(entries)
@@ -2608,12 +2635,15 @@ class IDOL(Tk):
         self._canvas_ed_panel = panel
 
     def view_canvas_editor_sandbox(self) -> None:
-        """Toggle the Canvas Editor preview window."""
+        """Toggle the Canvas Editor preview window. When opening, mirror
+        the active tab's content + path into the sandbox and wire LSP
+        completion + diagnostics so it can stand in as a real editor."""
         self._ensure_canvas_ed_panel()
         top = self._canvas_ed_top
         if top.state() != "withdrawn":
             top.withdraw()
             return
+        self._sync_canvas_ed_panel_with_active_tab()
         ew = self.winfo_width()
         eh = self.winfo_height()
         ex = self.winfo_rootx()
@@ -2626,6 +2656,82 @@ class IDOL(Tk):
         top.lift()
         top.focus_force()
         self._canvas_ed_panel.canvas.focus_set()
+
+    def _sync_canvas_ed_panel_with_active_tab(self) -> None:
+        """Load the active codeview's text, path, LSP-backed completion,
+        and current diagnostics into the sandbox panel."""
+        panel = self._canvas_ed_panel
+        if panel is None:
+            return
+        cv = self._current_codeview
+        if cv is None:
+            return
+        tab_id = self._current_tab_id
+        path = self._files.get(tab_id) if tab_id else None
+        panel.set_text(cv.get("1.0", "end-1c"))
+        panel.set_filepath(path)
+
+        # Async completion hook — fire LSP and route labels back via the
+        # callback the sandbox supplies. The sandbox already tracks a
+        # sequence number to discard stale responses.
+        def _on_completion(prefix, trigger_char, callback, _panel=panel):
+            if not (self._lsp and self._lsp.ready and _panel.filepath):
+                callback([])
+                return
+
+            def _items_cb(items):
+                labels = [
+                    it.get("label", "")
+                    for it in (items or [])
+                    if it.get("label")
+                ]
+                callback(labels)
+
+            self._lsp.completion(
+                _panel.filepath,
+                _panel.cur_line,
+                _panel.cur_col,
+                _items_cb,
+                trigger_char=trigger_char,
+            )
+
+        panel.on_completion_request = _on_completion
+
+        # Push current diagnostics for this file. LSP severity ints →
+        # the sandbox's "error"/"warning"/"info" strings; LSP ranges are
+        # 0-based, which matches the sandbox's expected format.
+        if path:
+            uri = path_to_uri(path)
+            raw_diags = self._lsp_diagnostics.get(uri, [])
+            panel.set_diagnostics([
+                self._lsp_diag_to_sandbox(d) for d in raw_diags
+            ])
+        else:
+            panel.set_diagnostics([])
+
+    @staticmethod
+    def _lsp_diag_to_sandbox(d: dict) -> dict:
+        sev_int = d.get("severity", SEV_WARNING)
+        sev = (
+            "error"   if sev_int == SEV_ERROR
+            else "warning" if sev_int == SEV_WARNING
+            else "info"
+        )
+        rng = d.get("range") or {}
+        s = rng.get("start") or {}
+        e = rng.get("end")   or {}
+        s_line = s.get("line", 0)
+        s_col  = s.get("character", 0)
+        e_line = e.get("line", s_line)
+        e_col  = e.get("character", s_col + 1)
+        # Sandbox paints one line at a time — clamp to start-line range
+        return {
+            "line":      s_line,
+            "col_start": s_col,
+            "col_end":   e_col if e_line == s_line else max(s_col + 1, 9999),
+            "severity":  sev,
+            "message":   d.get("message", ""),
+        }
 
     def _sc_open_diff(self, path: str) -> None:
         """Open a read-only diff tab for *path*."""
@@ -5631,7 +5737,13 @@ class IDOL(Tk):
             highlight_fn=lambda t, r=cv_ref_s: _breadcrumb_highlight(r, t),
         )
         crumb.pack(side="top", fill="x")
-        codeview = CodeView(
+        # Match the split editor's engine to the main editor toggle so
+        # split tabs stay consistent during soak.
+        editor_cls = (
+            CanvasCodeView if self.canvas_editor_enabled_var.get()
+            else CodeView
+        )
+        codeview = editor_cls(
             frame,
             lexer=lexer,
             color_scheme=self.theme_var.get(),

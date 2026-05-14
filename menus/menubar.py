@@ -142,6 +142,14 @@ def build_menubar(app) -> Menu:
         label="Canvas Editor (Preview)",
         command=app.view_canvas_editor_sandbox,
     )
+    # Soak switch — flip to build new tabs with `CanvasCodeView`
+    # instead of the current `CodeView`. Affects only tabs opened
+    # AFTER toggling; existing tabs keep their original engine so you
+    # can compare side-by-side by opening the same file twice.
+    view_menu.add_checkbutton(
+        label="New tabs use Canvas Editor",
+        variable=app.canvas_editor_enabled_var,
+    )
     menubar.add_cascade(label="View", menu=view_menu)
 
     # ── Run ──────────────────────────────────────────────────────────────────

@@ -121,6 +121,11 @@ _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
 # A "# ── Name ─────" section marker — foldable like a block opener.
 # Matches IDOL/widgets/linenums.py:_SECTION_MARKER.
 _SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
+# Lines that sticky-scroll pins: only class/def/async def, mirroring
+# IDOL/widgets/sticky_scroll.py:_SCOPE_RE. Generic block openers
+# (if/for/while/with) are foldable but not pinned — they'd clutter
+# the band on deeply-nested code.
+_SCOPE_HEADER_RE = re.compile(r"^(\s*)(?:class\s|def\s|async\s+def\s)")
 
 # Characters that auto-pair when typed. Maps opener → closer.
 _PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
@@ -133,16 +138,29 @@ _ALL_BRACKETS = set(_BRACKET_OPEN_TO_CLOSE) | set(_BRACKET_CLOSE_TO_OPEN)
 # Identifier char class for word-occurrence highlighting.
 _WORD_RE = re.compile(r"\w+")
 
-# Minimap layout — right-edge strip showing miniature file overview.
-_MINIMAP_W       = 80    # full width including padding
-_MINIMAP_GUTTER  = 4     # gap between text area and minimap
-_MINIMAP_LINE_H  = 3     # one document line → 3px in the minimap
-_MINIMAP_CHAR_W  = 1     # one character → 1px in the minimap
+# Minimap layout — embedded `tk.Text` at font size 1, mirroring IDOL's
+# peer-text minimap. Canvas `create_text` can't render legible glyphs
+# below ~4-5px; a Text widget rasterizes properly at size 1.
+_MINIMAP_W         = 90   # IDOL parity (widgets/minimap.py:WIDTH)
+_MINIMAP_FONT_SIZE = 1
+_PREVIEW_LINES     = 14   # rows shown in the hover zoom preview
+_PREVIEW_W         = 420  # min width of the hover preview Toplevel
 
 # Matches a string literal whose contents are a CSS-style hex color.
 _HEX_COLOR_RE = re.compile(
     r"""^(['"])#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\1$"""
 )
+
+
+def _lighten(hex_color: str, amount: int = 18) -> str:
+    """Brighten a `#rrggbb` color by *amount* per channel. Used for the
+    1-px frame around the minimap hover preview Toplevel."""
+    try:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"#{min(255, r + amount):02x}{min(255, g + amount):02x}{min(255, b + amount):02x}"
+    except Exception:
+        return hex_color
 
 
 def _extract_hex_color(token_text: str) -> str | None:
@@ -219,6 +237,11 @@ class CanvasEditorSandbox(tk.Frame):
     def get_text(self) -> str:
         return "\n".join(self.lines)
 
+    def set_filepath(self, path: str | None) -> None:
+        """Associate the buffer with a file path so the host can route
+        LSP / lint requests to the right document."""
+        self.filepath = path
+
     # ── Setup ─────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -237,6 +260,20 @@ class CanvasEditorSandbox(tk.Frame):
             takefocus=True, cursor="xterm",
         )
         self.canvas.pack(fill="both", expand=True)
+        # Sticky-scroll band lives on its OWN embedded canvas so the main
+        # canvas's `delete("all")` in render() can't wipe it on every
+        # wheel tick (that was the source of the scroll-flicker). We only
+        # redraw its content when the visible header set or theme changes;
+        # plain scrolls within the same scope are zero-cost for sticky.
+        self._sticky_canvas = tk.Canvas(
+            self.canvas, bg=self._palette.get("sticky_bg", self._palette["bg"]),
+            highlightthickness=0, bd=0, takefocus=False,
+        )
+        self._sticky_canvas.place_forget()
+        self._sticky_last_headers: tuple[int, ...] = ()
+        self._sticky_last_theme: str | None = None
+        self._sticky_last_place: tuple[int, int, int, int] | None = None
+        self._build_minimap()
 
     def _build_find_bar(self) -> tk.Frame:
         bar = tk.Frame(self, bg="#252526", height=46)
@@ -397,10 +434,20 @@ class CanvasEditorSandbox(tk.Frame):
         # "message": str}. Render draws a squiggly underline; eventual
         # LSP integration calls set_diagnostics() to update.
         self._diagnostics: list[dict] = []
-        # Autocomplete provider — set this callback to make typing
-        # surface completion candidates: callable(prefix) → list[str].
-        # None means use the buffer-word fallback in _autocomplete_items.
+        # Autocomplete provider — async callback the host wires to a
+        # completion source (LSP, jedi, etc.). Signature:
+        #     callable(prefix: str, trigger_char: str|None,
+        #              callback: Callable[[list[str]], None]) -> None
+        # The host fires the request and invokes `callback(items)` when
+        # the response arrives. None means use the synchronous
+        # buffer-word fallback. A sequence number guards against stale
+        # responses overwriting a fresher request (mirrors IDOL's
+        # _completion_seq in app.py).
         self.on_completion_request = None
+        self._ac_seq: int = 0
+        # File path the buffer is backed by — passed to LSP via the host.
+        # `None` means scratch buffer / unsaved.
+        self.filepath: str | None = None
         # Autocomplete popup state.
         self._ac_top: tk.Toplevel | None = None
         self._ac_listbox: tk.Listbox | None = None
@@ -739,90 +786,152 @@ class CanvasEditorSandbox(tk.Frame):
             rendered += 1
             i += 1
 
-        # Minimap on the right edge — drawn before sticky so the sticky
-        # band can overlap it if the viewport is very narrow.
-        self._draw_minimap()
+        # Minimap on the right edge — an embedded `tk.Text` placed via
+        # `create_window`. The widget always renders on top of canvas
+        # items, so sticky-scroll can no longer paint over it (which is
+        # the IDOL behavior too — minimap stays visible).
+        self._update_minimap()
 
         # Sticky scroll overlay — ancestor block-header lines pinned at
         # top of the viewport so context is visible while scrolled into
         # a nested block. Drawn LAST so it covers the regular rows.
         self._draw_sticky_headers()
 
-    def _draw_minimap(self) -> None:
-        """Right-edge miniature overview. Each document line is rendered
-        as a 3px row of tiny colored bars (one per token). A translucent
-        viewport box shows the slice currently visible in the editor."""
+    # ── Minimap ───────────────────────────────────────────────────────────────
+    # The minimap is a real `tk.Text` widget embedded in the canvas via
+    # `create_window`. Font size 1 gives the same crisp glyph rasterization
+    # IDOL's textbox minimap (widgets/minimap.py) gets — `create_text` on a
+    # canvas can't render below ~4-5px. Token tags are mirrored from the
+    # active theme so colors match the editor.
+
+    def _build_minimap(self) -> None:
+        """Create the embedded minimap Text widget + hover-preview state.
+        Called once from `_build_ui`."""
+        self._mm_text = tk.Text(
+            self.canvas,
+            bd=0, highlightthickness=0,
+            state="disabled", wrap="none",
+            cursor="arrow", takefocus=False,
+            font=(_FONT_FAMILY, _MINIMAP_FONT_SIZE),
+            padx=2, pady=0,
+            spacing1=0, spacing2=0, spacing3=0,
+        )
+        # `place()` (not create_window) so the canvas's `delete("all")` in
+        # render() can't unmap the widget. Track the last place args to
+        # avoid redundant geometry calls on every render.
+        self._mm_last_place: tuple[int, int, int, int] | None = None
+        self._mm_lines_cache: list[str] = []
+        self._mm_last_theme: str | None = None
+
+        # Hover preview Toplevel — lazily created in `_mm_show_preview`.
+        self._mm_preview: tk.Toplevel | None = None
+        self._mm_preview_text: tk.Text | None = None
+        self._mm_preview_after: str | None = None
+        self._mm_last_preview_line: int = -1
+
+        self._mm_text.bind("<ButtonPress-1>", self._on_mm_press)
+        self._mm_text.bind("<B1-Motion>",     self._on_mm_drag)
+        self._mm_text.bind("<Motion>",        self._on_mm_hover)
+        self._mm_text.bind("<Leave>",         self._on_mm_leave)
+        self._mm_text.bind("<MouseWheel>",    self._on_mm_wheel)
+        self._mm_text.bind("<Button-4>",      self._on_mm_wheel)
+        self._mm_text.bind("<Button-5>",      self._on_mm_wheel)
+
+    def _update_minimap(self) -> None:
+        """Reposition/resize the embedded widget, rebuild content if the
+        buffer changed, refresh tag colors on theme switch, and sync the
+        scroll position with the editor viewport. Called from `render`."""
         c = self.canvas
-        cw = c.winfo_width()
-        ch = c.winfo_height()
+        cw, ch = c.winfo_width(), c.winfo_height()
         mm_x = cw - _MINIMAP_W
-        if mm_x < _TEXT_X + 20:
-            return  # canvas too narrow — skip the minimap
-        bg = self._palette.get("minimap_bg", self._palette["bg"])
-        c.create_rectangle(mm_x, 0, cw, ch, fill=bg, outline="")
-        # Scale: if the file fits, 1 doc line = 1 minimap row; else
-        # compress vertically so the whole file fits the canvas height.
+        # Hide when the canvas is too narrow to host both editor + minimap.
+        if mm_x < _TEXT_X + 20 or ch < 2:
+            if self._mm_last_place is not None:
+                self._mm_text.place_forget()
+                self._mm_last_place = None
+            return
+        cur = (mm_x, 0, _MINIMAP_W, ch)
+        if cur != self._mm_last_place:
+            self._mm_text.place(x=mm_x, y=0,
+                                width=_MINIMAP_W, height=ch)
+            self._mm_text.lift()  # ensure widget sits above canvas items
+            self._mm_last_place = cur
+        if self._mm_last_theme != self._theme_name:
+            self._mm_apply_palette()
+            self._mm_last_theme = self._theme_name
+        # Cheap fast path: if buffer is unchanged, list-compare bails on
+        # the first differing entry (or instantly when nothing changed).
+        if self._mm_lines_cache != self.lines:
+            self._mm_rebuild_content()
+        self._mm_sync_scroll()
+
+    def _mm_apply_palette(self) -> None:
+        """Push the active palette + token colors onto the minimap widget."""
+        p = self._palette
+        bg = p.get("minimap_bg", p["bg"])
+        self._mm_text.configure(
+            bg=bg, fg=p["fg"],
+            insertbackground=bg,
+            selectbackground=bg, selectforeground=p["fg"],
+        )
+        for cat, (color, _italic) in self._token_style.items():
+            self._mm_text.tag_configure(f"tok_{cat}", foreground=color)
+
+    def _mm_rebuild_content(self) -> None:
+        """Insert every line into the minimap with token tags applied.
+        Called only when `self.lines` differs from the cached snapshot."""
+        pt = self._mm_text
+        pt.configure(state="normal")
+        pt.delete("1.0", "end")
+        total = len(self.lines)
+        for i, line in enumerate(self.lines, start=1):
+            col = 0
+            for txt, cat in self._tokenize(line):
+                pt.insert("end", txt)
+                if cat is not None:
+                    pt.tag_add(f"tok_{cat}",
+                               f"{i}.{col}", f"{i}.{col + len(txt)}")
+                col += len(txt)
+            if i < total:
+                pt.insert("end", "\n")
+        pt.configure(state="disabled")
+        self._mm_lines_cache = list(self.lines)
+
+    def _mm_sync_scroll(self) -> None:
+        """Move the minimap's yview so the editor viewport stays centered."""
         n = len(self.lines)
         if n == 0:
             return
-        max_rows = max(1, ch // _MINIMAP_LINE_H)
-        if n <= max_rows:
-            row_h = _MINIMAP_LINE_H
-            row_y = lambda i: int(i * row_h)
-        else:
-            row_h = max(1, ch / n)
-            row_y = lambda i: int(i * row_h)
-        # Tokens per line as little bars
-        fg = self._palette["fg"]
-        bar_x0 = mm_x + _MINIMAP_GUTTER
-        for idx, line in enumerate(self.lines):
-            y0 = row_y(idx)
-            if y0 >= ch:
-                break
-            x = bar_x0
-            for txt, cat in self._tokenize(line):
-                if cat is None:
-                    color = fg
-                else:
-                    color, _italic = self._token_style.get(cat, (fg, False))
-                w = len(txt) * _MINIMAP_CHAR_W
-                if w <= 0:
-                    continue
-                if x + w > cw:
-                    w = cw - x
-                if w > 0:
-                    c.create_rectangle(x, y0, x + w, y0 + max(1, int(row_h) - 1),
-                                       fill=color, outline="")
-                x += w
-                if x >= cw:
-                    break
-        # Viewport overlay box — covers the rows currently visible in
-        # the main editor.
-        v_top    = row_y(self._visual_to_physical(self.scroll_y) or 0)
-        v_rows   = max(1, ch // self._line_h)
-        v_bottom = min(ch, v_top + max(int(row_h * v_rows), int(row_h)))
-        c.create_rectangle(
-            mm_x, v_top, cw, v_bottom,
-            fill=self._palette.get("minimap_viewport", "#37373d"),
-            outline="", stipple="gray25",
-        )
+        try:
+            top_phys = self._visual_to_physical(self.scroll_y) or 0
+            frac = top_phys / max(1, n)
+            self._mm_text.yview_moveto(max(0.0, min(1.0, frac)))
+        except Exception:
+            pass
 
-    def _on_minimap_click(self, event) -> bool:
-        """If the click was inside the minimap, scroll to that row.
-        Returns True if handled."""
-        cw = self.canvas.winfo_width()
-        mm_x = cw - _MINIMAP_W
-        if event.x < mm_x:
-            return False
-        n = len(self.lines)
-        if n == 0:
-            return True
-        ch = self.canvas.winfo_height()
-        max_rows = max(1, ch // _MINIMAP_LINE_H)
-        row_h = _MINIMAP_LINE_H if n <= max_rows else max(1, ch / n)
-        target = int(event.y / row_h)
-        target = max(0, min(n - 1, target))
-        # Convert physical target line → visual row, set scroll_y
+    # ── Minimap interaction ───────────────────────────────────────────────────
+
+    def _on_mm_press(self, event):
+        # Focus the canvas so keyboard input still goes to the editor
+        # after a minimap click.
+        self.canvas.focus_set()
+        self._mm_hide_preview()
+        self._mm_scroll_to(event.y)
+        return "break"
+
+    def _on_mm_drag(self, event):
+        self._mm_scroll_to(event.y)
+        return "break"
+
+    def _mm_scroll_to(self, widget_y: int) -> None:
+        """Translate a y-coord inside the minimap into a main-editor
+        scroll position, centering the clicked line in the viewport."""
+        try:
+            idx = self._mm_text.index(f"@0,{widget_y}")
+            phys = max(0, min(len(self.lines) - 1, int(idx.split(".")[0]) - 1))
+        except Exception:
+            return
+        # Convert physical line → visual row (account for folds).
         v = 0
         skip = None
         for i, line in enumerate(self.lines):
@@ -832,52 +941,221 @@ class CanvasEditorSandbox(tk.Frame):
                     skip = None
                 else:
                     continue
-            if i == target:
+            if i == phys:
                 break
             if i in self.folded:
                 skip = len(line) - len(line.lstrip())
             v += 1
-        # Center the target in the viewport when possible
-        v_rows = max(1, ch // self._line_h)
+        h = self.canvas.winfo_height()
+        v_rows = max(1, h // self._line_h)
         self.scroll_y = max(0, v - v_rows // 2)
         self.render()
-        return True
+
+    def _on_mm_wheel(self, event):
+        if getattr(event, "num", 0) == 4:
+            self._scroll(-3)
+        elif getattr(event, "num", 0) == 5:
+            self._scroll(+3)
+        else:
+            self._scroll(-3 if event.delta > 0 else +3)
+        # Refresh preview so the centered line tracks the new scroll pos.
+        if self._mm_preview is not None:
+            self._mm_last_preview_line = -1
+            try:
+                idx = self._mm_text.index(f"@0,{event.y}")
+                self._mm_show_preview(int(idx.split(".")[0]), event.y_root)
+            except Exception:
+                pass
+        return "break"
+
+    # ── Minimap hover zoom-box ────────────────────────────────────────────────
+
+    def _on_mm_hover(self, event):
+        try:
+            idx = self._mm_text.index(f"@0,{event.y}")
+            line = int(idx.split(".")[0])
+        except Exception:
+            return
+        if line == self._mm_last_preview_line and self._mm_preview is not None:
+            self._mm_reposition_preview(event.y_root)
+            return
+        if self._mm_preview_after:
+            self.after_cancel(self._mm_preview_after)
+        self._mm_preview_after = self.after(
+            16, lambda ln=line, y=event.y_root: self._mm_show_preview(ln, y)
+        )
+
+    def _on_mm_leave(self, _event):
+        if self._mm_preview_after:
+            self.after_cancel(self._mm_preview_after)
+        self._mm_preview_after = self.after(120, self._mm_hide_preview)
+
+    def _mm_show_preview(self, center_line: int, mouse_y_root: int) -> None:
+        n = len(self.lines)
+        if n == 0:
+            return
+        half  = _PREVIEW_LINES // 2
+        first = max(1, center_line - half)
+        last  = min(n, first + _PREVIEW_LINES - 1)
+        first = max(1, last - _PREVIEW_LINES + 1)
+
+        if self._mm_preview is None:
+            self._mm_preview = tk.Toplevel(self)
+            self._mm_preview.overrideredirect(True)
+            self._mm_preview.attributes("-topmost", True)
+            self._mm_preview.withdraw()
+            outer = tk.Frame(self._mm_preview, padx=1, pady=1)
+            outer.pack(fill="both", expand=True)
+            self._mm_preview_text = tk.Text(
+                outer, bd=0, highlightthickness=0,
+                state="disabled", wrap="none", takefocus=False,
+                padx=8, pady=4,
+                font=(_FONT_FAMILY, _FONT_SIZE),
+            )
+            self._mm_preview_text.pack(fill="both", expand=True)
+            self._mm_preview_text.bind("<Enter>", lambda _e: (
+                self.after_cancel(self._mm_preview_after)
+                if self._mm_preview_after else None
+            ))
+            self._mm_preview_text.bind("<Leave>", lambda _e: self._mm_hide_preview())
+            # Italic variant for comment-like tokens
+            self._mm_preview_text_italic_font = tkfont.Font(
+                family=_FONT_FAMILY, size=_FONT_SIZE, slant="italic"
+            )
+
+        pt = self._mm_preview_text
+        p  = self._palette
+        pt.configure(
+            bg=p["bg"], fg=p["fg"],
+            insertbackground=p["bg"],
+            selectbackground=p["select_bg"],
+        )
+        # 1-px frame in a lighter shade of the editor bg
+        outer = pt.master  # type: ignore[union-attr]
+        outer.configure(bg=_lighten(p["bg"], 35))
+        self._mm_preview.configure(bg=_lighten(p["bg"], 35))
+
+        # Apply token tag colors + italic for the categories that want it
+        for cat, (color, italic) in self._token_style.items():
+            if italic:
+                pt.tag_configure(f"tok_{cat}", foreground=color,
+                                 font=self._mm_preview_text_italic_font)
+            else:
+                pt.tag_configure(f"tok_{cat}", foreground=color)
+
+        pt.configure(state="normal", height=_PREVIEW_LINES)
+        pt.delete("1.0", "end")
+        for ln in range(first, last + 1):
+            line = self.lines[ln - 1] if 0 <= ln - 1 < n else ""
+            col = 0
+            preview_row = ln - first + 1
+            for txt, cat in self._tokenize(line):
+                pt.insert("end", txt)
+                if cat is not None:
+                    pt.tag_add(f"tok_{cat}",
+                               f"{preview_row}.{col}",
+                               f"{preview_row}.{col + len(txt)}")
+                col += len(txt)
+            if ln < last:
+                pt.insert("end", "\n")
+        pt.configure(state="disabled")
+
+        # Position to the LEFT of the minimap, vertically centered on mouse.
+        cw = self.canvas.winfo_width()
+        pw = max(_PREVIEW_W, int(cw * 0.75))
+        ph = self._mm_preview.winfo_reqheight() or _PREVIEW_LINES * 16
+        mm_x_root = self._mm_text.winfo_rootx()
+        px = mm_x_root - pw - 9
+        screen_h = self._mm_preview.winfo_screenheight()
+        py = max(0, min(mouse_y_root - ph // 2, screen_h - ph))
+
+        self._mm_last_preview_line = center_line
+        self._mm_preview.geometry(f"{pw}x{ph}+{px}+{py}")
+        self._mm_preview.deiconify()
+
+    def _mm_reposition_preview(self, mouse_y_root: int) -> None:
+        if self._mm_preview is None:
+            return
+        pw = self._mm_preview.winfo_width()
+        ph = self._mm_preview.winfo_height()
+        px = self._mm_text.winfo_rootx() - pw - 9
+        screen_h = self._mm_preview.winfo_screenheight()
+        py = max(0, min(mouse_y_root - ph // 2, screen_h - ph))
+        self._mm_preview.geometry(f"{pw}x{ph}+{px}+{py}")
+
+    def _mm_hide_preview(self) -> None:
+        if self._mm_preview_after:
+            self.after_cancel(self._mm_preview_after)
+            self._mm_preview_after = None
+        self._mm_last_preview_line = -1
+        if self._mm_preview is not None:
+            self._mm_preview.withdraw()
 
     def _draw_sticky_headers(self) -> None:
+        """Update the embedded sticky-scroll canvas. Only redraws content
+        when the header set or theme changes — typical scroll-within-block
+        is a no-op, which kills the flicker the canvas-item version had."""
         headers = self._sticky_headers()
+        sc = self._sticky_canvas
         if not headers:
+            if self._sticky_last_place is not None:
+                sc.place_forget()
+                self._sticky_last_place = None
+                self._sticky_last_headers = ()
             return
-        c = self.canvas
-        w = c.winfo_width()
-        sticky_bg = self._palette.get("sticky_bg", self._palette["bg"])
+        cw = self.canvas.winfo_width()
+        # Stop the band before the minimap (mirrors the main canvas's
+        # rendering clip).
+        sw = cw - _MINIMAP_W if cw - _MINIMAP_W >= _TEXT_X + 20 else cw
+        bar_h = len(headers) * self._line_h
         sticky_border = self._palette.get(
             "sticky_border", self._palette.get("guide", "#404040")
         )
-        bar_h = len(headers) * self._line_h
-        c.create_rectangle(0, 0, w, bar_h, fill=sticky_bg, outline="")
-        for idx, hi in enumerate(headers):
-            y = idx * self._line_h
-            line = self.lines[hi]
-            # Gutter bg slice for this row
-            c.create_rectangle(0, y, _GUTTER_W, y + self._line_h,
-                               fill=self._palette["gutter_bg"], outline="")
-            c.create_text(_LINENUM_R, y + 1, text=str(hi + 1),
-                          anchor="ne",
-                          fill=self._palette["gutter_fg"], font=self._font)
-            # Tokenize and render
-            x = _TEXT_X
-            fg = self._palette["fg"]
-            for txt, cat in self._tokenize(line):
-                if cat is None:
-                    color, italic = fg, False
-                else:
-                    color, italic = self._token_style.get(cat, (fg, False))
-                font = self._font_italic if italic else self._font
-                c.create_text(x, y + 1, text=txt, anchor="nw",
-                              fill=color, font=font)
-                x += font.measure(txt)
-        # Thin bottom border
-        c.create_line(0, bar_h, w, bar_h, fill=sticky_border, width=1)
+
+        hdr_tuple = tuple(headers)
+        if (hdr_tuple, self._theme_name) != (
+                self._sticky_last_headers, self._sticky_last_theme):
+            sc.delete("all")
+            sc.configure(
+                bg=self._palette.get("sticky_bg", self._palette["bg"])
+            )
+            for idx, hi in enumerate(headers):
+                y = idx * self._line_h
+                line = self.lines[hi]
+                # Gutter slice
+                sc.create_rectangle(
+                    0, y, _GUTTER_W, y + self._line_h,
+                    fill=self._palette["gutter_bg"], outline="",
+                )
+                sc.create_text(
+                    _LINENUM_R, y + 1, text=str(hi + 1), anchor="ne",
+                    fill=self._palette["gutter_fg"], font=self._font,
+                )
+                # Tokenize + render header line
+                x = _TEXT_X
+                fg = self._palette["fg"]
+                for txt, cat in self._tokenize(line):
+                    if cat is None:
+                        color, italic = fg, False
+                    else:
+                        color, italic = self._token_style.get(cat, (fg, False))
+                    font = self._font_italic if italic else self._font
+                    sc.create_text(x, y + 1, text=txt, anchor="nw",
+                                   fill=color, font=font)
+                    x += font.measure(txt)
+            sc.create_line(0, bar_h, sw, bar_h, fill=sticky_border, width=1)
+            self._sticky_last_headers = hdr_tuple
+            self._sticky_last_theme = self._theme_name
+
+        # Place / resize. The +1 covers the bottom border line.
+        cur = (0, 0, sw, bar_h + 1)
+        if cur != self._sticky_last_place:
+            sc.place(x=0, y=0, width=sw, height=bar_h + 1)
+            # `Canvas.lift` / `Canvas.tkraise` are both overridden to act
+            # on canvas ITEMS, not on the widget's stacking order. Invoke
+            # the raw Tcl `raise` to put the band above sibling widgets.
+            sc.tk.call('raise', sc._w)
+            self._sticky_last_place = cur
 
     def _line_is_foldable(self, i: int) -> bool:
         """A line opens a foldable block when it is a `# ── …` section
@@ -918,30 +1196,49 @@ class CanvasEditorSandbox(tk.Frame):
         self.canvas.create_line(*pts, fill=color, width=1)
 
     def _sticky_headers(self) -> list[int]:
-        """Physical-line indices of the ancestor block-headers for the
-        line at the top of the visible viewport (outermost first).
-        Empty when scroll_y == 0 or no headers found."""
+        """Physical-line indices of the enclosing class/def scopes to
+        pin at the top of the viewport (outermost first).
+
+        Mirrors IDOL/widgets/sticky_scroll.py:_find_scope_lines:
+          • Only class / def / async def are pinned (not if/for/with
+            and similar — they'd clutter deeply-nested code).
+          • Section markers (`# ── Foo ──`) are skipped.
+          • `top_phys` is offset by the *previous* frame's band height
+            so band-covered rows are treated as scrolled off. This
+            introduces a 1-frame lag when the band size changes (e.g.
+            entering or leaving a scope), which is what IDOL accepts
+            in exchange for stability — earlier iteration approaches
+            oscillated when sibling defs at the same indent were
+            adjacent.
+          • Walk is EXCLUSIVE of top_phys, with `offset = max(1, ...)`
+            so on the first scroll (no previous headers) we still see
+            one row past `scroll_y` — otherwise a def at the very top
+            of the viewport would be missed on bootstrap.
+        """
         if self.scroll_y == 0 or not self.lines:
             return []
-        top_phys = self._visual_to_physical(self.scroll_y)
-        if top_phys is None or top_phys <= 0:
+        offset = max(1, len(self._sticky_last_headers))
+        top_visual = self.scroll_y + offset
+        top_phys = self._visual_to_physical(top_visual)
+        if top_phys is None or top_phys < 0:
             return []
-        top_line = self.lines[top_phys]
-        if not top_line.strip():
-            return []
-        cur_indent = len(top_line) - len(top_line.lstrip())
+
         headers: list[int] = []
-        i = top_phys - 1
-        while i >= 0:
+        min_indent: float = float("inf")
+        for i in range(top_phys - 1, -1, -1):
             line = self.lines[i]
-            if line.strip():
-                ind = len(line) - len(line.lstrip())
-                if ind < cur_indent and self._line_is_foldable(i):
-                    headers.insert(0, i)
-                    cur_indent = ind
-                    if cur_indent == 0:
-                        break
-            i -= 1
+            if not line.strip():
+                continue
+            if _SECTION_MARKER.match(line):
+                continue
+            if not _SCOPE_HEADER_RE.match(line):
+                continue
+            indent = len(line) - len(line.lstrip())
+            if indent < min_indent:
+                headers.insert(0, i)
+                min_indent = indent
+                if indent == 0:
+                    break
         return headers
 
     def _find_bracket_pair(self) -> tuple[tuple[int, int], tuple[int, int]] | None:
@@ -1232,8 +1529,6 @@ class CanvasEditorSandbox(tk.Frame):
 
     def _on_click(self, event):
         self.canvas.focus_set()
-        if self._on_minimap_click(event):
-            return "break"
         if event.x < _GUTTER_W:
             row = self._row_from_y(event.y)
             if event.x < _DEBUG_W:
@@ -1303,12 +1598,10 @@ class CanvasEditorSandbox(tk.Frame):
                 self._hover_breakpoint_line = None
                 self.render()
         else:
-            cw = self.canvas.winfo_width()
-            if event.x >= cw - _MINIMAP_W:
-                self.canvas.configure(cursor="hand2")
-            else:
-                over_dots = self._hit_fold_dots(event.x, event.y) is not None
-                self.canvas.configure(cursor="hand2" if over_dots else "xterm")
+            # Minimap zone is owned by the embedded tk.Text widget, which
+            # sets its own arrow cursor and consumes events directly.
+            over_dots = self._hit_fold_dots(event.x, event.y) is not None
+            self.canvas.configure(cursor="hand2" if over_dots else "xterm")
             if self._hover_breakpoint_line is not None:
                 self._hover_breakpoint_line = None
                 self.render()
@@ -1508,7 +1801,10 @@ class CanvasEditorSandbox(tk.Frame):
 
         # Editing
         if ks == "BackSpace":
-            self._delete_back(); self._ensure_visible(); self.render(); return "break"
+            self._delete_back(); self._ensure_visible(); self.render()
+            # Re-evaluate completions after deletion (narrows or hides).
+            self._maybe_show_autocomplete()
+            return "break"
         if ks == "Delete":
             self._delete_forward(); self._ensure_visible(); self.render(); return "break"
         if ks == "Return":
@@ -1520,9 +1816,10 @@ class CanvasEditorSandbox(tk.Frame):
             self._insert_char_with_pairs(event.char)
             self._ensure_visible()
             self.render()
-            # After insertion, recompute the autocomplete popup if the
-            # last typed char was identifier-y.
-            if event.char.isalnum() or event.char == "_":
+            # Recompute completions after identifier-ish chars, including
+            # `.` so member access opens the popup (matches IDOL
+            # CodeView; see app.py:_on_key around line 1522).
+            if event.char.isalnum() or event.char in ("_", "."):
                 self._maybe_show_autocomplete()
             else:
                 self._hide_autocomplete()
@@ -1787,44 +2084,73 @@ class CanvasEditorSandbox(tk.Frame):
             start -= 1
         return line[start:c]
 
-    def _autocomplete_items(self, prefix: str) -> list[str]:
-        """Generate candidate completions for *prefix*. Uses the
-        on_completion_request hook when set, else falls back to buffer
-        words + Python keywords/builtins. Filters by prefix, removes
-        the exact-match equal to prefix, returns sorted unique list."""
-        if self.on_completion_request:
-            try:
-                items = list(self.on_completion_request(prefix) or [])
-            except Exception:
-                items = []
-        else:
-            words: set[str] = set(self._AC_KEYWORDS) | set(self._AC_BUILTINS)
-            for line in self.lines:
-                for m in _WORD_RE.findall(line):
-                    if len(m) >= 2 and not m[0].isdigit():
-                        words.add(m)
-            items = list(words)
-        items = sorted(
-            {w for w in items if w != prefix and w.startswith(prefix)},
-            key=lambda w: (not w.startswith(prefix), w.lower()),
-        )
-        return items[:30]
+    def _buffer_word_items(self, prefix: str,
+                           trigger_char: str | None) -> list[str]:
+        """Synchronous fallback when no `on_completion_request` host hook
+        is wired. Returns [] on `.` trigger — dumping every identifier in
+        the buffer as member candidates would be noise; real member
+        completion needs an LSP."""
+        if trigger_char == ".":
+            return []
+        words: set[str] = set(self._AC_KEYWORDS) | set(self._AC_BUILTINS)
+        for line in self.lines:
+            for m in _WORD_RE.findall(line):
+                if len(m) >= 2 and not m[0].isdigit():
+                    words.add(m)
+        return sorted(
+            {w for w in words if w != prefix and w.startswith(prefix)},
+            key=lambda w: w.lower(),
+        )[:30]
 
     def _maybe_show_autocomplete(self) -> None:
+        """Decide whether to show, narrow, or hide the autocomplete popup.
+
+        Triggers:
+          • prefix is ≥1 char of an identifier — normal completion, or
+          • char immediately before the prefix is `.` — member access.
+
+        Completion source is async-friendly via `on_completion_request`
+        (host supplies items via callback). A sequence number guards
+        against a stale LSP response overwriting a fresher request.
+        """
         prefix = self._current_prefix()
-        # Trigger when the prefix is at least 2 chars long and the char
-        # before that isn't a dot (typing `foo.b` shouldn't show keywords
-        # — that wants member-completion which is an LSP job).
-        if len(prefix) < 2:
+        line = self.lines[self.cur_line]
+        prefix_start = self.cur_col - len(prefix)
+        is_member = (prefix_start > 0
+                     and line[prefix_start - 1] == ".")
+        if not is_member and len(prefix) < 1:
             self._hide_autocomplete()
             return
-        items = self._autocomplete_items(prefix)
-        if not items:
-            self._hide_autocomplete()
-            return
-        self._ac_items = items
-        self._ac_prefix = prefix
-        self._show_autocomplete_popup()
+        trigger = "." if is_member else None
+        self._ac_seq += 1
+        seq = self._ac_seq
+
+        def deliver(items, _prefix=prefix, _seq=seq):
+            if _seq != self._ac_seq:
+                return  # stale — newer request superseded this one
+            # If the user typed/deleted between request and response,
+            # the prefix may no longer match — the new request will
+            # handle it.
+            if self._current_prefix() != _prefix:
+                return
+            items = sorted(
+                {w for w in items if w != _prefix and w.startswith(_prefix)},
+                key=lambda w: w.lower(),
+            )[:30]
+            if not items:
+                self._hide_autocomplete()
+                return
+            self._ac_items = items
+            self._ac_prefix = _prefix
+            self._show_autocomplete_popup()
+
+        if self.on_completion_request is not None:
+            try:
+                self.on_completion_request(prefix, trigger, deliver)
+            except Exception:
+                deliver([])
+        else:
+            deliver(self._buffer_word_items(prefix, trigger))
 
     def _show_autocomplete_popup(self) -> None:
         # Geometry — anchor under the typed prefix.
