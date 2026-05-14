@@ -12,6 +12,9 @@ import re
 import tkinter as tk
 import tkinter.font as tkfont
 
+from .breadcrumb_bar import BreadcrumbBar
+from .scrollbar import HorizontalScrollbar, VerticalScrollbar
+
 
 # ── Themes ────────────────────────────────────────────────────────────────────
 # Each theme has a `palette` (UI colors) and a `tokens` map (category →
@@ -239,8 +242,90 @@ class CanvasEditorSandbox(tk.Frame):
 
     def set_filepath(self, path: str | None) -> None:
         """Associate the buffer with a file path so the host can route
-        LSP / lint requests to the right document."""
+        LSP / lint requests to the right document, and so the
+        breadcrumb shows the path crumbs."""
         self.filepath = path
+        self._refresh_breadcrumb()
+
+    # ── Scrollbar protocol ────────────────────────────────────────────────────
+    # The custom VerticalScrollbar / HorizontalScrollbar widgets call
+    # the bound `command` with either ("moveto", frac) or ("scroll",
+    # delta, "units"|"pages"). They expect `set(first, last)` to be
+    # called back whenever the scroll position changes.
+
+    def yview(self, *args) -> tuple[float, float] | None:
+        if not args:
+            return self._yview_fractions()
+        op = args[0]
+        total = max(1, self._visual_row_count())
+        visible = max(1, self.canvas.winfo_height() // self._line_h)
+        if op == "moveto":
+            frac = float(args[1])
+            self.scroll_y = max(0, min(total - 1,
+                                       int(frac * total)))
+        elif op == "scroll":
+            delta = int(args[1])
+            unit = args[2] if len(args) > 2 else "units"
+            step = delta * (visible if unit == "pages" else 1)
+            self.scroll_y = max(0, min(max(0, total - 1),
+                                       self.scroll_y + step))
+        self.render()
+        return None
+
+    def xview(self, *args) -> tuple[float, float] | None:
+        if not args:
+            return self._xview_fractions()
+        # Horizontal scroll is stubbed in Phase (a) — the scrollbar
+        # widget is wired so the layout is visually complete, but the
+        # editor doesn't yet track horizontal extent. autohide=True
+        # keeps the bar tucked away until later phases enable it.
+        return None
+
+    def _yview_fractions(self) -> tuple[float, float]:
+        total = max(1, self._visual_row_count())
+        visible = max(1, self.canvas.winfo_height() // self._line_h)
+        first = self.scroll_y / total
+        last = min(1.0, (self.scroll_y + visible) / total)
+        return (max(0.0, first), max(first, last))
+
+    def _xview_fractions(self) -> tuple[float, float]:
+        # Stubbed: report "everything visible" so autohide hides the
+        # horizontal scrollbar until horizontal scroll is implemented.
+        return (0.0, 1.0)
+
+    def _push_scroll_fractions(self) -> None:
+        """Push the current scroll state to both scrollbar widgets."""
+        try:
+            self._vs.set(*self._yview_fractions())
+            self._hs.set(*self._xview_fractions())
+        except Exception:
+            pass
+
+    def _goto_line(self, line: int) -> None:
+        """Breadcrumb navigation target — center the given line in the
+        viewport. *line* is 1-indexed (matches BreadcrumbBar API)."""
+        idx = max(0, min(len(self.lines) - 1, line - 1))
+        self.cur_line = idx
+        self.cur_col = 0
+        self.sel_anchor = None
+        self._ensure_visible()
+        self.canvas.focus_set()
+        self.render()
+
+    def _refresh_breadcrumb(self) -> None:
+        """Push current file/cursor state into the breadcrumb. Outline
+        support comes in later phases — for now path crumbs only."""
+        try:
+            self.breadcrumb.update_crumbs(
+                filepath=self.filepath,
+                explorer_root=None,
+                cursor_line=self.cur_line + 1,
+                outline=None,
+                is_python=bool(self.filepath
+                               and self.filepath.endswith(".py")),
+            )
+        except Exception:
+            pass
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 
@@ -251,15 +336,53 @@ class CanvasEditorSandbox(tk.Frame):
         self._char_w = self._font.measure("W")
         self._line_h = self._font.metrics("linespace") + 2
 
-        # Find/Replace bar — packed at the top, hidden by default. Built
-        # eagerly so Ctrl+F just toggles visibility.
+        # ── Grid layout ──────────────────────────────────────────────
+        #   row 0 — breadcrumb bar (full width)
+        #   row 1 — find/replace bar (full width, hidden by default)
+        #   row 2 — canvas (col 0) + vertical scrollbar (col 1)
+        #   row 3 — horizontal scrollbar (col 0)
+        # Content row + canvas column expand; everything else hugs.
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # Breadcrumb — passes through `get_line` and a stub navigate so
+        # the bar is visually live even before app.py wires outline.
+        self.breadcrumb = BreadcrumbBar(
+            self,
+            on_navigate=self._goto_line,
+            get_line=lambda ln: (self.lines[ln - 1]
+                                 if 0 < ln <= len(self.lines) else ""),
+        )
+        self.breadcrumb.grid(row=0, column=0, columnspan=2, sticky="ew")
+
+        # Find/Replace bar — grid'd into row 1, hidden by default.
+        # `show_find_bar` / `hide_find_bar` toggle visibility via
+        # grid()/grid_remove() instead of the old pack toggle.
         self._find_bar = self._build_find_bar()
+        self._find_bar.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self._find_bar.grid_remove()
 
         self.canvas = tk.Canvas(
             self, bg=self._palette["bg"], highlightthickness=0,
             takefocus=True, cursor="xterm",
         )
-        self.canvas.pack(fill="both", expand=True)
+        self.canvas.grid(row=2, column=0, sticky="nswe")
+
+        # Scrollbars — same custom widgets the rest of IDOL uses, wired
+        # to the editor's row-based scroll model via yview/xview below.
+        # autohide=True keeps the tracks out of the way when content
+        # fits (mirrors the CodeView treatment).
+        self._vs = VerticalScrollbar(self, autohide=True, width=16,
+                                     command=self.yview)
+        self._vs.grid(row=2, column=1, sticky="ns")
+        self._hs = HorizontalScrollbar(self, autohide=True, height=16,
+                                       command=self.xview)
+        self._hs.grid(row=3, column=0, sticky="we")
+        # Horizontal scroll offset (pixels). Phase (a) leaves horizontal
+        # scrolling stubbed: the scrollbar widget is present and tracks
+        # `_scroll_x`, but autohide hides it because we keep first=0,
+        # last=1 until proper horizontal scroll is wired in later phases.
+        self._scroll_x: int = 0
         # Sticky-scroll band lives on its OWN embedded canvas so the main
         # canvas's `delete("all")` in render() can't wipe it on every
         # wheel tick (that was the source of the scroll-flicker). We only
@@ -332,8 +455,11 @@ class CanvasEditorSandbox(tk.Frame):
         return bar
 
     def show_find_bar(self) -> None:
+        # Grid-based show — bar lives at row 1 with `grid_remove` for
+        # hidden state. `winfo_manager()` returns "" once removed, so
+        # call `grid()` to put it back (preserving the original args).
         if not self._find_bar.winfo_manager():
-            self._find_bar.pack(side="top", fill="x", before=self.canvas)
+            self._find_bar.grid()
         # Seed with current selection if it fits on one line
         if self.sel_anchor is not None:
             sel = self._selected_text()
@@ -346,7 +472,7 @@ class CanvasEditorSandbox(tk.Frame):
 
     def hide_find_bar(self) -> None:
         if self._find_bar.winfo_manager():
-            self._find_bar.pack_forget()
+            self._find_bar.grid_remove()
         self._find_matches = []
         self._find_status.config(text="")
         self.canvas.focus_set()
@@ -796,6 +922,13 @@ class CanvasEditorSandbox(tk.Frame):
         # top of the viewport so context is visible while scrolled into
         # a nested block. Drawn LAST so it covers the regular rows.
         self._draw_sticky_headers()
+
+        # Sync chrome widgets — scrollbars track scroll_y, breadcrumb
+        # tracks cur_line. Both are cheap when state hasn't changed
+        # (scrollbar widgets compare-and-redraw; breadcrumb has its
+        # own key-based cache in update_crumbs).
+        self._push_scroll_fractions()
+        self._refresh_breadcrumb()
 
     # ── Minimap ───────────────────────────────────────────────────────────────
     # The minimap is a real `tk.Text` widget embedded in the canvas via
