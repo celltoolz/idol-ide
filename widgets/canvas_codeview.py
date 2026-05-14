@@ -123,6 +123,14 @@ _MINIMAP_FONT_SIZE = 1
 _PREVIEW_LINES     = 14   # rows shown in the hover zoom preview
 _PREVIEW_W         = 420  # min width of the hover preview Toplevel
 
+# Right-side breathing room for the text viewport. `_font.measure()`
+# returns advance width, not visible-glyph width — italics + some
+# Unicode glyphs paint a few pixels past their advance, so without
+# padding the last char of a fully-scrolled long line gets clipped
+# by the canvas edge (minimap hidden) or hidden under the minimap
+# (minimap visible). 8px is enough for either case.
+_TEXT_RIGHT_PAD = 8
+
 # Matches a string literal whose contents are a CSS-style hex color.
 _HEX_COLOR_RE = re.compile(
     r"""^(['"])#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\1$"""
@@ -543,6 +551,9 @@ class CanvasCodeView(tk.Frame):
           • `_MINIMAP_W` — minimap strip on the right, but ONLY when
             the minimap is currently visible. With it hidden, the
             full right side of the canvas is fair game for text.
+          • `_TEXT_RIGHT_PAD` — small safety margin so the last char
+            of a fully-scrolled long line isn't clipped by the
+            canvas edge or hidden under the minimap.
 
         Does NOT subtract the vertical scrollbar width — `_vs` is a
         sibling grid column, not a canvas overlay, so the canvas's
@@ -552,7 +563,7 @@ class CanvasCodeView(tk.Frame):
         minimap_reserve = _MINIMAP_W if getattr(
             self, "_mm_visible", True
         ) else 0
-        return max(1, cw - _TEXT_X - minimap_reserve)
+        return max(1, cw - _TEXT_X - minimap_reserve - _TEXT_RIGHT_PAD)
 
     def _content_width(self) -> int:
         """Maximum line width in pixels. Drives horizontal scroll
