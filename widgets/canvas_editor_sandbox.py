@@ -326,11 +326,15 @@ class CanvasEditorSandbox(tk.Frame):
 
             # Indent guides — drive off effective indent so guides span
             # blank lines within the same block. Highlight the guide that
-            # matches the cursor's containing block.
+            # matches the cursor's containing block. Each guide is drawn
+            # at the LEFT edge of its indent level (level 1 at col 0,
+            # level 2 at col 4, etc.) to match VS Code: on the parent
+            # block's header line the text covers the line; on indented
+            # child lines (where the col is whitespace) it's visible.
             guide_dim = self._palette["guide"]
             guide_hi  = self._palette.get("guide_active", guide_dim)
             for level in range(1, eff_indent[i] // 4 + 1):
-                gx = _TEXT_X + level * 4 * self._char_w - self._char_w // 2
+                gx = _TEXT_X + (level - 1) * 4 * self._char_w
                 color = guide_hi if level == active_level else guide_dim
                 c.create_line(gx, y, gx, y + self._line_h, fill=color)
 
