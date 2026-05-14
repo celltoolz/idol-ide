@@ -496,7 +496,7 @@ class CanvasCodeView(tk.Frame):
             return self._xview_fractions()
         op = args[0]
         content_w = self._content_width()
-        visible_w = max(1, self.canvas.winfo_width() - _TEXT_X)
+        visible_w = self._visible_text_width()
         max_scroll = max(0, content_w - visible_w)
         if op == "moveto":
             frac = float(args[1])
@@ -525,12 +525,34 @@ class CanvasCodeView(tk.Frame):
         content_w = self._content_width()
         if content_w == 0:
             return (0.0, 1.0)
-        visible_w = max(1, self.canvas.winfo_width() - _TEXT_X)
+        visible_w = self._visible_text_width()
         if content_w <= visible_w:
             return (0.0, 1.0)
         first = self._scroll_x / content_w
         last = min(1.0, (self._scroll_x + visible_w) / content_w)
         return (max(0.0, first), max(first, last))
+
+    def _visible_text_width(self) -> int:
+        """Width of the text-area viewport in pixels — what
+        horizontal-scroll math + caret-into-view clamping should
+        compare against.
+
+        Subtracts:
+          • `_TEXT_X` — gutter (line numbers + fold markers) on the
+            left, never available for text.
+          • `_MINIMAP_W` — minimap strip on the right, but ONLY when
+            the minimap is currently visible. With it hidden, the
+            full right side of the canvas is fair game for text.
+
+        Does NOT subtract the vertical scrollbar width — `_vs` is a
+        sibling grid column, not a canvas overlay, so the canvas's
+        own `winfo_width()` doesn't include it. Returns at least 1
+        so divisions stay safe."""
+        cw = self.canvas.winfo_width()
+        minimap_reserve = _MINIMAP_W if getattr(
+            self, "_mm_visible", True
+        ) else 0
+        return max(1, cw - _TEXT_X - minimap_reserve)
 
     def _content_width(self) -> int:
         """Maximum line width in pixels. Drives horizontal scroll
@@ -564,8 +586,7 @@ class CanvasCodeView(tk.Frame):
         past `content_width - viewport_width` — that's how text used
         to bleed into the gutter after tab switches."""
         try:
-            cw = self.canvas.winfo_width()
-            visible_w = cw - _TEXT_X - _MINIMAP_W - 16
+            visible_w = self._visible_text_width()
             content_w = self._content_width()
             if visible_w >= self._char_w:
                 if content_w <= visible_w:
@@ -1944,13 +1965,11 @@ class CanvasCodeView(tk.Frame):
         if 0 <= self.cur_line < len(self.lines):
             line = self.lines[self.cur_line]
             caret_px = self._font.measure(line[:self.cur_col])
-            cw = self.canvas.winfo_width()
-            visible_w = cw - _TEXT_X - _MINIMAP_W - 16  # 16: vs width
-            # Bail when the canvas isn't laid out yet (visible_w small
-            # or negative). Otherwise the elif below would compare a
-            # real caret_px against a near-zero viewport and push
-            # scroll_x way past where it should be — which manifested
-            # as text bleeding into the gutter after tab switches.
+            visible_w = self._visible_text_width()
+            # Bail when the canvas isn't laid out yet (viewport too
+            # narrow for meaningful math). Without this, comparing the
+            # real caret pixel against a near-zero viewport pushes
+            # scroll_x past max and text bleeds into the gutter.
             if visible_w < self._char_w * 4:
                 return
             content_w = self._content_width()
