@@ -646,13 +646,13 @@ class CanvasEditorSandbox(tk.Frame):
 
         # Ctrl shortcuts
         if ctrl and ks.lower() == "a":
-            self._select_all(); self.render(); return "break"
+            self._select_all(); return "break"
         if ctrl and ks.lower() == "c":
             self._copy(); return "break"
         if ctrl and ks.lower() == "x":
-            self._cut(); self.render(); return "break"
+            self._cut(); return "break"
         if ctrl and ks.lower() == "v":
-            self._paste(); self.render(); return "break"
+            self._paste(); return "break"
         if ctrl and ks == "Home":
             self.cur_line = 0; self.cur_col = 0
             self._ensure_visible(); self.render(); return "break"
@@ -844,21 +844,35 @@ class CanvasEditorSandbox(tk.Frame):
             self.canvas.clipboard_clear()
             self.canvas.clipboard_append(text)
 
+    # User-facing action methods are SELF-RENDERING so they work the same
+    # whether called from the keyboard, the right-click menu, or
+    # programmatically. Without this, right-click → Paste inserted text
+    # but never re-tokenized/redrew, so the pasted content appeared
+    # unstyled until the next keystroke.
+
     def _cut(self) -> None:
-        if self.sel_anchor:
-            self._copy()
-            self._delete_selection()
+        if not self.sel_anchor:
+            return
+        self._copy()
+        self._delete_selection()
+        self._ensure_visible()
+        self.render()
 
     def _paste(self) -> None:
         try:
             text = self.canvas.clipboard_get()
         except tk.TclError:
             return
-        if text:
-            self._insert_text(text)
+        if not text:
+            return
+        self._insert_text(text)
+        self._ensure_visible()
+        self.render()
 
     def _select_all(self) -> None:
         self.sel_anchor = (0, 0)
         last = len(self.lines) - 1
         self.cur_line = last
         self.cur_col = len(self.lines[last])
+        self._ensure_visible()
+        self.render()
