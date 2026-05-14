@@ -258,6 +258,52 @@ def _cv_text(cv) -> str:
         return cv.get_text()
     return cv.get("1.0", "end-1c")
 
+def _cv_cursor_word(cv) -> str:
+    """Return the identifier under the cursor (or empty string).
+    Works for both engines."""
+    if cv is None:
+        return ""
+    if _is_canvas_cv(cv):
+        return cv._cursor_word() or ""
+    try:
+        return cv.get("insert wordstart", "insert wordend").strip()
+    except Exception:
+        return ""
+
+def _cv_cursor_line_text(cv) -> str:
+    """Return the text of the line the cursor is on (no trailing newline)."""
+    if cv is None:
+        return ""
+    if _is_canvas_cv(cv):
+        return cv.get_line(cv.cur_line)
+    try:
+        return cv.get("insert linestart", "insert lineend")
+    except Exception:
+        return ""
+
+def _cv_selected_text(cv) -> str:
+    """Return the currently-selected text (empty if no selection)."""
+    if cv is None:
+        return ""
+    if _is_canvas_cv(cv):
+        return cv.selected_text()
+    try:
+        return cv.get("sel.first", "sel.last")
+    except Exception:
+        return ""
+
+def _cv_cursor_lc(cv) -> tuple[int, int]:
+    """Return the cursor position as (line_0_indexed, col)."""
+    if cv is None:
+        return (0, 0)
+    if _is_canvas_cv(cv):
+        return cv.get_cursor()
+    try:
+        line_s, col_s = cv.index("insert").split(".")
+        return (int(line_s) - 1, int(col_s))
+    except Exception:
+        return (0, 0)
+
 
 def _diags_to_entries(diags: list, filepath: str, filename: str) -> list[dict]:
     """Convert LSP diagnostic dicts to ProblemsPanel entries.
@@ -2367,7 +2413,7 @@ class IDOL(Tk):
         cv = self._current_codeview
         if cv is None:
             return
-        word = cv.get("insert wordstart", "insert wordend").strip()
+        word = _cv_cursor_word(cv)
         if word:
             self._sidebar.show_references(word, cv)
 
@@ -3566,8 +3612,10 @@ class IDOL(Tk):
         path = self._files.get(self._current_tab_id)
         if not cv or not path or not self._lsp:
             return
-        line, col = cv.index("insert").split(".")
-        self._lsp.definition(path, int(line) - 1, int(col), self._handle_definition)
+        # LSP wants 0-indexed line + column. `_cv_cursor_lc` returns
+        # `(line_0, col)` for both engines.
+        line_0, col = _cv_cursor_lc(cv)
+        self._lsp.definition(path, line_0, col, self._handle_definition)
 
     def _handle_definition(self, result) -> None:
         if not result:
@@ -6938,16 +6986,15 @@ class IDOL(Tk):
         cv = self._current_codeview
         if cv is None:
             return
-        line = cv.get("insert linestart", "insert lineend").lstrip()
+        line = _cv_cursor_line_text(cv).lstrip()
         self._run_snippet(line, "line")
 
     def _run_selection(self) -> None:
         cv = self._current_codeview
         if cv is None:
             return
-        try:
-            code = cv.get("sel.first", "sel.last")
-        except Exception:
+        code = _cv_selected_text(cv)
+        if not code:
             return
         import textwrap
 

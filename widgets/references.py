@@ -30,7 +30,13 @@ class ReferencesPanel(ttk.Frame):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def show(self, word: str, codeview) -> None:
-        text    = codeview.get("1.0", "end-1c")
+        # Duck-type the buffer read so both editor engines work:
+        #   • Canvas engine (`CanvasCodeView`) exposes `get_text()`
+        #   • Legacy `CodeView` (tk.Text subclass) uses index strings
+        if hasattr(codeview, "get_text"):
+            text = codeview.get_text()
+        else:
+            text = codeview.get("1.0", "end-1c")
         pattern = re.compile(r"\b" + re.escape(word) + r"\b")
         results = []
         for lineno, line in enumerate(text.splitlines(), 1):
