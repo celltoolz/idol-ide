@@ -569,14 +569,22 @@ class CanvasCodeView(tk.Frame):
         """Maximum line width in pixels. Drives horizontal scroll
         fractions + clamping. Cached per-render via `_content_w_cache`
         so a 5000-line file doesn't re-measure on every scrollbar
-        push."""
+        push.
+
+        Uses the WIDER of the regular and italic fonts so max_scroll
+        accounts for italic-token lines — `_font.measure(line)` reports
+        regular-font advance only, but tokens marked italic are drawn
+        with the italic font, which can be a few pixels wider per
+        token. Without this, the last few chars of a line with italic
+        keywords slid past the canvas right edge at max scroll."""
         if not self.lines:
             return 0
         # Cheap memoization — invalidated whenever `_fire_change` runs
         # (`_content_w_cache_dirty` gets set there).
         if getattr(self, "_content_w_cache_dirty", True):
             self._content_w_cache = max(
-                self._font.measure(line) for line in self.lines
+                max(self._font.measure(line) for line in self.lines),
+                max(self._font_italic.measure(line) for line in self.lines),
             )
             self._content_w_cache_dirty = False
         return self._content_w_cache
@@ -1016,42 +1024,11 @@ class CanvasCodeView(tk.Frame):
                 color = guide_hi if level == active_level else guide_dim
                 c.create_line(gx, y, gx, y + self._line_h, fill=color)
 
-            # Breakpoint dot (debug zone, far left). Bright red when set,
-            # dim ghost when hovered (preview that clicking will set one).
-            if i in self._breakpoints or i == self._hover_breakpoint_line:
-                cy  = y + self._line_h // 2
-                cx  = _DEBUG_W // 2
-                r   = min(_DEBUG_W // 2 - 1, max(4, self._line_h // 3))
-                fill = (_BREAKPOINT_COLOR if i in self._breakpoints
-                        else _BREAKPOINT_GHOST_COLOR)
-                c.create_oval(cx - r, cy - r, cx + r, cy + r,
-                              fill=fill, outline="")
-
-            # Git-diff gutter stripe — 3 px bar at the far-left
-            # painted in palette colors. Mirrors what
-            # widgets/linenums.py:_draw_line_number does for legacy
-            # CodeView tabs. Doesn't conflict with the breakpoint
-            # dot which sits centered at x=_DEBUG_W/2.
-            git_kind = self._git_hunk_map.get(i)
-            if git_kind:
-                gcolor = _GIT_HUNK_COLORS.get(git_kind)
-                if gcolor:
-                    c.create_rectangle(0, y, 3, y + self._line_h,
-                                       fill=gcolor, outline="")
-
-            # Line number — active line gets brighter color
-            gut_fg = (self._palette["gutter_fg_active"]
-                      if i == self.cur_line else self._palette["gutter_fg"])
-            c.create_text(_LINENUM_R, y + 1, text=str(i + 1),
-                          anchor="ne", fill=gut_fg, font=self._font)
-
-            # Fold marker — to the right of the line number, only on
-            # lines that introduce an indented child block.
-            if self._line_is_foldable(i):
-                glyph = "▶" if i in self.folded else "▼"
-                c.create_text(_FOLD_X, y + 1, text=glyph, anchor="nw",
-                              fill=self._palette["gutter_fg"],
-                              font=self._font)
+            # Gutter content (breakpoint, git stripe, line number, fold
+            # marker) is drawn AT THE END of this row block — after the
+            # tokens — so it overpaints any glyph that scrolled left of
+            # `_TEXT_X` when `_scroll_x > 0`. See the gutter-mask block
+            # near the caret draw at the bottom of the row loop.
 
             # Find/Replace match highlights are painted by
             # `_draw_find_matches_on_line` (called earlier in this
@@ -1151,6 +1128,38 @@ class CanvasCodeView(tk.Frame):
                 cx = text_x0 + self._font.measure(line[:self.cur_col])
                 c.create_line(cx, y + 1, cx, y + self._line_h - 1,
                               fill=self._palette["caret"], width=1)
+
+            # Gutter overlay — paints OVER any token / indent guide that
+            # scrolled left of `_TEXT_X`, then redraws the gutter content
+            # (git stripe, breakpoint, line number, fold marker) on top.
+            # Without this, horizontally scrolled long lines bleed the
+            # start of each line into the line-number column.
+            c.create_rectangle(0, y, _TEXT_X, y + self._line_h,
+                               fill=self._palette["gutter_bg"], outline="")
+            git_kind = self._git_hunk_map.get(i)
+            if git_kind:
+                gcolor = _GIT_HUNK_COLORS.get(git_kind)
+                if gcolor:
+                    c.create_rectangle(0, y, 3, y + self._line_h,
+                                       fill=gcolor, outline="")
+            if i in self._breakpoints or i == self._hover_breakpoint_line:
+                cy_bp = y + self._line_h // 2
+                cx_bp = _DEBUG_W // 2
+                r_bp  = min(_DEBUG_W // 2 - 1, max(4, self._line_h // 3))
+                fill_bp = (_BREAKPOINT_COLOR if i in self._breakpoints
+                           else _BREAKPOINT_GHOST_COLOR)
+                c.create_oval(cx_bp - r_bp, cy_bp - r_bp,
+                              cx_bp + r_bp, cy_bp + r_bp,
+                              fill=fill_bp, outline="")
+            gut_fg = (self._palette["gutter_fg_active"]
+                      if i == self.cur_line else self._palette["gutter_fg"])
+            c.create_text(_LINENUM_R, y + 1, text=str(i + 1),
+                          anchor="ne", fill=gut_fg, font=self._font)
+            if self._line_is_foldable(i):
+                glyph = "▶" if i in self.folded else "▼"
+                c.create_text(_FOLD_X, y + 1, text=glyph, anchor="nw",
+                              fill=self._palette["gutter_fg"],
+                              font=self._font)
 
             if i in self.folded:
                 skip_indent = len(line) - len(line.lstrip())
