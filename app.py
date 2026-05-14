@@ -218,12 +218,6 @@ class _HoverPopup:
 # as named helpers because the call sites read more clearly with
 # `_cv_text(cv)` than with the bare `.get_text()`.
 
-def _is_canvas_cv(cv) -> bool:
-    """Vestigial during cleanup — always True now that `CanvasCodeView`
-    is the only editor engine. Branches that still call this are dead
-    code on their else-side and will be flattened in a follow-up pass."""
-    return cv is not None and isinstance(cv, CanvasCodeView)
-
 def _cv_language(cv) -> str:
     """Return the canonical language id for *cv* ("python", "text", ...)."""
     return (cv.language or "text") if cv is not None else "text"
@@ -1549,241 +1543,6 @@ class IDOL(Tk):
             self._refresh_debug_breakpoints()
         cv.on_lines_changed = _canvas_lines_changed
 
-    def _setup_codeview(
-        self, codeview: CodeView, handler: KeyHandler, mc: MultiCursor
-    ) -> None:
-        # Grab the active-line colour from the theme
-        if self._active_line_color is None:
-            self._active_line_color = codeview.cget("inactiveselectbackground")
-
-        codeview.tag_configure("active_line", background=self._active_line_color)
-        codeview.tag_configure(
-            "matching_paren",
-            background=codeview.tag_cget("sel", "background"),
-            foreground=codeview.tag_cget("sel", "foreground"),
-        )
-        codeview.tag_lower("active_line")
-        codeview.tag_raise("sel")
-
-        def _on_key(e):
-            # Completion popup navigation takes priority
-            if self._completion.visible:
-                if e.keysym == "Down":
-                    self._completion.select_next()
-                    return "break"
-                if e.keysym == "Up":
-                    self._completion.select_prev()
-                    return "break"
-                if e.keysym in ("Return", "Tab"):
-                    self._accept_completion(codeview)
-                    return "break"
-                if e.keysym == "Escape":
-                    self._dismiss_completion()
-                    return "break"
-
-            prev_ovr = handler.overwrite
-            result = handler.handle(e, codeview)
-            if mc.active:
-                mc.apply_key(e)
-            # Insert key toggled — update status bar and cursor shape
-            if handler.overwrite != prev_ovr:
-                self._statusbar.set_overwrite(handler.overwrite)
-                codeview.config(
-                    blockcursor=handler.overwrite,
-                    insertwidth=0 if handler.overwrite else 2,
-                )
-
-            # Decide whether to (re-)trigger, narrow, or hide completion
-            ch = e.char
-            sym = e.keysym
-            if ch and (ch.isalnum() or ch in ("_", ".")):
-                self._schedule_completion(codeview)
-            elif sym == "BackSpace":
-                self._schedule_completion(codeview)
-            elif sym not in (
-                "Shift_L",
-                "Shift_R",
-                "Control_L",
-                "Control_R",
-                "Alt_L",
-                "Alt_R",
-                "Meta_L",
-                "Meta_R",
-                "Left",
-                "Right",
-            ):
-                self._completion.hide()
-
-            return result
-
-        codeview.bind("<Key>", _on_key)
-        codeview.bind(
-            "<Control-slash>",
-            lambda e, cv=codeview: self._toggle_comment(cv) or "break",
-        )
-        codeview.bind("<KeyRelease>", self._bracket_matcher.match)
-        codeview.bind("<ButtonRelease-1>", self._on_click_release)
-        for key in (
-            "<KeyRelease-Left>",
-            "<KeyRelease-Right>",
-            "<KeyRelease-Up>",
-            "<KeyRelease-Down>",
-            "<KeyRelease-Home>",
-            "<KeyRelease-End>",
-        ):
-            codeview.bind(key, self._on_arrow_key)
-        from utils import bind_right_click as _brc
-
-        _brc(codeview, self._on_editor_right_click)
-        codeview.bind("<<ContentChanged>>", lambda _: self._on_content_changed())
-
-        # Alt+Up/Down — move line(s); Shift+Alt+Up/Down — duplicate line(s)
-        def _get_line_range(cv):
-            sel = cv.tag_ranges("sel")
-            if sel:
-                first = int(cv.index(sel[0]).split(".")[0])
-                last = int(cv.index(sel[1]).split(".")[0])
-                if cv.index(sel[1]).endswith(".0"):
-                    last -= 1
-            else:
-                first = last = int(cv.index("insert").split(".")[0])
-            return first, last
-
-        def _move_lines(e, cv=codeview, direction="up"):
-            first, last = _get_line_range(cv)
-            total = int(cv.index("end - 1c").split(".")[0])
-            # Save column before edits clip INSERT to first.0
-            cur_col = int(cv.index("insert").split(".")[1])
-            n = last - first + 1
-            if direction == "up":
-                if first <= 1:
-                    return "break"
-                pivot = first - 1
-                above = cv.get(f"{pivot}.0", f"{pivot}.end")
-                block = cv.get(f"{first}.0", f"{last}.end")
-                cv.delete(f"{pivot}.0", f"{last}.end")
-                cv.insert(f"{pivot}.0", block + "\n" + above)
-                cv.mark_set("insert", f"{first - 1}.{cur_col}")
-            else:
-                if last >= total:
-                    return "break"
-                pivot = last + 1
-                below = cv.get(f"{pivot}.0", f"{pivot}.end")
-                block = cv.get(f"{first}.0", f"{last}.end")
-                cv.delete(f"{first}.0", f"{pivot}.end")
-                cv.insert(f"{first}.0", below + "\n" + block)
-                cv.mark_set("insert", f"{first + n}.{cur_col}")
-            cv.see("insert")
-            cv.after_idle(cv.highlight_all)
-            return "break"
-
-        def _copy_lines(e, cv=codeview, direction="down"):
-            first, last = _get_line_range(cv)
-            n = last - first + 1
-            cur_col = int(cv.index("insert").split(".")[1])
-            block = cv.get(f"{first}.0", f"{last}.end")
-            if direction == "down":
-                cv.insert(f"{last}.end", "\n" + block)
-                cv.mark_set("insert", f"{last + n}.{cur_col}")
-            else:
-                cv.insert(f"{last}.end", "\n" + block)
-                # Cursor stays on original (copy appears below)
-                cv.mark_set("insert", f"{first}.{cur_col}")
-            cv.see("insert")
-            cv.after_idle(cv.highlight_all)
-            return "break"
-
-        for _key, _dir in (
-            ("<Alt-Up>", "up"),
-            ("<Alt-Down>", "down"),
-            ("<Alt-KP_Up>", "up"),
-            ("<Alt-KP_Down>", "down"),
-        ):
-            codeview.bind(_key, lambda e, d=_dir: _move_lines(e, direction=d))
-        for _key, _dir in (
-            ("<Shift-Alt-Up>", "up"),
-            ("<Shift-Alt-Down>", "down"),
-            ("<Shift-Alt-KP_Up>", "up"),
-            ("<Shift-Alt-KP_Down>", "down"),
-        ):
-            codeview.bind(_key, lambda e, d=_dir: _copy_lines(e, direction=d))
-
-        # Alt+Click — add a secondary cursor; returns "break" so plain-click
-        # handler below doesn't also fire and clear the new cursor.
-        def _alt_click(e, m=mc, cv=codeview):
-            raw = cv.index(f"@{e.x},{e.y}")
-            # Snap to nearest boundary: if click is past midpoint of char, advance 1c
-            bbox = cv.bbox(raw)
-            if bbox and e.x >= bbox[0] + bbox[2] / 2:
-                nudged = cv.index(f"{raw} + 1c")
-                if cv.index(f"{nudged} linestart") == cv.index(f"{raw} linestart"):
-                    raw = nudged
-            m.toggle(raw)
-            self._update_cursor_status()
-            return "break"
-
-        codeview.bind("<Alt-ButtonPress-1>", _alt_click)
-
-        # Plain click — clear secondary cursors, dismiss completion, activate pane
-        def _on_click(_, m=mc, cv=codeview):
-            self._completion.hide()
-            if m.active:
-                m.clear()
-                self._update_cursor_status()
-            # Determine which pane this codeview belongs to and activate it
-            pane = (
-                "right"
-                if (
-                    self._notebook_r
-                    and any(
-                        self._codeviews.get(tid) is cv
-                        for tid in self._notebook_r.tabs()
-                    )
-                )
-                else "left"
-            )
-            self._set_active_pane(pane)
-
-        codeview.bind("<ButtonPress-1>", _on_click)
-
-        # Escape — dismiss completion first, then clear secondary cursors
-        def _on_esc(_, m=mc):
-            if self._completion.visible:
-                self._dismiss_completion()
-                return "break"
-            if m.active:
-                m.clear()
-                self._update_cursor_status()
-
-        codeview.bind("<Escape>", _on_esc)
-
-        # Dismiss completion when the editor loses focus (click designer, panels, etc.)
-        codeview.bind("<FocusOut>", lambda _: self._dismiss_completion())
-
-        # LSP — diagnostics tags + hover + go-to-definition
-        self._setup_lsp_tags(codeview)
-        codeview.bind(
-            "<Motion>",
-            lambda e, cv=codeview: self._on_hover_motion(
-                e, cv, self._files.get(self._current_tab_id, "")
-            ),
-        )
-        codeview.bind("<Leave>", lambda _: self._cancel_hover())
-        codeview.bind("<F12>", lambda _: self._goto_definition())
-        codeview.bind("<<BadPaste>>", lambda _: self._show_encoding_pill())
-        codeview.bind("<<Cut>>", lambda _: self.after(50, self._capture_clipboard))
-
-        def _on_cv_copy(text: str, cv=codeview) -> None:
-            tab_id = self._current_tab_id
-            source = os.path.basename(self._files.get(tab_id, "") or "")
-            if self._clip_panel is None:
-                self._ensure_clip_panel()
-            self._clip_panel.push(text, source=source)
-        codeview.on_copy = _on_cv_copy
-
-        codeview.mark_set("insert", "1.0")
-        codeview.focus_set()
-
     def _confirm_close_tab(self, tab_id: str) -> bool:
         """Return True if the tab can be closed (not dirty, or user confirmed)."""
         if not self._dirty.get(tab_id):
@@ -1876,41 +1635,20 @@ class IDOL(Tk):
         if cv:
             self._update_status_lexer(cv)
             if _cv_is_python(cv):
-                # Canvas tabs read content via the new explicit API;
-                # legacy CodeView still uses `cv.get("1.0", "end-1c")`.
-                if _is_canvas_cv(cv):
-                    self._outline.schedule_refresh(cv.get_text())
-                else:
-                    self._outline.schedule_refresh(cv.get("1.0", "end-1c"))
+                self._outline.schedule_refresh(cv.get_text())
             else:
                 self._outline.clear()
             # Invalidate breadcrumb so it re-renders for the new tab immediately
             crumb = self._breadcrumbs.get(tab_id)
             if crumb:
                 crumb.invalidate()
-            # Apply cached git hunks + breakpoints to this tab's
-            # gutter. Engines diverge:
-            #   • Legacy CodeView: TkLineNumbers.set_git_hunks /
-            #     set_breakpoints (1-indexed line sets).
-            #   • Canvas: cv.set_git_hunks (same hunk-tuple shape) +
-            #     cv.set_breakpoints (0-indexed line set).
-            if _is_canvas_cv(cv):
-                cv.set_git_hunks(self._git_hunks.get(tab_id, []))
-            else:
-                cv._line_numbers.set_git_hunks(self._git_hunks.get(tab_id, []))
+            # Apply cached git hunks + breakpoints to this tab's gutter.
+            cv.set_git_hunks(self._git_hunks.get(tab_id, []))
             self._refresh_git_hunks()
             fp = self._files.get(tab_id) or ""
-            if _is_canvas_cv(cv):
-                cv.set_breakpoints({ln - 1 for ln in self._breakpoints.get(fp, set())})
-            else:
-                cv._line_numbers.set_breakpoints(self._breakpoints.get(fp, set()))
-            # Sync cursor shape to this tab's overwrite state (legacy
-            # CodeView only — canvas has its own caret rendering).
-            if not _is_canvas_cv(cv):
-                cv.config(
-                    blockcursor=ovr,
-                    insertwidth=0 if ovr else 2,
-                )
+            cv.set_breakpoints({
+                ln - 1 for ln in self._breakpoints.get(fp, set())
+            })
 
         # Track last real editor tab (used by AI Send File / Selection)
         if tab_id and tab_id in self._codeviews:
@@ -2007,8 +1745,7 @@ class IDOL(Tk):
 
         if cv and _cv_is_python(cv):
             if text is None:
-                text = (cv.get_text() if _is_canvas_cv(cv)
-                        else cv.get("1.0", "end-1c"))
+                text = cv.get_text()
             self._outline.schedule_refresh(text)
             # LSP: debounced change notification
             path = self._files.get(tab_id)
@@ -2022,38 +1759,9 @@ class IDOL(Tk):
                     ],
                 )
 
-    def _highlight_matching_words(self, cv) -> None:
-        """Highlight all occurrences of the word under the cursor.
-        Canvas engine paints word-occurrences itself from the cursor
-        position, so skip this Text-tag-based path for canvas tabs."""
-        if _is_canvas_cv(cv):
-            return
-        cv.tag_remove("matching_word", "1.0", "end")
-        word = cv.get("insert wordstart", "insert wordend").strip()
-        if word and word not in _SKIP_HIGHLIGHT and not word[0].isdigit():
-            pattern = re.compile(r"\b" + re.escape(word) + r"\b")
-            full_text = cv.get("1.0", "end-1c")
-            for m in pattern.finditer(full_text):
-                cv.tag_add(
-                    "matching_word",
-                    _offset_to_tk(full_text, m.start()),
-                    _offset_to_tk(full_text, m.end()),
-                )
-            cv.tag_configure("matching_word", background="#3d3f4a")
-            cv.tag_raise("sel", "matching_word")
-
-    def _on_click_release(self, event) -> None:
-        self._bracket_matcher.match(event)
-        cv = self._current_codeview
-        if cv is None:
-            return
-        self._highlight_matching_words(cv)
-
-    def _on_arrow_key(self, event) -> None:
-        cv = self._current_codeview
-        if cv is None:
-            return
-        self._highlight_matching_words(cv)
+    # _highlight_matching_words / _on_click_release / _on_arrow_key
+    # removed — canvas engine paints word-occurrence highlights and
+    # bracket matches internally; no Text-tag plumbing needed.
 
     def _on_editor_right_click(self, event) -> None:
         cv = self._current_codeview
@@ -2174,53 +1882,8 @@ class IDOL(Tk):
         cv = self._current_codeview
         if cv is None:
             return
-        if _is_canvas_cv(cv):
-            # Canvas engine: explicit API, 0-indexed lines, cursor sets
-            # the focus on the canvas widget internally via `set_cursor`
-            # → `_ensure_visible`.
-            cv.set_cursor(max(0, lineno - 1), 0)
-            cv.scroll_to_line(max(0, lineno - 1))
-        else:
-            cv.mark_set("insert", f"{lineno}.0")
-            cv.focus_set()
-            total = int(cv.index("end-1c").split(".")[0])
-            if total > 1:
-                top, bot = cv.yview()
-                visible = bot - top
-                fraction = (lineno - 1) / total
-                cv.yview_moveto(max(0.0, fraction - visible / 2))
-            else:
-                cv.see(f"{lineno}.0")
-        self._scroll_clear_sticky(cv, lineno)
-
-    def _scroll_clear_sticky(self, cv, lineno: int) -> None:
-        """Nudge the view so *lineno* isn't hidden beneath the sticky-scroll overlay."""
-        if _is_canvas_cv(cv):
-            # Canvas engine: `_ensure_visible` already accounts for the
-            # sticky band (overscan), and `scroll_to_line` uses a 2-row
-            # top margin. The legacy after-idle bbox-check path doesn't
-            # apply because the canvas sticky widget lives on the
-            # editor's own canvas, not as a separate Frame.
-            return
-        sticky = getattr(cv, "_sticky", None)
-        if sticky is None:
-            return
-
-        def _check():
-            if not sticky.winfo_ismapped():
-                return
-            sticky_h = sticky.winfo_height()
-            if sticky_h <= 0:
-                return
-            bbox = cv.bbox(f"{lineno}.0")
-            if bbox is None:
-                return
-            line_y, line_h = bbox[1], max(bbox[3], 1)
-            if line_y < sticky_h:
-                lines = (sticky_h - line_y + line_h - 1) // line_h
-                cv.yview_scroll(lines, "units")
-
-        cv.after_idle(_check)
+        cv.set_cursor(max(0, lineno - 1), 0)
+        cv.scroll_to_line(max(0, lineno - 1))
 
     def _refresh_tab_title(self, tab_id: str) -> None:
         name = self._titles.get(tab_id, "Untitled")
@@ -2297,16 +1960,7 @@ class IDOL(Tk):
                 continue
             path = self._files.get(tab_id)
             if path and path.endswith(".py"):
-                text = (cv.get_text() if _is_canvas_cv(cv)
-                        else cv.get("1.0", "end-1c"))
-                srv.open_file(path, text)
-
-    def _setup_lsp_tags(self, codeview: CodeView) -> None:
-        """Configure diagnostic highlight tags on a new codeview."""
-        codeview.tag_configure("lsp_error", background="#3d0000", underline=True)
-        codeview.tag_configure("lsp_warning", background="#2e2a00", underline=True)
-        codeview.tag_configure("lsp_info", background="#002040")
-        codeview.tag_configure("runtime_error", background="#3d2500")
+                srv.open_file(path, cv.get_text())
 
     def _on_lsp_diagnostics(self, uri: str, diags: list) -> None:
         """Called by LspManager when diagnostics arrive for a file."""
@@ -2347,40 +2001,11 @@ class IDOL(Tk):
         return entries
 
     def _apply_diagnostics(self, codeview, diags: list) -> None:
-        """Paint diagnostic underlines onto *codeview*. Canvas engine
-        renders squigglies from its own diagnostic list (in the canvas
-        palette colors); legacy CodeView uses Text tags."""
-        if _is_canvas_cv(codeview):
-            codeview.set_diagnostics([
-                self._lsp_diag_to_sandbox(d) for d in diags
-            ])
-            return
-        for tag in ("lsp_error", "lsp_warning", "lsp_info"):
-            codeview.tag_remove(tag, "1.0", "end")
-
-        for d in diags:
-            sev = d.get("severity", SEV_WARNING)
-            tag = (
-                "lsp_error"
-                if sev == SEV_ERROR
-                else "lsp_warning"
-                if sev == SEV_WARNING
-                else "lsp_info"
-            )
-            start = d["range"]["start"]
-            end = d["range"]["end"]
-            s_idx = f"{start['line'] + 1}.{start['character']}"
-            e_idx = f"{end['line'] + 1}.{end['character']}"
-            # Ruff gives precise end positions — only expand zero-width
-            # (point) diagnostics to the end of the current word
-            if s_idx == e_idx:
-                try:
-                    e_idx = codeview.index(f"{s_idx} wordend")
-                except Exception:
-                    pass
-            codeview.tag_add(tag, s_idx, e_idx)
-        for tag in ("lsp_info", "lsp_warning", "lsp_error"):
-            codeview.tag_raise(tag)
+        """Push LSP diagnostics to the editor. Canvas engine renders
+        squigglies from its own diagnostic list using palette colors."""
+        codeview.set_diagnostics([
+            self._lsp_diag_to_sandbox(d) for d in diags
+        ])
 
     # ── Runtime error indicator ───────────────────────────────────────────────
 
@@ -2394,11 +2019,7 @@ class IDOL(Tk):
                 self._runtime_error_tab_id = tab_id
                 cv = self._codeviews.get(tab_id)
                 if cv:
-                    cv.tag_add("runtime_error", f"{lineno}.0", f"{lineno}.0 lineend+1c")
-                    cv.tag_raise("runtime_error")
-                ln = self._get_line_numbers(tab_id)
-                if ln:
-                    ln.set_runtime_error_line(lineno)
+                    cv.set_runtime_error_line(lineno)
                 break
         if self._output._active != "problems":
             self._output.flash_problems_tab()
@@ -2410,10 +2031,7 @@ class IDOL(Tk):
             return
         cv = self._codeviews.get(self._runtime_error_tab_id)
         if cv:
-            cv.tag_remove("runtime_error", "1.0", "end")
-        ln = self._get_line_numbers(self._runtime_error_tab_id)
-        if ln:
-            ln.set_runtime_error_line(None)
+            cv.set_runtime_error_line(None)
         self._runtime_error_tab_id = None
 
     # ── LSP hover popup ───────────────────────────────────────────────────────
@@ -2544,12 +2162,8 @@ class IDOL(Tk):
         self._git_hunks[tab_id] = hunks
         if tab_id == self._current_tab_id:
             cv = self._codeviews.get(tab_id)
-            if cv is None:
-                return
-            if _is_canvas_cv(cv):
+            if cv is not None:
                 cv.set_git_hunks(hunks)
-            else:
-                cv._line_numbers.set_git_hunks(hunks)
 
     def _refresh_sc_panel(self) -> None:
         """Re-fetch staged/unstaged status and push it to the Source Control panel."""
@@ -2638,7 +2252,9 @@ class IDOL(Tk):
             self._encoding_pill.pack(side="left", padx=(6, 0))
 
     def _fix_encoding(self) -> None:
-        from widgets.codeview import _BAD_PASTE_CHARS
+        # Non-ASCII whitespace chars that look like spaces but silently
+        # break Python source. Inlined from the old `widgets.codeview`.
+        _BAD_PASTE_CHARS = frozenset("\xa0​      ")
         _REMOVE = frozenset([0x200b])  # zero-width — removing is safer than replacing with space
         cv = self._current_codeview
         if cv is None:
@@ -2649,18 +2265,9 @@ class IDOL(Tk):
             for c in content
         )
         if fixed != content:
-            if _is_canvas_cv(cv):
-                saved = cv.get_cursor()
-                cv.set_text(fixed)
-                cv.set_cursor(*saved)
-            else:
-                cursor = cv.index("insert")
-                cv.delete("1.0", "end")
-                cv.insert("1.0", fixed)
-                try:
-                    cv.mark_set("insert", cursor)
-                except Exception:
-                    cv.mark_set("insert", "1.0")
+            saved = cv.get_cursor()
+            cv.set_text(fixed)
+            cv.set_cursor(*saved)
         self._encoding_pill.pack_forget()
 
     # ── Clipboard History ─────────────────────────────────────────────────────
@@ -3289,13 +2896,8 @@ class IDOL(Tk):
         def _seek(cv) -> None:
             if cv is None:
                 return
-            if _is_canvas_cv(cv):
-                cv.set_cursor(max(0, line - 1), col)
-                cv.scroll_to_line(max(0, line - 1))
-            else:
-                cv.mark_set("insert", f"{line}.{col}")
-                cv.see("insert")
-            self._scroll_clear_sticky(cv, line)
+            cv.set_cursor(max(0, line - 1), col)
+            cv.scroll_to_line(max(0, line - 1))
 
         # If already open in a tab, just switch to it
         for tab_id, fp in self._files.items():
@@ -3326,21 +2928,11 @@ class IDOL(Tk):
     def _highlight_active_line(self) -> None:
         cv = self._current_codeview
         if cv is not None:
-            if _is_canvas_cv(cv):
-                # Canvas engine paints its own current-line band from
-                # the palette — no Text tags involved. Just read the
-                # cursor for the status bar / breadcrumb sync below.
-                cline, ccol = cv.get_cursor()
-                line, col = cline + 1, ccol
-            else:
-                cv.tag_remove("active_line", "1.0", "end")
-                if self.highlight_line_var.get() and self._active_line_color:
-                    cv.tag_configure("active_line",
-                                     background=self._active_line_color)
-                    cv.tag_add("active_line", "insert linestart",
-                               "insert lineend+1c")
-                line_s, col_s = cv.index("insert").split(".")
-                line, col = int(line_s), int(col_s)
+            # Canvas engine paints its current-line band from the
+            # palette — no Text tags involved. Just read the cursor
+            # for the status bar / breadcrumb sync below.
+            cline, ccol = cv.get_cursor()
+            line, col = cline + 1, ccol
             mc = self._multi_cursors.get(self._current_tab_id)
             cursors = mc.count() if mc and mc.active else 1
             self._statusbar.set_position(int(line), int(col), cursors)
@@ -3948,48 +3540,22 @@ class IDOL(Tk):
     # ── View operations ───────────────────────────────────────────────────────
 
     def view_change_theme(self) -> None:
+        """Apply the selected theme to every canvas tab + the sidebar."""
         scheme = self.theme_var.get()
-        # Push to both engines. Canvas tabs read `themes/*.json` via
-        # `set_theme`; legacy CodeView tabs read `colorschemes/*.toml`
-        # via `set_color_scheme`. The Theme submenu now lists BOTH
-        # name spaces; whichever engine the active tab uses gets the
-        # matching call.
-        from utils.theme_loader import list_themes as _canvas_themes
-        canvas_themes = set(_canvas_themes())
         for cv in self._codeviews.values():
-            if cv is None:
-                continue
-            if _is_canvas_cv(cv):
-                if scheme in canvas_themes:
-                    cv.set_theme(scheme)
-            else:
-                # Legacy engine doesn't know canvas-only theme ids
-                # (e.g. "dark-plus") and would crash on the toml path.
-                if scheme not in canvas_themes:
-                    cv.set_color_scheme(scheme)
+            if cv is not None:
+                cv.set_theme(scheme)
         cv = self._current_codeview
         if cv is None:
             return
-        if _is_canvas_cv(cv):
-            # Canvas engine: pull palette colors out of the active
-            # theme's `palette` dict. `apply_theme` itself duck-types
-            # accent/comment from `_token_style`.
-            pal = cv._palette
-            self._active_line_color = pal.get("current_line_bg")
-            self._sidebar.apply_theme(
-                bg=pal["bg"],
-                fg=pal["fg"],
-                select_bg=pal.get("select_bg", "#264f78"),
-                codeview=cv,
-            )
-        else:
-            self._active_line_color = cv.cget("inactiveselectbackground")
-            self._sidebar.apply_theme(
-                bg=cv.cget("bg"),
-                fg=cv.cget("fg"),
-                select_bg=cv.cget("selectbackground"),
-                codeview=cv,
-            )
+        pal = cv._palette
+        self._active_line_color = pal.get("current_line_bg")
+        self._sidebar.apply_theme(
+            bg=pal["bg"],
+            fg=pal["fg"],
+            select_bg=pal.get("select_bg", "#264f78"),
+            codeview=cv,
+        )
         self._update_status_lexer(cv)
 
     def view_change_font(self, *_) -> None:
@@ -5472,19 +5038,11 @@ class IDOL(Tk):
             if fp and _Path(fp) == py_path:
                 cv = self._codeviews.get(tab_id)
                 if cv:
-                    if _is_canvas_cv(cv):
-                        scroll = cv.scroll_y
-                        saved_cursor = cv.get_cursor()
-                        cv.set_text(code)
-                        cv.scroll_y = scroll
-                        cv.set_cursor(*saved_cursor)
-                    else:
-                        scroll = cv.yview()[0]
-                        cursor = cv.index("insert")
-                        cv.delete("1.0", "end")
-                        cv.insert("1.0", code)
-                        cv.yview_moveto(scroll)
-                        cv.mark_set("insert", cursor)
+                    scroll = cv.scroll_y
+                    saved_cursor = cv.get_cursor()
+                    cv.set_text(code)
+                    cv.scroll_y = scroll
+                    cv.set_cursor(*saved_cursor)
                     self._dirty[tab_id] = False
                     self._refresh_tab_title(tab_id)
                 break
@@ -6476,18 +6034,11 @@ class IDOL(Tk):
         # Navigate to the paused location
         if filepath and line:
             self._open_file_at(filepath, line, 0)
-            # Highlight the current line in the editor
+            # Highlight the current line in the editor + gutter
             cv = self._current_codeview
             if cv:
-                cv.tag_configure("debug_current", background="#2d2d00")
-                cv.tag_remove("debug_current", "1.0", "end")
-                cv.tag_add("debug_current", f"{line}.0", f"{line}.end+1c")
-                cv.tag_raise("debug_current")
+                cv.set_debug_line(line)
                 self._debug_current_tab = self._current_tab_id
-            # Arrow in gutter
-            ln = self._get_line_numbers(self._current_tab_id)
-            if ln:
-                ln.set_debug_line(line)
         # Fetch locals and update debug panel
         self._output._set_active("debug")
         if frame_id:
@@ -6533,20 +6084,7 @@ class IDOL(Tk):
         if self._debug_current_tab:
             cv = self._codeviews.get(self._debug_current_tab)
             if cv:
-                cv.tag_remove("debug_current", "1.0", "end")
-            ln = self._get_line_numbers(self._debug_current_tab)
-            if ln:
-                ln.set_debug_line(None)
-
-    def _get_line_numbers(self, tab_id: str | None):
-        """Return the TkLineNumbers widget for *tab_id*, or None."""
-        if not tab_id:
-            return None
-        cv = self._codeviews.get(tab_id)
-        if cv is None:
-            return None
-        # LineNumbers is stored on the codeview's frame as _line_numbers
-        return getattr(cv, "_line_numbers", None)
+                cv.set_debug_line(None)
 
     def _on_breakpoint_toggle(self, filepath: str, lineno: int) -> None:
         """Toggle a breakpoint for *filepath*:*lineno* and sync panels."""
