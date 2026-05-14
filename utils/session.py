@@ -349,6 +349,12 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     appearance = data.get("appearance", {})
     theme = appearance.get("theme")
     if theme:
+        # Coerce legacy pygments theme names (saved before the canvas
+        # editor migration) to the bundled default so the View → Theme
+        # menu has a valid radio-checked entry on launch.
+        from utils.theme_loader import list_themes as _canvas_ids
+        if theme not in _canvas_ids():
+            theme = "monokai-bright"
         app.theme_var.set(theme)
         app.view_change_theme()
     font = appearance.get("font")

@@ -65,8 +65,14 @@ def build_menubar(app) -> Menu:
 
     theme_menu = Menu(view_menu, tearoff=0)
     # Themes are JSON files in `themes/` — drop a new file there and
-    # it appears in this menu on next launch.
-    for theme in _canvas_theme_ids():
+    # it appears in this menu on next launch. `monokai-bright` is the
+    # built-in default; pinning it to the top so first-time users
+    # land on it without scrolling. Everything else is alphabetical.
+    _DEFAULT = "monokai-bright"
+    _ids = _canvas_theme_ids()
+    if _DEFAULT in _ids:
+        _ids = [_DEFAULT] + [t for t in _ids if t != _DEFAULT]
+    for theme in _ids:
         theme_menu.add_radiobutton(
             label=theme.replace("-", " ").title(),
             variable=app.theme_var,
