@@ -1607,6 +1607,15 @@ class IDOL(Tk):
         # load doesn't show as a dirty buffer.
         self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
 
+        # Outline + LSP open — mirror the legacy `_new_tab` post-build
+        # for Python files. Canvas engine derives language from the
+        # filepath (.py extension) via `cv.language == "python"`.
+        if cv.language == "python":
+            self._outline.schedule_refresh(content)
+            if filepath:
+                for srv in self._each_lsp():
+                    srv.open_file(filepath, content)
+
         # Ctrl+F → IDOL's FindReplaceBar (the sandbox's own internal
         # find bar was deliberately disabled — the user prefers the
         # IDOL one). Bound on the canvas widget that captures key
