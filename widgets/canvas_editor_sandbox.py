@@ -470,6 +470,17 @@ class CanvasEditorSandbox(tk.Frame):
         # rendered as a 3 px colored bar in the far-left of the
         # gutter. Mirrors the legacy `TkLineNumbers._hunk_map`.
         self._git_hunk_map: dict[int, str] = {}
+        # ── Host hooks for context-menu items ────────────────────
+        # When set, the right-click menu includes the corresponding
+        # entry. None → item omitted. Lets the engine ship a richer
+        # menu when embedded in IDOL (Go to Def / Find References /
+        # Run Line / Run Selection / Find & Replace) but stay
+        # minimal in the standalone preview where these don't apply.
+        self.on_request_goto_definition = None
+        self.on_request_find_references = None
+        self.on_request_find_replace = None
+        self.on_request_run_line = None
+        self.on_request_run_selection = None
         # Hit-test rectangles for the "···" indicators drawn after each
         # folded line. Rebuilt every render. Each entry is
         # (x1, y1, x2, y2, physical_line_index).
@@ -1822,12 +1833,34 @@ class CanvasEditorSandbox(tk.Frame):
         return "break"
 
     def _on_right_click(self, event):
+        """Build & post the editor context menu.
+
+        Always includes Cut/Copy/Paste/Select All + the Theme submenu
+        (useful in the standalone preview). When the host wires the
+        `on_request_*` hooks (app.py:_new_canvas_tab does this for the
+        IDE-integrated tabs), the menu also gets Go to Definition,
+        Find References, Find & Replace, Run Line, Run Selection.
+        """
+        # Move the caret to the click position so word-sensitive items
+        # (Go to Def, Find Refs) operate on the right token.
         self.canvas.focus_set()
+        try:
+            row = self._row_from_y(event.y)
+            col = self._col_from_x(row, event.x)
+            self.cur_line, self.cur_col = row, col
+            self.render()
+        except Exception:
+            pass
+
         menu = tk.Menu(self, tearoff=0,
                        bg="#252526", fg="#cccccc",
                        activebackground="#094771", activeforeground="#ffffff",
                        relief="flat", borderwidth=0)
-        has_sel = self.sel_anchor is not None and self.sel_anchor != (self.cur_line, self.cur_col)
+
+        has_sel = self.sel_anchor is not None and self.sel_anchor != (
+            self.cur_line, self.cur_col
+        )
+
         menu.add_command(label="Cut",   command=self._cut,
                          accelerator="Ctrl+X",
                          state="normal" if has_sel else "disabled")
@@ -1838,8 +1871,50 @@ class CanvasEditorSandbox(tk.Frame):
         menu.add_separator()
         menu.add_command(label="Select All", command=self._select_all,
                          accelerator="Ctrl+A")
+
+        # Host-supplied IDE actions — only when wired. `cv` (cursor word
+        # state) gates the symbol-sensitive items.
+        word = self._cursor_word() or ""
+        has_word = bool(word) and len(word) >= 2 and not word[0].isdigit()
+        host_section = []
+        if self.on_request_goto_definition is not None:
+            host_section.append(
+                ("Go to Definition", self.on_request_goto_definition,
+                 "normal" if has_word else "disabled")
+            )
+        if self.on_request_find_references is not None:
+            host_section.append(
+                ("Find References", self.on_request_find_references,
+                 "normal" if has_word else "disabled")
+            )
+        if host_section:
+            menu.add_separator()
+            for label, cmd, state in host_section:
+                menu.add_command(label=label, command=cmd, state=state)
+
+        if self.on_request_find_replace is not None:
+            menu.add_separator()
+            menu.add_command(label="Find && Replace",
+                             accelerator="Ctrl+F",
+                             command=self.on_request_find_replace)
+
+        run_section = []
+        if self.on_request_run_line is not None:
+            run_section.append(("Run Line",
+                                self.on_request_run_line, "normal"))
+        if self.on_request_run_selection is not None:
+            run_section.append(("Run Selection",
+                                self.on_request_run_selection,
+                                "normal" if has_sel else "disabled"))
+        if run_section:
+            menu.add_separator()
+            for label, cmd, state in run_section:
+                menu.add_command(label=label, command=cmd, state=state)
+
+        # Theme submenu — live switch between themes loaded from
+        # themes/*.json. Useful in the standalone preview; redundant
+        # with View → Theme inside IDOL but harmless.
         menu.add_separator()
-        # Theme submenu — live switch between registered themes
         theme_menu = tk.Menu(menu, tearoff=0,
                              bg="#252526", fg="#cccccc",
                              activebackground="#094771",

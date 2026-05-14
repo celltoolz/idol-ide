@@ -155,15 +155,29 @@ class Sidebar(ttk.Frame):
 
     def apply_theme(self, bg: str, fg: str, select_bg: str, codeview=None) -> None:
         self.outline.apply_theme(bg, fg, select_bg)
-        # Pull accent + comment colors from the active theme's token tags
+        # Pull accent + comment colors from the active theme. Both
+        # editor engines are supported via duck-typing:
+        #   • Canvas engine exposes `_token_style` — a dict mapping
+        #     category names to `(color, italic)` tuples.
+        #   • Legacy CodeView keeps Token.* foreground colors as
+        #     Text widget tag config.
         accent = "#569cd6"
         comment = "#6a9955"
         if codeview is not None:
-            try:
-                accent  = codeview.tag_cget("Token.Name.Function", "foreground") or accent
-                comment = codeview.tag_cget("Token.Comment.Single", "foreground") or comment
-            except Exception:
-                pass
+            ts = getattr(codeview, "_token_style", None)
+            if isinstance(ts, dict):
+                fn = ts.get("function") or ts.get("method")
+                if fn:
+                    accent = fn[0]
+                cm = ts.get("comment")
+                if cm:
+                    comment = cm[0]
+            else:
+                try:
+                    accent  = codeview.tag_cget("Token.Name.Function", "foreground") or accent
+                    comment = codeview.tag_cget("Token.Comment.Single", "foreground") or comment
+                except Exception:
+                    pass
         self.references.apply_theme(bg, fg, select_bg, accent=accent, comment=comment)
         self.source_control.apply_theme(bg, fg, select_bg)
         self.explorer.apply_theme(bg, fg, select_bg)

@@ -1616,6 +1616,19 @@ class IDOL(Tk):
                 for srv in self._each_lsp():
                     srv.open_file(filepath, content)
 
+        # Push canvas palette to the sidebar so outline / references /
+        # source control / explorer match the editor's theme. Mirrors
+        # the legacy `_new_tab` apply_theme call at the same spot but
+        # pulls colors from the canvas engine's palette dict instead
+        # of the tk.Text widget options.
+        pal = cv._palette
+        self._sidebar.apply_theme(
+            bg=pal["bg"],
+            fg=pal["fg"],
+            select_bg=pal.get("select_bg", "#264f78"),
+            codeview=cv,
+        )
+
         # Ctrl+F → IDOL's FindReplaceBar (the sandbox's own internal
         # find bar was deliberately disabled — the user prefers the
         # IDOL one). Bound on the canvas widget that captures key
@@ -1693,6 +1706,18 @@ class IDOL(Tk):
             cv.set_breakpoints({
                 ln - 1 for ln in self._breakpoints.get(filepath, set())
             })
+
+        # ── Right-click menu IDE actions ────────────────────────────
+        # Mirror the legacy `_on_editor_right_click` (app.py:2234).
+        # Each hook is set to the same app.py method the legacy
+        # CodeView menu invokes via virtual events; the engine
+        # decides when to include them based on selection + cursor
+        # word state.
+        cv.on_request_goto_definition = self._goto_definition
+        cv.on_request_find_references = self._find_references
+        cv.on_request_find_replace    = self.edit_find_replace
+        cv.on_request_run_line        = self._run_current_line
+        cv.on_request_run_selection   = self._run_selection
 
         # Line-shift handler for breakpoints — DORMANT for now. The
         # callback (same shift math as the legacy `_make_lines_changed`
@@ -4253,7 +4278,21 @@ class IDOL(Tk):
                 if scheme not in canvas_themes:
                     cv.set_color_scheme(scheme)
         cv = self._current_codeview
-        if cv and not _is_canvas_cv(cv):
+        if cv is None:
+            return
+        if _is_canvas_cv(cv):
+            # Canvas engine: pull palette colors out of the active
+            # theme's `palette` dict. `apply_theme` itself duck-types
+            # accent/comment from `_token_style`.
+            pal = cv._palette
+            self._active_line_color = pal.get("current_line_bg")
+            self._sidebar.apply_theme(
+                bg=pal["bg"],
+                fg=pal["fg"],
+                select_bg=pal.get("select_bg", "#264f78"),
+                codeview=cv,
+            )
+        else:
             self._active_line_color = cv.cget("inactiveselectbackground")
             self._sidebar.apply_theme(
                 bg=cv.cget("bg"),
@@ -4261,7 +4300,7 @@ class IDOL(Tk):
                 select_bg=cv.cget("selectbackground"),
                 codeview=cv,
             )
-            self._update_status_lexer(cv)
+        self._update_status_lexer(cv)
 
     def view_change_font(self, *_) -> None:
         font = askfont(self)
