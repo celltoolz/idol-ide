@@ -48,6 +48,7 @@ THEMES: dict[str, dict] = {
             "self_cls":     ("#fd971f", False),
             "type":         ("#66d9ef", False),
             "function":     ("#a6e22e", False),
+            "method":       ("#a6e22e", False),
             "decorator":    ("#a6e22e", False),
         },
     },
@@ -73,6 +74,7 @@ THEMES: dict[str, dict] = {
             "self_cls":     ("#569cd6", False),
             "type":         ("#4ec9b0", False),
             "function":     ("#dcdcaa", False),
+            "method":       ("#dcdcaa", False),
             "decorator":    ("#dcdcaa", False),
         },
     },
@@ -100,9 +102,11 @@ THEMES: dict[str, dict] = {
             "keyword_decl": ("#f92672", False),
             "constant":     ("#ae81ff", False),
             "self_cls":     ("#fd971f", False),
-            "type":         ("#a6e22e", False),
-            "function":     ("#66d9ef", False),
+            "type":         ("#a6e22e", False),       # class names: green
+            "function":     ("#66d9ef", False),       # builtins + dunders: blue
+            "method":       ("#a6e22e", False),       # user methods: green
             "decorator":    ("#66d9ef", False),
+            "punctuation":  ("#f92672", False),       # ( ) , . : ; [ ] { }
         },
     },
 }
@@ -191,7 +195,11 @@ class CanvasEditorSandbox(tk.Frame):
             (re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""), "string"),
             (re.compile(r"@\w+(?:\.\w+)*"),                       "decorator"),
             (re.compile(r"(?<=\bclass\s)\w+"),                    "type"),
-            (re.compile(r"(?<=\bdef\s)\w+"),                      "function"),
+            # def names — dunders (Python protocol methods like __init__)
+            # go to "function" so themes can paint them differently from
+            # user-defined methods, which go to "method".
+            (re.compile(r"(?<=\bdef\s)__\w+__"),                  "function"),
+            (re.compile(r"(?<=\bdef\s)\w+"),                      "method"),
             (re.compile(
                 r"\b(class|def|import|from|as|lambda|global|nonlocal)\b"
             ),                                                    "keyword_decl"),
@@ -220,11 +228,17 @@ class CanvasEditorSandbox(tk.Frame):
                 r"breakpoint|help|memoryview|slice|staticmethod|classmethod|"
                 r"property)\b"
             ),                                                    "function"),
-            # Method call after a dot: e.g. `super().__init__(...)` paints
-            # `__init__` as a callable. Matches Pylance/semantic-token
-            # behavior — without this, the attribute would stay default fg.
-            (re.compile(r"(?<=\.)\w+(?=\s*\()"),                  "function"),
+            # Method calls after a dot — dunders (e.g. `__init__` in
+            # `super().__init__()`) go to "function", regular method calls
+            # (e.g. `self._build_ui()`) go to "method". Mirrors the def-name
+            # split so themes can color the two consistently.
+            (re.compile(r"(?<=\.)__\w+__(?=\s*\()"),              "function"),
+            (re.compile(r"(?<=\.)\w+(?=\s*\()"),                  "method"),
             (re.compile(r"\b(?:0[xX][\dA-Fa-f]+|\d+(?:\.\d+)?)\b"), "number"),
+            # Punctuation — themes that want a Monokai-style pink can
+            # color it via the "punctuation" category. Themes that don't
+            # define "punctuation" leave it at default fg.
+            (re.compile(r"[(){}\[\],.:;]"),                       "punctuation"),
         ]
 
     def _wire_events(self) -> None:
