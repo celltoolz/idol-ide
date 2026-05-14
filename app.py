@@ -1635,6 +1635,80 @@ class IDOL(Tk):
             )
         cv.on_completion_request = _on_completion
 
+        # ── Debug breakpoint gutter ─────────────────────────────────
+        # Click on the canvas's debug column → fires `on_breakpoint_
+        # toggle(line_0)`. We convert to the 1-indexed convention the
+        # host's breakpoint store uses, call `_on_breakpoint_toggle`,
+        # and push the resulting set back to the engine for the dot
+        # rendering. Mirrors the legacy `_line_numbers.on_breakpoint_
+        # toggle = _make_bp_toggle(tab_id)` flow but routed through
+        # the canvas engine's own gutter painter.
+        def _canvas_bp_toggle(line_0: int, _tid=tab_id, _cv=cv):
+            fp = self._files.get(_tid) or ""
+            if not fp:
+                # Unsaved tab — create a temp file eagerly so the
+                # breakpoint has a stable path. Same as legacy
+                # `_make_bp_toggle` does for tk.Text-backed tabs.
+                import uuid
+                from utils.session import TMP_DIR
+                tmp = self._temp_files.get(_tid)
+                if not tmp:
+                    TMP_DIR.mkdir(parents=True, exist_ok=True)
+                    tmp = str(TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}.py")
+                    self._temp_files[_tid] = tmp
+                try:
+                    Path(tmp).write_text(_cv_text(_cv), encoding="utf-8")
+                except Exception:
+                    pass
+                fp = tmp
+            lineno_1 = line_0 + 1
+            self._on_breakpoint_toggle(fp, lineno_1)
+            # Convert host's 1-indexed set back to 0-indexed for the
+            # engine.
+            _cv.set_breakpoints({
+                ln - 1 for ln in self._breakpoints.get(fp, set())
+            })
+        cv.on_breakpoint_toggle = _canvas_bp_toggle
+
+        # Apply any existing breakpoints for this file (session
+        # restore, debugger attach) — convert host's 1-indexed set
+        # to the engine's 0-indexed convention.
+        if filepath:
+            cv.set_breakpoints({
+                ln - 1 for ln in self._breakpoints.get(filepath, set())
+            })
+
+        # Line-shift handler for breakpoints — DORMANT for now. The
+        # callback (same shift math as the legacy `_make_lines_changed`
+        # path) is wired so it's ready when the engine starts firing
+        # `on_lines_changed(from_line_1, delta)` from its mutation
+        # methods. Until then, canvas-tab breakpoints stay put when
+        # lines are inserted/deleted above them — set them again
+        # after big edits. Tracked as a follow-up to the breakpoint
+        # wiring above.
+        def _canvas_lines_changed(from_line_1: int, delta: int,
+                                  _tid=tab_id, _cv=cv):
+            fp = self._files.get(_tid)
+            if not fp or fp not in self._breakpoints:
+                return
+            bp_set = self._breakpoints[fp]
+            new_bp: set[int] = set()
+            for ln in bp_set:
+                if delta > 0:
+                    new_bp.add(ln + delta if ln > from_line_1 else ln)
+                else:
+                    deleted_end = from_line_1 - delta
+                    if ln <= from_line_1:
+                        new_bp.add(ln)
+                    elif ln <= deleted_end:
+                        pass  # deleted along with the lines
+                    else:
+                        new_bp.add(ln + delta)
+            self._breakpoints[fp] = new_bp
+            _cv.set_breakpoints({ln - 1 for ln in new_bp})
+            self._refresh_debug_breakpoints()
+        cv.on_lines_changed = _canvas_lines_changed
+
     def _setup_codeview(
         self, codeview: CodeView, handler: KeyHandler, mc: MultiCursor
     ) -> None:

@@ -160,6 +160,14 @@ class CanvasEditorSandbox(tk.Frame):
 
     # ── Public hooks ─────────────────────────────────────────────────────────
 
+    def set_breakpoints(self, lines) -> None:
+        """Sync the breakpoint-dot set from the host. *lines* is a
+        collection of 0-indexed physical line numbers. The engine
+        DOES NOT own breakpoint state when a host is wired — it just
+        renders whatever the host pushes via this method."""
+        self._breakpoints = set(int(ln) for ln in lines)
+        self.render()
+
     def set_diagnostics(self, diags: list[dict]) -> None:
         """Replace the diagnostics list and re-render. Each entry:
         `{"line": int, "col_start": int, "col_end": int,
@@ -560,6 +568,13 @@ class CanvasEditorSandbox(tk.Frame):
         self.folded: set[int] = set()
         self._breakpoints: set[int] = set()
         self._hover_breakpoint_line: int | None = None
+        # Host hook — fires when the user clicks the debug gutter on a
+        # line. Receives the 0-indexed physical line. When set, the
+        # engine does NOT toggle `_breakpoints` itself — the host owns
+        # the canonical store and calls back via `set_breakpoints` to
+        # sync the dot rendering. When None (standalone preview), the
+        # engine falls back to local toggle so the dots still work.
+        self.on_breakpoint_toggle = None
         # Hit-test rectangles for the "···" indicators drawn after each
         # folded line. Rebuilt every render. Each entry is
         # (x1, y1, x2, y2, physical_line_index).
@@ -1756,11 +1771,21 @@ class CanvasEditorSandbox(tk.Frame):
             if event.x < _DEBUG_W:
                 # Debug zone — toggle breakpoint
                 if 0 <= row < len(self.lines):
-                    if row in self._breakpoints:
-                        self._breakpoints.discard(row)
+                    if self.on_breakpoint_toggle is not None:
+                        # Host owns the canonical store. It calls back
+                        # via `set_breakpoints` to update our dot set.
+                        try:
+                            self.on_breakpoint_toggle(row)
+                        except Exception:
+                            pass
                     else:
-                        self._breakpoints.add(row)
-                    self.render()
+                        # Standalone fallback (preview window): toggle
+                        # locally so the dot still appears.
+                        if row in self._breakpoints:
+                            self._breakpoints.discard(row)
+                        else:
+                            self._breakpoints.add(row)
+                        self.render()
             elif event.x >= _FOLD_X:
                 # Fold zone — toggle fold on lines that have children
                 if row in self.folded:
