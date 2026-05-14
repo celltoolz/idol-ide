@@ -559,8 +559,21 @@ class CanvasCodeView(tk.Frame):
         return _TEXT_X - self._scroll_x
 
     def _push_scroll_fractions(self) -> None:
-        """Push the current scroll state to both scrollbar widgets."""
+        """Push the current scroll state to both scrollbar widgets.
+        Also self-heals `_scroll_x` if a previous code path left it
+        past `content_width - viewport_width` — that's how text used
+        to bleed into the gutter after tab switches."""
         try:
+            cw = self.canvas.winfo_width()
+            visible_w = cw - _TEXT_X - _MINIMAP_W - 16
+            content_w = self._content_width()
+            if visible_w >= self._char_w:
+                if content_w <= visible_w:
+                    self._scroll_x = 0
+                else:
+                    max_scroll = max(0, content_w - visible_w)
+                    if self._scroll_x > max_scroll:
+                        self._scroll_x = max_scroll
             self._vs.set(*self._yview_fractions())
             self._hs.set(*self._xview_fractions())
         except Exception:
@@ -1932,12 +1945,25 @@ class CanvasCodeView(tk.Frame):
             line = self.lines[self.cur_line]
             caret_px = self._font.measure(line[:self.cur_col])
             cw = self.canvas.winfo_width()
-            visible_w = max(1, cw - _TEXT_X - _MINIMAP_W - 16)  # 16: vs width
+            visible_w = cw - _TEXT_X - _MINIMAP_W - 16  # 16: vs width
+            # Bail when the canvas isn't laid out yet (visible_w small
+            # or negative). Otherwise the elif below would compare a
+            # real caret_px against a near-zero viewport and push
+            # scroll_x way past where it should be — which manifested
+            # as text bleeding into the gutter after tab switches.
+            if visible_w < self._char_w * 4:
+                return
+            content_w = self._content_width()
             margin = self._char_w * 4  # keep 4 chars of context past the caret
-            if caret_px < self._scroll_x:
+            if content_w <= visible_w:
+                # Whole buffer fits — never scroll horizontally.
+                self._scroll_x = 0
+            elif caret_px < self._scroll_x:
                 self._scroll_x = max(0, caret_px - margin)
             elif caret_px > self._scroll_x + visible_w - margin:
-                self._scroll_x = caret_px - visible_w + margin
+                max_scroll = max(0, content_w - visible_w)
+                self._scroll_x = min(max_scroll,
+                                     caret_px - visible_w + margin)
 
     # ── Mouse handlers ────────────────────────────────────────────────────────
 
