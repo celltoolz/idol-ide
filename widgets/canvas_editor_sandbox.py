@@ -76,6 +76,35 @@ THEMES: dict[str, dict] = {
             "decorator":    ("#dcdcaa", False),
         },
     },
+    # Same structural look as monokai-dark-plus but with the role-coloring
+    # flipped to match Pylance/semantic-token behavior: class names go
+    # green, callables (def names, built-in funcs, method calls, decorators)
+    # go cyan-blue. self stays orange.
+    "monokai-bright": {
+        "palette": {
+            "bg":               "#272822",
+            "fg":               "#f8f8f2",
+            "caret":            "#f8f8f0",
+            "select_bg":        "#49483e",
+            "current_line_bg":  "#3e3d32",
+            "guide":            "#3b3a32",
+            "gutter_bg":        "#272822",
+            "gutter_fg":        "#90908a",
+            "gutter_fg_active": "#c2c2bf",
+        },
+        "tokens": {
+            "comment":      ("#75715e", True),
+            "string":       ("#e6db74", False),
+            "number":       ("#ae81ff", False),
+            "keyword_flow": ("#f92672", False),
+            "keyword_decl": ("#f92672", False),
+            "constant":     ("#ae81ff", False),
+            "self_cls":     ("#fd971f", False),
+            "type":         ("#a6e22e", False),
+            "function":     ("#66d9ef", False),
+            "decorator":    ("#66d9ef", False),
+        },
+    },
 }
 
 _DEFAULT_THEME = "monokai-dark-plus"
@@ -191,6 +220,10 @@ class CanvasEditorSandbox(tk.Frame):
                 r"breakpoint|help|memoryview|slice|staticmethod|classmethod|"
                 r"property)\b"
             ),                                                    "function"),
+            # Method call after a dot: e.g. `super().__init__(...)` paints
+            # `__init__` as a callable. Matches Pylance/semantic-token
+            # behavior — without this, the attribute would stay default fg.
+            (re.compile(r"(?<=\.)\w+(?=\s*\()"),                  "function"),
             (re.compile(r"\b(?:0[xX][\dA-Fa-f]+|\d+(?:\.\d+)?)\b"), "number"),
         ]
 
