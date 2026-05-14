@@ -98,6 +98,10 @@ _TEXT_X    = _GUTTER_W + 12
 _BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
 _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
 
+# A "# ── Name ─────" section marker — foldable like a block opener.
+# Matches IDOL/widgets/linenums.py:_SECTION_MARKER.
+_SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
+
 # Matches a string literal whose contents are a CSS-style hex color.
 _HEX_COLOR_RE = re.compile(
     r"""^(['"])#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\1$"""
@@ -367,7 +371,7 @@ class CanvasEditorSandbox(tk.Frame):
 
             # Fold marker — to the right of the line number, only on
             # lines that introduce an indented child block.
-            if self._line_has_children(i):
+            if self._line_is_foldable(i):
                 glyph = "▶" if i in self.folded else "▼"
                 c.create_text(_FOLD_X, y + 1, text=glyph, anchor="nw",
                               fill=self._palette["gutter_fg"],
@@ -411,13 +415,29 @@ class CanvasEditorSandbox(tk.Frame):
             rendered += 1
             i += 1
 
-    def _line_has_children(self, i: int) -> bool:
+    def _line_is_foldable(self, i: int) -> bool:
+        """A line opens a foldable block when it is a `# ── …` section
+        marker OR ends with a block-opening token (`:`, `(`, `[`, `{`)
+        AND has at least one more-indented line directly below.
+        Mirrors IDOL/widgets/linenums.py:_get_fold_range first-line
+        check — without it we mis-marked any line followed by an
+        indented continuation as foldable (chained method calls,
+        multi-line expressions, etc.)."""
+        if not (0 <= i < len(self.lines)):
+            return False
+        line = self.lines[i]
+        if _SECTION_MARKER.match(line):
+            return True
+        if not line.rstrip().endswith((":", "(", "[", "{")):
+            return False
         if i + 1 >= len(self.lines):
             return False
-        ci = len(self.lines[i]) - len(self.lines[i].lstrip())
         nl = self.lines[i + 1]
+        if not nl.strip():
+            return False
+        ci = len(line) - len(line.lstrip())
         ni = len(nl) - len(nl.lstrip())
-        return bool(nl.strip()) and ni > ci
+        return ni > ci
 
     def _effective_indents(self) -> list[int]:
         """Per-line indent (in chars) for guide-drawing purposes.
@@ -615,7 +635,7 @@ class CanvasEditorSandbox(tk.Frame):
                 # Fold zone — toggle fold on lines that have children
                 if row in self.folded:
                     self.folded.discard(row)
-                elif self._line_has_children(row):
+                elif self._line_is_foldable(row):
                     self.folded.add(row)
                 self.render()
             # Line-number zone (between debug and fold) is intentionally
