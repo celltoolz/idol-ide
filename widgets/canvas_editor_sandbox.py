@@ -47,7 +47,7 @@ THEMES: dict[str, dict] = {
             "diag_warning":     "#e5c07b",
             "diag_info":        "#67d8ef",
             "minimap_bg":       "#272822",
-            "minimap_viewport": "#3e3d3266",   # tk ignores alpha — used dim hex
+            "minimap_viewport": "#605d52",   # solid; rendered with stipple
         },
         # category: (color, italic)
         "tokens": {
@@ -132,6 +132,12 @@ _BRACKET_CLOSE_TO_OPEN = {v: k for k, v in _BRACKET_OPEN_TO_CLOSE.items()}
 _ALL_BRACKETS = set(_BRACKET_OPEN_TO_CLOSE) | set(_BRACKET_CLOSE_TO_OPEN)
 # Identifier char class for word-occurrence highlighting.
 _WORD_RE = re.compile(r"\w+")
+
+# Minimap layout — right-edge strip showing miniature file overview.
+_MINIMAP_W       = 80    # full width including padding
+_MINIMAP_GUTTER  = 4     # gap between text area and minimap
+_MINIMAP_LINE_H  = 3     # one document line → 3px in the minimap
+_MINIMAP_CHAR_W  = 1     # one character → 1px in the minimap
 
 # Matches a string literal whose contents are a CSS-style hex color.
 _HEX_COLOR_RE = re.compile(
@@ -569,10 +575,109 @@ class CanvasEditorSandbox(tk.Frame):
             rendered += 1
             i += 1
 
+        # Minimap on the right edge — drawn before sticky so the sticky
+        # band can overlap it if the viewport is very narrow.
+        self._draw_minimap()
+
         # Sticky scroll overlay — ancestor block-header lines pinned at
         # top of the viewport so context is visible while scrolled into
         # a nested block. Drawn LAST so it covers the regular rows.
         self._draw_sticky_headers()
+
+    def _draw_minimap(self) -> None:
+        """Right-edge miniature overview. Each document line is rendered
+        as a 3px row of tiny colored bars (one per token). A translucent
+        viewport box shows the slice currently visible in the editor."""
+        c = self.canvas
+        cw = c.winfo_width()
+        ch = c.winfo_height()
+        mm_x = cw - _MINIMAP_W
+        if mm_x < _TEXT_X + 20:
+            return  # canvas too narrow — skip the minimap
+        bg = self._palette.get("minimap_bg", self._palette["bg"])
+        c.create_rectangle(mm_x, 0, cw, ch, fill=bg, outline="")
+        # Scale: if the file fits, 1 doc line = 1 minimap row; else
+        # compress vertically so the whole file fits the canvas height.
+        n = len(self.lines)
+        if n == 0:
+            return
+        max_rows = max(1, ch // _MINIMAP_LINE_H)
+        if n <= max_rows:
+            row_h = _MINIMAP_LINE_H
+            row_y = lambda i: int(i * row_h)
+        else:
+            row_h = max(1, ch / n)
+            row_y = lambda i: int(i * row_h)
+        # Tokens per line as little bars
+        fg = self._palette["fg"]
+        bar_x0 = mm_x + _MINIMAP_GUTTER
+        for idx, line in enumerate(self.lines):
+            y0 = row_y(idx)
+            if y0 >= ch:
+                break
+            x = bar_x0
+            for txt, cat in self._tokenize(line):
+                if cat is None:
+                    color = fg
+                else:
+                    color, _italic = self._token_style.get(cat, (fg, False))
+                w = len(txt) * _MINIMAP_CHAR_W
+                if w <= 0:
+                    continue
+                if x + w > cw:
+                    w = cw - x
+                if w > 0:
+                    c.create_rectangle(x, y0, x + w, y0 + max(1, int(row_h) - 1),
+                                       fill=color, outline="")
+                x += w
+                if x >= cw:
+                    break
+        # Viewport overlay box — covers the rows currently visible in
+        # the main editor.
+        v_top    = row_y(self._visual_to_physical(self.scroll_y) or 0)
+        v_rows   = max(1, ch // self._line_h)
+        v_bottom = min(ch, v_top + max(int(row_h * v_rows), int(row_h)))
+        c.create_rectangle(
+            mm_x, v_top, cw, v_bottom,
+            fill=self._palette.get("minimap_viewport", "#37373d"),
+            outline="", stipple="gray25",
+        )
+
+    def _on_minimap_click(self, event) -> bool:
+        """If the click was inside the minimap, scroll to that row.
+        Returns True if handled."""
+        cw = self.canvas.winfo_width()
+        mm_x = cw - _MINIMAP_W
+        if event.x < mm_x:
+            return False
+        n = len(self.lines)
+        if n == 0:
+            return True
+        ch = self.canvas.winfo_height()
+        max_rows = max(1, ch // _MINIMAP_LINE_H)
+        row_h = _MINIMAP_LINE_H if n <= max_rows else max(1, ch / n)
+        target = int(event.y / row_h)
+        target = max(0, min(n - 1, target))
+        # Convert physical target line → visual row, set scroll_y
+        v = 0
+        skip = None
+        for i, line in enumerate(self.lines):
+            if skip is not None:
+                ind = len(line) - len(line.lstrip())
+                if line.strip() and ind <= skip:
+                    skip = None
+                else:
+                    continue
+            if i == target:
+                break
+            if i in self.folded:
+                skip = len(line) - len(line.lstrip())
+            v += 1
+        # Center the target in the viewport when possible
+        v_rows = max(1, ch // self._line_h)
+        self.scroll_y = max(0, v - v_rows // 2)
+        self.render()
+        return True
 
     def _draw_sticky_headers(self) -> None:
         headers = self._sticky_headers()
@@ -960,6 +1065,8 @@ class CanvasEditorSandbox(tk.Frame):
 
     def _on_click(self, event):
         self.canvas.focus_set()
+        if self._on_minimap_click(event):
+            return "break"
         if event.x < _GUTTER_W:
             row = self._row_from_y(event.y)
             if event.x < _DEBUG_W:
@@ -1029,8 +1136,12 @@ class CanvasEditorSandbox(tk.Frame):
                 self._hover_breakpoint_line = None
                 self.render()
         else:
-            over_dots = self._hit_fold_dots(event.x, event.y) is not None
-            self.canvas.configure(cursor="hand2" if over_dots else "xterm")
+            cw = self.canvas.winfo_width()
+            if event.x >= cw - _MINIMAP_W:
+                self.canvas.configure(cursor="hand2")
+            else:
+                over_dots = self._hit_fold_dots(event.x, event.y) is not None
+                self.canvas.configure(cursor="hand2" if over_dots else "xterm")
             if self._hover_breakpoint_line is not None:
                 self._hover_breakpoint_line = None
                 self.render()
