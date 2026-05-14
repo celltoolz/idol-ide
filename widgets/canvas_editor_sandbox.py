@@ -49,6 +49,8 @@ THEMES: dict[str, dict] = {
             "diag_error":       "#f14c4c",
             "diag_warning":     "#e5c07b",
             "diag_info":        "#67d8ef",
+            "find_match":       "#623f00",   # dim orange — non-current find hits
+            "find_current":     "#ffa500",   # bright orange — focused match
             "minimap_bg":       "#272822",
             "minimap_viewport": "#605d52",   # solid; rendered with stipple
         },
@@ -89,6 +91,8 @@ THEMES: dict[str, dict] = {
             "diag_error":       "#f14c4c",
             "diag_warning":     "#dcdcaa",
             "diag_info":        "#75beff",
+            "find_match":       "#623f00",   # dim orange — non-current find hits
+            "find_current":     "#ffa500",   # bright orange — focused match
             "minimap_bg":       "#1e1e1e",
             "minimap_viewport": "#37373d",
         },
@@ -560,6 +564,12 @@ class CanvasEditorSandbox(tk.Frame):
         # "message": str}. Render draws a squiggly underline; eventual
         # LSP integration calls set_diagnostics() to update.
         self._diagnostics: list[dict] = []
+        # Find/Replace highlights — populated by `set_find_matches`.
+        # Each entry is `((start_line, start_col), (end_line, end_col))`
+        # with 0-indexed positions. `_find_current_idx` (>=0) marks the
+        # currently-focused match and renders in a brighter color.
+        self._find_matches: list[tuple[tuple[int, int], tuple[int, int]]] = []
+        self._find_current_idx: int = -1
         # Autocomplete provider — async callback the host wires to a
         # completion source (LSP, jedi, etc.). Signature:
         #     callable(prefix: str, trigger_char: str|None,
@@ -755,6 +765,13 @@ class CanvasEditorSandbox(tk.Frame):
             # Selection
             self._draw_selection(i, line, y, w)
 
+            # Find/Replace match highlights — drawn under tokens so the
+            # text reads on top. Iterates all matches and paints only
+            # the ones that intersect the current line (cheap; a file
+            # with thousands of matches still draws each line in O(M)
+            # which is fine for typical search counts).
+            self._draw_find_matches_on_line(i, line, y)
+
             # Indent guides — drive off effective indent so guides span
             # blank lines within the same block. Highlight the guide that
             # matches the cursor's containing block. Each guide is drawn
@@ -796,19 +813,12 @@ class CanvasEditorSandbox(tk.Frame):
                               fill=self._palette["gutter_fg"],
                               font=self._font)
 
-            # Find/Replace match highlights — drawn BEFORE tokens so
-            # text reads on top. Current match gets a brighter outline.
-            for j, (mi, c1, c2) in enumerate(self._find_matches):
-                if mi != i:
-                    continue
-                x1 = _TEXT_X + self._font.measure(line[:c1])
-                x2 = _TEXT_X + self._font.measure(line[:c2])
-                is_current = (j == self._find_index)
-                c.create_rectangle(
-                    x1, y, x2, y + self._line_h,
-                    fill="#664c00" if is_current else "#3a3920",
-                    outline="#dcdcaa" if is_current else "",
-                )
+            # Find/Replace match highlights are painted by
+            # `_draw_find_matches_on_line` (called earlier in this
+            # row's draw block). The sandbox's legacy inline-render
+            # path was removed when we switched to the IDOL Find/
+            # Replace bar — `self._find_matches` now uses the nested-
+            # tuple format set by `set_find_matches`.
 
             # Word-occurrence highlights — dim backgrounds on every
             # other instance of the word currently under the cursor.
@@ -1313,6 +1323,43 @@ class CanvasEditorSandbox(tk.Frame):
         ci = len(line) - len(line.lstrip())
         ni = len(nl) - len(nl.lstrip())
         return ni > ci
+
+    # ── Find/Replace highlight rendering ─────────────────────────────────────
+    # Matches are stored as `((start_line, start_col), (end_line, end_col))`
+    # tuples. `_find_current_idx` (>=0) marks the currently-focused match
+    # and renders in the brighter `find_current` palette color.
+
+    def set_find_matches(self,
+                         matches: list[tuple[tuple[int, int], tuple[int, int]]],
+                         current_idx: int = -1) -> None:
+        """Replace the set of highlighted find matches and request a
+        repaint. Pass `[]` to clear."""
+        self._find_matches = list(matches)
+        self._find_current_idx = current_idx
+        self.render()
+
+    def clear_find_matches(self) -> None:
+        self.set_find_matches([], -1)
+
+    def _draw_find_matches_on_line(self, line_idx: int,
+                                   line_text: str, y: int) -> None:
+        if not self._find_matches:
+            return
+        c = self.canvas
+        match_bg = self._palette.get("find_match", "#623f00")
+        cur_bg = self._palette.get("find_current", "#ffa500")
+        for idx, ((sl, sc), (el, ec)) in enumerate(self._find_matches):
+            if line_idx < sl or line_idx > el:
+                continue
+            c1 = sc if line_idx == sl else 0
+            c2 = ec if line_idx == el else len(line_text)
+            if c1 == c2:
+                continue
+            x1 = _TEXT_X + self._font.measure(line_text[:c1])
+            x2 = _TEXT_X + self._font.measure(line_text[:c2])
+            color = cur_bg if idx == self._find_current_idx else match_bg
+            c.create_rectangle(x1, y, x2, y + self._line_h,
+                               fill=color, outline="")
 
     def _draw_squiggly(self, x1: float, x2: float, y: float, color: str) -> None:
         """Draw a wavy underline from x1..x2 at y."""
@@ -1866,8 +1913,9 @@ class CanvasEditorSandbox(tk.Frame):
             self._toggle_comment(); return "break"
 
         # Ctrl+F — open Find/Replace bar
-        if ctrl and ks.lower() == "f":
-            self.show_find_bar(); return "break"
+        # Ctrl+F intentionally NOT handled here — the host (app.py)
+        # binds it to IDOL's `FindReplaceBar` in `_new_canvas_tab`.
+        # Falling through lets that binding fire.
 
         # Movement keys manage selection based on Shift
         if ks in ("Left", "Right", "Up", "Down",

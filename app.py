@@ -1582,6 +1582,16 @@ class IDOL(Tk):
         # load doesn't show as a dirty buffer.
         self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
 
+        # Ctrl+F → IDOL's FindReplaceBar (the sandbox's own internal
+        # find bar was deliberately disabled — the user prefers the
+        # IDOL one). Bound on the canvas widget that captures key
+        # events for the sandbox.
+        cv.canvas.bind(
+            "<Control-f>",
+            lambda _e: (self.edit_find_replace(), "break")[1],
+            add="+",
+        )
+
     def _setup_codeview(
         self, codeview: CodeView, handler: KeyHandler, mc: MultiCursor
     ) -> None:

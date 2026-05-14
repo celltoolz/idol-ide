@@ -6,6 +6,49 @@ from tkinter import BooleanVar, StringVar
 from utils.ui_font import UI_FONT
 
 
+# ── Editor-engine adapter ─────────────────────────────────────────────────────
+# FindReplaceBar predates the canvas-rendered editor; it was written
+# entirely against tk.Text indices ("1.0 + N chars" strings + tag_*
+# operations). To support BOTH the legacy `CodeView` and the new
+# `CanvasCodeView` (which has no Text tags), match storage was switched
+# to plain char offsets (start, end). These helpers translate between
+# offsets and whatever each engine's API needs.
+
+def _is_canvas_cv(cv) -> bool:
+    """True when *cv* is the canvas-rendered editor (no Text tags)."""
+    return type(cv).__name__ == "CanvasCodeView"
+
+def _full_text(cv) -> str:
+    if _is_canvas_cv(cv):
+        return cv.get_text()
+    return cv.get("1.0", "end-1c")
+
+def _selected_text(cv) -> str:
+    if _is_canvas_cv(cv):
+        return cv.selected_text()
+    try:
+        return cv.get("sel.first", "sel.last")
+    except tk.TclError:
+        return ""
+
+def _offset_to_lc(text: str, offset: int) -> tuple[int, int]:
+    """Char offset → (0-indexed line, 0-indexed col). Engine-agnostic."""
+    before = text[:offset]
+    line = before.count("\n")
+    last_nl = before.rfind("\n")
+    col = offset - (last_nl + 1) if last_nl >= 0 else offset
+    return (line, col)
+
+def _matches_to_ranges(text: str,
+                       offsets: list[tuple[int, int]]
+                       ) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+    """Convert a list of (start_offset, end_offset) to the
+    `((sl,sc),(el,ec))` shape `CanvasCodeView.set_find_matches`
+    expects."""
+    return [(_offset_to_lc(text, s), _offset_to_lc(text, e))
+            for s, e in offsets]
+
+
 # ── Colour constants ──────────────────────────────────────────────────────────
 _BG          = "#252526"   # bar background
 _FG          = "#cccccc"   # normal text
@@ -132,7 +175,11 @@ class FindReplaceBar(tk.Frame):
         super().__init__(master, bg=_BG, padx=6, pady=4)
 
         self._cv: tk.Text | None = None          # current codeview
-        self._matches: list[tuple[str, str]] = []
+        # Engine-agnostic match storage — (start_offset, end_offset)
+        # char offsets into the buffer text. Converted to either
+        # `cv.index(...)` strings (legacy) or `((line,col),(line,col))`
+        # tuples (canvas) at the apply step.
+        self._matches: list[tuple[int, int]] = []
         self._current: int = -1
         self._after_id: str | None = None
         self._replace_visible: bool = False
@@ -225,20 +272,19 @@ class FindReplaceBar(tk.Frame):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def show(self, codeview: tk.Text) -> None:
+    def show(self, codeview) -> None:
         """Place the bar and focus the find entry.
 
         If the codeview has a selection, pre-fill it as the search term.
+        Accepts either the legacy `CodeView` (tk.Text) or the new
+        `CanvasCodeView` — the bar reads its content + cursor through
+        the `_full_text`/`_selected_text` adapters above.
         """
         self._cv = codeview
 
-        # Pre-fill from selection if any
-        try:
-            sel = codeview.get("sel.first", "sel.last")
-            if sel and "\n" not in sel:
-                self.find_var.set(sel)
-        except tk.TclError:
-            pass  # no selection — leave as-is
+        sel = _selected_text(codeview)
+        if sel and "\n" not in sel:
+            self.find_var.set(sel)
 
         # Place in the top-right of the master frame; lift above everything
         self.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
@@ -254,7 +300,6 @@ class FindReplaceBar(tk.Frame):
         """Hide the bar and remove all highlights."""
         self._clear_tags()
         self.place_forget()
-        # Return focus to the codeview if possible
         if self._cv:
             try:
                 self._cv.focus_set()
@@ -288,8 +333,7 @@ class FindReplaceBar(tk.Frame):
         if cv is None:
             return
 
-        cv.tag_remove("find_match",    "1.0", "end")
-        cv.tag_remove("find_current",  "1.0", "end")
+        self._clear_tags()
         self._matches = []
         self._current = -1
 
@@ -298,21 +342,38 @@ class FindReplaceBar(tk.Frame):
             self._count_lbl.config(text="")
             return
 
-        text = cv.get("1.0", "end-1c")
+        text = _full_text(cv)
+        # Internal match storage uses char offsets (engine-agnostic);
+        # conversion to index strings / (line,col) tuples happens at
+        # the apply step below.
         for m in pattern.finditer(text):
-            s = cv.index(f"1.0 + {m.start()} chars")
-            e = cv.index(f"1.0 + {m.end()} chars")
-            self._matches.append((s, e))
-            cv.tag_add("find_match", s, e)
+            self._matches.append((m.start(), m.end()))
 
-        cv.tag_configure("find_match",   background=_MATCH_BG,   foreground=_FG)
-        cv.tag_configure("find_current", background=_CURRENT_BG, foreground="white")
+        self._apply_highlights(text)
 
         n = len(self._matches)
         if n == 0:
             self._count_lbl.config(text="No results")
         else:
             self._count_lbl.config(text=f'{n} match{"es" if n != 1 else ""}')
+
+    def _apply_highlights(self, text: str) -> None:
+        """Push the current `_matches` (char offsets) to the editor as
+        visible highlights — Text tags for legacy, canvas rectangles
+        for the canvas engine."""
+        cv = self._cv
+        if cv is None:
+            return
+        if _is_canvas_cv(cv):
+            ranges = _matches_to_ranges(text, self._matches)
+            cv.set_find_matches(ranges, self._current)
+            return
+        for s, e in self._matches:
+            cv.tag_add("find_match",
+                       cv.index(f"1.0 + {s} chars"),
+                       cv.index(f"1.0 + {e} chars"))
+        cv.tag_configure("find_match",   background=_MATCH_BG,   foreground=_FG)
+        cv.tag_configure("find_current", background=_CURRENT_BG, foreground="white")
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -336,12 +397,21 @@ class FindReplaceBar(tk.Frame):
         cv = self._cv
         if cv is None:
             return
-        cv.tag_remove("find_current", "1.0", "end")
-        start, end = self._matches[self._current]
-        cv.tag_add("find_current", start, end)
-        cv.tag_configure("find_current", background=_CURRENT_BG, foreground="white")
-        cv.tag_raise("find_current", "find_match")
-        cv.see(start)
+        s_off, _e_off = self._matches[self._current]
+        text = _full_text(cv)
+        if _is_canvas_cv(cv):
+            ranges = _matches_to_ranges(text, self._matches)
+            cv.set_find_matches(ranges, self._current)
+            cv.scroll_to_line(_offset_to_lc(text, s_off)[0])
+        else:
+            cv.tag_remove("find_current", "1.0", "end")
+            start = cv.index(f"1.0 + {s_off} chars")
+            end   = cv.index(f"1.0 + {self._matches[self._current][1]} chars")
+            cv.tag_add("find_current", start, end)
+            cv.tag_configure("find_current",
+                             background=_CURRENT_BG, foreground="white")
+            cv.tag_raise("find_current", "find_match")
+            cv.see(start)
         self._count_lbl.config(
             text=f"{self._current + 1} of {len(self._matches)}"
         )
@@ -356,9 +426,18 @@ class FindReplaceBar(tk.Frame):
         cv = self._cv
         if cv is None:
             return
-        start, end = self._matches[self._current]
-        cv.delete(start, end)
-        cv.insert(start, self.replace_var.get())
+        s_off, e_off = self._matches[self._current]
+        replacement = self.replace_var.get()
+        if _is_canvas_cv(cv):
+            text = _full_text(cv)
+            cv.replace_range(_offset_to_lc(text, s_off),
+                             _offset_to_lc(text, e_off),
+                             replacement)
+        else:
+            start = cv.index(f"1.0 + {s_off} chars")
+            end   = cv.index(f"1.0 + {e_off} chars")
+            cv.delete(start, end)
+            cv.insert(start, replacement)
         self._update()
         if self._matches:
             self._current = min(self._current, len(self._matches) - 1)
@@ -373,18 +452,36 @@ class FindReplaceBar(tk.Frame):
         if cv is None:
             return
         replacement = self.replace_var.get()
-        for start, end in reversed(self._matches):
-            cv.delete(start, end)
-            cv.insert(start, replacement)
+        if _is_canvas_cv(cv):
+            # Apply replacements right-to-left so earlier offsets stay
+            # valid as we mutate the buffer.
+            text = _full_text(cv)
+            for s_off, e_off in reversed(self._matches):
+                cv.replace_range(_offset_to_lc(text, s_off),
+                                 _offset_to_lc(text, e_off),
+                                 replacement)
+                # `replace_range` mutates the buffer; refresh `text`
+                # for the next iteration's offset conversion.
+                text = _full_text(cv)
+        else:
+            for s_off, e_off in reversed(self._matches):
+                start = cv.index(f"1.0 + {s_off} chars")
+                end   = cv.index(f"1.0 + {e_off} chars")
+                cv.delete(start, end)
+                cv.insert(start, replacement)
         self._update()
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
 
     def _clear_tags(self) -> None:
         cv = self._cv
-        if cv:
-            try:
-                cv.tag_remove("find_match",   "1.0", "end")
-                cv.tag_remove("find_current", "1.0", "end")
-            except tk.TclError:
-                pass
+        if cv is None:
+            return
+        if _is_canvas_cv(cv):
+            cv.clear_find_matches()
+            return
+        try:
+            cv.tag_remove("find_match",   "1.0", "end")
+            cv.tag_remove("find_current", "1.0", "end")
+        except tk.TclError:
+            pass
