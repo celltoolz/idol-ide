@@ -93,7 +93,8 @@ _LINENUM_R = _DEBUG_W + 30   # right edge of line-number text (anchor "ne")
 _FOLD_X    = _LINENUM_R + 4  # left edge of fold marker (anchor "nw")
 _GUTTER_W  = _FOLD_X + 14    # total gutter width
 _TEXT_X    = _GUTTER_W + 12
-_BREAKPOINT_COLOR = "#e51400"
+_BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
+_BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
 
 _SAMPLE = """\
 class IDOL_IDE:
@@ -159,6 +160,7 @@ class CanvasEditorSandbox(tk.Frame):
         self.cursor_visible: bool = True
         self.folded: set[int] = set()
         self._breakpoints: set[int] = set()
+        self._hover_breakpoint_line: int | None = None
         self.scroll_y: int = 0           # first visible visual row
 
         # Tokenizer rules. Each rule is (regex, category_name). The category
@@ -223,6 +225,8 @@ class CanvasEditorSandbox(tk.Frame):
     def _wire_events(self) -> None:
         c = self.canvas
         c.bind("<Configure>",        lambda _: self.render())
+        c.bind("<Motion>",           self._on_motion)
+        c.bind("<Leave>",            self._on_leave)
         c.bind("<Button-1>",         self._on_click)
         c.bind("<B1-Motion>",        self._on_drag)
         c.bind("<Double-Button-1>",  self._on_double_click)
@@ -316,12 +320,16 @@ class CanvasEditorSandbox(tk.Frame):
                 color = guide_hi if level == active_level else guide_dim
                 c.create_line(gx, y, gx, y + self._line_h, fill=color)
 
-            # Breakpoint dot (debug zone, far left)
-            if i in self._breakpoints:
-                cy = y + self._line_h // 2
-                c.create_oval(_DEBUG_W // 2 - 4, cy - 4,
-                              _DEBUG_W // 2 + 4, cy + 4,
-                              fill=_BREAKPOINT_COLOR, outline="")
+            # Breakpoint dot (debug zone, far left). Bright red when set,
+            # dim ghost when hovered (preview that clicking will set one).
+            if i in self._breakpoints or i == self._hover_breakpoint_line:
+                cy  = y + self._line_h // 2
+                cx  = _DEBUG_W // 2
+                r   = min(_DEBUG_W // 2 - 1, max(4, self._line_h // 3))
+                fill = (_BREAKPOINT_COLOR if i in self._breakpoints
+                        else _BREAKPOINT_GHOST_COLOR)
+                c.create_oval(cx - r, cy - r, cx + r, cy + r,
+                              fill=fill, outline="")
 
             # Line number — active line gets brighter color
             gut_fg = (self._palette["gutter_fg_active"]
@@ -587,6 +595,37 @@ class CanvasEditorSandbox(tk.Frame):
         self._reset_blink()
         self.render()
         return "break"
+
+    def _on_motion(self, event):
+        """Per-zone cursor swap + breakpoint ghost-dot tracking.
+
+        Debug zone   → hand2 cursor, ghost-dot preview on the hovered line
+        Linenum/fold → right_ptr arrow (matches IDOL's gutter)
+        Text area    → xterm I-beam
+        """
+        if event.x < _DEBUG_W:
+            self.canvas.configure(cursor="hand2")
+            row = self._row_from_y(event.y)
+            new_hover = row if 0 <= row < len(self.lines) else None
+            if new_hover != self._hover_breakpoint_line:
+                self._hover_breakpoint_line = new_hover
+                self.render()
+        elif event.x < _GUTTER_W:
+            self.canvas.configure(cursor="right_ptr")
+            if self._hover_breakpoint_line is not None:
+                self._hover_breakpoint_line = None
+                self.render()
+        else:
+            self.canvas.configure(cursor="xterm")
+            if self._hover_breakpoint_line is not None:
+                self._hover_breakpoint_line = None
+                self.render()
+
+    def _on_leave(self, _event):
+        self.canvas.configure(cursor="xterm")
+        if self._hover_breakpoint_line is not None:
+            self._hover_breakpoint_line = None
+            self.render()
 
     def _on_shift_click(self, event):
         self.canvas.focus_set()
