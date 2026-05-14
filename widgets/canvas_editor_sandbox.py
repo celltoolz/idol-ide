@@ -87,8 +87,13 @@ THEMES: dict[str, dict] = {
 _DEFAULT_THEME = "monokai-bright"
 
 _FONT_FAMILY, _FONT_SIZE = "Consolas", 11
-_GUTTER_W = 56
-_TEXT_X = _GUTTER_W + 12
+# Gutter layout (left → right): debug column, line numbers, fold markers.
+_DEBUG_W   = 16              # breakpoint column on the far left
+_LINENUM_R = _DEBUG_W + 30   # right edge of line-number text (anchor "ne")
+_FOLD_X    = _LINENUM_R + 4  # left edge of fold marker (anchor "nw")
+_GUTTER_W  = _FOLD_X + 14    # total gutter width
+_TEXT_X    = _GUTTER_W + 12
+_BREAKPOINT_COLOR = "#e51400"
 
 _SAMPLE = """\
 class IDOL_IDE:
@@ -153,6 +158,7 @@ class CanvasEditorSandbox(tk.Frame):
         self.sel_anchor: tuple[int, int] | None = None
         self.cursor_visible: bool = True
         self.folded: set[int] = set()
+        self._breakpoints: set[int] = set()
         self.scroll_y: int = 0           # first visible visual row
 
         # Tokenizer rules. Each rule is (regex, category_name). The category
@@ -310,16 +316,24 @@ class CanvasEditorSandbox(tk.Frame):
                 color = guide_hi if level == active_level else guide_dim
                 c.create_line(gx, y, gx, y + self._line_h, fill=color)
 
+            # Breakpoint dot (debug zone, far left)
+            if i in self._breakpoints:
+                cy = y + self._line_h // 2
+                c.create_oval(_DEBUG_W // 2 - 4, cy - 4,
+                              _DEBUG_W // 2 + 4, cy + 4,
+                              fill=_BREAKPOINT_COLOR, outline="")
+
             # Line number — active line gets brighter color
             gut_fg = (self._palette["gutter_fg_active"]
                       if i == self.cur_line else self._palette["gutter_fg"])
-            c.create_text(_GUTTER_W - 8, y + 1, text=str(i + 1),
+            c.create_text(_LINENUM_R, y + 1, text=str(i + 1),
                           anchor="ne", fill=gut_fg, font=self._font)
 
-            # Fold marker (only on lines with indented children)
+            # Fold marker — to the right of the line number, only on
+            # lines that introduce an indented child block.
             if self._line_has_children(i):
                 glyph = "▶" if i in self.folded else "▼"
-                c.create_text(10, y + 1, text=glyph, anchor="nw",
+                c.create_text(_FOLD_X, y + 1, text=glyph, anchor="nw",
                               fill=self._palette["gutter_fg"],
                               font=self._font)
 
@@ -541,13 +555,24 @@ class CanvasEditorSandbox(tk.Frame):
     def _on_click(self, event):
         self.canvas.focus_set()
         if event.x < _GUTTER_W:
-            # Gutter click: fold toggle
             row = self._row_from_y(event.y)
-            if row in self.folded:
-                self.folded.discard(row)
-            elif self._line_has_children(row):
-                self.folded.add(row)
-            self.render()
+            if event.x < _DEBUG_W:
+                # Debug zone — toggle breakpoint
+                if 0 <= row < len(self.lines):
+                    if row in self._breakpoints:
+                        self._breakpoints.discard(row)
+                    else:
+                        self._breakpoints.add(row)
+                    self.render()
+            elif event.x >= _FOLD_X:
+                # Fold zone — toggle fold on lines that have children
+                if row in self.folded:
+                    self.folded.discard(row)
+                elif self._line_has_children(row):
+                    self.folded.add(row)
+                self.render()
+            # Line-number zone (between debug and fold) is intentionally
+            # a no-op for now; keeps accidental clicks from doing anything.
             return "break"
         self.cur_line, self.cur_col = self._coords_from_pixel(event.x, event.y)
         self.sel_anchor = None
