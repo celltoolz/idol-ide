@@ -427,18 +427,25 @@ class IDOL(Tk):
         self._syncing_scroll: bool = False
 
         # Settings
-        self.theme_var = StringVar(value="monokai")
+        # Default theme aligned with the canvas engine's own default
+        # so the View → Theme submenu shows the right radio-checked
+        # entry on first launch. Legacy CodeView ignores canvas-only
+        # ids — switching to "monokai" / "dracula" / etc. in the menu
+        # routes via view_change_theme's engine-aware branch.
+        self.theme_var = StringVar(value="monokai-bright")
         self.highlight_line_var = BooleanVar(value=True)
         self.output_visible_var = BooleanVar(value=True)
         self.panel_tab_var = StringVar(value="output")
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
         self.zen_mode_var = BooleanVar(value=False)
-        # Soak switch for the canvas-rendered editor (Phase 2 of the
-        # CodeView → CanvasCodeView migration). When True, new tabs are
-        # built with `CanvasCodeView`; when False, with `CodeView`.
-        # Toggle from View → "New tabs use Canvas Editor".
-        self.canvas_editor_enabled_var = BooleanVar(value=False)
+        # Editor engine toggle. Default ON: new tabs are built with
+        # `CanvasCodeView` (the canvas-rendered engine — no tk.Text, no
+        # pygments). Flip OFF to fall back to the legacy `CodeView` for
+        # any tab opened while the toggle is off. Toggleable from
+        # View → "New tabs use Canvas Editor"; existing tabs keep
+        # whichever engine they were built with.
+        self.canvas_editor_enabled_var = BooleanVar(value=True)
         self._run_target_var = tk.StringVar(value="output")
         self._run_action_var = tk.StringVar(value="run")
         self._run_entry_file: str | None = None
@@ -4218,10 +4225,26 @@ class IDOL(Tk):
 
     def view_change_theme(self) -> None:
         scheme = self.theme_var.get()
+        # Push to both engines. Canvas tabs read `themes/*.json` via
+        # `set_theme`; legacy CodeView tabs read `colorschemes/*.toml`
+        # via `set_color_scheme`. The Theme submenu now lists BOTH
+        # name spaces; whichever engine the active tab uses gets the
+        # matching call.
+        from utils.theme_loader import list_themes as _canvas_themes
+        canvas_themes = set(_canvas_themes())
         for cv in self._codeviews.values():
-            cv.set_color_scheme(scheme)
+            if cv is None:
+                continue
+            if _is_canvas_cv(cv):
+                if scheme in canvas_themes:
+                    cv.set_theme(scheme)
+            else:
+                # Legacy engine doesn't know canvas-only theme ids
+                # (e.g. "dark-plus") and would crash on the toml path.
+                if scheme not in canvas_themes:
+                    cv.set_color_scheme(scheme)
         cv = self._current_codeview
-        if cv:
+        if cv and not _is_canvas_cv(cv):
             self._active_line_color = cv.cget("inactiveselectbackground")
             self._sidebar.apply_theme(
                 bg=cv.cget("bg"),

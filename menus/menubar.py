@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from tkinter import Menu
 
-_THEMES = ["ayu-dark", "ayu-light", "dracula", "mariana", "material", "monokai", "rrt"]
+from utils.theme_loader import list_themes as _canvas_theme_ids
+
+# Legacy pygments-backed colorschemes — used by `widgets.codeview.
+# CodeView.set_color_scheme`. Removed alongside CodeView in the final
+# cleanup pass when the canvas engine is the only editor.
+_LEGACY_THEMES = ["ayu-dark", "ayu-light", "dracula", "mariana",
+                  "material", "monokai", "rrt"]
 
 
 def build_menubar(app) -> Menu:
@@ -64,7 +70,21 @@ def build_menubar(app) -> Menu:
     view_menu = Menu(menubar, tearoff=0)
 
     theme_menu = Menu(view_menu, tearoff=0)
-    for theme in _THEMES:
+    # Canvas-engine themes first (the new system — drop a JSON in
+    # themes/ and it appears here automatically), then a separator,
+    # then the legacy pygments colorschemes for any tab still on the
+    # old engine. Final cleanup removes the legacy section entirely.
+    canvas_ids = _canvas_theme_ids()
+    for theme in canvas_ids:
+        theme_menu.add_radiobutton(
+            label=theme.replace("-", " ").title(),
+            variable=app.theme_var,
+            value=theme,
+            command=app.view_change_theme,
+        )
+    if canvas_ids and _LEGACY_THEMES:
+        theme_menu.add_separator()
+    for theme in _LEGACY_THEMES:
         theme_menu.add_radiobutton(
             label=theme,
             variable=app.theme_var,

@@ -908,6 +908,9 @@ class CanvasEditorSandbox(tk.Frame):
         self._mm_last_place: tuple[int, int, int, int] | None = None
         self._mm_lines_cache: list[str] = []
         self._mm_last_theme: str | None = None
+        # Host-toggleable visibility (View → "Show Minimap"). Mirrors
+        # the legacy CodeView.show_minimap / hide_minimap contract.
+        self._mm_visible: bool = True
 
         # Hover preview Toplevel — lazily created in `_mm_show_preview`.
         self._mm_preview: tk.Toplevel | None = None
@@ -923,6 +926,20 @@ class CanvasEditorSandbox(tk.Frame):
         self._mm_text.bind("<Button-4>",      self._on_mm_wheel)
         self._mm_text.bind("<Button-5>",      self._on_mm_wheel)
 
+    def show_minimap(self) -> None:
+        """Make the minimap visible. Idempotent."""
+        if not self._mm_visible:
+            self._mm_visible = True
+            self.render()
+
+    def hide_minimap(self) -> None:
+        """Hide the minimap and reclaim its column. Idempotent."""
+        if self._mm_visible:
+            self._mm_visible = False
+            self._mm_text.place_forget()
+            self._mm_last_place = None
+            self.render()
+
     def _update_minimap(self) -> None:
         """Reposition/resize the embedded widget, rebuild content if the
         buffer changed, refresh tag colors on theme switch, and sync the
@@ -930,8 +947,9 @@ class CanvasEditorSandbox(tk.Frame):
         c = self.canvas
         cw, ch = c.winfo_width(), c.winfo_height()
         mm_x = cw - _MINIMAP_W
-        # Hide when the canvas is too narrow to host both editor + minimap.
-        if mm_x < _TEXT_X + 20 or ch < 2:
+        # Hide when the user toggled it off, or when the canvas is too
+        # narrow to host both editor + minimap.
+        if not self._mm_visible or mm_x < _TEXT_X + 20 or ch < 2:
             if self._mm_last_place is not None:
                 self._mm_text.place_forget()
                 self._mm_last_place = None
