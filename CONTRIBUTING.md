@@ -85,7 +85,7 @@ no widget imports, no stateful objects.
 | File | Role |
 |---|---|
 | `ollama_client.py` | HTTP client for local Ollama API |
-| `schemeparser.py` | Parses `.toml` colorscheme files |
+| `theme_loader.py` | Loads `themes/<id>.json` files — `list_themes()` + `load_theme(id)` consumed by the canvas editor + the View → Theme menu. Drop a new JSON in `themes/` to add a theme; no code change. |
 | `settings.py` | Settings load/save |
 | `session.py` | Session persistence — saves/restores open tabs, layout, appearance, breakpoints, active interpreter, and active venv (re-activates in terminal on next launch). Auto-session writes to `~/.idol/session.json`; named saves write to `.idol-project` in the project root. |
 | `learning_registry.py` | Registry of learning content |
@@ -107,11 +107,13 @@ Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for
 never runs subprocesses or owns protocol logic itself.
 
 Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `clipboard_history.py`,
-`codeview.py`, `command_palette.py`, `completion_popup.py`, `debug_panel.py`, `designer_palette.py`,
+`canvas_codeview.py`, `command_palette.py`, `completion_popup.py`, `debug_panel.py`, `designer_palette.py`,
 `explorer.py`, `find_replace.py`, `guide_window.py`, `learning_manager.py`,
-`learning_panel.py`, `linenums.py`, `minimap.py`, `notebook.py`, `outline.py`,
+`learning_panel.py`, `minimap.py`, `notebook.py`, `outline.py`,
 `output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
-`sidebar.py`, `source_control.py`, `statusbar.py`, `sticky_scroll.py`, `styled_checkbox.py`, `terminal.py`
+`sidebar.py`, `source_control.py`, `statusbar.py`, `styled_checkbox.py`, `terminal.py`
+
+`canvas_codeview.py` — IDOL's sole editor engine. Renders text directly on a `tk.Canvas` (no `tk.Text` widget, no pygments). All state lives in `self.lines: list[str]`; cursor + selection are plain `(line, col)` tuples; tokenization is a regex-rule pass driven by `_rules` in `_init_state`. Themes are loaded from `themes/*.json` via `utils/theme_loader.py` — swap by calling `set_theme(id)`. The internal layout grids in: breadcrumb (row 0), find/replace strip (row 1, reserved), main `tk.Canvas` (row 2 col 0) + `VerticalScrollbar` (row 2 col 1), `HorizontalScrollbar` (row 3 col 0). Embedded inside the canvas: line-number / fold / breakpoint gutter, sticky scope-header band (own canvas, place'd at top), minimap (embedded `tk.Text` at font size 1, place'd on the right). Public API: `get_text/set_text`, `get_line/line_count`, `get_cursor/set_cursor`, `get_selection/set_selection/clear_selection/selected_text`, `insert/delete_selection/delete_range/replace_range`, `scroll_to_line/ensure_visible/visible_range`, `set_diagnostics/set_breakpoints/set_git_hunks/set_runtime_error_line/set_debug_line/set_filepath/set_theme`. Host hooks: `on_change`, `on_cursor_move`, `on_lines_changed`, `on_copy`, `on_completion_request`, `on_breakpoint_toggle`, and the `on_request_*` family used by the right-click menu.
 
 `styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state, custom colors, and font sizes. Used in `project_wizard.py`.
 
@@ -203,8 +205,12 @@ Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `co
 `menubar.py` — constructs the application menubar. Kept separate from `app.py` for
 size management.
 
-### `colorschemes/`
-`.toml` files parsed by `utils/schemeparser.py`. Add new themes here.
+### `themes/`
+`<theme-id>.json` files parsed by `utils/theme_loader.py`. Each file
+holds a `palette` block (UI colors) and a `tokens` block
+(category → `{"color": "#hex", "italic": bool}`). Drop a new file
+and it appears in the View → Theme menu on next launch — no code
+change. The two bundled themes are `monokai-bright` and `dark-plus`.
 
 ### `data/`
 Static data files. Currently contains `idol_package_categories.json` (PyPI classifier-based package groupings used by the Package Manager).
@@ -263,7 +269,7 @@ Any future static data files belong here, not inside package directories.
 
 Implemented and stable:
 - Multi-tab editing with session persistence (dirty tracking, restore hardening); **CRC dirty tracking** — undo/redo clears the dirty flag automatically when content returns to the last-saved state
-- Pygments syntax highlighting; fold markers (including `# ── Name ───` section-marker folds); Ctrl+/ comment toggle; word occurrence highlights on cursor move
+- Regex-rule syntax highlighting (canvas-rendered, no pygments); fold markers (including `# ── Name ───` section-marker folds); Ctrl+/ comment toggle; word occurrence highlights on cursor move
 - **Smart Home key** — first press goes to first non-whitespace; second press goes to column 0 (position-based, no state needed)
 - **Center-on-navigate** — outline and references panel navigation centers the target line in the editor
 - pylsp LSP integration (hover, diagnostics, definition, completion)
@@ -307,10 +313,11 @@ Implemented and stable:
   rows (rect + text) with hover via `itemconfigure`, keyboard nav, pin/unpin (right-click), and
   search filter; `on_copy` callback on `codeview` delivers text directly on Ctrl+C (bypasses
   the `<<Copy>>` virtual event which `_copy()` suppresses with `return "break"`)
-- **Undo tag-snapshot** — `_capture_token_tags()` grabs all `Token.*` tag ranges via a single
-  `dump -tag` Tcl call; stored per undo burst (gated by `_undo_pending_save`); `_restore_token_tags()`
-  replays them via a batched `tk.eval` script on undo/redo, skipping Pygments entirely when tags
-  are available; eliminates the white-flash and fold-marker lag on Ctrl+Z
+- **Undo on the canvas editor** — open follow-up. The legacy
+  `tk.Text`-backed undo (`_capture_token_tags` / `_restore_token_tags`
+  with `dump -tag` snapshots) is gone alongside the legacy CodeView.
+  The canvas engine needs its own undo stack on `self.lines` + cursor
+  + selection state; tracked as next-up work.
 - **Ghost sash — sidebar** — sidebar's custom Frame-based horizontal sashes use a 2 px `#007acc`
   ghost overlay during drag; actual resize fires on `ButtonRelease` only; also restores the
   missing `<ButtonPress-1>` binding that was never wired to `_sash_press`
@@ -388,7 +395,7 @@ Implemented and stable:
 - **X11 saved-iid pattern** — `_prop_clear_iid`/`_ev_btn_iid` fields in `designer_properties.py`; fixes clear button and ✦ wire button on Linux (spurious `<Leave>` events cleared hover-index before clicks fired)
 - **Form `bg` clearable** — `form__bg` added to clearable props; `load_form` no longer substitutes a placeholder when `bg` is empty; clearing the form bg restores the OS default
 - **Empty bg defaults** — non-input widget registry entries (`"bg": ""`) so generated code doesn't hardcode Windows-gray `bg` on new widgets; OS default background used instead
-- **Tkinter clipboard** — `codeview.py` copy replaced pyperclip with `clipboard_clear()` + `clipboard_append()`; `pyperclip` removed from `requirements.txt` entirely
+- **Tkinter clipboard** — editor copy uses `clipboard_clear()` + `clipboard_append()`; `pyperclip` removed from `requirements.txt`
 - **Linux mousewheel on designer canvas** — `<Button-4>`/`<Button-5>` and `<Shift-Button-4>`/`<Shift-Button-5>` added to `canvas.py`
 - **Cross-platform UI font** (`utils/ui_font.py`) — `UI_FONT` constant (`"Segoe UI"` / `"Helvetica Neue"` / `"DejaVu Sans"` per platform) used in place of hardcoded `"Segoe UI"` across all widget files
 
