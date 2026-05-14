@@ -38,6 +38,9 @@ THEMES: dict[str, dict] = {
             "gutter_bg":        "#272822",
             "gutter_fg":        "#90908a",
             "gutter_fg_active": "#c2c2bf",
+            "bracket_match":    "#a6a69a",     # outline around matched ( [ {
+            "word_occurrence":  "#3e4032",     # dim bg on other instances
+            "fold_dots":        "#90908a",     # ··· after a folded line
         },
         # category: (color, italic)
         "tokens": {
@@ -68,6 +71,9 @@ THEMES: dict[str, dict] = {
             "gutter_bg":        "#1e1e1e",
             "gutter_fg":        "#858585",
             "gutter_fg_active": "#c6c6c6",
+            "bracket_match":    "#888888",
+            "word_occurrence":  "#2e3942",
+            "fold_dots":        "#858585",
         },
         "tokens": {
             "comment":      ("#6a9955", True),
@@ -106,6 +112,12 @@ _SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
 _PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
 # All openers and closers — used for skip-over-closer detection.
 _CLOSERS = set(_PAIRS.values())
+# Bracket pairs for matching (no quotes — same char on both sides).
+_BRACKET_OPEN_TO_CLOSE = {"(": ")", "[": "]", "{": "}"}
+_BRACKET_CLOSE_TO_OPEN = {v: k for k, v in _BRACKET_OPEN_TO_CLOSE.items()}
+_ALL_BRACKETS = set(_BRACKET_OPEN_TO_CLOSE) | set(_BRACKET_CLOSE_TO_OPEN)
+# Identifier char class for word-occurrence highlighting.
+_WORD_RE = re.compile(r"\w+")
 
 # Matches a string literal whose contents are a CSS-style hex color.
 _HEX_COLOR_RE = re.compile(
@@ -289,6 +301,12 @@ class CanvasEditorSandbox(tk.Frame):
         c.create_rectangle(0, 0, _GUTTER_W, h,
                            fill=self._palette["gutter_bg"], outline="")
 
+        # Tier-2 per-render computations — bracket pair under cursor and
+        # the word to highlight occurrences of.
+        bracket_pair = self._find_bracket_pair()
+        hi_word = self._cursor_word()
+        word_pat = re.compile(rf"\b{re.escape(hi_word)}\b") if hi_word else None
+
         # Precompute per-line "effective indent" for guide-drawing. Blank
         # lines inherit min(prev_non_blank_indent, next_non_blank_indent)
         # so guides connect across blank lines INSIDE a block, but stop
@@ -308,13 +326,23 @@ class CanvasEditorSandbox(tk.Frame):
         rendered = 0
         i = 0
         skip_indent: int | None = None
+        skip_close_char: str | None = None
         while i < len(self.lines):
             line = self.lines[i]
             # Fold skip
             if skip_indent is not None:
                 ind = len(line) - len(line.lstrip())
                 if line.strip() and ind <= skip_indent:
+                    # Pull a closing bracket / brace line INTO the fold
+                    # (matches IDOL's _get_fold_range bracket inclusion).
+                    if (skip_close_char is not None
+                            and line.lstrip().startswith(skip_close_char)):
+                        skip_indent = None
+                        skip_close_char = None
+                        i += 1
+                        continue
                     skip_indent = None
+                    skip_close_char = None
                 else:
                     i += 1
                     continue
@@ -324,6 +352,10 @@ class CanvasEditorSandbox(tk.Frame):
                 v_row += 1
                 if i in self.folded:
                     skip_indent = len(line) - len(line.lstrip())
+                    last = line.rstrip()[-1:] if line.rstrip() else ""
+                    skip_close_char = (
+                        {"(": ")", "[": "]", "{": "}"}.get(last)
+                    )
                 i += 1
                 continue
             if rendered >= visible_rows:
@@ -382,6 +414,24 @@ class CanvasEditorSandbox(tk.Frame):
                               fill=self._palette["gutter_fg"],
                               font=self._font)
 
+            # Word-occurrence highlights — dim backgrounds on every
+            # other instance of the word currently under the cursor.
+            # Drawn BEFORE tokens so the text reads on top.
+            if word_pat is not None:
+                cur_match_col = (
+                    self._cursor_word_start_col() if i == self.cur_line else None
+                )
+                wo_color = self._palette.get(
+                    "word_occurrence", self._palette["current_line_bg"]
+                )
+                for m in word_pat.finditer(line):
+                    if cur_match_col == m.start():
+                        continue   # skip the one the cursor's on
+                    x1 = _TEXT_X + self._font.measure(line[:m.start()])
+                    x2 = _TEXT_X + self._font.measure(line[:m.end()])
+                    c.create_rectangle(x1, y, x2, y + self._line_h,
+                                       fill=wo_color, outline="")
+
             # Tokens — resolve each category against the active theme,
             # using the italic font when the category specifies it.
             x = _TEXT_X
@@ -407,6 +457,28 @@ class CanvasEditorSandbox(tk.Frame):
                               fill=color, font=font)
                 x += font.measure(txt)
 
+            # Bracket-match outline — drawn AFTER tokens so it overlays.
+            if bracket_pair is not None:
+                for (r, col) in bracket_pair:
+                    if r != i:
+                        continue
+                    bx1 = _TEXT_X + self._font.measure(line[:col])
+                    bx2 = _TEXT_X + self._font.measure(line[:col + 1])
+                    c.create_rectangle(
+                        bx1, y + 1, bx2, y + self._line_h - 1,
+                        outline=self._palette.get("bracket_match", fg),
+                        fill="",
+                    )
+
+            # Folded "···" indicator after the line's tokens.
+            if i in self.folded:
+                c.create_text(
+                    x + 6, y + 1, text="···", anchor="nw",
+                    fill=self._palette.get("fold_dots",
+                                           self._palette["gutter_fg"]),
+                    font=self._font,
+                )
+
             # Caret
             if (i == self.cur_line and self.cursor_visible
                     and self.sel_anchor is None):
@@ -416,6 +488,10 @@ class CanvasEditorSandbox(tk.Frame):
 
             if i in self.folded:
                 skip_indent = len(line) - len(line.lstrip())
+                last = line.rstrip()[-1:] if line.rstrip() else ""
+                skip_close_char = (
+                    {"(": ")", "[": "]", "{": "}"}.get(last)
+                )
             v_row += 1
             rendered += 1
             i += 1
@@ -443,6 +519,109 @@ class CanvasEditorSandbox(tk.Frame):
         ci = len(line) - len(line.lstrip())
         ni = len(nl) - len(nl.lstrip())
         return ni > ci
+
+    def _find_bracket_pair(self) -> tuple[tuple[int, int], tuple[int, int]] | None:
+        """If the cursor is on (or immediately after) a bracket, return
+        ((opener_line, opener_col), (closer_line, closer_col)) for the
+        matching pair. Otherwise None."""
+        # Look at char AT cursor first, then char immediately BEFORE cursor —
+        # matches VS Code-style "cursor on either side of a bracket counts".
+        for r, c in self._bracket_candidates():
+            ch = self.lines[r][c]
+            if ch in _BRACKET_OPEN_TO_CLOSE:
+                m = self._scan_forward(r, c, ch, _BRACKET_OPEN_TO_CLOSE[ch])
+                if m is not None:
+                    return ((r, c), m)
+            elif ch in _BRACKET_CLOSE_TO_OPEN:
+                m = self._scan_backward(r, c, ch, _BRACKET_CLOSE_TO_OPEN[ch])
+                if m is not None:
+                    return (m, (r, c))
+        return None
+
+    def _bracket_candidates(self) -> list[tuple[int, int]]:
+        out = []
+        line = self.lines[self.cur_line]
+        # Char AT cursor (if any)
+        if 0 <= self.cur_col < len(line) and line[self.cur_col] in _ALL_BRACKETS:
+            out.append((self.cur_line, self.cur_col))
+        # Char immediately before cursor (more common — cursor sits right
+        # after a typed-or-clicked bracket)
+        if self.cur_col > 0 and line[self.cur_col - 1] in _ALL_BRACKETS:
+            out.append((self.cur_line, self.cur_col - 1))
+        return out
+
+    def _scan_forward(self, r0, c0, opener, closer):
+        depth = 0
+        for r in range(r0, len(self.lines)):
+            line = self.lines[r]
+            start = c0 + 1 if r == r0 else 0
+            for c in range(start, len(line)):
+                ch = line[c]
+                if ch == opener:
+                    depth += 1
+                elif ch == closer:
+                    if depth == 0:
+                        return (r, c)
+                    depth -= 1
+        return None
+
+    def _scan_backward(self, r0, c0, closer, opener):
+        depth = 0
+        for r in range(r0, -1, -1):
+            line = self.lines[r]
+            end = c0 - 1 if r == r0 else len(line) - 1
+            for c in range(end, -1, -1):
+                ch = line[c]
+                if ch == closer:
+                    depth += 1
+                elif ch == opener:
+                    if depth == 0:
+                        return (r, c)
+                    depth -= 1
+        return None
+
+    def _cursor_word_start_col(self) -> int | None:
+        """Return the start column of the word the cursor is on, or
+        None if the cursor isn't on/adjacent to a word."""
+        line = self.lines[self.cur_line]
+        if not line:
+            return None
+        c = self.cur_col
+        if c < len(line) and (line[c].isalnum() or line[c] == "_"):
+            pass
+        elif c > 0 and (line[c - 1].isalnum() or line[c - 1] == "_"):
+            c -= 1
+        else:
+            return None
+        while c > 0 and (line[c - 1].isalnum() or line[c - 1] == "_"):
+            c -= 1
+        return c
+
+    def _cursor_word(self) -> str | None:
+        """If the cursor is sitting on or right after a word character,
+        return that word. Used by word-occurrence highlighting."""
+        line = self.lines[self.cur_line]
+        if not line:
+            return None
+        # Pick the column on the word side of the cursor.
+        c = self.cur_col
+        if c < len(line) and (line[c].isalnum() or line[c] == "_"):
+            pass
+        elif c > 0 and (line[c - 1].isalnum() or line[c - 1] == "_"):
+            c -= 1
+        else:
+            return None
+        start = c
+        while start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_"):
+            start -= 1
+        end = c
+        while end < len(line) and (line[end].isalnum() or line[end] == "_"):
+            end += 1
+        word = line[start:end]
+        # Ignore very short words and pure numerics — too noisy.
+        if len(word) < 2 or word.isdigit():
+            return None
+        return word
 
     def _effective_indents(self) -> list[int]:
         """Per-line indent (in chars) for guide-drawing purposes.
