@@ -52,7 +52,7 @@ THEMES: dict[str, dict] = {
             "function":     ("#66d9ef", False),       # builtins + dunders: blue
             "method":       ("#a6e22e", False),       # user methods: green
             "decorator":    ("#66d9ef", False),
-            "parameter":    ("#d6b256", False),       # kwarg names: darker golden
+            "parameter":    ("#ccffcc", False),       # kwarg names: pale green
             "punctuation":  ("#f92672", False),       # ( ) , . : ; [ ] { }
         },
     },
