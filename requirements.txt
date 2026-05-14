@@ -3,9 +3,7 @@ pyte>=0.8
 requests>=2.31
 ptyprocess>=0.7
 pywinpty>=2.0; sys_platform == 'win32'  # Windows only — required by ptyprocess on Windows
-Pygments>=2.18
 tkfontchooser>=2.0
-toml>=0.10
 python-lsp-server>=1.12  # LSP backend (pylsp)
 ruff>=0.4              # multi-error diagnostics engine
 debugpy>=1.8       # Python debugger (DAP backend)
