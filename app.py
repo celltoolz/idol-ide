@@ -2240,7 +2240,15 @@ class IDOL(Tk):
 
     def _outline_navigate(self, lineno: int) -> None:
         cv = self._current_codeview
-        if cv:
+        if cv is None:
+            return
+        if _is_canvas_cv(cv):
+            # Canvas engine: explicit API, 0-indexed lines, cursor sets
+            # the focus on the canvas widget internally via `set_cursor`
+            # → `_ensure_visible`.
+            cv.set_cursor(max(0, lineno - 1), 0)
+            cv.scroll_to_line(max(0, lineno - 1))
+        else:
             cv.mark_set("insert", f"{lineno}.0")
             cv.focus_set()
             total = int(cv.index("end-1c").split(".")[0])
@@ -2251,10 +2259,17 @@ class IDOL(Tk):
                 cv.yview_moveto(max(0.0, fraction - visible / 2))
             else:
                 cv.see(f"{lineno}.0")
-            self._scroll_clear_sticky(cv, lineno)
+        self._scroll_clear_sticky(cv, lineno)
 
     def _scroll_clear_sticky(self, cv, lineno: int) -> None:
         """Nudge the view so *lineno* isn't hidden beneath the sticky-scroll overlay."""
+        if _is_canvas_cv(cv):
+            # Canvas engine: `_ensure_visible` already accounts for the
+            # sticky band (overscan), and `scroll_to_line` uses a 2-row
+            # top margin. The legacy after-idle bbox-check path doesn't
+            # apply because the canvas sticky widget lives on the
+            # editor's own canvas, not as a separate Frame.
+            return
         sticky = getattr(cv, "_sticky", None)
         if sticky is None:
             return
@@ -2713,13 +2728,18 @@ class IDOL(Tk):
             for c in content
         )
         if fixed != content:
-            cursor = cv.index("insert")
-            cv.delete("1.0", "end")
-            cv.insert("1.0", fixed)
-            try:
-                cv.mark_set("insert", cursor)
-            except Exception:
-                cv.mark_set("insert", "1.0")
+            if _is_canvas_cv(cv):
+                saved = cv.get_cursor()
+                cv.set_text(fixed)
+                cv.set_cursor(*saved)
+            else:
+                cursor = cv.index("insert")
+                cv.delete("1.0", "end")
+                cv.insert("1.0", fixed)
+                try:
+                    cv.mark_set("insert", cursor)
+                except Exception:
+                    cv.mark_set("insert", "1.0")
         self._encoding_pill.pack_forget()
 
     # ── Clipboard History ─────────────────────────────────────────────────────
@@ -3436,24 +3456,27 @@ class IDOL(Tk):
 
     def _open_file_at(self, path: str, line: int, col: int) -> None:
         """Open *path* and position cursor at *line*:*col*."""
+        def _seek(cv) -> None:
+            if cv is None:
+                return
+            if _is_canvas_cv(cv):
+                cv.set_cursor(max(0, line - 1), col)
+                cv.scroll_to_line(max(0, line - 1))
+            else:
+                cv.mark_set("insert", f"{line}.{col}")
+                cv.see("insert")
+            self._scroll_clear_sticky(cv, line)
+
         # If already open in a tab, just switch to it
         for tab_id, fp in self._files.items():
             if fp and os.path.normcase(fp) == os.path.normcase(path):
                 self.notebook.select(tab_id)
-                cv = self._codeviews.get(tab_id)
-                if cv:
-                    cv.mark_set("insert", f"{line}.{col}")
-                    cv.see("insert")
-                    self._scroll_clear_sticky(cv, line)
+                _seek(self._codeviews.get(tab_id))
                 return
         # Otherwise open as a new tab — navigation must not reset the explorer root
         if os.path.isfile(path):
             self._open_file(path, update_explorer=False)
-            cv = self._current_codeview
-            if cv:
-                cv.mark_set("insert", f"{line}.{col}")
-                cv.see("insert")
-                self._scroll_clear_sticky(cv, line)
+            _seek(self._current_codeview)
 
     # ── Active-line highlight loop ────────────────────────────────────────────
 
@@ -3648,7 +3671,7 @@ class IDOL(Tk):
             and self._titles.get(old_tab_id) == "Untitled"
             and not self._dirty.get(old_tab_id)
             and self._codeviews[old_tab_id] is not None
-            and not self._codeviews[old_tab_id].get("1.0", "end-1c").strip()
+            and not _cv_text(self._codeviews[old_tab_id]).strip()
         )
 
         self._new_tab(os.path.basename(path), content, filepath=path)
@@ -5595,12 +5618,19 @@ class IDOL(Tk):
             if fp and _Path(fp) == py_path:
                 cv = self._codeviews.get(tab_id)
                 if cv:
-                    scroll = cv.yview()[0]
-                    cursor = cv.index("insert")
-                    cv.delete("1.0", "end")
-                    cv.insert("1.0", code)
-                    cv.yview_moveto(scroll)
-                    cv.mark_set("insert", cursor)
+                    if _is_canvas_cv(cv):
+                        scroll = cv.scroll_y
+                        saved_cursor = cv.get_cursor()
+                        cv.set_text(code)
+                        cv.scroll_y = scroll
+                        cv.set_cursor(*saved_cursor)
+                    else:
+                        scroll = cv.yview()[0]
+                        cursor = cv.index("insert")
+                        cv.delete("1.0", "end")
+                        cv.insert("1.0", code)
+                        cv.yview_moveto(scroll)
+                        cv.mark_set("insert", cursor)
                     self._dirty[tab_id] = False
                     self._refresh_tab_title(tab_id)
                 break
