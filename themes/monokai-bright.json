@@ -1,0 +1,43 @@
+{
+  "name": "Monokai Bright",
+  "description": "Monokai syntax palette wearing Dark+'s structural look. Role-coloring matches Pylance/semantic-token behavior: class names green, callables (def, builtins, methods, decorators) blue, self orange, punctuation pink. Comments italic.",
+  "palette": {
+    "bg":               "#272822",
+    "fg":               "#f8f8f2",
+    "caret":            "#f8f8f0",
+    "select_bg":        "#49483e",
+    "current_line_bg":  "#3e3d32",
+    "guide":            "#3b3a32",
+    "guide_active":     "#6f6e5f",
+    "gutter_bg":        "#272822",
+    "gutter_fg":        "#90908a",
+    "gutter_fg_active": "#c2c2bf",
+    "bracket_match":    "#a6a69a",
+    "word_occurrence":  "#3e4032",
+    "fold_dots":        "#90908a",
+    "sticky_bg":        "#2d2e26",
+    "sticky_border":    "#3e3d32",
+    "diag_error":       "#f14c4c",
+    "diag_warning":     "#e5c07b",
+    "diag_info":        "#67d8ef",
+    "find_match":       "#623f00",
+    "find_current":     "#ffa500",
+    "minimap_bg":       "#272822",
+    "minimap_viewport": "#605d52"
+  },
+  "tokens": {
+    "comment":      {"color": "#75715e", "italic": true},
+    "string":       {"color": "#e6db74"},
+    "number":       {"color": "#ae81ff"},
+    "keyword_flow": {"color": "#f92672"},
+    "keyword_decl": {"color": "#f92672"},
+    "constant":     {"color": "#ae81ff"},
+    "self_cls":     {"color": "#fd971f"},
+    "type":         {"color": "#a6e22e"},
+    "function":     {"color": "#66d9ef"},
+    "method":       {"color": "#a6e22e"},
+    "decorator":    {"color": "#66d9ef"},
+    "parameter":    {"color": "#ccffcc"},
+    "punctuation":  {"color": "#f92672"}
+  }
+}

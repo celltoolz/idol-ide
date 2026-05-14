@@ -17,101 +17,13 @@ from .scrollbar import HorizontalScrollbar, VerticalScrollbar
 
 
 # ── Themes ────────────────────────────────────────────────────────────────────
-# Each theme has a `palette` (UI colors) and a `tokens` map (category →
-# (color, italic)). Tokenization rules emit category NAMES; the renderer
-# resolves them at draw time, so swapping themes is a one-call recolor.
-# Hardcoded for now; will move to colorschemes/*.toml when we wire the
-# sandbox into the production scheme system.
+# Theme data lives in `themes/<theme-id>.json` at the project root and
+# is loaded via `utils.theme_loader`. Each theme has a `palette`
+# (UI colors) and a `tokens` map (category → (color, italic)). The
+# tokenizer emits category NAMES; the renderer resolves them at draw
+# time, so swapping themes is a one-call recolor.
 
-THEMES: dict[str, dict] = {
-    # Monokai syntax palette wearing Dark+'s structural look with the
-    # role-coloring flipped to match Pylance/semantic-token behavior:
-    # class names go green, callables (def names, built-in funcs, method
-    # calls, decorators) go cyan-blue, self goes orange, punctuation
-    # pink. Comments italic.
-    "monokai-bright": {
-        "palette": {
-            "bg":               "#272822",
-            "fg":               "#f8f8f2",
-            "caret":            "#f8f8f0",
-            "select_bg":        "#49483e",
-            "current_line_bg":  "#3e3d32",
-            "guide":            "#3b3a32",
-            "guide_active":     "#6f6e5f",
-            "gutter_bg":        "#272822",
-            "gutter_fg":        "#90908a",
-            "gutter_fg_active": "#c2c2bf",
-            "bracket_match":    "#a6a69a",     # outline around matched ( [ {
-            "word_occurrence":  "#3e4032",     # dim bg on other instances
-            "fold_dots":        "#90908a",     # ··· after a folded line
-            "sticky_bg":        "#2d2e26",     # sticky scope-header band
-            "sticky_border":    "#3e3d32",     # bottom border under sticky band
-            "diag_error":       "#f14c4c",
-            "diag_warning":     "#e5c07b",
-            "diag_info":        "#67d8ef",
-            "find_match":       "#623f00",   # dim orange — non-current find hits
-            "find_current":     "#ffa500",   # bright orange — focused match
-            "minimap_bg":       "#272822",
-            "minimap_viewport": "#605d52",   # solid; rendered with stipple
-        },
-        # category: (color, italic)
-        "tokens": {
-            "comment":      ("#75715e", True),
-            "string":       ("#e6db74", False),
-            "number":       ("#ae81ff", False),
-            "keyword_flow": ("#f92672", False),
-            "keyword_decl": ("#f92672", False),
-            "constant":     ("#ae81ff", False),
-            "self_cls":     ("#fd971f", False),
-            "type":         ("#a6e22e", False),       # class names: green
-            "function":     ("#66d9ef", False),       # builtins + dunders: blue
-            "method":       ("#a6e22e", False),       # user methods: green
-            "decorator":    ("#66d9ef", False),
-            "parameter":    ("#ccffcc", False),       # kwarg names: pale green
-            "punctuation":  ("#f92672", False),       # ( ) , . : ; [ ] { }
-        },
-    },
-    "dark-plus": {
-        "palette": {
-            "bg":               "#1e1e1e",
-            "fg":               "#d4d4d4",
-            "caret":            "#aeafad",
-            "select_bg":        "#264f78",
-            "current_line_bg":  "#2a2d2e",
-            "guide":            "#404040",
-            "guide_active":     "#707070",
-            "gutter_bg":        "#1e1e1e",
-            "gutter_fg":        "#858585",
-            "gutter_fg_active": "#c6c6c6",
-            "bracket_match":    "#888888",
-            "word_occurrence":  "#2e3942",
-            "fold_dots":        "#858585",
-            "sticky_bg":        "#252526",
-            "sticky_border":    "#3e3e3e",
-            "diag_error":       "#f14c4c",
-            "diag_warning":     "#dcdcaa",
-            "diag_info":        "#75beff",
-            "find_match":       "#623f00",   # dim orange — non-current find hits
-            "find_current":     "#ffa500",   # bright orange — focused match
-            "minimap_bg":       "#1e1e1e",
-            "minimap_viewport": "#37373d",
-        },
-        "tokens": {
-            "comment":      ("#6a9955", True),
-            "string":       ("#ce9178", False),
-            "number":       ("#b5cea8", False),
-            "keyword_flow": ("#c586c0", False),
-            "keyword_decl": ("#569cd6", False),
-            "constant":     ("#569cd6", False),
-            "self_cls":     ("#569cd6", False),
-            "type":         ("#4ec9b0", False),
-            "function":     ("#dcdcaa", False),
-            "method":       ("#dcdcaa", False),
-            "decorator":    ("#dcdcaa", False),
-            "parameter":    ("#9cdcfe", False),       # kwarg names: light blue
-        },
-    },
-}
+from utils.theme_loader import list_themes as _list_themes, load_theme as _load_theme
 
 _DEFAULT_THEME = "monokai-bright"
 
@@ -197,9 +109,32 @@ class CanvasEditorSandbox(tk.Frame):
     """Canvas-rendered editor prototype."""
 
     def __init__(self, master, theme: str = _DEFAULT_THEME, **kw):
-        self._theme_name = theme if theme in THEMES else _DEFAULT_THEME
-        self._palette = THEMES[self._theme_name]["palette"]
-        self._token_style = THEMES[self._theme_name]["tokens"]
+        available = set(_list_themes())
+        resolved = theme if theme in available else _DEFAULT_THEME
+        if resolved not in available:
+            # No themes on disk at all — fall back to a synthesized
+            # minimal palette so the editor at least starts up.
+            self._theme_name = "fallback"
+            self._palette = {
+                "bg": "#1e1e1e", "fg": "#d4d4d4", "caret": "#aeafad",
+                "select_bg": "#264f78", "current_line_bg": "#2a2d2e",
+                "guide": "#404040", "guide_active": "#707070",
+                "gutter_bg": "#1e1e1e", "gutter_fg": "#858585",
+                "gutter_fg_active": "#c6c6c6",
+                "bracket_match": "#888888", "word_occurrence": "#2e3942",
+                "fold_dots": "#858585",
+                "sticky_bg": "#252526", "sticky_border": "#3e3e3e",
+                "diag_error": "#f14c4c", "diag_warning": "#dcdcaa",
+                "diag_info": "#75beff",
+                "find_match": "#623f00", "find_current": "#ffa500",
+                "minimap_bg": "#1e1e1e", "minimap_viewport": "#37373d",
+            }
+            self._token_style = {}
+        else:
+            self._theme_name = resolved
+            data = _load_theme(self._theme_name)
+            self._palette = data["palette"]
+            self._token_style = data["tokens"]
         super().__init__(master, bg=self._palette["bg"], **kw)
         self._build_ui()
         self._init_state()
@@ -213,11 +148,12 @@ class CanvasEditorSandbox(tk.Frame):
         """Swap the active theme. Re-derives palette + token colors and
         triggers a full redraw. No tokenizer rebuild — rules emit category
         names that resolve against the active theme at draw time."""
-        if name not in THEMES or name == self._theme_name:
+        if name == self._theme_name or name not in _list_themes():
             return
         self._theme_name = name
-        self._palette = THEMES[name]["palette"]
-        self._token_style = THEMES[name]["tokens"]
+        data = _load_theme(name)
+        self._palette = data["palette"]
+        self._token_style = data["tokens"]
         self.configure(bg=self._palette["bg"])
         self.canvas.configure(bg=self._palette["bg"])
         self.render()
@@ -1959,7 +1895,7 @@ class CanvasEditorSandbox(tk.Frame):
                              activebackground="#094771",
                              activeforeground="#ffffff",
                              relief="flat", borderwidth=0)
-        for name in THEMES:
+        for name in _list_themes():
             label = ("● " if name == self._theme_name else "   ") + \
                     name.replace("-", " ").title()
             theme_menu.add_command(label=label,
@@ -2038,7 +1974,7 @@ class CanvasEditorSandbox(tk.Frame):
 
         # Ctrl+<digit> → switch theme by index (Ctrl+1 = first theme, etc.)
         if ctrl and ks.isdigit() and len(ks) == 1 and ks != "0":
-            names = list(THEMES.keys())
+            names = _list_themes()
             idx = int(ks) - 1
             if 0 <= idx < len(names):
                 self.set_theme(names[idx])

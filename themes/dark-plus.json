@@ -1,0 +1,42 @@
+{
+  "name": "Dark+",
+  "description": "VS Code's default Dark+ theme — calm blue/green/yellow palette with greenish comments.",
+  "palette": {
+    "bg":               "#1e1e1e",
+    "fg":               "#d4d4d4",
+    "caret":            "#aeafad",
+    "select_bg":        "#264f78",
+    "current_line_bg":  "#2a2d2e",
+    "guide":            "#404040",
+    "guide_active":     "#707070",
+    "gutter_bg":        "#1e1e1e",
+    "gutter_fg":        "#858585",
+    "gutter_fg_active": "#c6c6c6",
+    "bracket_match":    "#888888",
+    "word_occurrence":  "#2e3942",
+    "fold_dots":        "#858585",
+    "sticky_bg":        "#252526",
+    "sticky_border":    "#3e3e3e",
+    "diag_error":       "#f14c4c",
+    "diag_warning":     "#dcdcaa",
+    "diag_info":        "#75beff",
+    "find_match":       "#623f00",
+    "find_current":     "#ffa500",
+    "minimap_bg":       "#1e1e1e",
+    "minimap_viewport": "#37373d"
+  },
+  "tokens": {
+    "comment":      {"color": "#6a9955", "italic": true},
+    "string":       {"color": "#ce9178"},
+    "number":       {"color": "#b5cea8"},
+    "keyword_flow": {"color": "#c586c0"},
+    "keyword_decl": {"color": "#569cd6"},
+    "constant":     {"color": "#569cd6"},
+    "self_cls":     {"color": "#569cd6"},
+    "type":         {"color": "#4ec9b0"},
+    "function":     {"color": "#dcdcaa"},
+    "method":       {"color": "#dcdcaa"},
+    "decorator":    {"color": "#dcdcaa"},
+    "parameter":    {"color": "#9cdcfe"}
+  }
+}
