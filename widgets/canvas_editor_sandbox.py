@@ -41,6 +41,13 @@ THEMES: dict[str, dict] = {
             "bracket_match":    "#a6a69a",     # outline around matched ( [ {
             "word_occurrence":  "#3e4032",     # dim bg on other instances
             "fold_dots":        "#90908a",     # ··· after a folded line
+            "sticky_bg":        "#2d2e26",     # sticky scope-header band
+            "sticky_border":    "#3e3d32",     # bottom border under sticky band
+            "diag_error":       "#f14c4c",
+            "diag_warning":     "#e5c07b",
+            "diag_info":        "#67d8ef",
+            "minimap_bg":       "#272822",
+            "minimap_viewport": "#3e3d3266",   # tk ignores alpha — used dim hex
         },
         # category: (color, italic)
         "tokens": {
@@ -74,6 +81,13 @@ THEMES: dict[str, dict] = {
             "bracket_match":    "#888888",
             "word_occurrence":  "#2e3942",
             "fold_dots":        "#858585",
+            "sticky_bg":        "#252526",
+            "sticky_border":    "#3e3e3e",
+            "diag_error":       "#f14c4c",
+            "diag_warning":     "#dcdcaa",
+            "diag_info":        "#75beff",
+            "minimap_bg":       "#1e1e1e",
+            "minimap_viewport": "#37373d",
         },
         "tokens": {
             "comment":      ("#6a9955", True),
@@ -177,6 +191,28 @@ class CanvasEditorSandbox(tk.Frame):
         self.canvas.configure(bg=self._palette["bg"])
         self.render()
 
+    # ── Public hooks ─────────────────────────────────────────────────────────
+
+    def set_diagnostics(self, diags: list[dict]) -> None:
+        """Replace the diagnostics list and re-render. Each entry:
+        `{"line": int, "col_start": int, "col_end": int,
+          "severity": "error"|"warning"|"info", "message": str}`."""
+        self._diagnostics = list(diags)
+        self.render()
+
+    def set_text(self, text: str) -> None:
+        """Replace buffer contents (newline-separated) and re-render."""
+        self.lines = text.split("\n")
+        self.cur_line = 0
+        self.cur_col = 0
+        self.sel_anchor = None
+        self.scroll_y = 0
+        self.folded.clear()
+        self.render()
+
+    def get_text(self) -> str:
+        return "\n".join(self.lines)
+
     # ── Setup ─────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -205,6 +241,15 @@ class CanvasEditorSandbox(tk.Frame):
         # folded line. Rebuilt every render. Each entry is
         # (x1, y1, x2, y2, physical_line_index).
         self._fold_dot_rects: list[tuple[float, float, float, float, int]] = []
+        # Diagnostics — list of dicts: {"line": int, "col_start": int,
+        # "col_end": int, "severity": "error"|"warning"|"info",
+        # "message": str}. Render draws a squiggly underline; eventual
+        # LSP integration calls set_diagnostics() to update.
+        self._diagnostics: list[dict] = []
+        # Autocomplete provider — set this callback to make typing
+        # surface completion candidates: callable(prefix) → list[str].
+        # None means use the buffer-word fallback in _autocomplete_items.
+        self.on_completion_request = None
         self.scroll_y: int = 0           # first visible visual row
 
         # Tokenizer rules. Each rule is (regex, category_name). The category
@@ -478,6 +523,20 @@ class CanvasEditorSandbox(tk.Frame):
                         fill="",
                     )
 
+            # Diagnostic squigglies — drawn AFTER tokens so the wave
+            # sits under the text.
+            for diag in self._diagnostics:
+                if diag.get("line") != i:
+                    continue
+                cs = diag.get("col_start", 0)
+                ce = diag.get("col_end", len(line))
+                sev = diag.get("severity", "error")
+                key = f"diag_{sev}"
+                dcolor = self._palette.get(key, self._palette.get("diag_error", "#f14c4c"))
+                sx = _TEXT_X + self._font.measure(line[:cs])
+                ex = _TEXT_X + self._font.measure(line[:ce])
+                self._draw_squiggly(sx, ex, y + self._line_h - 2, dcolor)
+
             # Folded "···" indicator after the line's tokens. Clickable
             # to unfold — record its hit-test rect.
             if i in self.folded:
@@ -510,6 +569,47 @@ class CanvasEditorSandbox(tk.Frame):
             rendered += 1
             i += 1
 
+        # Sticky scroll overlay — ancestor block-header lines pinned at
+        # top of the viewport so context is visible while scrolled into
+        # a nested block. Drawn LAST so it covers the regular rows.
+        self._draw_sticky_headers()
+
+    def _draw_sticky_headers(self) -> None:
+        headers = self._sticky_headers()
+        if not headers:
+            return
+        c = self.canvas
+        w = c.winfo_width()
+        sticky_bg = self._palette.get("sticky_bg", self._palette["bg"])
+        sticky_border = self._palette.get(
+            "sticky_border", self._palette.get("guide", "#404040")
+        )
+        bar_h = len(headers) * self._line_h
+        c.create_rectangle(0, 0, w, bar_h, fill=sticky_bg, outline="")
+        for idx, hi in enumerate(headers):
+            y = idx * self._line_h
+            line = self.lines[hi]
+            # Gutter bg slice for this row
+            c.create_rectangle(0, y, _GUTTER_W, y + self._line_h,
+                               fill=self._palette["gutter_bg"], outline="")
+            c.create_text(_LINENUM_R, y + 1, text=str(hi + 1),
+                          anchor="ne",
+                          fill=self._palette["gutter_fg"], font=self._font)
+            # Tokenize and render
+            x = _TEXT_X
+            fg = self._palette["fg"]
+            for txt, cat in self._tokenize(line):
+                if cat is None:
+                    color, italic = fg, False
+                else:
+                    color, italic = self._token_style.get(cat, (fg, False))
+                font = self._font_italic if italic else self._font
+                c.create_text(x, y + 1, text=txt, anchor="nw",
+                              fill=color, font=font)
+                x += font.measure(txt)
+        # Thin bottom border
+        c.create_line(0, bar_h, w, bar_h, fill=sticky_border, width=1)
+
     def _line_is_foldable(self, i: int) -> bool:
         """A line opens a foldable block when it is a `# ── …` section
         marker OR ends with a block-opening token (`:`, `(`, `[`, `{`)
@@ -533,6 +633,47 @@ class CanvasEditorSandbox(tk.Frame):
         ci = len(line) - len(line.lstrip())
         ni = len(nl) - len(nl.lstrip())
         return ni > ci
+
+    def _draw_squiggly(self, x1: float, x2: float, y: float, color: str) -> None:
+        """Draw a wavy underline from x1..x2 at y."""
+        if x2 - x1 < 2:
+            return
+        pts: list[float] = []
+        px = x1
+        up = True
+        while px < x2:
+            pts.extend((px, y if up else y - 2))
+            px += 2
+            up = not up
+        pts.extend((x2, y))
+        self.canvas.create_line(*pts, fill=color, width=1)
+
+    def _sticky_headers(self) -> list[int]:
+        """Physical-line indices of the ancestor block-headers for the
+        line at the top of the visible viewport (outermost first).
+        Empty when scroll_y == 0 or no headers found."""
+        if self.scroll_y == 0 or not self.lines:
+            return []
+        top_phys = self._visual_to_physical(self.scroll_y)
+        if top_phys is None or top_phys <= 0:
+            return []
+        top_line = self.lines[top_phys]
+        if not top_line.strip():
+            return []
+        cur_indent = len(top_line) - len(top_line.lstrip())
+        headers: list[int] = []
+        i = top_phys - 1
+        while i >= 0:
+            line = self.lines[i]
+            if line.strip():
+                ind = len(line) - len(line.lstrip())
+                if ind < cur_indent and self._line_is_foldable(i):
+                    headers.insert(0, i)
+                    cur_indent = ind
+                    if cur_indent == 0:
+                        break
+            i -= 1
+        return headers
 
     def _find_bracket_pair(self) -> tuple[tuple[int, int], tuple[int, int]] | None:
         """If the cursor is on (or immediately after) a bracket, return
