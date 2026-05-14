@@ -401,6 +401,11 @@ class CanvasEditorSandbox(tk.Frame):
         # surface completion candidates: callable(prefix) → list[str].
         # None means use the buffer-word fallback in _autocomplete_items.
         self.on_completion_request = None
+        # Autocomplete popup state.
+        self._ac_top: tk.Toplevel | None = None
+        self._ac_listbox: tk.Listbox | None = None
+        self._ac_items: list[str] = []
+        self._ac_prefix: str = ""
         self.scroll_y: int = 0           # first visible visual row
 
         # Tokenizer rules. Each rule is (regex, category_name). The category
@@ -1408,6 +1413,18 @@ class CanvasEditorSandbox(tk.Frame):
         shift = bool(event.state & 0x0001)
         alt = bool(event.state & 0x20000)   # Mod1 on X11, Alt on Windows
 
+        # Autocomplete popup capture — when open, Up/Down navigate,
+        # Tab/Enter accepts, Esc dismisses. Anything else falls through.
+        if self._ac_top is not None and self._ac_top.state() == "normal":
+            if ks == "Up":
+                self._ac_select(-1); return "break"
+            if ks == "Down":
+                self._ac_select(+1); return "break"
+            if ks in ("Tab", "Return"):
+                self._accept_autocomplete(); return "break"
+            if ks == "Escape":
+                self._hide_autocomplete(); return "break"
+
         # Alt+Up/Down  — move current line / selection block
         # Shift+Alt+Up — duplicate above (cursor stays)
         # Shift+Alt+Down — duplicate below (cursor follows)
@@ -1503,7 +1520,17 @@ class CanvasEditorSandbox(tk.Frame):
             self._insert_char_with_pairs(event.char)
             self._ensure_visible()
             self.render()
+            # After insertion, recompute the autocomplete popup if the
+            # last typed char was identifier-y.
+            if event.char.isalnum() or event.char == "_":
+                self._maybe_show_autocomplete()
+            else:
+                self._hide_autocomplete()
             return "break"
+        # Any movement / editing key dismisses the popup (it's reopened
+        # on the next identifier keystroke).
+        if self._ac_top is not None and self._ac_top.state() == "normal":
+            self._hide_autocomplete()
         return None
 
     # ── Movement helpers ──────────────────────────────────────────────────────
@@ -1733,6 +1760,151 @@ class CanvasEditorSandbox(tk.Frame):
         self.cur_col = len(self.lines[last])
         self._ensure_visible()
         self.render()
+
+    # ── Autocomplete ─────────────────────────────────────────────────────────
+
+    _AC_KEYWORDS = (
+        "False None True and as assert async await break class continue "
+        "def del elif else except finally for from global if import in is "
+        "lambda nonlocal not or pass raise return try while with yield"
+    ).split()
+    _AC_BUILTINS = (
+        "abs all any bool bytes callable chr classmethod compile complex "
+        "dict dir divmod enumerate eval exec filter float format "
+        "frozenset getattr globals hasattr hash hex id input int isinstance "
+        "issubclass iter len list locals map max memoryview min next object "
+        "oct open ord pow print property range repr reversed round set "
+        "setattr slice sorted staticmethod str sum super tuple type vars "
+        "zip self cls"
+    ).split()
+
+    def _current_prefix(self) -> str:
+        """Return the identifier prefix immediately before the cursor."""
+        line = self.lines[self.cur_line]
+        c = self.cur_col
+        start = c
+        while start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_"):
+            start -= 1
+        return line[start:c]
+
+    def _autocomplete_items(self, prefix: str) -> list[str]:
+        """Generate candidate completions for *prefix*. Uses the
+        on_completion_request hook when set, else falls back to buffer
+        words + Python keywords/builtins. Filters by prefix, removes
+        the exact-match equal to prefix, returns sorted unique list."""
+        if self.on_completion_request:
+            try:
+                items = list(self.on_completion_request(prefix) or [])
+            except Exception:
+                items = []
+        else:
+            words: set[str] = set(self._AC_KEYWORDS) | set(self._AC_BUILTINS)
+            for line in self.lines:
+                for m in _WORD_RE.findall(line):
+                    if len(m) >= 2 and not m[0].isdigit():
+                        words.add(m)
+            items = list(words)
+        items = sorted(
+            {w for w in items if w != prefix and w.startswith(prefix)},
+            key=lambda w: (not w.startswith(prefix), w.lower()),
+        )
+        return items[:30]
+
+    def _maybe_show_autocomplete(self) -> None:
+        prefix = self._current_prefix()
+        # Trigger when the prefix is at least 2 chars long and the char
+        # before that isn't a dot (typing `foo.b` shouldn't show keywords
+        # — that wants member-completion which is an LSP job).
+        if len(prefix) < 2:
+            self._hide_autocomplete()
+            return
+        items = self._autocomplete_items(prefix)
+        if not items:
+            self._hide_autocomplete()
+            return
+        self._ac_items = items
+        self._ac_prefix = prefix
+        self._show_autocomplete_popup()
+
+    def _show_autocomplete_popup(self) -> None:
+        # Geometry — anchor under the typed prefix.
+        line = self.lines[self.cur_line]
+        col = self.cur_col - len(self._ac_prefix)
+        cx = _TEXT_X + self._font.measure(line[:col])
+        cy = (self._visual_row_of(self.cur_line) - self.scroll_y + 1) * self._line_h
+        rx = self.canvas.winfo_rootx() + cx
+        ry = self.canvas.winfo_rooty() + cy
+
+        if self._ac_top is None:
+            self._ac_top = tk.Toplevel(self)
+            self._ac_top.overrideredirect(True)
+            self._ac_top.attributes("-topmost", True)
+            self._ac_listbox = tk.Listbox(
+                self._ac_top,
+                bg="#252526", fg="#cccccc",
+                selectbackground="#094771", selectforeground="#ffffff",
+                font=(_FONT_FAMILY, 10),
+                relief="flat", borderwidth=1,
+                highlightthickness=0,
+                activestyle="none",
+                width=24, height=8,
+            )
+            self._ac_listbox.pack(fill="both", expand=True)
+            self._ac_listbox.bind("<Double-Button-1>",
+                                  lambda _: self._accept_autocomplete())
+        self._ac_listbox.delete(0, "end")
+        for it in self._ac_items:
+            self._ac_listbox.insert("end", it)
+        self._ac_listbox.selection_set(0)
+        self._ac_listbox.activate(0)
+        self._ac_top.geometry(f"+{rx}+{ry}")
+        self._ac_top.deiconify()
+
+    def _hide_autocomplete(self) -> None:
+        if self._ac_top is not None:
+            self._ac_top.withdraw()
+        self._ac_items = []
+        self._ac_prefix = ""
+
+    def _ac_select(self, delta: int) -> None:
+        if not self._ac_items or self._ac_listbox is None:
+            return
+        cur = self._ac_listbox.curselection()
+        idx = (cur[0] if cur else 0) + delta
+        idx = max(0, min(len(self._ac_items) - 1, idx))
+        self._ac_listbox.selection_clear(0, "end")
+        self._ac_listbox.selection_set(idx)
+        self._ac_listbox.activate(idx)
+        self._ac_listbox.see(idx)
+
+    def _accept_autocomplete(self) -> None:
+        if not self._ac_items or self._ac_listbox is None:
+            return
+        cur = self._ac_listbox.curselection()
+        idx = cur[0] if cur else 0
+        choice = self._ac_items[idx]
+        suffix = choice[len(self._ac_prefix):]
+        if suffix:
+            self._insert_text(suffix)
+        self._hide_autocomplete()
+        self.render()
+
+    def _visual_row_of(self, line_idx: int) -> int:
+        v = 0
+        skip = None
+        for i, line in enumerate(self.lines):
+            if skip is not None:
+                ind = len(line) - len(line.lstrip())
+                if line.strip() and ind <= skip:
+                    skip = None
+                else:
+                    continue
+            if i == line_idx:
+                return v
+            if i in self.folded:
+                skip = len(line) - len(line.lstrip())
+            v += 1
+        return v
 
     # ── Tier 1 multi-line actions ─────────────────────────────────────────────
 
