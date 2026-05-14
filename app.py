@@ -12,13 +12,9 @@ from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showinfo, showerror, askyesnocancel, askyesno
 
-import pygments
-import pygments.lexers
-import pygments.util
 from tkfontchooser import askfont
 from tkinter.colorchooser import askcolor
 
-from widgets.codeview import CodeView
 from widgets.canvas_codeview import CanvasCodeView
 from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
 from widgets.notebook import CustomNotebook
@@ -53,7 +49,6 @@ from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 from widgets.clipboard_history import ClipboardHistoryPanel
-from widgets.canvas_editor_sandbox import CanvasEditorSandbox
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from widgets.form_list_panel import FormListPanel
@@ -216,33 +211,22 @@ class _HoverPopup:
             pass
 
 
-# ── Editor-engine compatibility helpers ───────────────────────────────────────
-# During the CanvasCodeView migration, app.py works with BOTH the
-# legacy `CodeView` (tk.Text subclass, pygments lexer) and the new
-# `CanvasCodeView` (canvas-rendered, `language` attribute). These
-# helpers paper over the difference so callsites stay readable while
-# we translate them in batches.
+# ── Editor accessors ──────────────────────────────────────────────────────────
+# Small wrappers that read commonly-needed pieces of the editor's
+# state. Phase-(e) cleanup leaves only `CanvasCodeView` so these are
+# straight passthroughs to the engine's explicit API now; they stay
+# as named helpers because the call sites read more clearly with
+# `_cv_text(cv)` than with the bare `.get_text()`.
 
 def _is_canvas_cv(cv) -> bool:
-    """True when *cv* is a `CanvasCodeView` (canvas engine)."""
-    return isinstance(cv, CanvasCodeView)
+    """Vestigial during cleanup — always True now that `CanvasCodeView`
+    is the only editor engine. Branches that still call this are dead
+    code on their else-side and will be flattened in a follow-up pass."""
+    return cv is not None and isinstance(cv, CanvasCodeView)
 
 def _cv_language(cv) -> str:
-    """Return the canonical language id for *cv* ("python", "text", ...).
-    Works for both editor engines."""
-    if cv is None:
-        return "text"
-    if _is_canvas_cv(cv):
-        return cv.language or "text"
-    lex = getattr(cv, "_lexer", None)
-    if lex is None:
-        return "text"
-    if isinstance(lex, pygments.lexers.TextLexer):
-        return "text"
-    if isinstance(lex, (pygments.lexers.PythonLexer,
-                        pygments.lexers.Python3Lexer)):
-        return "python"
-    return type(lex).__name__.replace("Lexer", "").lower()
+    """Return the canonical language id for *cv* ("python", "text", ...)."""
+    return (cv.language or "text") if cv is not None else "text"
 
 def _cv_is_python(cv) -> bool:
     return _cv_language(cv) == "python"
@@ -251,58 +235,26 @@ def _cv_is_code(cv) -> bool:
     return _cv_language(cv) != "text"
 
 def _cv_text(cv) -> str:
-    """Return the full buffer text — works for both editor engines."""
-    if cv is None:
-        return ""
-    if _is_canvas_cv(cv):
-        return cv.get_text()
-    return cv.get("1.0", "end-1c")
+    """Return the full buffer text."""
+    return cv.get_text() if cv is not None else ""
 
 def _cv_cursor_word(cv) -> str:
-    """Return the identifier under the cursor (or empty string).
-    Works for both engines."""
+    """Return the identifier under the cursor (or empty string)."""
     if cv is None:
         return ""
-    if _is_canvas_cv(cv):
-        return cv._cursor_word() or ""
-    try:
-        return cv.get("insert wordstart", "insert wordend").strip()
-    except Exception:
-        return ""
+    return cv._cursor_word() or ""
 
 def _cv_cursor_line_text(cv) -> str:
     """Return the text of the line the cursor is on (no trailing newline)."""
-    if cv is None:
-        return ""
-    if _is_canvas_cv(cv):
-        return cv.get_line(cv.cur_line)
-    try:
-        return cv.get("insert linestart", "insert lineend")
-    except Exception:
-        return ""
+    return cv.get_line(cv.cur_line) if cv is not None else ""
 
 def _cv_selected_text(cv) -> str:
     """Return the currently-selected text (empty if no selection)."""
-    if cv is None:
-        return ""
-    if _is_canvas_cv(cv):
-        return cv.selected_text()
-    try:
-        return cv.get("sel.first", "sel.last")
-    except Exception:
-        return ""
+    return cv.selected_text() if cv is not None else ""
 
 def _cv_cursor_lc(cv) -> tuple[int, int]:
     """Return the cursor position as (line_0_indexed, col)."""
-    if cv is None:
-        return (0, 0)
-    if _is_canvas_cv(cv):
-        return cv.get_cursor()
-    try:
-        line_s, col_s = cv.index("insert").split(".")
-        return (int(line_s) - 1, int(col_s))
-    except Exception:
-        return (0, 0)
+    return cv.get_cursor() if cv is not None else (0, 0)
 
 
 def _diags_to_entries(diags: list, filepath: str, filename: str) -> list[dict]:
@@ -343,24 +295,26 @@ def _diags_to_entries(diags: list, filepath: str, filename: str) -> list[dict]:
 
 
 def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
-    """Tokenize *text* with the codeview's active lexer and return (token_text, color) pairs."""
+    """Tokenize *text* with the active editor's tokenizer and return
+    (token_text, color) pairs. The canvas engine exposes `_tokenize`
+    (regex-based, returns `(text, category_or_None)`) plus
+    `_token_style` (category → `(color, italic)`)."""
     cv = cv_ref[0]
-    if not cv:
-        return [(text, "#cccccc")]
     _FALLBACK = "#cccccc"
-    # Build color map only from tags that are actually configured — never call
-    # tag_cget on an undefined tag as that raises through the codeview's _cmd_proxy.
-    token_colors: dict[str, str] = {}
-    for tag in cv.tag_names():
-        if tag.startswith("Token."):
-            fg = cv.tag_cget(tag, "foreground")
-            if fg:
-                token_colors[tag] = fg
-    result = []
-    for token_type, token_text in pygments.lex(text, cv._lexer):
-        if not token_text:
+    if cv is None:
+        return [(text, _FALLBACK)]
+    fg = cv._palette.get("fg", _FALLBACK)
+    style = cv._token_style
+    result: list[tuple[str, str]] = []
+    for tok_text, cat in cv._tokenize(text):
+        if not tok_text:
             continue
-        result.append((token_text, token_colors.get(str(token_type), _FALLBACK)))
+        if cat is None:
+            color = fg
+        else:
+            spec = style.get(cat)
+            color = spec[0] if spec else fg
+        result.append((tok_text, color))
     return result
 
 
@@ -396,7 +350,7 @@ class IDOL(Tk):
         self._clean_crcs: dict[str, int] = {}  # CRC32 of last saved/loaded content
         self._temp_files: dict[str, str] = {}  # tab_id → temp file path
         self._indent_sizes: dict[str, int] = {}
-        self._codeviews: dict[str, CodeView] = {}
+        self._codeviews: dict[str, CanvasCodeView] = {}
         self._key_handlers: dict[str, KeyHandler] = {}
         self._multi_cursors: dict[str, MultiCursor] = {}
         self._breadcrumbs: dict[str, BreadcrumbBar] = {}
@@ -460,8 +414,6 @@ class IDOL(Tk):
         self._clip_panel: ClipboardHistoryPanel | None = None
 
         # Canvas Editor sandbox — preview of the canvas-rendered editor
-        self._canvas_ed_top:   tk.Toplevel | None          = None
-        self._canvas_ed_panel: CanvasEditorSandbox | None  = None
 
         # Split editor
         self._split_active: bool = False
@@ -485,13 +437,6 @@ class IDOL(Tk):
         self.minimap_visible_var = BooleanVar(value=True)
         self.sidebar_visible_var = BooleanVar(value=True)
         self.zen_mode_var = BooleanVar(value=False)
-        # Editor engine toggle. Default ON: new tabs are built with
-        # `CanvasCodeView` (the canvas-rendered engine — no tk.Text, no
-        # pygments). Flip OFF to fall back to the legacy `CodeView` for
-        # any tab opened while the toggle is off. Toggleable from
-        # View → "New tabs use Canvas Editor"; existing tabs keep
-        # whichever engine they were built with.
-        self.canvas_editor_enabled_var = BooleanVar(value=True)
         self._run_target_var = tk.StringVar(value="output")
         self._run_action_var = tk.StringVar(value="run")
         self._run_entry_file: str | None = None
@@ -1400,213 +1345,21 @@ class IDOL(Tk):
             return None
 
     @property
-    def _current_codeview(self) -> CodeView | None:
+    def _current_codeview(self) -> CanvasCodeView | None:
         tab_id = self._current_tab_id
         return self._codeviews.get(tab_id) if tab_id else None
 
-    def _new_tab(self, title: str, content: str, filepath: str | None = None) -> None:
-        # Soak: when the canvas-editor toggle is ON, build the tab
-        # using the new engine via a dedicated helper. Canvas tabs are
-        # still partially wired during the migration — key_handler,
-        # multi_cursor, debug breakpoint gutter, and LSP integration
-        # get translated in Phase (d). Until then the canvas tab can
-        # open, render, type, and scroll; richer features require
-        # flipping the toggle off.
-        if self.canvas_editor_enabled_var.get():
-            self._new_canvas_tab(title, content, filepath)
-            return
-        # Pick lexer from filename; default to Python for new untitled tabs
-        lexer = pygments.lexers.PythonLexer()
-        if filepath:
-            try:
-                lexer = pygments.lexers.get_lexer_for_filename(filepath)
-            except pygments.util.ClassNotFound:
-                pass
+    def _new_tab(self, title: str, content: str,
+                 filepath: str | None = None) -> None:
+        """Build a new editor tab.
 
-        frame = ttk.Frame(self.notebook)
-        cv_ref: list = [None]
-        crumb = BreadcrumbBar(
-            frame,
-            on_navigate=self._outline_navigate,
-            on_set_root=self._set_explorer_root,
-            get_line=lambda ln: (
-                cv_ref[0].get(f"{ln}.0", f"{ln}.end") if cv_ref[0] else ""
-            ),
-            highlight_fn=lambda t, r=cv_ref: _breadcrumb_highlight(r, t),
-        )
-        crumb.pack(side="top", fill="x")
-        codeview = CodeView(
-            frame,
-            lexer=lexer,
-            color_scheme=self.theme_var.get(),
-            tab_width=4,
-            autohide_scrollbar=False,
-            default_context_menu=False,
-            undo=True,
-            maxundo=-1,
-        )
-        cv_ref[0] = codeview
-        codeview.pack(fill="both", expand=True)
-        codeview.insert("1.0", content)
-        codeview.edit_reset()  # clear undo history after initial load
-        codeview.after(
-            10, codeview._line_numbers.redraw
-        )  # ensure numbers show after layout
-
-        LearningManager.register(crumb, "breadcrumb_bar")
-        LearningManager.register(codeview, "editor")
-        codeview.bind(
-            "<Button-1>",
-            lambda e, cv=codeview: (
-                (LearningManager.fire_click(cv), "break")[-1]
-                if LearningManager.is_active()
-                else None
-            ),
-            add="+",
-        )
-        self._learning_adopt_widgets(crumb, codeview)
-
-        self.notebook.add(frame, text=f"  {title}  ")
-        self.notebook.select(frame)
-
-        tab_id = self.notebook.select()
-        self._files[tab_id] = filepath
-        self._titles[tab_id] = title
-        self._dirty[tab_id] = False
-        self._indent_sizes[tab_id] = 4
-        self._codeviews[tab_id] = codeview
-        self._breadcrumbs[tab_id] = crumb
-
-        # Wire breakpoint toggle: gutter click → app callback with filepath
-        def _make_bp_toggle(tid):
-            def _toggle(lineno: int):
-                fp = self._files.get(tid) or ""
-                if not fp:
-                    # Unsaved tab — create a temp file eagerly so breakpoints
-                    # have a stable path. Transfer to real path on file save.
-                    import uuid
-                    from utils.session import TMP_DIR
-
-                    tmp = self._temp_files.get(tid)
-                    if not tmp:
-                        TMP_DIR.mkdir(parents=True, exist_ok=True)
-                        tmp = str(TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}.py")
-                        self._temp_files[tid] = tmp
-                    cv = self._codeviews.get(tid)
-                    if cv:
-                        try:
-                            Path(tmp).write_text(
-                                _cv_text(cv), encoding="utf-8"
-                            )
-                        except Exception:
-                            pass
-                    fp = tmp
-                self._on_breakpoint_toggle(fp, lineno)
-                codeview._line_numbers.set_breakpoints(self._breakpoints.get(fp, set()))
-
-            return _toggle
-
-        codeview._line_numbers.on_breakpoint_toggle = _make_bp_toggle(tab_id)
-
-        # Shift breakpoints when lines are inserted/removed above them
-        def _make_lines_changed(tid, cv):
-            def _on_lines_changed(from_line: int, delta: int) -> None:
-                fp = self._files.get(tid)
-                if not fp or fp not in self._breakpoints:
-                    return
-                bp_set = self._breakpoints[fp]
-                new_bp: set[int] = set()
-                for ln in bp_set:
-                    if delta > 0:
-                        new_bp.add(ln + delta if ln > from_line else ln)
-                    else:
-                        deleted_end = from_line - delta  # -delta is positive
-                        if ln <= from_line:
-                            new_bp.add(ln)
-                        elif ln <= deleted_end:
-                            pass  # line was deleted — drop the breakpoint
-                        else:
-                            new_bp.add(ln + delta)
-                self._breakpoints[fp] = new_bp
-                cv._line_numbers.set_breakpoints(new_bp)
-                self._refresh_debug_breakpoints()
-
-            return _on_lines_changed
-
-        codeview.on_lines_changed = _make_lines_changed(tab_id, codeview)
-
-        # Snapshot/restore breakpoints alongside undo/redo
-        def _make_bp_snapshot(tid):
-            def _snapshot():
-                fp = self._files.get(tid)
-                return set(self._breakpoints.get(fp, set())) if fp else None
-
-            return _snapshot
-
-        def _make_bp_restore(tid, cv):
-            def _restore(saved: set) -> None:
-                fp = self._files.get(tid)
-                if not fp:
-                    return
-                self._breakpoints[fp] = saved
-                cv._line_numbers.set_breakpoints(saved)
-                self._refresh_debug_breakpoints()
-
-            return _restore
-
-        codeview.on_snapshot = _make_bp_snapshot(tab_id)
-        codeview.on_undo_restore = _make_bp_restore(tab_id, codeview)
-
-        is_code = not isinstance(lexer, (pygments.lexers.TextLexer,))
-        handler = KeyHandler(tab_size=4, smart_pairs=is_code)
-        mc = MultiCursor(codeview, tab_size=4)
-        self._key_handlers[tab_id] = handler
-        self._multi_cursors[tab_id] = mc
-        self._setup_codeview(codeview, handler, mc)
-        self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
-        self._sidebar.apply_theme(
-            bg=codeview.cget("bg"),
-            fg=codeview.cget("fg"),
-            select_bg=codeview.cget("selectbackground"),
-            codeview=codeview,
-        )
-
-        if not self.minimap_visible_var.get():
-            codeview.hide_minimap()
-
-        self._update_title()
-        if isinstance(
-            lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)
-        ):
-            self._outline.schedule_refresh(content)
-            if filepath:
-                for srv in self._each_lsp():
-                    srv.open_file(filepath, content)
-        else:
-            self._outline.clear()
-
-    def _new_canvas_tab(self, title: str, content: str,
-                        filepath: str | None = None) -> None:
-        """Build a new tab backed by the canvas editor engine.
-
-        Phase (c) of the migration — the canvas tab gets the minimum
-        wiring needed to open, render, edit, and persist as a real
-        tab: content, filepath, theme, breadcrumb, and the standard
-        tab-metadata bookkeeping (`_files`, `_titles`, `_dirty`,
-        `_codeviews`, `_breadcrumbs`).
-
-        Features still missing for canvas tabs (translated in
-        Phase (d)):
-          • KeyHandler / MultiCursor (canvas has its own key paths)
-          • _setup_codeview bindings (Token tag wiring, completion
-            scheduler, bracket matcher, etc.)
-          • Debug breakpoint gutter — canvas's gutter is internal and
-            doesn't expose an `on_breakpoint_toggle` hook yet
-          • LSP open_file / didChange notifications
-          • Outline refresh
-
-        Soak goal: confirm rendering, scrolling, and basic editing
-        work in the canvas engine inside a real notebook tab.
+        Adds the tab to the notebook, seeds the standard bookkeeping
+        (`_files`, `_titles`, `_dirty`, `_codeviews`, `_breadcrumbs`),
+        wires the engine's host hooks (on_change for dirty tracking +
+        LSP didChange, on_copy for the clipboard ring, on_breakpoint_
+        toggle for debug gutter, on_request_* for the right-click
+        menu), and schedules the initial outline refresh + LSP
+        didOpen for Python files.
         """
         frame = ttk.Frame(self.notebook)
         cv = CanvasCodeView(frame)
@@ -2575,18 +2328,6 @@ class IDOL(Tk):
                 if cv:
                     self._apply_diagnostics(cv, diags)
                 break
-        # Mirror to the Canvas Editor sandbox if it's open on this file —
-        # without this the sandbox only sees the diagnostic snapshot at
-        # open time and never picks up live lint updates.
-        if (self._canvas_ed_panel is not None
-                and self._canvas_ed_top is not None
-                and self._canvas_ed_top.state() != "withdrawn"):
-            panel_path = self._canvas_ed_panel.filepath
-            if (panel_path
-                    and os.path.normcase(panel_path) == os.path.normcase(norm_path)):
-                self._canvas_ed_panel.set_diagnostics([
-                    self._lsp_diag_to_sandbox(d) for d in diags
-                ])
         # Rebuild the full problems list and push to the panel
         entries = self._build_problem_entries()
         self._output.update_problems(entries)
@@ -2981,99 +2722,6 @@ class IDOL(Tk):
         top.lift()
         top.focus_force()
         self._clip_panel.focus_search()
-
-    # ── Canvas Editor sandbox ─────────────────────────────────────────────────
-
-    def _ensure_canvas_ed_panel(self) -> None:
-        """Create the canvas-editor sandbox Toplevel on first use."""
-        if self._canvas_ed_top is not None:
-            return
-        top = tk.Toplevel(self)
-        top.withdraw()
-        top.title("Canvas Editor (Preview)")
-        top.resizable(True, True)
-        top.protocol("WM_DELETE_WINDOW", top.withdraw)
-        top.bind("<Escape>", lambda _: top.withdraw())
-
-        panel = CanvasEditorSandbox(top)
-        panel.pack(fill="both", expand=True)
-        self._canvas_ed_top   = top
-        self._canvas_ed_panel = panel
-
-    def view_canvas_editor_sandbox(self) -> None:
-        """Toggle the Canvas Editor preview window. When opening, mirror
-        the active tab's content + path into the sandbox and wire LSP
-        completion + diagnostics so it can stand in as a real editor."""
-        self._ensure_canvas_ed_panel()
-        top = self._canvas_ed_top
-        if top.state() != "withdrawn":
-            top.withdraw()
-            return
-        self._sync_canvas_ed_panel_with_active_tab()
-        ew = self.winfo_width()
-        eh = self.winfo_height()
-        ex = self.winfo_rootx()
-        ey = self.winfo_rooty()
-        w, h = min(900, max(640, ew - 200)), min(640, max(480, eh - 200))
-        x = ex + (ew - w) // 2
-        y = ey + (eh - h) // 2
-        top.geometry(f"{w}x{h}+{x}+{y}")
-        top.deiconify()
-        top.lift()
-        top.focus_force()
-        self._canvas_ed_panel.canvas.focus_set()
-
-    def _sync_canvas_ed_panel_with_active_tab(self) -> None:
-        """Load the active codeview's text, path, LSP-backed completion,
-        and current diagnostics into the sandbox panel."""
-        panel = self._canvas_ed_panel
-        if panel is None:
-            return
-        cv = self._current_codeview
-        if cv is None:
-            return
-        tab_id = self._current_tab_id
-        path = self._files.get(tab_id) if tab_id else None
-        panel.set_text(_cv_text(cv))
-        panel.set_filepath(path)
-
-        # Async completion hook — fire LSP and route labels back via the
-        # callback the sandbox supplies. The sandbox already tracks a
-        # sequence number to discard stale responses.
-        def _on_completion(prefix, trigger_char, callback, _panel=panel):
-            if not (self._lsp and self._lsp.ready and _panel.filepath):
-                callback([])
-                return
-
-            def _items_cb(items):
-                labels = [
-                    it.get("label", "")
-                    for it in (items or [])
-                    if it.get("label")
-                ]
-                callback(labels)
-
-            self._lsp.completion(
-                _panel.filepath,
-                _panel.cur_line,
-                _panel.cur_col,
-                _items_cb,
-                trigger_char=trigger_char,
-            )
-
-        panel.on_completion_request = _on_completion
-
-        # Push current diagnostics for this file. LSP severity ints →
-        # the sandbox's "error"/"warning"/"info" strings; LSP ranges are
-        # 0-based, which matches the sandbox's expected format.
-        if path:
-            uri = path_to_uri(path)
-            raw_diags = self._lsp_diagnostics.get(uri, [])
-            panel.set_diagnostics([
-                self._lsp_diag_to_sandbox(d) for d in raw_diags
-            ])
-        else:
-            panel.set_diagnostics([])
 
     @staticmethod
     def _lsp_diag_to_sandbox(d: dict) -> dict:
@@ -3957,18 +3605,11 @@ class IDOL(Tk):
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(text)
             old_path = self._files.get(tab_id)
-            # Update lexer if the filepath (and therefore extension) changed
+            # Update language if the filepath (and therefore extension)
+            # changed — canvas engine derives it from `filepath` via
+            # `set_filepath`, which also reroutes LSP / lint targeting.
             if old_path != filepath:
-                try:
-                    new_lexer = pygments.lexers.get_lexer_for_filename(filepath)
-                    cv.configure(lexer=new_lexer)
-                    handler = self._key_handlers.get(tab_id)
-                    if handler:
-                        handler.smart_pairs = not isinstance(
-                            new_lexer, pygments.lexers.TextLexer
-                        )
-                except pygments.util.ClassNotFound:
-                    pass
+                cv.set_filepath(filepath)
                 # LSP: close old file, open new one (Save As changed the path)
                 for srv in self._each_lsp():
                     if old_path and old_path.endswith(".py"):
@@ -3992,9 +3633,10 @@ class IDOL(Tk):
                     self._refresh_debug_breakpoints()
                     cv = self._codeviews.get(tab_id)
                     if cv:
-                        cv._line_numbers.set_breakpoints(
-                            self._breakpoints.get(filepath, set())
-                        )
+                        cv.set_breakpoints({
+                            ln - 1
+                            for ln in self._breakpoints.get(filepath, set())
+                        })
                 # If the run entry was pinned to the temp file, redirect it to the real path
                 if self._run_entry_file == _tmp:
                     self._set_run_entry(filepath)
@@ -6127,43 +5769,20 @@ class IDOL(Tk):
         content: str,
         filepath: str | None = None,
     ) -> None:
-        """Like _new_tab but targets a specific notebook (used for right pane)."""
-        import pygments.lexers
-        import pygments.util
+        """Like _new_tab but targets a specific notebook (used for right pane).
 
-        lexer = pygments.lexers.PythonLexer()
-        if filepath:
-            try:
-                lexer = pygments.lexers.get_lexer_for_filename(filepath)
-            except pygments.util.ClassNotFound:
-                pass
-
-        frame = ttk.Frame(notebook)
-        cv_ref_s: list = [None]
-        crumb = BreadcrumbBar(
-            frame,
-            on_navigate=self._outline_navigate,
-            on_set_root=self._set_explorer_root,
-            get_line=lambda ln: (
-                cv_ref_s[0].get(f"{ln}.0", f"{ln}.end") if cv_ref_s[0] else ""
-            ),
-            highlight_fn=lambda t, r=cv_ref_s: _breadcrumb_highlight(r, t),
-        )
-        crumb.pack(side="top", fill="x")
-        codeview = CodeView(
-            frame,
-            lexer=lexer,
-            color_scheme=self.theme_var.get(),
-            tab_width=4,
-            autohide_scrollbar=False,
-            default_context_menu=False,
-            undo=True,
-            maxundo=-1,
-        )
-        cv_ref_s[0] = codeview
-        codeview.pack(fill="both", expand=True)
-        codeview.insert("1.0", content)
-        codeview.edit_reset()
+        Mirrors _new_tab's canvas-engine setup against the supplied
+        notebook so the split-pane tab gets the same hook wiring
+        (on_change, on_copy, breakpoint toggle, right-click hooks,
+        LSP open, sidebar palette).
+        """
+        cv = CanvasCodeView(ttk.Frame(notebook))
+        frame = cv.master  # the Frame we just constructed
+        cv.pack(fill="both", expand=True)
+        cv.on_change = self._on_content_changed
+        if content:
+            cv.set_text(content)
+        cv.set_filepath(filepath)
 
         notebook.add(frame, text=f"  {title}  ")
         notebook.select(frame)
@@ -6173,28 +5792,21 @@ class IDOL(Tk):
         self._titles[tab_id] = title
         self._dirty[tab_id] = False
         self._indent_sizes[tab_id] = 4
-        self._codeviews[tab_id] = codeview
-        self._breadcrumbs[tab_id] = crumb
+        self._codeviews[tab_id] = cv
+        self._breadcrumbs[tab_id] = cv.breadcrumb
         self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
 
-        is_code = not isinstance(lexer, pygments.lexers.TextLexer)
-        handler = KeyHandler(tab_size=4, smart_pairs=is_code)
-        mc = MultiCursor(codeview, tab_size=4)
-        self._key_handlers[tab_id] = handler
-        self._multi_cursors[tab_id] = mc
-        self._setup_codeview(codeview, handler, mc)
+        pal = cv._palette
         self._sidebar.apply_theme(
-            bg=codeview.cget("bg"),
-            fg=codeview.cget("fg"),
-            select_bg=codeview.cget("selectbackground"),
-            codeview=codeview,
+            bg=pal["bg"],
+            fg=pal["fg"],
+            select_bg=pal.get("select_bg", "#264f78"),
+            codeview=cv,
         )
         if not self.minimap_visible_var.get():
-            codeview.hide_minimap()
+            cv.hide_minimap()
 
-        if isinstance(
-            lexer, (pygments.lexers.PythonLexer, pygments.lexers.Python3Lexer)
-        ):
+        if cv.language == "python":
             if filepath:
                 for srv in self._each_lsp():
                     srv.open_file(filepath, content)
