@@ -399,12 +399,10 @@ class CanvasEditorSandbox(tk.Frame):
         )
         self.breadcrumb.grid(row=0, column=0, columnspan=2, sticky="ew")
 
-        # Find/Replace bar — grid'd into row 1, hidden by default.
-        # `show_find_bar` / `hide_find_bar` toggle visibility via
-        # grid()/grid_remove() instead of the old pack toggle.
-        self._find_bar = self._build_find_bar()
-        self._find_bar.grid(row=1, column=0, columnspan=2, sticky="ew")
-        self._find_bar.grid_remove()
+        # Row 1 reserved for a future find/replace strip — the engine's
+        # original internal bar was removed in favor of IDOL's shared
+        # `FindReplaceBar` (Ctrl+F handler in `_new_canvas_tab`). Grid
+        # row stays empty; row 2 is the editor content.
 
         self.canvas = tk.Canvas(
             self, bg=self._palette["bg"], highlightthickness=0,
@@ -442,149 +440,14 @@ class CanvasEditorSandbox(tk.Frame):
         self._sticky_last_place: tuple[int, int, int, int] | None = None
         self._build_minimap()
 
-    def _build_find_bar(self) -> tk.Frame:
-        bar = tk.Frame(self, bg="#252526", height=46)
-        # Row 1: Find
-        row1 = tk.Frame(bar, bg="#252526")
-        row1.pack(fill="x", padx=4, pady=(4, 2))
-        tk.Label(row1, text="Find:", bg="#252526", fg="#cccccc",
-                 font=(_FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
-        self._find_entry = tk.Entry(
-            row1, bg="#1e1e1e", fg="#d4d4d4",
-            insertbackground="#d4d4d4", relief="flat", width=30,
-            font=(_FONT_FAMILY, 10),
-        )
-        self._find_entry.pack(side="left", padx=2)
-        self._find_entry.bind("<KeyRelease>", lambda _: self._find_recompute())
-        self._find_entry.bind("<Return>",
-                              lambda _: (self._find_step(+1), "break")[1])
-        self._find_entry.bind("<Shift-Return>",
-                              lambda _: (self._find_step(-1), "break")[1])
-        self._find_entry.bind("<Escape>",
-                              lambda _: (self.hide_find_bar(), "break")[1])
-        self._find_status = tk.Label(row1, text="", bg="#252526",
-                                     fg="#999999", font=(_FONT_FAMILY, 9))
-        self._find_status.pack(side="left", padx=8)
-        for label, cmd in (("◀", lambda: self._find_step(-1)),
-                           ("▶", lambda: self._find_step(+1)),
-                           ("✕", self.hide_find_bar)):
-            b = tk.Label(row1, text=label, bg="#252526", fg="#cccccc",
-                         font=(_FONT_FAMILY, 11), cursor="hand2",
-                         padx=6)
-            b.pack(side="left")
-            b.bind("<Button-1>", lambda _e, c=cmd: c())
-            b.bind("<Enter>", lambda _e, w=b: w.config(fg="#ffffff"))
-            b.bind("<Leave>", lambda _e, w=b: w.config(fg="#cccccc"))
-        # Row 2: Replace
-        row2 = tk.Frame(bar, bg="#252526")
-        row2.pack(fill="x", padx=4, pady=(0, 4))
-        tk.Label(row2, text="Replace:", bg="#252526", fg="#cccccc",
-                 font=(_FONT_FAMILY, 9)).pack(side="left")
-        self._replace_entry = tk.Entry(
-            row2, bg="#1e1e1e", fg="#d4d4d4",
-            insertbackground="#d4d4d4", relief="flat", width=30,
-            font=(_FONT_FAMILY, 10),
-        )
-        self._replace_entry.pack(side="left", padx=2)
-        for label, cmd in (("Replace", self._replace_one),
-                           ("All",     self._replace_all)):
-            b = tk.Label(row2, text=label, bg="#0e639c", fg="#ffffff",
-                         font=(_FONT_FAMILY, 9), cursor="hand2",
-                         padx=8, pady=2)
-            b.pack(side="left", padx=4)
-            b.bind("<Button-1>", lambda _e, c=cmd: c())
-        # Find/Replace state
-        self._find_matches: list[tuple[int, int, int]] = []
-        self._find_index = 0
-        return bar
-
-    def show_find_bar(self) -> None:
-        # Grid-based show — bar lives at row 1 with `grid_remove` for
-        # hidden state. `winfo_manager()` returns "" once removed, so
-        # call `grid()` to put it back (preserving the original args).
-        if not self._find_bar.winfo_manager():
-            self._find_bar.grid()
-        # Seed with current selection if it fits on one line
-        if self.sel_anchor is not None:
-            sel = self._selected_text()
-            if sel and "\n" not in sel:
-                self._find_entry.delete(0, "end")
-                self._find_entry.insert(0, sel)
-                self._find_recompute()
-        self._find_entry.focus_set()
-        self._find_entry.select_range(0, "end")
-
-    def hide_find_bar(self) -> None:
-        if self._find_bar.winfo_manager():
-            self._find_bar.grid_remove()
-        self._find_matches = []
-        self._find_status.config(text="")
-        self.canvas.focus_set()
-        self.render()
-
-    def _find_recompute(self) -> None:
-        needle = self._find_entry.get()
-        self._find_matches = []
-        if needle:
-            for i, line in enumerate(self.lines):
-                start = 0
-                while True:
-                    pos = line.find(needle, start)
-                    if pos < 0:
-                        break
-                    self._find_matches.append((i, pos, pos + len(needle)))
-                    start = pos + max(1, len(needle))
-        n = len(self._find_matches)
-        self._find_status.config(text=f"{n} match{'es' if n != 1 else ''}")
-        self._find_index = 0 if n else -1
-        if n:
-            self._find_jump_to(0)
-        else:
-            self.render()
-
-    def _find_step(self, delta: int) -> None:
-        n = len(self._find_matches)
-        if n == 0:
-            return
-        self._find_index = (self._find_index + delta) % n
-        self._find_jump_to(self._find_index)
-
-    def _find_jump_to(self, idx: int) -> None:
-        line_idx, c1, c2 = self._find_matches[idx]
-        self.cur_line = line_idx
-        self.cur_col = c2
-        self.sel_anchor = (line_idx, c1)
-        self._ensure_visible()
-        self._find_status.config(
-            text=f"{idx + 1}/{len(self._find_matches)}"
-        )
-        self.render()
-
-    def _replace_one(self) -> None:
-        if not self._find_matches or self._find_index < 0:
-            return
-        line_idx, c1, c2 = self._find_matches[self._find_index]
-        new_text = self._replace_entry.get()
-        line = self.lines[line_idx]
-        self.lines[line_idx] = line[:c1] + new_text + line[c2:]
-        # Refresh matches and step forward
-        self._find_recompute()
-
-    def _replace_all(self) -> None:
-        needle = self._find_entry.get()
-        if not needle:
-            return
-        repl = self._replace_entry.get()
-        count = 0
-        for i, line in enumerate(self.lines):
-            if needle in line:
-                self.lines[i] = line.replace(needle, repl)
-                count += line.count(needle)
-        # Clamp cursor so it doesn't dangle past the (possibly shorter)
-        # line content after the bulk replace.
-        self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
-        self._find_recompute()
-        self._find_status.config(text=f"replaced {count}")
+    # (Removed: the legacy internal find/replace bar — `_build_find_bar`,
+    # `show_find_bar`/`hide_find_bar`, `_find_recompute`, `_find_step`,
+    # `_find_jump_to`, `_replace_one`, `_replace_all`. Replaced by IDOL's
+    # shared `widgets/find_replace.py:FindReplaceBar`, wired through
+    # `app.py:_new_canvas_tab` on Ctrl+F. `_find_matches` /
+    # `_find_current_idx` (set by the shared bar via
+    # `set_find_matches`) now live in `_init_state` as the only
+    # find-state attrs the engine still owns.)
 
     def _init_state(self) -> None:
         self.lines: list[str] = _SAMPLE.rstrip("\n").split("\n")
@@ -2041,13 +1904,10 @@ class CanvasEditorSandbox(tk.Frame):
             elif not shift:
                 self.sel_anchor = None
 
-        # Ctrl+<digit> → switch theme by index (Ctrl+1 = first theme, etc.)
-        if ctrl and ks.isdigit() and len(ks) == 1 and ks != "0":
-            names = _list_themes()
-            idx = int(ks) - 1
-            if 0 <= idx < len(names):
-                self.set_theme(names[idx])
-            return "break"
+        # (Removed: Ctrl+<digit> theme-switch shortcut was test-only.
+        # Use the right-click Theme submenu in the standalone preview,
+        # or the View → Theme menu once it's wired to the canvas
+        # engine in the final cleanup pass.)
 
         # Ctrl shortcuts
         if ctrl and ks.lower() == "a":
