@@ -52,7 +52,7 @@ THEMES: dict[str, dict] = {
             "function":     ("#66d9ef", False),       # builtins + dunders: blue
             "method":       ("#a6e22e", False),       # user methods: green
             "decorator":    ("#66d9ef", False),
-            "parameter":    ("#ffd866", False),       # kwarg names: soft golden
+            "parameter":    ("#d6b256", False),       # kwarg names: darker golden
             "punctuation":  ("#f92672", False),       # ( ) , . : ; [ ] { }
         },
     },
@@ -383,18 +383,20 @@ class CanvasEditorSandbox(tk.Frame):
                 else:
                     color, italic = self._token_style.get(cat, (fg, False))
                 font = self._font_italic if italic else self._font
+                # Color preview square BEFORE hex-color string literals.
+                # Small square (line_h - 10) so it reads as an indicator,
+                # not a label.
+                hex_color = _extract_hex_color(txt) if cat == "string" else None
+                if hex_color:
+                    sq = max(6, self._line_h - 10)
+                    sx = x + 1
+                    sy = y + (self._line_h - sq) // 2
+                    c.create_rectangle(sx, sy, sx + sq, sy + sq,
+                                       fill=hex_color, outline=fg)
+                    x += sq + 3
                 c.create_text(x, y + 1, text=txt, anchor="nw",
                               fill=color, font=font)
                 x += font.measure(txt)
-                # Color preview square after hex-color string literals.
-                hex_color = _extract_hex_color(txt) if cat == "string" else None
-                if hex_color:
-                    sq = self._line_h - 6
-                    sx = x + 2
-                    sy = y + 3
-                    c.create_rectangle(sx, sy, sx + sq, sy + sq,
-                                       fill=hex_color, outline=fg)
-                    x += sq + 4
 
             # Caret
             if (i == self.cur_line and self.cursor_visible
