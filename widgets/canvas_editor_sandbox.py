@@ -238,7 +238,14 @@ class CanvasEditorSandbox(tk.Frame):
         self.cur_col = 0
         self.sel_anchor = None
         self.scroll_y = 0
+        self._scroll_x = 0
         self.folded.clear()
+        # Invalidate the content-width cache BEFORE render so the
+        # horizontal scrollbar fractions reflect the new line set on
+        # the very first paint (otherwise the cache still holds the
+        # old max, and `_push_scroll_fractions` ships stale numbers
+        # to the scrollbar widget — hides it incorrectly).
+        self._content_w_cache_dirty = True
         self.render()
         self._fire_change()
 
@@ -251,6 +258,9 @@ class CanvasEditorSandbox(tk.Frame):
         delete, line move/duplicate, comment toggle, paste, cut, etc.)
         so app.py can mark the tab dirty, schedule LSP didChange, and
         refresh the outline without polling."""
+        # Invalidate the content-width cache so the next render picks
+        # up the new max line width for the horizontal scrollbar.
+        self._content_w_cache_dirty = True
         if self.on_change is not None:
             try:
                 self.on_change()
@@ -292,10 +302,24 @@ class CanvasEditorSandbox(tk.Frame):
     def xview(self, *args) -> tuple[float, float] | None:
         if not args:
             return self._xview_fractions()
-        # Horizontal scroll is stubbed in Phase (a) — the scrollbar
-        # widget is wired so the layout is visually complete, but the
-        # editor doesn't yet track horizontal extent. autohide=True
-        # keeps the bar tucked away until later phases enable it.
+        op = args[0]
+        content_w = self._content_width()
+        visible_w = max(1, self.canvas.winfo_width() - _TEXT_X)
+        max_scroll = max(0, content_w - visible_w)
+        if op == "moveto":
+            frac = float(args[1])
+            self._scroll_x = max(0, min(max_scroll, int(frac * content_w)))
+        elif op == "scroll":
+            delta = int(args[1])
+            unit = args[2] if len(args) > 2 else "units"
+            if unit == "pages":
+                step = max(self._char_w, visible_w - self._char_w * 2)
+            else:
+                # Match the vertical wheel: one notch = ~3 character widths.
+                step = self._char_w * 3
+            self._scroll_x = max(0, min(max_scroll,
+                                        self._scroll_x + delta * step))
+        self.render()
         return None
 
     def _yview_fractions(self) -> tuple[float, float]:
@@ -306,9 +330,41 @@ class CanvasEditorSandbox(tk.Frame):
         return (max(0.0, first), max(first, last))
 
     def _xview_fractions(self) -> tuple[float, float]:
-        # Stubbed: report "everything visible" so autohide hides the
-        # horizontal scrollbar until horizontal scroll is implemented.
-        return (0.0, 1.0)
+        content_w = self._content_width()
+        if content_w == 0:
+            return (0.0, 1.0)
+        visible_w = max(1, self.canvas.winfo_width() - _TEXT_X)
+        if content_w <= visible_w:
+            return (0.0, 1.0)
+        first = self._scroll_x / content_w
+        last = min(1.0, (self._scroll_x + visible_w) / content_w)
+        return (max(0.0, first), max(first, last))
+
+    def _content_width(self) -> int:
+        """Maximum line width in pixels. Drives horizontal scroll
+        fractions + clamping. Cached per-render via `_content_w_cache`
+        so a 5000-line file doesn't re-measure on every scrollbar
+        push."""
+        if not self.lines:
+            return 0
+        # Cheap memoization — invalidated whenever `_fire_change` runs
+        # (`_content_w_cache_dirty` gets set there).
+        if getattr(self, "_content_w_cache_dirty", True):
+            self._content_w_cache = max(
+                self._font.measure(line) for line in self.lines
+            )
+            self._content_w_cache_dirty = False
+        return self._content_w_cache
+
+    @property
+    def _text_x0(self) -> int:
+        """Text-area x origin with horizontal scroll applied. Use this
+        instead of `_TEXT_X` for ANY canvas item that should scroll
+        horizontally with the buffer (tokens, selection, find-match,
+        diagnostics, cursor, indent guides). Gutter / minimap /
+        sticky-band positions stay fixed to `_TEXT_X` because they
+        aren't part of the scrollable text region."""
+        return _TEXT_X - self._scroll_x
 
     def _push_scroll_fractions(self) -> None:
         """Push the current scroll state to both scrollbar widgets."""
@@ -691,9 +747,16 @@ class CanvasEditorSandbox(tk.Frame):
         c.bind("<Triple-Button-1>",  self._on_triple_click)
         c.bind("<Shift-Button-1>",   self._on_shift_click)
         c.bind("<Button-3>",         self._on_right_click)
-        c.bind("<MouseWheel>",       self._on_mousewheel)
-        c.bind("<Button-4>",         lambda _: (self._scroll(-3), "break")[1])
-        c.bind("<Button-5>",         lambda _: (self._scroll(+3), "break")[1])
+        c.bind("<MouseWheel>",        self._on_mousewheel)
+        c.bind("<Button-4>",          lambda _: (self._scroll(-3), "break")[1])
+        c.bind("<Button-5>",          lambda _: (self._scroll(+3), "break")[1])
+        # Shift+wheel — horizontal scroll. Same delta convention as
+        # vertical (positive delta → "natural" left scroll).
+        c.bind("<Shift-MouseWheel>",  self._on_shift_mousewheel)
+        c.bind("<Shift-Button-4>",
+               lambda _: (self.xview("scroll", -1, "units"), "break")[1])
+        c.bind("<Shift-Button-5>",
+               lambda _: (self.xview("scroll", +1, "units"), "break")[1])
         c.bind("<Key>",              self._on_key)
         c.bind("<FocusIn>",          lambda _: self.render())
         c.bind("<FocusOut>",         lambda _: self.render())
@@ -804,8 +867,9 @@ class CanvasEditorSandbox(tk.Frame):
             # font-metric rounding between "W" and " ".
             guide_dim = self._palette["guide"]
             guide_hi  = self._palette.get("guide_active", guide_dim)
+            text_x0 = self._text_x0  # cache for the per-line draw loops below
             for level in range(1, eff_indent[i] // 4 + 1):
-                gx = _TEXT_X + self._font.measure(" " * ((level - 1) * 4))
+                gx = text_x0 + self._font.measure(" " * ((level - 1) * 4))
                 color = guide_hi if level == active_level else guide_dim
                 c.create_line(gx, y, gx, y + self._line_h, fill=color)
 
@@ -854,14 +918,14 @@ class CanvasEditorSandbox(tk.Frame):
                 for m in word_pat.finditer(line):
                     if cur_match_col == m.start():
                         continue   # skip the one the cursor's on
-                    x1 = _TEXT_X + self._font.measure(line[:m.start()])
-                    x2 = _TEXT_X + self._font.measure(line[:m.end()])
+                    x1 = text_x0 + self._font.measure(line[:m.start()])
+                    x2 = text_x0 + self._font.measure(line[:m.end()])
                     c.create_rectangle(x1, y, x2, y + self._line_h,
                                        fill=wo_color, outline="")
 
             # Tokens — resolve each category against the active theme,
             # using the italic font when the category specifies it.
-            x = _TEXT_X
+            x = text_x0
             fg = self._palette["fg"]
             for txt, cat in self._tokenize(line):
                 if cat is None:
@@ -889,8 +953,8 @@ class CanvasEditorSandbox(tk.Frame):
                 for (r, col) in bracket_pair:
                     if r != i:
                         continue
-                    bx1 = _TEXT_X + self._font.measure(line[:col])
-                    bx2 = _TEXT_X + self._font.measure(line[:col + 1])
+                    bx1 = text_x0 + self._font.measure(line[:col])
+                    bx2 = text_x0 + self._font.measure(line[:col + 1])
                     c.create_rectangle(
                         bx1, y + 1, bx2, y + self._line_h - 1,
                         outline=self._palette.get("bracket_match", fg),
@@ -907,8 +971,8 @@ class CanvasEditorSandbox(tk.Frame):
                 sev = diag.get("severity", "error")
                 key = f"diag_{sev}"
                 dcolor = self._palette.get(key, self._palette.get("diag_error", "#f14c4c"))
-                sx = _TEXT_X + self._font.measure(line[:cs])
-                ex = _TEXT_X + self._font.measure(line[:ce])
+                sx = text_x0 + self._font.measure(line[:cs])
+                ex = text_x0 + self._font.measure(line[:ce])
                 self._draw_squiggly(sx, ex, y + self._line_h - 2, dcolor)
 
             # Folded "···" indicator after the line's tokens. Clickable
@@ -929,7 +993,7 @@ class CanvasEditorSandbox(tk.Frame):
             # Caret
             if (i == self.cur_line and self.cursor_visible
                     and self.sel_anchor is None):
-                cx = _TEXT_X + self._font.measure(line[:self.cur_col])
+                cx = text_x0 + self._font.measure(line[:self.cur_col])
                 c.create_line(cx, y + 1, cx, y + self._line_h - 1,
                               fill=self._palette["caret"], width=1)
 
@@ -1369,6 +1433,7 @@ class CanvasEditorSandbox(tk.Frame):
         c = self.canvas
         match_bg = self._palette.get("find_match", "#623f00")
         cur_bg = self._palette.get("find_current", "#ffa500")
+        text_x0 = self._text_x0
         for idx, ((sl, sc), (el, ec)) in enumerate(self._find_matches):
             if line_idx < sl or line_idx > el:
                 continue
@@ -1376,8 +1441,8 @@ class CanvasEditorSandbox(tk.Frame):
             c2 = ec if line_idx == el else len(line_text)
             if c1 == c2:
                 continue
-            x1 = _TEXT_X + self._font.measure(line_text[:c1])
-            x2 = _TEXT_X + self._font.measure(line_text[:c2])
+            x1 = text_x0 + self._font.measure(line_text[:c1])
+            x2 = text_x0 + self._font.measure(line_text[:c2])
             color = cur_bg if idx == self._find_current_idx else match_bg
             c.create_rectangle(x1, y, x2, y + self._line_h,
                                fill=color, outline="")
@@ -1597,8 +1662,8 @@ class CanvasEditorSandbox(tk.Frame):
             c1, c2 = 0, e[1]
         else:
             c1, c2 = 0, len(line_text)
-        x1 = _TEXT_X + self._font.measure(line_text[:c1])
-        x2 = _TEXT_X + self._font.measure(line_text[:c2])
+        x1 = self._text_x0 + self._font.measure(line_text[:c1])
+        x2 = self._text_x0 + self._font.measure(line_text[:c2])
         if s[0] < line_idx < e[0]:
             x2 = canvas_w   # middle of multi-line selection: full row
         if x1 < x2:
@@ -1672,9 +1737,14 @@ class CanvasEditorSandbox(tk.Frame):
         if not (0 <= line_idx < len(self.lines)):
             return 0
         line = self.lines[line_idx]
-        if x <= _TEXT_X:
+        # `x` is canvas-relative; add back the horizontal scroll offset
+        # to get the pixel into the rendered text. Without this, clicks
+        # always land on the leftmost visible character when the buffer
+        # is scrolled right.
+        eff_x = x + self._scroll_x
+        if eff_x <= _TEXT_X:
             return 0
-        target = x - _TEXT_X
+        target = eff_x - _TEXT_X
         best, best_d = 0, target
         cum = 0
         for col, ch in enumerate(line, start=1):
@@ -1725,6 +1795,21 @@ class CanvasEditorSandbox(tk.Frame):
             self.scroll_y = target_v
         elif target_v >= self.scroll_y + visible_rows - 1:
             self.scroll_y = target_v - visible_rows + 2
+
+        # Horizontal — keep the caret's column inside the viewport.
+        # Pixel position of the caret in the current line, BEFORE the
+        # horizontal scroll offset is applied (so we can decide how far
+        # to scroll to bring it into view).
+        if 0 <= self.cur_line < len(self.lines):
+            line = self.lines[self.cur_line]
+            caret_px = self._font.measure(line[:self.cur_col])
+            cw = self.canvas.winfo_width()
+            visible_w = max(1, cw - _TEXT_X - _MINIMAP_W - 16)  # 16: vs width
+            margin = self._char_w * 4  # keep 4 chars of context past the caret
+            if caret_px < self._scroll_x:
+                self._scroll_x = max(0, caret_px - margin)
+            elif caret_px > self._scroll_x + visible_w - margin:
+                self._scroll_x = caret_px - visible_w + margin
 
     # ── Mouse handlers ────────────────────────────────────────────────────────
 
@@ -1889,6 +1974,11 @@ class CanvasEditorSandbox(tk.Frame):
         else:
             steps = 3
         self._scroll(steps)
+        return "break"
+
+    def _on_shift_mousewheel(self, event):
+        steps = -1 if event.delta > 0 else 1
+        self.xview("scroll", steps, "units")
         return "break"
 
     def _scroll(self, lines: int) -> None:
@@ -2364,7 +2454,7 @@ class CanvasEditorSandbox(tk.Frame):
         # Geometry — anchor under the typed prefix.
         line = self.lines[self.cur_line]
         col = self.cur_col - len(self._ac_prefix)
-        cx = _TEXT_X + self._font.measure(line[:col])
+        cx = self._text_x0 + self._font.measure(line[:col])
         cy = (self._visual_row_of(self.cur_line) - self.scroll_y + 1) * self._line_h
         rx = self.canvas.winfo_rootx() + cx
         ry = self.canvas.winfo_rooty() + cy
