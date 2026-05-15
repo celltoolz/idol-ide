@@ -2513,26 +2513,26 @@ class CanvasCodeView(tk.Frame):
         word = self._cursor_word() or ""
         has_word = bool(word) and len(word) >= 2 and not word[0].isdigit()
 
-        # items: (label_text, command, enabled) or None for separator
+        # items: (name, shortcut, command, enabled) or None for separator
         items: list = [
-            ("Cut              Ctrl+X", self._cut,        has_sel),
-            ("Copy           Ctrl+C",   self._copy,       has_sel),
-            ("Paste          Ctrl+V",   self._paste,      True),
+            ("Cut",        "Ctrl+X", self._cut,        has_sel),
+            ("Copy",       "Ctrl+C", self._copy,       has_sel),
+            ("Paste",      "Ctrl+V", self._paste,      True),
             None,
-            ("Select All   Ctrl+A",     self._select_all, True),
+            ("Select All", "Ctrl+A", self._select_all, True),
         ]
 
         host_section = []
         if self.on_request_goto_definition is not None:
             lsp_ready = self.on_can_goto_definition()
             host_section.append((
-                "Go to Definition    F12",
+                "Go to Definition", "F12",
                 self.on_request_goto_definition,
                 has_word and lsp_ready,
             ))
         if self.on_request_find_references is not None:
             host_section.append((
-                "Find References",
+                "Find References", "",
                 self.on_request_find_references,
                 has_word,
             ))
@@ -2542,15 +2542,15 @@ class CanvasCodeView(tk.Frame):
 
         if self.on_request_find_replace is not None:
             items.append(None)
-            items.append(("Find & Replace   Ctrl+F",
+            items.append(("Find & Replace", "Ctrl+F",
                            self.on_request_find_replace, True))
 
         run_section = []
         if self.on_request_run_line is not None:
-            run_section.append(("Run Line", self.on_request_run_line, True))
+            run_section.append(("Run Line", "", self.on_request_run_line, True))
         if self.on_request_run_selection is not None:
             run_section.append((
-                "Run Selection", self.on_request_run_selection, has_sel,
+                "Run Selection", "", self.on_request_run_selection, has_sel,
             ))
         if run_section:
             items.append(None)
@@ -2604,20 +2604,45 @@ class CanvasCodeView(tk.Frame):
                 sep = tk.Frame(overlay, bg="#3d3d3d", height=1)
                 sep.pack(fill="x", padx=6, pady=2)
                 continue
-            label, cmd, enabled = item
-            fg = "#cccccc" if enabled else "#555555"
-            lbl = tk.Label(overlay, text=label, bg="#2d2d2d", fg=fg,
-                           font=(_FONT_FAMILY, 9), anchor="w", padx=12, pady=3)
-            lbl.pack(fill="x")
+            name, shortcut, cmd, enabled = item
+            fg  = "#cccccc" if enabled else "#555555"
+            sfg = "#888888" if enabled else "#444444"
+
+            row = tk.Frame(overlay, bg="#2d2d2d")
+            row.pack(fill="x")
+            name_lbl = tk.Label(row, text=name, bg="#2d2d2d", fg=fg,
+                                font=(_FONT_FAMILY, 9), anchor="w",
+                                padx=12, pady=3)
+            name_lbl.pack(side="left")
+            if shortcut:
+                sc_lbl = tk.Label(row, text=shortcut, bg="#2d2d2d", fg=sfg,
+                                  font=(_FONT_FAMILY, 9), anchor="e",
+                                  padx=12, pady=3)
+                sc_lbl.pack(side="right")
+            else:
+                sc_lbl = None
+
             if enabled:
-                def _enter(e, l=lbl):  l.config(bg="#094771", fg="#ffffff")
-                def _leave(e, l=lbl):  l.config(bg="#2d2d2d", fg="#cccccc")
+                all_widgets = [row, name_lbl] + ([sc_lbl] if sc_lbl else [])
+                def _enter(e, ws=all_widgets):
+                    for w in ws:
+                        w.config(bg="#094771")
+                    ws[1].config(fg="#ffffff")
+                    if len(ws) > 2:
+                        ws[2].config(fg="#ffffff")
+                def _leave(e, ws=all_widgets):
+                    for w in ws:
+                        w.config(bg="#2d2d2d")
+                    ws[1].config(fg="#cccccc")
+                    if len(ws) > 2:
+                        ws[2].config(fg="#888888")
                 def _click(e, c=cmd):
                     _dismiss()
                     c()
-                lbl.bind("<Enter>",           _enter)
-                lbl.bind("<Leave>",           _leave)
-                lbl.bind("<ButtonRelease-1>", _click)
+                for w in all_widgets:
+                    w.bind("<Enter>",           _enter)
+                    w.bind("<Leave>",           _leave)
+                    w.bind("<ButtonRelease-1>", _click)
 
         overlay.update_idletasks()
         ow = overlay.winfo_reqwidth()
