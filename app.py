@@ -3580,13 +3580,21 @@ class IDOL(Tk):
                 cv.set_font(family, size, weight, slant)
 
     def view_toggle_highlight(self) -> None:
-        pass  # BooleanVar already toggled; the poll loop picks it up automatically
+        enabled = self.highlight_line_var.get()
+        for cv in self._codeviews.values():
+            if cv is not None:
+                cv.highlight_active_line = enabled
+                cv.render()
 
     def view_active_line_color(self) -> None:
         result = askcolor(self._active_line_color or "#ffffff", parent=self)
         color = result[1] if result else None
         if color:
             self._active_line_color = color
+            for cv in self._codeviews.values():
+                if cv is not None:
+                    cv._active_line_color = color
+                    cv.render()
 
     def view_toggle_output(self) -> None:
         if self.output_visible_var.get():

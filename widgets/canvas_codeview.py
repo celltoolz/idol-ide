@@ -805,6 +805,11 @@ class CanvasCodeView(tk.Frame):
         # Debugger paused line — set by `set_debug_line` when the
         # debugger stops at a breakpoint or after a step. Yellow row.
         self._debug_line: int | None = None
+        # Active-line highlight controls — set by the host at runtime.
+        # highlight_active_line=False suppresses the band entirely.
+        # active_line_color overrides the theme's current_line_bg when set.
+        self.highlight_active_line: bool = True
+        self._active_line_color: str | None = None
         # ── Host hooks for context-menu items ────────────────────
         # When set, the right-click menu includes the corresponding
         # entry. None → item omitted. Lets the engine ship a richer
@@ -1101,11 +1106,12 @@ class CanvasCodeView(tk.Frame):
             y = (v_row - self.scroll_y) * self._line_h
 
             # Current-line highlight (only when no selection)
-            if (i == self.cur_line and self.sel_anchor is None
+            if (self.highlight_active_line
+                    and i == self.cur_line and self.sel_anchor is None
                     and self.canvas.focus_get() is self.canvas):
+                hl_color = self._active_line_color or self._palette["current_line_bg"]
                 c.create_rectangle(self._gutter_w, y, w, y + self._line_h,
-                                   fill=self._palette["current_line_bg"],
-                                   outline="")
+                                   fill=hl_color, outline="")
 
             # Runtime-error row (amber band — paints OVER the current-
             # line highlight when both apply, so the crash site stands
