@@ -4141,6 +4141,11 @@ class IDOL(Tk):
     def _enter_zen(self) -> None:
         self._zen_mode = True
         self.zen_mode_var.set(True)
+        # If the Designer is active, normalise to editor layout first so the
+        # Zen entry logic always operates on the same [sidebar | v_pane] shape.
+        self._zen_was_designer = self._designer_mode
+        if self._designer_mode:
+            self._enter_editor_mode()
         self._zen_sidebar_was_visible = self._sidebar_shown
         if self._sidebar_shown:
             self._h_pane.forget(self._sidebar)
@@ -4157,7 +4162,7 @@ class IDOL(Tk):
     def _exit_zen(self) -> None:
         self._zen_mode = False
         self.zen_mode_var.set(False)
-        self._statusbar.pack(side="bottom", fill="x")
+        self._statusbar.pack(side="bottom", fill="x", before=self._h_pane)
         # tk.PanedWindow has no insert() — rebuild the pane order so sidebar
         # goes back at position 0: forget v_pane, add sidebar, re-add v_pane.
         restore_sidebar = getattr(self, "_zen_sidebar_was_visible", True)
@@ -4175,6 +4180,9 @@ class IDOL(Tk):
         self.title("IDOL")
         self._refresh_nav_bar()
         self._dismiss_zen_pill()
+        # Restore Designer if that's where we came from.
+        if getattr(self, "_zen_was_designer", False):
+            self._enter_designer_mode()
 
     def _on_escape(self, _=None) -> None:
         if self._zen_mode:
