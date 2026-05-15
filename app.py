@@ -1277,6 +1277,7 @@ class IDOL(Tk):
         self.bind("<Control-P>", lambda _: self.open_command_palette())
         self.bind("<Control-Shift-G>", lambda _: self.designer_generate_code())
         self.bind("<Control-b>", lambda _: self.view_toggle_sidebar())
+        self.bind("<F12>", lambda _: self._goto_definition())
         self.bind("<F10>", lambda _: self.view_zen_mode())
         self.bind("<F1>", lambda _: self.view_learning_mode())
         self.bind("<F2>", lambda _: self.view_ai_chat())
@@ -1511,6 +1512,7 @@ class IDOL(Tk):
         # decides when to include them based on selection + cursor
         # word state.
         cv.on_request_goto_definition = self._goto_definition
+        cv.on_can_goto_definition     = lambda: bool(self._lsp and self._lsp.ready)
         cv.on_request_find_references = self._find_references
         cv.on_request_find_replace    = self.edit_find_replace
         cv.on_request_run_line        = self._run_current_line

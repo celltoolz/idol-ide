@@ -812,6 +812,7 @@ class CanvasCodeView(tk.Frame):
         # Run Line / Run Selection / Find & Replace) but stay
         # minimal in the standalone preview where these don't apply.
         self.on_request_goto_definition = None
+        self.on_can_goto_definition = lambda: True   # overridden by host to gate on LSP
         self.on_request_find_references = None
         self.on_request_find_replace = None
         self.on_request_run_line = None
@@ -2536,9 +2537,10 @@ class CanvasCodeView(tk.Frame):
         has_word = bool(word) and len(word) >= 2 and not word[0].isdigit()
         host_section = []
         if self.on_request_goto_definition is not None:
+            lsp_ready = self.on_can_goto_definition()
             host_section.append(
                 ("Go to Definition", self.on_request_goto_definition,
-                 "normal" if has_word else "disabled")
+                 "normal" if (has_word and lsp_ready) else "disabled")
             )
         if self.on_request_find_references is not None:
             host_section.append(
