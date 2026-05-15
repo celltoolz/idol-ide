@@ -2093,6 +2093,7 @@ class CanvasCodeView(tk.Frame):
 
     def _on_click(self, event):
         self.canvas.focus_set()
+        self._hide_autocomplete()
         if event.x < _GUTTER_W:
             row = self._row_from_y(event.y)
             if event.x < _DEBUG_W:
