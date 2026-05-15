@@ -76,11 +76,13 @@ from utils.theme_loader import list_themes as _list_themes, load_theme as _load_
 _DEFAULT_THEME = "monokai-bright"
 
 _FONT_FAMILY, _FONT_SIZE = "Consolas", 11
-# Gutter layout (left → right): debug column, line numbers, fold markers.
-_DEBUG_W   = 16              # breakpoint column on the far left
-_LINENUM_R = _DEBUG_W + 30   # right edge of line-number text (anchor "ne")
-_FOLD_X    = _LINENUM_R + 4  # left edge of fold marker (anchor "nw")
-_GUTTER_W  = _FOLD_X + 14    # total gutter width
+# Gutter layout — base values for the default font (Consolas 11).
+# At runtime every CanvasCodeView instance computes _compute_gutter()
+# so the zones scale with the chosen font size.
+_DEBUG_W   = 16
+_LINENUM_R = _DEBUG_W + 30
+_FOLD_X    = _LINENUM_R + 4
+_GUTTER_W  = _FOLD_X + 14
 _TEXT_X    = _GUTTER_W + 12
 _BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
 _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
@@ -213,6 +215,7 @@ class CanvasCodeView(tk.Frame):
                                     weight=weight, slant="italic")
         self._char_w  = self._font.measure("W")
         self._line_h  = self._font.metrics("linespace") + 2
+        self._compute_gutter()
         # Invalidate all pixel-width caches — measurements change with the font.
         self._file_max_w_dirty = True
         self._content_w_cache  = 0
@@ -567,7 +570,7 @@ class CanvasCodeView(tk.Frame):
         minimap_reserve = _MINIMAP_W if getattr(
             self, "_mm_visible", True
         ) else 0
-        return max(1, cw - _TEXT_X - minimap_reserve - _TEXT_RIGHT_PAD)
+        return max(1, cw - self._text_x - minimap_reserve - _TEXT_RIGHT_PAD)
 
     def _content_width(self) -> int:
         """Maximum line width across the VISIBLE rows, in pixels.
@@ -593,7 +596,7 @@ class CanvasCodeView(tk.Frame):
         diagnostics, cursor, indent guides). Gutter / minimap /
         sticky-band positions stay fixed to `_TEXT_X` because they
         aren't part of the scrollable text region."""
-        return _TEXT_X - self._scroll_x
+        return self._text_x - self._scroll_x
 
     def _push_scroll_fractions(self) -> None:
         """Push the current scroll state to both scrollbar widgets.
@@ -660,12 +663,26 @@ class CanvasCodeView(tk.Frame):
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 
+    def _compute_gutter(self) -> None:
+        """Recompute font-aware gutter layout. Call after any font change."""
+        cw = self._char_w
+        self._debug_w   = 16
+        # Right edge of line-number column: enough for 4 digits + small margin.
+        self._linenum_r = self._debug_w + max(30, cw * 4)
+        # Left edge of fold glyph: small gap after line numbers.
+        self._fold_x    = self._linenum_r + max(4, cw // 2)
+        # Right edge of gutter: fold glyph + one char width of clearance.
+        self._gutter_w  = self._fold_x + max(14, cw + 4)
+        # Where text begins: small gap after the gutter rectangle.
+        self._text_x    = self._gutter_w + max(8, cw)
+
     def _build_ui(self) -> None:
         self._font = tkfont.Font(family=_FONT_FAMILY, size=_FONT_SIZE)
         self._font_italic = tkfont.Font(family=_FONT_FAMILY, size=_FONT_SIZE,
                                         slant="italic")
         self._char_w = self._font.measure("W")
         self._line_h = self._font.metrics("linespace") + 2
+        self._compute_gutter()
 
         # ── Grid layout ──────────────────────────────────────────────
         #   row 0 — breadcrumb bar (full width)
@@ -928,7 +945,7 @@ class CanvasCodeView(tk.Frame):
         if w < 2 or h < 2:
             return
 
-        c.create_rectangle(0, 0, _GUTTER_W, h,
+        c.create_rectangle(0, 0, self._gutter_w, h,
                            fill=self._palette["gutter_bg"], outline="")
 
         # Fresh per-render hit-test list for the clickable "···"
@@ -1009,7 +1026,7 @@ class CanvasCodeView(tk.Frame):
             # Current-line highlight (only when no selection)
             if (i == self.cur_line and self.sel_anchor is None
                     and self.canvas.focus_get() is self.canvas):
-                c.create_rectangle(_GUTTER_W, y, w, y + self._line_h,
+                c.create_rectangle(self._gutter_w, y, w, y + self._line_h,
                                    fill=self._palette["current_line_bg"],
                                    outline="")
 
@@ -1017,13 +1034,13 @@ class CanvasCodeView(tk.Frame):
             # line highlight when both apply, so the crash site stands
             # out even when the caret is on it).
             if self._runtime_error_line == i:
-                c.create_rectangle(_GUTTER_W, y, w, y + self._line_h,
+                c.create_rectangle(self._gutter_w, y, w, y + self._line_h,
                                    fill="#3d2500", outline="")
 
             # Debugger paused row (yellow band — set while the debug
             # session is stopped at this line).
             if self._debug_line == i:
-                c.create_rectangle(_GUTTER_W, y, w, y + self._line_h,
+                c.create_rectangle(self._gutter_w, y, w, y + self._line_h,
                                    fill="#2d2d00", outline="")
 
             # Selection
@@ -1147,7 +1164,7 @@ class CanvasCodeView(tk.Frame):
             if i in self.folded:
                 dots_x = x + 6
                 c.create_text(
-                    dots_x, y + 1, text="···", anchor="nw",
+                    dots_x, y + self._line_h // 2, text="···", anchor="w",
                     fill=self._palette.get("fold_dots",
                                            self._palette["gutter_fg"]),
                     font=self._font,
@@ -1169,7 +1186,7 @@ class CanvasCodeView(tk.Frame):
             # (git stripe, breakpoint, line number, fold marker) on top.
             # Without this, horizontally scrolled long lines bleed the
             # start of each line into the line-number column.
-            c.create_rectangle(0, y, _TEXT_X, y + self._line_h,
+            c.create_rectangle(0, y, self._text_x, y + self._line_h,
                                fill=self._palette["gutter_bg"], outline="")
             git_kind = self._git_hunk_map.get(i)
             if git_kind:
@@ -1179,8 +1196,8 @@ class CanvasCodeView(tk.Frame):
                                        fill=gcolor, outline="")
             if i in self._breakpoints or i == self._hover_breakpoint_line:
                 cy_bp = y + self._line_h // 2
-                cx_bp = _DEBUG_W // 2
-                r_bp  = min(_DEBUG_W // 2 - 1, max(4, self._line_h // 3))
+                cx_bp = self._debug_w // 2
+                r_bp  = min(self._debug_w // 2 - 1, max(4, self._line_h // 3))
                 fill_bp = (_BREAKPOINT_COLOR if i in self._breakpoints
                            else _BREAKPOINT_GHOST_COLOR)
                 c.create_oval(cx_bp - r_bp, cy_bp - r_bp,
@@ -1188,11 +1205,12 @@ class CanvasCodeView(tk.Frame):
                               fill=fill_bp, outline="")
             gut_fg = (self._palette["gutter_fg_active"]
                       if i == self.cur_line else self._palette["gutter_fg"])
-            c.create_text(_LINENUM_R, y + 1, text=str(i + 1),
-                          anchor="ne", fill=gut_fg, font=self._font)
+            cy = y + self._line_h // 2
+            c.create_text(self._linenum_r, cy, text=str(i + 1),
+                          anchor="e", fill=gut_fg, font=self._font)
             if self._line_is_foldable(i):
                 glyph = "▶" if i in self.folded else "▼"
-                c.create_text(_FOLD_X, y + 1, text=glyph, anchor="nw",
+                c.create_text(self._fold_x, cy, text=glyph, anchor="w",
                               fill=self._palette["gutter_fg"],
                               font=self._font)
 
@@ -1299,7 +1317,7 @@ class CanvasCodeView(tk.Frame):
         mm_x = cw - _MINIMAP_W
         # Hide when the user toggled it off, or when the canvas is too
         # narrow to host both editor + minimap.
-        if not self._mm_visible or mm_x < _TEXT_X + 20 or ch < 2:
+        if not self._mm_visible or mm_x < self._text_x + 20 or ch < 2:
             if self._mm_last_place is not None:
                 self._mm_text.place_forget()
                 self._mm_last_place = None
@@ -1583,7 +1601,7 @@ class CanvasCodeView(tk.Frame):
         cw = self.canvas.winfo_width()
         # Stop the band before the minimap (mirrors the main canvas's
         # rendering clip).
-        sw = cw - _MINIMAP_W if cw - _MINIMAP_W >= _TEXT_X + 20 else cw
+        sw = cw - _MINIMAP_W if cw - _MINIMAP_W >= self._text_x + 20 else cw
         bar_h = len(headers) * self._line_h
         sticky_border = self._palette.get(
             "sticky_border", self._palette.get("guide", "#404040")
@@ -1601,15 +1619,16 @@ class CanvasCodeView(tk.Frame):
                 line = self.lines[hi]
                 # Gutter slice
                 sc.create_rectangle(
-                    0, y, _GUTTER_W, y + self._line_h,
+                    0, y, self._gutter_w, y + self._line_h,
                     fill=self._palette["gutter_bg"], outline="",
                 )
                 sc.create_text(
-                    _LINENUM_R, y + 1, text=str(hi + 1), anchor="ne",
+                    self._linenum_r, y + self._line_h // 2,
+                    text=str(hi + 1), anchor="e",
                     fill=self._palette["gutter_fg"], font=self._font,
                 )
                 # Tokenize + render header line
-                x = _TEXT_X
+                x = self._text_x
                 fg = self._palette["fg"]
                 for txt, cat in self._tokenize(line):
                     if cat is None:
@@ -2019,9 +2038,9 @@ class CanvasCodeView(tk.Frame):
         # always land on the leftmost visible character when the buffer
         # is scrolled right.
         eff_x = x + self._scroll_x
-        if eff_x <= _TEXT_X:
+        if eff_x <= self._text_x:
             return 0
-        target = eff_x - _TEXT_X
+        target = eff_x - self._text_x
         best, best_d = 0, target
         cum = 0
         for col, ch in enumerate(line, start=1):
@@ -2113,9 +2132,9 @@ class CanvasCodeView(tk.Frame):
     def _on_click(self, event):
         self.canvas.focus_set()
         self._hide_autocomplete()
-        if event.x < _GUTTER_W:
+        if event.x < self._gutter_w:
             row = self._row_from_y(event.y)
-            if event.x < _DEBUG_W:
+            if event.x < self._debug_w:
                 # Debug zone — toggle breakpoint
                 if 0 <= row < len(self.lines):
                     if self.on_breakpoint_toggle is not None:
@@ -2133,7 +2152,7 @@ class CanvasCodeView(tk.Frame):
                         else:
                             self._breakpoints.add(row)
                         self.render()
-            elif event.x >= _FOLD_X:
+            elif event.x >= self._fold_x:
                 # Fold zone — toggle fold on lines that have children
                 if row in self.folded:
                     self.folded.discard(row)
@@ -2179,14 +2198,14 @@ class CanvasCodeView(tk.Frame):
         Text area    → xterm I-beam, except over a "···" fold indicator
                        where the cursor becomes hand2 (clickable to unfold).
         """
-        if event.x < _DEBUG_W:
+        if event.x < self._debug_w:
             self.canvas.configure(cursor="hand2")
             row = self._row_from_y(event.y)
             new_hover = row if 0 <= row < len(self.lines) else None
             if new_hover != self._hover_breakpoint_line:
                 self._hover_breakpoint_line = new_hover
                 self.render()
-        elif event.x < _GUTTER_W:
+        elif event.x < self._gutter_w:
             self.canvas.configure(cursor="right_ptr")
             if self._hover_breakpoint_line is not None:
                 self._hover_breakpoint_line = None

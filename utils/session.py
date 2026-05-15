@@ -102,13 +102,9 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         "theme":            app.theme_var.get(),
         "minimap_visible":  app.minimap_visible_var.get(),
     }
-    # Grab the font from the active codeview (all tabs share the same font)
-    cv_any = next((cv for cv in app._codeviews.values() if cv is not None), None)
-    if cv_any is not None:
-        try:
-            appearance["font"] = cv_any.cget("font")
-        except Exception:
-            pass
+    # Persist the editor font (family, size, weight, slant) set via View > Change Font.
+    if getattr(app, "_editor_font", None):
+        appearance["font"] = list(app._editor_font)
 
     # ── Layout ────────────────────────────────────────────────────────────────
     layout: dict = {}
@@ -359,13 +355,18 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         app.view_change_theme()
     font = appearance.get("font")
     if font:
-        for cv in app._codeviews.values():
-            if cv is None:
-                continue
-            try:
-                cv.configure(font=font)
-            except Exception:
-                pass
+        try:
+            if isinstance(font, (list, tuple)) and len(font) >= 2:
+                family = str(font[0])
+                size   = int(font[1])
+                weight = str(font[2]) if len(font) > 2 else "normal"
+                slant  = str(font[3]) if len(font) > 3 else "roman"
+                app._editor_font = (family, size, weight, slant)
+                for cv in app._codeviews.values():
+                    if cv is not None:
+                        cv.set_font(family, size, weight, slant)
+        except Exception:
+            pass
 
     minimap = appearance.get("minimap_visible", True)
     app.minimap_visible_var.set(minimap)
