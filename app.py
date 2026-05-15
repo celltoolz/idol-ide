@@ -1160,10 +1160,18 @@ class IDOL(Tk):
             self._output.terminal._new_session(cwd=cwd)
         # If session restore flagged a venv to activate, schedule it 1500 ms after
         # the terminal starts — by then the shell hooks are injected and ready.
+        # Guard: skip if the terminal's own _auto_activate_venv already ran (it sets
+        # _venv_auto_activated=True).  On Windows _send_silently falls back to the
+        # visible send(), so without this guard both paths fire and the user sees the
+        # activate command printed twice.
         pending = getattr(self, "_pending_venv_activate", None)
         if pending and os.path.isfile(pending):
             self._pending_venv_activate = None
-            self.after(1500, lambda: self._auto_activate_venv(pending))
+            term = self._output.terminal
+            def _activate_if_needed(p=pending, t=term):
+                if not getattr(t, "_venv_auto_activated", False):
+                    self._auto_activate_venv(p)
+            self.after(1500, _activate_if_needed)
 
     def _on_venv_deactivated(self) -> None:
         """Called when the user clicks Deactivate — fall back to first system Python."""

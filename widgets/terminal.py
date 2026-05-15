@@ -664,6 +664,7 @@ class TerminalPanel(ttk.Frame):
             self._raw_buf  = ""
             self._cwd_current = ""
             self._venv_active  = ""
+            self._venv_auto_activated = False
             self._state_file_mtime = 0.0
             self._sid_to_key[sid] = self._active_shell_key
             threading.Thread(target=self._read_loop, args=(sid, self._pty), daemon=True).start()
@@ -1721,11 +1722,13 @@ class TerminalPanel(ttk.Frame):
                 break
         if not activate:
             return
+        self._venv_auto_activated = True
         if is_pwsh:
             self._send_silently(f'& "{activate}"\r')
         else:
             # POSIX-style path works on Unix bash/zsh and Git Bash on Windows
             self._send_silently(f'source "{activate.as_posix()}"\r')
+        self._fire_venv_activate(str(activate))
 
     def _inject_shell_hooks(self) -> None:
         """Inject CWD + VENV reporting into the running shell."""
