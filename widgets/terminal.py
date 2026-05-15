@@ -643,6 +643,12 @@ class TerminalPanel(ttk.Frame):
                 _git_usr_bin = os.path.normpath(
                     os.path.join(os.path.dirname(cmd[0]), "..", "usr", "bin")
                 )
+                _dbg = (
+                    f"[IDOL Debug] cmd[0]        = {cmd[0]}\n"
+                    f"[IDOL Debug] _git_usr_bin  = {_git_usr_bin}\n"
+                    f"[IDOL Debug] dir exists    = {os.path.isdir(_git_usr_bin)}\n"
+                )
+                self.after(800, lambda d=_dbg: self._write_error(d))
                 if os.path.isdir(_git_usr_bin):
                     cur_path = env.get("PATH", "")
                     if _git_usr_bin.lower() not in cur_path.lower():
