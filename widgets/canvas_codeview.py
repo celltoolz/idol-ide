@@ -2498,16 +2498,6 @@ class CanvasCodeView(tk.Frame):
         return "break"
 
     def _on_right_click(self, event):
-        """Build & post the editor context menu.
-
-        Always includes Cut/Copy/Paste/Select All + the Theme submenu
-        (useful in the standalone preview). When the host wires the
-        `on_request_*` hooks (app.py:_new_canvas_tab does this for the
-        IDE-integrated tabs), the menu also gets Go to Definition,
-        Find References, Find & Replace, Run Line, Run Selection.
-        """
-        # Move the caret to the click position so word-sensitive items
-        # (Go to Def, Find Refs) operate on the right token.
         self.canvas.focus_set()
         try:
             row = self._row_from_y(event.y)
@@ -2517,83 +2507,131 @@ class CanvasCodeView(tk.Frame):
         except Exception:
             pass
 
-        menu = tk.Menu(self, tearoff=0,
-                       bg="#252526", fg="#cccccc",
-                       activebackground="#094771", activeforeground="#ffffff",
-                       relief="flat", borderwidth=0)
-
         has_sel = self.sel_anchor is not None and self.sel_anchor != (
             self.cur_line, self.cur_col
         )
-
-        menu.add_command(label="Cut",   command=self._cut,
-                         accelerator="Ctrl+X",
-                         state="normal" if has_sel else "disabled")
-        menu.add_command(label="Copy",  command=self._copy,
-                         accelerator="Ctrl+C",
-                         state="normal" if has_sel else "disabled")
-        menu.add_command(label="Paste", command=self._paste, accelerator="Ctrl+V")
-        menu.add_separator()
-        menu.add_command(label="Select All", command=self._select_all,
-                         accelerator="Ctrl+A")
-
-        # Host-supplied IDE actions — only when wired. `cv` (cursor word
-        # state) gates the symbol-sensitive items.
         word = self._cursor_word() or ""
         has_word = bool(word) and len(word) >= 2 and not word[0].isdigit()
+
+        # items: (label_text, command, enabled) or None for separator
+        items: list = [
+            ("Cut              Ctrl+X", self._cut,        has_sel),
+            ("Copy           Ctrl+C",   self._copy,       has_sel),
+            ("Paste          Ctrl+V",   self._paste,      True),
+            None,
+            ("Select All   Ctrl+A",     self._select_all, True),
+        ]
+
         host_section = []
         if self.on_request_goto_definition is not None:
             lsp_ready = self.on_can_goto_definition()
-            host_section.append(
-                ("Go to Definition", self.on_request_goto_definition,
-                 "normal" if (has_word and lsp_ready) else "disabled")
-            )
+            host_section.append((
+                "Go to Definition    F12",
+                self.on_request_goto_definition,
+                has_word and lsp_ready,
+            ))
         if self.on_request_find_references is not None:
-            host_section.append(
-                ("Find References", self.on_request_find_references,
-                 "normal" if has_word else "disabled")
-            )
+            host_section.append((
+                "Find References",
+                self.on_request_find_references,
+                has_word,
+            ))
         if host_section:
-            menu.add_separator()
-            for label, cmd, state in host_section:
-                menu.add_command(label=label, command=cmd, state=state)
+            items.append(None)
+            items.extend(host_section)
 
         if self.on_request_find_replace is not None:
-            menu.add_separator()
-            menu.add_command(label="Find && Replace",
-                             accelerator="Ctrl+F",
-                             command=self.on_request_find_replace)
+            items.append(None)
+            items.append(("Find & Replace   Ctrl+F",
+                           self.on_request_find_replace, True))
 
         run_section = []
         if self.on_request_run_line is not None:
-            run_section.append(("Run Line",
-                                self.on_request_run_line, "normal"))
+            run_section.append(("Run Line", self.on_request_run_line, True))
         if self.on_request_run_selection is not None:
-            run_section.append(("Run Selection",
-                                self.on_request_run_selection,
-                                "normal" if has_sel else "disabled"))
+            run_section.append((
+                "Run Selection", self.on_request_run_selection, has_sel,
+            ))
         if run_section:
-            menu.add_separator()
-            for label, cmd, state in run_section:
-                menu.add_command(label=label, command=cmd, state=state)
+            items.append(None)
+            items.extend(run_section)
 
-        # Theme submenu — live switch between themes loaded from
-        # themes/*.json. Useful in the standalone preview; redundant
-        # with View → Theme inside IDOL but harmless.
-        menu.add_separator()
-        theme_menu = tk.Menu(menu, tearoff=0,
-                             bg="#252526", fg="#cccccc",
-                             activebackground="#094771",
-                             activeforeground="#ffffff",
-                             relief="flat", borderwidth=0)
-        for name in _list_themes():
-            label = ("● " if name == self._theme_name else "   ") + \
-                    name.replace("-", " ").title()
-            theme_menu.add_command(label=label,
-                                   command=lambda n=name: self.set_theme(n))
-        menu.add_cascade(label="Theme", menu=theme_menu)
-        menu.tk_popup(event.x_root, event.y_root)
+        self._show_ctx_overlay(event.x_root, event.y_root, items)
         return "break"
+
+    def _show_ctx_overlay(self, x_root: int, y_root: int, items: list) -> None:
+        dismiss_fn = getattr(self, "_ctx_overlay_dismiss", None)
+        if dismiss_fn:
+            dismiss_fn()
+
+        top = self.winfo_toplevel()
+        rel_x = x_root - top.winfo_rootx()
+        rel_y = y_root - top.winfo_rooty()
+
+        overlay = tk.Frame(top, bg="#2d2d2d",
+                           highlightthickness=1, highlightbackground="#007acc")
+        self._ctx_overlay = overlay
+        top_bid: list = []
+
+        def _dismiss():
+            self._ctx_overlay = None
+            self._ctx_overlay_dismiss = None
+            try:
+                overlay.destroy()
+            except Exception:
+                pass
+            if top_bid:
+                try:
+                    top.unbind("<ButtonRelease-1>", top_bid[0])
+                except Exception:
+                    pass
+
+        self._ctx_overlay_dismiss = _dismiss
+
+        def _global_click(e):
+            w = e.widget
+            while w is not None:
+                if w is overlay:
+                    return
+                try:
+                    w = w.master
+                except AttributeError:
+                    break
+            _dismiss()
+
+        for item in items:
+            if item is None:
+                sep = tk.Frame(overlay, bg="#3d3d3d", height=1)
+                sep.pack(fill="x", padx=6, pady=2)
+                continue
+            label, cmd, enabled = item
+            fg = "#cccccc" if enabled else "#555555"
+            lbl = tk.Label(overlay, text=label, bg="#2d2d2d", fg=fg,
+                           font=(_FONT_FAMILY, 9), anchor="w", padx=12, pady=3)
+            lbl.pack(fill="x")
+            if enabled:
+                def _enter(e, l=lbl):  l.config(bg="#094771", fg="#ffffff")
+                def _leave(e, l=lbl):  l.config(bg="#2d2d2d", fg="#cccccc")
+                def _click(e, c=cmd):
+                    _dismiss()
+                    c()
+                lbl.bind("<Enter>",           _enter)
+                lbl.bind("<Leave>",           _leave)
+                lbl.bind("<ButtonRelease-1>", _click)
+
+        overlay.update_idletasks()
+        ow = overlay.winfo_reqwidth()
+        oh = overlay.winfo_reqheight()
+        sw = top.winfo_width()
+        sh = top.winfo_height()
+        if rel_x + ow > sw:
+            rel_x = max(0, sw - ow)
+        if rel_y + oh > sh:
+            rel_y = max(0, sh - oh)
+
+        overlay.place(x=rel_x, y=rel_y)
+        overlay.lift()
+        top_bid.append(top.bind("<ButtonRelease-1>", _global_click, add=True))
 
     def _on_mousewheel(self, event):
         if event.delta:
