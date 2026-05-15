@@ -1967,13 +1967,45 @@ class CanvasCodeView(tk.Frame):
                 break
         return x
 
+    def _comment_start(self, line: str) -> int | None:
+        """Return the index of the first # that opens a real comment.
+
+        Skips # characters that appear inside single- or double-quoted
+        strings so `bg="#FFFFFF"` is not misread as a comment while
+        `# print(f"hello")` has its entire content treated as a comment."""
+        in_str: str | None = None
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if in_str:
+                if ch == "\\":
+                    i += 2          # skip escaped character
+                    continue
+                if ch == in_str:
+                    in_str = None
+            elif ch in ('"', "'"):
+                in_str = ch
+            elif ch == "#":
+                return i
+            i += 1
+        return None
+
     def _tokenize(self, line: str):
         """Return a list of (text, category_or_None) segments.
 
         Category None means default fg. Categories are resolved to actual
-        colors at render time so the active theme picks the palette."""
-        segments: list = [(line, None)]
+        colors at render time so the active theme picks the palette.
+
+        Comments are handled up-front via _comment_start so that string
+        tokens inside a comment (e.g. `# print("x")`) are not coloured
+        as strings — the whole tail is treated as a comment. Non-comment
+        rules run only on the code portion that precedes the `#`."""
+        comment_at = self._comment_start(line)
+        code_part   = line[:comment_at] if comment_at is not None else line
+        segments: list = [(code_part, None)] if code_part else []
         for pat, category in self._rules:
+            if category == "comment":
+                continue          # handled via _comment_start above
             new_segs = []
             for text, cur_cat in segments:
                 if cur_cat is not None:
@@ -1989,6 +2021,8 @@ class CanvasCodeView(tk.Frame):
                 if last < len(text):
                     new_segs.append((text[last:], None))
             segments = new_segs
+        if comment_at is not None:
+            segments.append((line[comment_at:], "comment"))
         return [seg for seg in segments if seg[0]]
 
     # ── Coordinate helpers ────────────────────────────────────────────────────
