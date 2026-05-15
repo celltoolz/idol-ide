@@ -996,13 +996,37 @@ class CanvasCodeView(tk.Frame):
         # when the block ends. Matches VS Code's indent-guide behavior.
         eff_indent = self._effective_indents()
 
-        # Active indent guide — the one corresponding to the cursor's
-        # containing block. The cursor's own line indent N maps to the
-        # guide at level N // 4 (the column just left of where the
-        # content starts). active_level == 0 means top-level → no
-        # active guide.
+        # Active indent guide — highlight only the segment that belongs to
+        # the cursor's direct containing block, not every guide line at the
+        # same column across the whole file.
         cur_text = self.lines[self.cur_line] if self.lines else ""
-        active_level = (len(cur_text) - len(cur_text.lstrip())) // 4
+        cur_indent = len(cur_text) - len(cur_text.lstrip())
+        active_level = cur_indent // 4
+        # Vertical bounds of the containing block so the highlight doesn't
+        # bleed into sibling or unrelated blocks at the same indent column.
+        _guide_block_top    = 0
+        _guide_block_bottom = len(self.lines) - 1
+        if self.lines and active_level > 0:
+            # Scan up: first non-blank line with indent < cur_indent is the opener.
+            _opener_indent = 0
+            for _j in range(self.cur_line - 1, -1, -1):
+                _ln = self.lines[_j]
+                if not _ln.strip():
+                    continue
+                _ind = len(_ln) - len(_ln.lstrip())
+                if _ind < cur_indent:
+                    _guide_block_top = _j
+                    _opener_indent   = _ind
+                    break
+            # Scan down: first non-blank line with indent <= opener's indent
+            # marks where the block closes; highlight ends just before it.
+            for _j in range(self.cur_line + 1, len(self.lines)):
+                _ln = self.lines[_j]
+                if not _ln.strip():
+                    continue
+                if len(_ln) - len(_ln.lstrip()) <= _opener_indent:
+                    _guide_block_bottom = _j - 1
+                    break
 
         visible_rows = h // self._line_h + 1
         v_row = 0
@@ -1119,7 +1143,10 @@ class CanvasCodeView(tk.Frame):
             text_x0 = self._text_x0  # cache for the per-line draw loops below
             for level in range(1, eff_indent[i] // 4 + 1):
                 gx = text_x0 + self._font.measure(" " * ((level - 1) * 4))
-                color = guide_hi if level == active_level else guide_dim
+                color = (guide_hi
+                         if level == active_level
+                         and _guide_block_top <= i <= _guide_block_bottom
+                         else guide_dim)
                 c.create_line(gx, y, gx, y + self._line_h, fill=color)
 
             # Gutter content (breakpoint, git stripe, line number, fold

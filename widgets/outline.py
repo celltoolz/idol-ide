@@ -102,6 +102,7 @@ class OutlinePanel(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         self._symbol_ranges = []
         self._locals = {}
+        self._last_fp = None   # force next schedule_refresh to rebuild
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
