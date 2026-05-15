@@ -3625,29 +3625,17 @@ class IDOL(Tk):
         cv = self._current_codeview
         if not cv:
             return
-        ln = cv._line_numbers
-        last_line = int(cv.index("end-1c").split(".")[0])
-        for lineno in range(1, last_line + 1):
-            result = ln._get_fold_range(lineno, last_line)
-            if result is None:
-                continue
-            _, end_lineno = result
-            marker = ln._register_fold_tag(lineno, end_lineno)
-            cv.tag_config(marker, elide=True)
-            ln._show_dots(marker, str(lineno))
-        ln.redraw()
+        for i in range(len(cv.lines)):
+            if cv._line_is_foldable(i):
+                cv.folded.add(i)
+        cv.render()
 
     def view_unfold_all(self) -> None:
         cv = self._current_codeview
         if not cv:
             return
-        ln = cv._line_numbers
-        for marker in list(cv.mark_names()):
-            if marker.startswith("fold_"):
-                ln._hide_dots(marker)
-                cv.tag_delete(marker)
-                cv.mark_unset(marker)
-        ln.redraw()
+        cv.folded.clear()
+        cv.render()
 
     def _refresh_nav_bar(self) -> None:
         """Sync nav bar toggle button colors with current view state."""
