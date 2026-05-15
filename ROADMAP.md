@@ -187,6 +187,69 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ---
 
+## Next Up — Priority Bug & Feature Queue
+
+> Start here when picking up the next session. Items are roughly in order of priority.
+
+### Bugs — Fix First
+
+- **Zen mode → Designer kills statusbar** — toggle Zen on then off while in the editor, switch to Designer: the status bar disappears until the app is restarted. Likely a `.pack_forget()` / `.pack()` ordering issue in the Zen toggle that leaves the bar un-reparented when the Designer swaps panels.
+
+- **Go to Definition not working** — F12 / right-click Go to Definition appears to do nothing on the canvas editor. Needs investigation: check that the LSP `textDocument/definition` request is using the canvas editor's cursor position correctly and that the response handler navigates the canvas tab (not a legacy `tk.Text` path).
+
+- **Highlight Active Line / Active Line Color broken** — the palette keys `current_line_bg` exist in the theme JSON but the feature no longer responds to the setting. Verify the current-line highlight rectangle is still being drawn in the render loop and that the color is sourced from `self._palette` (not a stale constant).
+
+- **Editor right-click menu** — replace with the new-style IDOL popup (same design as the terminal right-click overlay: canvas-drawn, dark, rounded rows, `ButtonRelease-1` to dismiss). Also fix the `Find && Replace` label — the double `&&` is a Tk accelerator-escape artifact, should be a single `&` or no ampersand.
+
+- **Find & Replace — pre-populate from caret word** — when the user opens Find/Replace (`Ctrl+F`) and the caret is on a word, that word should be inserted into the search entry and fully selected so the user can immediately start typing a replacement or press Enter to find next. Match VS Code behavior.
+
+### Features
+
+- **Settings menu** — `View → Settings` (or `Edit → Settings`) panel consolidating per-user preferences that are currently scattered or missing UI:
+  - Font (family / size / bold / italic) — currently only reachable via `View → Change Font`
+  - Theme — currently only via `View → Theme`
+  - Highlight active line (on/off)
+  - Active line color (color picker)
+  - Autocomplete on/off, smart pairs on/off
+  - Tab size
+  - (Future) LSP on/off, ruff on/off
+  Settings write to `~/.idol/settings.json` and apply live.
+
+- **Replace `tkfontchooser`** — drop the external dependency; build a native IDOL font chooser dialog (needs to work on Windows, macOS, Linux):
+  - Left: scrollable `Listbox` of system fonts (use `tkfont.families()`); filter entry at top
+  - Center: Size entry + Bold / Italic checkboxes
+  - Right: live preview label (`"The quick brown fox…"`) in selected font
+  - OK / Cancel buttons; result tuple `(family, size, weight, slant)` matches current `set_font()` API
+  - Replace all current `tkfontchooser` call sites in `designer/properties.py` and the View → Change Font dialog
+
+- **Custom color chooser** — replace the default `tkinter.colorchooser` with a native IDOL dialog (the default is the OS picker: great on Windows, a bare RGB slider on Linux):
+  - Color wheel or HSV square (canvas-drawn)
+  - R/G/B sliders with numeric entries
+  - **Hex value entry** (type `#FF00AA` directly)
+  - Old / New color preview swatches
+  - OK / Cancel; same return signature as `colorchooser.askcolor`
+  - Hook into Designer Properties color rows and the new Settings panel active-line color
+
+- **Editor fg/bg color hover** — hovering over a string literal that is a valid hex color (e.g. `"#FF00AA"`) should show a small color swatch popup/tooltip and optionally open the IDOL color chooser on click, similar to VS Code's color provider. The canvas editor already renders inline color swatches — extend this to be interactive.
+
+- **More bundled themes** — add 2–3 popular themes as `themes/*.json` entries. Candidates: `github-dark`, `one-dark`, `solarized-dark`. Not blocking — add alongside other work.
+
+### Git Workflow Note (for next big feature branch)
+
+Next time a large multi-session feature is started (like the canvas editor rewrite), use a feature branch:
+```
+git checkout -b feature/my-big-thing   # create + switch to branch
+# ... do all the work, commit freely ...
+git checkout master                     # switch back to main
+git merge feature/my-big-thing         # merge when done
+git branch -d feature/my-big-thing     # delete the branch (pruning local)
+git push origin --delete feature/my-big-thing  # prune remote too
+git fetch --prune                       # clean up stale remote-tracking refs
+```
+Benefits: master stays stable while the feature is in progress; easy to diff the whole feature (`git diff master...feature/my-big-thing`); clean history with one merge commit. We can walk through this in practice on the next big feature.
+
+---
+
 ## Planned — Designer
 
 - Open Designer for existing (non-wizard) projects
