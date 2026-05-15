@@ -1011,7 +1011,7 @@ class IDOL(Tk):
 
         # Terminal shell integration: OSC 133;D fires when the prompt appears
         self._output.terminal.on_command_done = lambda exit_code=None: (
-            self._running_file and not self._run_entry_file and self._set_running_file(None)
+            self._running_file and self._set_running_file(None)
         )
 
         # Keep panel_tab_var in sync whenever the bottom panel switches tabs
