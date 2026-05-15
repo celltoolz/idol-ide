@@ -635,25 +635,19 @@ class TerminalPanel(ttk.Frame):
                 venv_bin = os.path.join(self._idol_venv, "bin") + os.pathsep
                 venv_scripts = os.path.join(self._idol_venv, "Scripts") + os.pathsep
                 env["PATH"] = env.get("PATH", "").replace(venv_bin, "").replace(venv_scripts, "")
-            # For Git Bash on Windows, inject the Git usr/bin directory so that
-            # MSYS2 tools (cygpath, sort, etc.) are available even before the
-            # login profile runs.  Derive the path from the bash.exe location so
-            # non-standard Git installs are handled automatically.
+            # For Git Bash on Windows, replicate what git-bash.exe does before
+            # handing off to bash.exe: set MSYSTEM so the MSYS2 runtime converts
+            # the Windows PATH to POSIX and adds MINGW64 tool directories.
+            # Without MSYSTEM the DLL skips path conversion entirely — cygpath,
+            # which, tr, etc. all appear missing even though they're on disk.
             if platform.system() == "Windows" and "bash" in os.path.basename(cmd[0]).lower():
-                _git_usr_bin = os.path.normpath(
-                    os.path.join(os.path.dirname(cmd[0]), "..", "usr", "bin")
-                )
-                # Bash-level diagnostic: check if cygpath is reachable from inside the shell
-                self.after(900, lambda: self._send_silently(
-                    'echo "[DBG] which cygpath=$(which cygpath 2>&1)"\r'
-                ))
-                self.after(950, lambda: self._send_silently(
-                    'echo "[DBG] PATH=$PATH" | tr ":" "\\n" | head -8\r'
-                ))
-                if os.path.isdir(_git_usr_bin):
-                    cur_path = env.get("PATH", "")
-                    if _git_usr_bin.lower() not in cur_path.lower():
-                        env["PATH"] = _git_usr_bin + os.pathsep + cur_path
+                _git_root = os.path.normpath(os.path.join(os.path.dirname(cmd[0]), ".."))
+                env.setdefault("MSYSTEM", "MINGW64")
+                env.setdefault("MSYS", "winsymlinks:nativestrict")
+                env.setdefault("MINGW_MOUNT_POINT", "/mingw64")
+                # HOMEDRIVE/HOMEPATH let bash resolve ~ correctly on Windows
+                env.setdefault("HOMEDRIVE", os.environ.get("HOMEDRIVE", "C:"))
+                env.setdefault("HOMEPATH",  os.environ.get("HOMEPATH",  os.path.expanduser("~").replace(os.environ.get("HOMEDRIVE","C:"), "")))
             # sh/dash don't understand zsh-style prompt codes (%{...%}); strip
             # any inherited PS1 so they fall back to their built-in default.
             _shell_base = os.path.basename(cmd[0]).lower()
