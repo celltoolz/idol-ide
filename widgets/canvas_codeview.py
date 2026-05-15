@@ -159,17 +159,6 @@ def _extract_hex_color(token_text: str) -> str | None:
         digits = "".join(ch * 2 for ch in digits)
     return f"#{digits}"
 
-_SAMPLE = """\
-class IDOL_IDE:
-    def __init__(self):
-        if True:
-            self.status = 'Ready'
-            print('Indents are back!')
-
-    def run(self):
-        return True
-"""
-
 
 class CanvasCodeView(tk.Frame):
     """Canvas-rendered code editor.
@@ -711,7 +700,7 @@ class CanvasCodeView(tk.Frame):
     # find-state attrs the engine still owns.)
 
     def _init_state(self) -> None:
-        self.lines: list[str] = _SAMPLE.rstrip("\n").split("\n")
+        self.lines: list[str] = [""]
         self.cur_line: int = 0
         self.cur_col: int = 0
         self.sel_anchor: tuple[int, int] | None = None
@@ -1046,8 +1035,8 @@ class CanvasCodeView(tk.Frame):
                 for m in word_pat.finditer(line):
                     if cur_match_col == m.start():
                         continue   # skip the one the cursor's on
-                    x1 = text_x0 + self._font.measure(line[:m.start()])
-                    x2 = text_x0 + self._font.measure(line[:m.end()])
+                    x1 = text_x0 + self._measure_to_col(line, m.start())
+                    x2 = text_x0 + self._measure_to_col(line, m.end())
                     c.create_rectangle(x1, y, x2, y + self._line_h,
                                        fill=wo_color, outline="")
 
@@ -1087,8 +1076,8 @@ class CanvasCodeView(tk.Frame):
                 for (r, col) in bracket_pair:
                     if r != i:
                         continue
-                    bx1 = text_x0 + self._font.measure(line[:col])
-                    bx2 = text_x0 + self._font.measure(line[:col + 1])
+                    bx1 = text_x0 + self._measure_to_col(line, col)
+                    bx2 = text_x0 + self._measure_to_col(line, col + 1)
                     c.create_rectangle(
                         bx1, y + 1, bx2, y + self._line_h - 1,
                         outline=self._palette.get("bracket_match", fg),
@@ -1105,8 +1094,8 @@ class CanvasCodeView(tk.Frame):
                 sev = diag.get("severity", "error")
                 key = f"diag_{sev}"
                 dcolor = self._palette.get(key, self._palette.get("diag_error", "#f14c4c"))
-                sx = text_x0 + self._font.measure(line[:cs])
-                ex = text_x0 + self._font.measure(line[:ce])
+                sx = text_x0 + self._measure_to_col(line, cs)
+                ex = text_x0 + self._measure_to_col(line, ce)
                 self._draw_squiggly(sx, ex, y + self._line_h - 2, dcolor)
 
             # Folded "···" indicator after the line's tokens. Clickable
@@ -1127,7 +1116,7 @@ class CanvasCodeView(tk.Frame):
             # Caret
             if (i == self.cur_line and self.cursor_visible
                     and self.sel_anchor is None):
-                cx = text_x0 + self._font.measure(line[:self.cur_col])
+                cx = text_x0 + self._measure_to_col(line, self.cur_col)
                 c.create_line(cx, y + 1, cx, y + self._line_h - 1,
                               fill=self._palette["caret"], width=1)
 
@@ -1860,6 +1849,34 @@ class CanvasCodeView(tk.Frame):
                                          fill=self._palette["select_bg"],
                                          outline="")
 
+    def _measure_to_col(self, line: str, col: int) -> int:
+        """Pixel width of *line* up to character index *col*, accounting
+        for italic tokens and hex-color preview squares."""
+        x = 0
+        c = 0
+        for txt, cat in self._tokenize(line):
+            if c >= col:
+                break
+            end = c + len(txt)
+            if cat is not None:
+                _, italic = self._token_style.get(cat, (None, False))
+                font = self._font_italic if italic else self._font
+            else:
+                font = self._font
+            # Mirror the color-preview square the render loop inserts
+            # before hex-color string literals (e.g. "#ff0000").
+            if cat == "string" and _extract_hex_color(txt):
+                sq = max(6, self._line_h - 10)
+                x += sq + 3
+            if end <= col:
+                x += font.measure(txt)
+                c = end
+            else:
+                x += font.measure(txt[:col - c])
+                c = col
+                break
+        return x
+
     def _tokenize(self, line: str):
         """Return a list of (text, category_or_None) segments.
 
@@ -1991,7 +2008,7 @@ class CanvasCodeView(tk.Frame):
         # to scroll to bring it into view).
         if 0 <= self.cur_line < len(self.lines):
             line = self.lines[self.cur_line]
-            caret_px = self._font.measure(line[:self.cur_col])
+            caret_px = self._measure_to_col(line, self.cur_col)
             visible_w = self._visible_text_width()
             # Bail when the canvas isn't laid out yet (viewport too
             # narrow for meaningful math). Without this, comparing the
@@ -2001,15 +2018,24 @@ class CanvasCodeView(tk.Frame):
                 return
             content_w = self._content_width()
             margin = self._char_w * 4  # keep 4 chars of context past the caret
-            if content_w <= visible_w:
+            # At EOL there is no text after the caret, so use no right-margin:
+            # the caret should sit at the viewport edge, not 4 chars inside it.
+            at_eol = self.cur_col >= len(line)
+            right_margin = 0 if at_eol else margin
+            # Use max(content_w, caret_px) so a stale _content_w_cache (set by
+            # the previous render) can't cap max_scroll below where the caret
+            # actually is — e.g. when typing a char that makes this line the
+            # new longest visible line.
+            true_content_w = max(content_w, caret_px)
+            if true_content_w <= visible_w:
                 # Whole buffer fits — never scroll horizontally.
                 self._scroll_x = 0
             elif caret_px < self._scroll_x:
                 self._scroll_x = max(0, caret_px - margin)
             elif caret_px > self._scroll_x + visible_w - margin:
-                max_scroll = max(0, content_w - visible_w)
+                max_scroll = max(0, true_content_w - visible_w)
                 self._scroll_x = min(max_scroll,
-                                     caret_px - visible_w + margin)
+                                     max(0, caret_px - visible_w + right_margin))
 
     # ── Mouse handlers ────────────────────────────────────────────────────────
 
@@ -2332,6 +2358,7 @@ class CanvasCodeView(tk.Frame):
             self.cur_col = len(self.lines[self.cur_line])
             self._ensure_visible(); self.render(); return "break"
 
+
         # Movement
         moved = False
         if ks == "Left":
@@ -2351,7 +2378,8 @@ class CanvasCodeView(tk.Frame):
             self.cur_col = 0 if self.cur_col == first_nw else first_nw
             moved = True
         elif ks == "End":
-            self.cur_col = len(self.lines[self.cur_line]); moved = True
+            self.cur_col = len(self.lines[self.cur_line])
+            moved = True
         elif ks == "Prior":
             self._move_vertical(-10); moved = True
         elif ks == "Next":
@@ -2732,7 +2760,7 @@ class CanvasCodeView(tk.Frame):
         # Geometry — anchor under the typed prefix.
         line = self.lines[self.cur_line]
         col = self.cur_col - len(self._ac_prefix)
-        cx = self._text_x0 + self._font.measure(line[:col])
+        cx = self._text_x0 + self._measure_to_col(line, col)
         cy = (self._visual_row_of(self.cur_line) - self.scroll_y + 1) * self._line_h
         rx = self.canvas.winfo_rootx() + cx
         ry = self.canvas.winfo_rooty() + cy

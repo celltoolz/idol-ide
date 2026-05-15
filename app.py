@@ -2969,7 +2969,7 @@ class IDOL(Tk):
             or self._dirty.get(t)
             or bool(
                 self._codeviews.get(t)
-                and self._codeviews[t].get("1.0", "end-1c").strip()
+                and self._codeviews[t].get_text().strip()
             )
             for t in self.notebook.tabs()
         )
@@ -3369,9 +3369,11 @@ class IDOL(Tk):
                 for srv in self._each_lsp():
                     srv.close_file(closed_path)
             self.notebook.forget(tab_id)
-        # Clear LSP diagnostics from the old project
+        # Clear LSP diagnostics and breakpoints from the old project
         self._lsp_diagnostics.clear()
         self._output.update_problems([])
+        self._breakpoints.clear()
+        self._refresh_debug_breakpoints()
         if add_untitled:
             self._new_tab("Untitled", "")
         if "(.venv)" in getattr(self, "_active_python_label", ""):
@@ -4390,7 +4392,7 @@ class IDOL(Tk):
             cv = self._current_codeview
             if cv:
                 cv.focus_set()
-                cv.see("insert")
+                cv.scroll_to_line(cv.get_cursor()[0])
         self.after_idle(_restore_editor_focus)
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
@@ -4687,7 +4689,7 @@ class IDOL(Tk):
                 return
             # Find `def method_name` and navigate
             search = f"def {method_name}"
-            for lineno, line in enumerate(cv.get("1.0", "end").splitlines(), 1):
+            for lineno, line in enumerate(cv.get_text().splitlines(), 1):
                 if search in line:
                     self._outline_navigate(lineno)
                     return
