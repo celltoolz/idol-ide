@@ -1712,13 +1712,24 @@ class TerminalPanel(ttk.Frame):
         except Exception:
             pass
 
+    @staticmethod
+    def _win_path_to_msys(win_path: str) -> str:
+        """Convert C:\\path\\to\\dir → /c/path/to/dir for MSYS2/Git Bash."""
+        p = Path(win_path)
+        drive = p.drive  # e.g. "C:"
+        if drive:
+            letter = drive.rstrip(":").lower()
+            rest = str(p)[len(drive):].replace("\\", "/")
+            return f"/{letter}{rest}"
+        return str(p).replace("\\", "/")
+
     def _auto_activate_venv(self, cwd: str, shell_name: str) -> None:
         """If a venv exists under *cwd*, source its activate script in the
         live shell so the prompt comes up already inside it. Supports
-        PowerShell/pwsh (Activate.ps1) and bash/zsh (bin/activate or
-        Scripts/activate for Git Bash on Windows). Skipped for cmd, sh,
-        dash, fish — those either lack a clean activate path or use
-        bashisms the POSIX-mini shells don't parse."""
+        PowerShell/pwsh (Activate.ps1) and bash/zsh (bin/activate). For
+        bash-like shells on Windows, Scripts/activate is avoided because it
+        calls cygpath (Cygwin-only); instead VIRTUAL_ENV and PATH are set
+        directly using MSYS2-compatible paths. Skipped for cmd, sh, dash."""
         if not (self._running and self._pty):
             return
         is_pwsh = "powershell" in shell_name or "pwsh" in shell_name
@@ -1741,8 +1752,18 @@ class TerminalPanel(ttk.Frame):
         self._venv_auto_activated = True
         if is_pwsh:
             self._send_silently(f'& "{activate}"\r')
+        elif is_bashlike and platform.system() == "Windows" and "Scripts" in activate.parts:
+            # Scripts/activate for Windows venvs internally calls cygpath, which is
+            # Cygwin-only and not available in MSYS2/Git Bash. Replicate what
+            # activate does (set VIRTUAL_ENV, prepend Scripts to PATH) directly.
+            venv_dir = self._win_path_to_msys(str(activate.parent.parent))
+            scripts_dir = self._win_path_to_msys(str(activate.parent))
+            self._send_silently(
+                f'export VIRTUAL_ENV="{venv_dir}"; '
+                f'export PATH="{scripts_dir}:$PATH"; '
+                f'unset PYTHONHOME\r'
+            )
         else:
-            # POSIX-style path works on Unix bash/zsh and Git Bash on Windows
             self._send_silently(f'source "{activate.as_posix()}"\r')
         self._fire_venv_activate(str(activate))
 
