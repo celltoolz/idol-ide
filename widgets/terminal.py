@@ -142,7 +142,10 @@ def _detect_available_shells() -> list[dict]:
         _add("cmd", ["cmd.exe"], "#858585")
         git_bash = r"C:\Program Files\Git\bin\bash.exe"
         if os.path.exists(git_bash):
-            _add("Git Bash", [git_bash], "#4ec9b0")
+            # --login sources /etc/profile which adds Git's usr/bin to PATH
+            # (needed for cygpath, sort, etc.).  -i forces interactive mode so
+            # readline keybindings and PROMPT_COMMAND work correctly.
+            _add("Git Bash", [git_bash, "--login", "-i"], "#4ec9b0")
         wsl_path = shutil.which("wsl.exe") or shutil.which("wsl")
         if wsl_path:
             _add("WSL", [wsl_path], "#4ec9b0")
