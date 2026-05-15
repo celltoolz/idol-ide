@@ -59,6 +59,24 @@ The visual GUI designer is only active for **Tkinter GUI App** projects:
 
 See [designer.md](designer.md) for full designer documentation.
 
+## Setting Up Git Features
+
+The Source Control panel (branch indicator, stage/unstage, commit, push/pull, history) requires **Git** to be installed and on your PATH.
+
+1. Install Git from [git-scm.com](https://git-scm.com) (Windows) or via your package manager (`brew install git`, `apt install git`, etc.)
+2. Set your identity so commits are attributed correctly:
+   ```
+   git config --global user.name "Your Name"
+   git config --global user.email "you@example.com"
+   ```
+3. Open a project folder that is already a git repo, or initialise one:
+   ```
+   git init
+   ```
+4. IDOL detects the repo automatically — the branch name appears in the status bar and the Source Control tab populates
+
+**GitHub / remote push & pull** — works out of the box if you have SSH keys or a credential helper configured (e.g. `git config --global credential.helper store` on Linux, or Git Credential Manager on Windows/macOS).
+
 ## Setting Up AI Features
 
 The AI Chat panel and AI-powered explanations require [Ollama](https://ollama.com) running locally:
