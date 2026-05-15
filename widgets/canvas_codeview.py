@@ -275,6 +275,7 @@ class CanvasCodeView(tk.Frame):
         self.scroll_y = 0
         self._scroll_x = 0
         self.folded.clear()
+        self._file_max_w_dirty = True
         # Invalidate the content-width cache BEFORE render so the
         # horizontal scrollbar fractions reflect the new line set on
         # the very first paint.
@@ -290,6 +291,7 @@ class CanvasCodeView(tk.Frame):
         delete, line move/duplicate, comment toggle, paste, cut, etc.)
         so app.py can mark the tab dirty, schedule LSP didChange, and
         refresh the outline without polling."""
+        self._file_max_w_dirty = True
         if self.on_change is not None:
             try:
                 self.on_change()
@@ -513,7 +515,7 @@ class CanvasCodeView(tk.Frame):
         return (max(0.0, first), max(first, last))
 
     def _xview_fractions(self) -> tuple[float, float]:
-        content_w = self._content_width()
+        content_w = max(self._content_width(), self._file_max_w)
         if content_w == 0:
             return (0.0, 1.0)
         visible_w = self._visible_text_width()
@@ -580,8 +582,16 @@ class CanvasCodeView(tk.Frame):
         past `content_width - viewport_width` — that's how text used
         to bleed into the gutter after tab switches."""
         try:
+            # Recompute file-wide max width when dirty (any edit or set_text).
+            # Uses regular font (no tokenization) for speed; _content_w_cache
+            # from the render loop provides the accurate visible-row value.
+            if self._file_max_w_dirty:
+                self._file_max_w = max(
+                    (self._font.measure(l) for l in self.lines), default=0
+                )
+                self._file_max_w_dirty = False
             visible_w = self._visible_text_width()
-            content_w = self._content_width()
+            content_w = max(self._content_width(), self._file_max_w)
             if visible_w >= self._char_w:
                 if content_w <= visible_w:
                     self._scroll_x = 0
@@ -781,6 +791,12 @@ class CanvasCodeView(tk.Frame):
         self._ac_items: list[str] = []
         self._ac_prefix: str = ""
         self.scroll_y: int = 0           # first visible visual row
+        # File-wide max line width (pixels, regular font). Updated via
+        # dirty flag in _fire_change / set_text; used by _xview_fractions
+        # so the H-scrollbar stays visible whenever any line is long,
+        # even when that line isn't currently in the viewport.
+        self._file_max_w: int = 0
+        self._file_max_w_dirty: bool = True
 
         # Tokenizer rules. Each rule is (regex, category_name). The category
         # is resolved against the active theme's `tokens` map at render time,
@@ -1220,6 +1236,10 @@ class CanvasCodeView(tk.Frame):
         self._mm_preview_after: str | None = None
         self._mm_last_preview_line: int = -1
 
+        # Elide tag — hides minimap lines that are folded in the editor.
+        self._mm_text.tag_configure("mm_elide", elide=True)
+        self._mm_last_folded: frozenset = frozenset()
+
         self._mm_text.bind("<ButtonPress-1>", self._on_mm_press)
         self._mm_text.bind("<B1-Motion>",     self._on_mm_drag)
         self._mm_text.bind("<Motion>",        self._on_mm_hover)
@@ -1267,8 +1287,12 @@ class CanvasCodeView(tk.Frame):
             self._mm_last_theme = self._theme_name
         # Cheap fast path: if buffer is unchanged, list-compare bails on
         # the first differing entry (or instantly when nothing changed).
+        cur_folded = frozenset(self.folded)
         if self._mm_lines_cache != self.lines:
             self._mm_rebuild_content()
+            self._mm_apply_folds(cur_folded)
+        elif cur_folded != self._mm_last_folded:
+            self._mm_apply_folds(cur_folded)
         self._mm_sync_scroll()
 
     def _mm_apply_palette(self) -> None:
@@ -1302,6 +1326,25 @@ class CanvasCodeView(tk.Frame):
                 pt.insert("end", "\n")
         pt.configure(state="disabled")
         self._mm_lines_cache = list(self.lines)
+
+    def _mm_apply_folds(self, cur_folded: frozenset) -> None:
+        """Elide minimap lines that are hidden by the editor's fold state."""
+        pt = self._mm_text
+        pt.tag_remove("mm_elide", "1.0", "end")
+        if cur_folded:
+            skip = None
+            for i, line in enumerate(self.lines):
+                if skip is not None:
+                    ind = len(line) - len(line.lstrip())
+                    if line.strip() and ind <= skip:
+                        skip = None
+                    else:
+                        lnum = i + 1
+                        pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
+                        continue
+                if i in cur_folded:
+                    skip = len(line) - len(line.lstrip())
+        self._mm_last_folded = cur_folded
 
     def _mm_sync_scroll(self) -> None:
         """Move the minimap's yview so the editor viewport stays centered."""
