@@ -488,7 +488,7 @@ class CanvasCodeView(tk.Frame):
         if not args:
             return self._xview_fractions()
         op = args[0]
-        content_w = self._content_width()
+        content_w = max(self._content_width(), self._file_max_w)
         visible_w = self._visible_text_width()
         max_scroll = max(0, content_w - visible_w)
         if op == "moveto":
