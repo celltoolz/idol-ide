@@ -583,12 +583,21 @@ class CanvasCodeView(tk.Frame):
         to bleed into the gutter after tab switches."""
         try:
             # Recompute file-wide max width when dirty (any edit or set_text).
-            # Uses regular font (no tokenization) for speed; _content_w_cache
-            # from the render loop provides the accurate visible-row value.
+            # Pre-filter with cheap font.measure; only call the accurate
+            # _measure_to_col (italic + color-swatch aware) on lines that
+            # are actually long enough to overflow the viewport. This keeps
+            # the scrollbar range stable before a long line scrolls into view.
             if self._file_max_w_dirty:
-                self._file_max_w = max(
-                    (self._font.measure(l) for l in self.lines), default=0
-                )
+                vw = self._visible_text_width()
+                min_chars = max(1, vw // max(1, self._char_w))
+                max_w = 0
+                for l in self.lines:
+                    if len(l) < min_chars:
+                        continue
+                    w = self._measure_to_col(l, len(l))
+                    if w > max_w:
+                        max_w = w
+                self._file_max_w = max_w
                 self._file_max_w_dirty = False
             visible_w = self._visible_text_width()
             content_w = max(self._content_width(), self._file_max_w)
