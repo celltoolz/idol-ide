@@ -2589,8 +2589,12 @@ class CanvasCodeView(tk.Frame):
                 self.cur_col = 0
 
     def _move_vertical(self, delta: int) -> None:
-        self.cur_line = max(0, min(len(self.lines) - 1, self.cur_line + delta))
-        self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
+        # Work in visual rows so movement skips over folded blocks.
+        v_total = self._visual_row_count()
+        v_cur   = self._visual_row_of(self.cur_line)
+        v_new   = max(0, min(v_total - 1, v_cur + delta))
+        self.cur_line = self._visual_to_physical(v_new)
+        self.cur_col  = min(self.cur_col, len(self.lines[self.cur_line]))
 
     # ── Edit helpers ──────────────────────────────────────────────────────────
 
