@@ -70,10 +70,10 @@ _PROP_RENAMES = {"char_width": "width", "char_height": "height"}
 # IDOL marker lines — must contain the tokens persistence.py detects
 _IMPORT_B        = "# ── IDOL:IMPORTS:BEGIN "        + "─" * 49
 _IMPORT_E        = "# ── IDOL:IMPORTS:END "          + "─" * 51
-_DIALOG_IMPORT_B = "# ── IDOL:DIALOG_IMPORTS:BEGIN " + "─" * 42
-_DIALOG_IMPORT_E = "# ── IDOL:DIALOG_IMPORTS:END "   + "─" * 44
-_INIT_B          = "        # ── IDOL:BEGIN "         + "─" * 55
-_INIT_E          = "        # ── IDOL:END "           + "─" * 57
+_DIALOG_IMPORT_B = "# ── IDOL:DIALOG_IMPORTS:BEGIN " + "─" * 10 + "(Do not modify below)" + "─" * 11
+_DIALOG_IMPORT_E = "# ── IDOL:DIALOG_IMPORTS:END "   + "─" * 12 + "(Do not modify above)" + "─" * 11
+_INIT_B          = "        # ── IDOL:BEGIN " + "─" * 21 + "(Do not modify below)" + "─" * 21
+_INIT_E          = "        # ── IDOL:END "   + "─" * 23 + "(Do not modify above)" + "─" * 21
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

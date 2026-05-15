@@ -100,6 +100,9 @@ _GIT_HUNK_COLORS = {
 # A "# ── Name ─────" section marker — foldable like a block opener.
 # Matches IDOL/widgets/linenums.py:_SECTION_MARKER.
 _SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
+# IDOL designer codegen pair markers — fold the entire BEGIN…END block.
+_IDOL_BEGIN_RE  = re.compile(r"^\s*# ─{2,}\s+IDOL(?::[^:]+)?:BEGIN")
+_IDOL_END_RE    = re.compile(r"^\s*# ─{2,}\s+IDOL(?::[^:]+)?:END")
 # Lines that sticky-scroll pins: only class/def/async def, mirroring
 # IDOL/widgets/sticky_scroll.py:_SCOPE_RE. Generic block openers
 # (if/for/while/with) are foldable but not pinned — they'd clutter
@@ -456,15 +459,35 @@ class CanvasCodeView(tk.Frame):
         skip: int | None = None
         for i, txt in enumerate(self.lines):
             if skip is not None:
-                ind = len(txt) - len(txt.lstrip())
-                if txt.strip() and ind <= skip:
-                    skip = None
-                else:
+                if skip == -1:
+                    if _IDOL_END_RE.match(txt):
+                        skip = None
                     continue
+                if skip <= -2:
+                    si = -(skip + 2)
+                    if txt.strip():
+                        ind = len(txt) - len(txt.lstrip())
+                        if ind < si or (ind == si and _SECTION_MARKER.match(txt)):
+                            skip = None
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    ind = len(txt) - len(txt.lstrip())
+                    if txt.strip() and ind <= skip:
+                        skip = None
+                    else:
+                        continue
             if i == idx:
                 break
             if i in self.folded:
-                skip = len(txt) - len(txt.lstrip())
+                if _IDOL_BEGIN_RE.match(txt):
+                    skip = -1
+                elif _SECTION_MARKER.match(txt):
+                    skip = -(len(txt) - len(txt.lstrip()) + 2)
+                else:
+                    skip = len(txt) - len(txt.lstrip())
             v += 1
         self.scroll_y = max(0, v - 2)  # 2-row top overscan
         self.render()
@@ -991,31 +1014,60 @@ class CanvasCodeView(tk.Frame):
             line = self.lines[i]
             # Fold skip
             if skip_indent is not None:
-                ind = len(line) - len(line.lstrip())
-                if line.strip() and ind <= skip_indent:
-                    # Pull a closing bracket / brace line INTO the fold
-                    # (matches IDOL's _get_fold_range bracket inclusion).
-                    if (skip_close_char is not None
-                            and line.lstrip().startswith(skip_close_char)):
+                if skip_indent == -1:
+                    # IDOL BEGIN…END fold: consume everything up to and
+                    # including the matching END marker.
+                    if _IDOL_END_RE.match(line):
                         skip_indent = None
-                        skip_close_char = None
-                        i += 1
-                        continue
-                    skip_indent = None
-                    skip_close_char = None
-                else:
                     i += 1
                     continue
+                if skip_indent <= -2:
+                    # Section fold: skip until next same-indent section
+                    # header or a line at a lower indent level.
+                    si = -(skip_indent + 2)
+                    if line.strip():
+                        ind = len(line) - len(line.lstrip())
+                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
+                            skip_indent = None  # fall through to render this line
+                        else:
+                            i += 1
+                            continue
+                    else:
+                        i += 1
+                        continue
+                else:
+                    ind = len(line) - len(line.lstrip())
+                    if line.strip() and ind <= skip_indent:
+                        # Pull a closing bracket / brace line INTO the fold
+                        # (matches IDOL's _get_fold_range bracket inclusion).
+                        if (skip_close_char is not None
+                                and line.lstrip().startswith(skip_close_char)):
+                            skip_indent = None
+                            skip_close_char = None
+                            i += 1
+                            continue
+                        skip_indent = None
+                        skip_close_char = None
+                    else:
+                        i += 1
+                        continue
 
             # Skip rows above scroll
             if v_row < self.scroll_y:
                 v_row += 1
                 if i in self.folded:
-                    skip_indent = len(line) - len(line.lstrip())
-                    last = line.rstrip()[-1:] if line.rstrip() else ""
-                    skip_close_char = (
-                        {"(": ")", "[": "]", "{": "}"}.get(last)
-                    )
+                    if _IDOL_BEGIN_RE.match(line):
+                        skip_indent = -1
+                        skip_close_char = None
+                    elif _SECTION_MARKER.match(line):
+                        skip_indent = -(len(line) - len(line.lstrip()) + 2)
+                        skip_close_char = None
+                    else:
+                        skip_indent = len(line) - len(line.lstrip())
+                        last = line.rstrip()[-1:] if line.rstrip() else ""
+                        skip_close_char = (
+                            {"(": ")", "[": "]", "{": "}"}.get(last)
+                        )
                 i += 1
                 continue
             if rendered >= visible_rows:
@@ -1215,11 +1267,18 @@ class CanvasCodeView(tk.Frame):
                               font=self._font)
 
             if i in self.folded:
-                skip_indent = len(line) - len(line.lstrip())
-                last = line.rstrip()[-1:] if line.rstrip() else ""
-                skip_close_char = (
-                    {"(": ")", "[": "]", "{": "}"}.get(last)
-                )
+                if _IDOL_BEGIN_RE.match(line):
+                    skip_indent = -1
+                    skip_close_char = None
+                elif _SECTION_MARKER.match(line):
+                    skip_indent = -(len(line) - len(line.lstrip()) + 2)
+                    skip_close_char = None
+                else:
+                    skip_indent = len(line) - len(line.lstrip())
+                    last = line.rstrip()[-1:] if line.rstrip() else ""
+                    skip_close_char = (
+                        {"(": ")", "[": "]", "{": "}"}.get(last)
+                    )
             v_row += 1
             rendered += 1
             i += 1
@@ -1381,15 +1440,41 @@ class CanvasCodeView(tk.Frame):
             skip = None
             for i, line in enumerate(self.lines):
                 if skip is not None:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
+                    if skip == -1:
                         lnum = i + 1
                         pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
+                        if _IDOL_END_RE.match(line):
+                            skip = None
                         continue
+                    if skip <= -2:
+                        si = -(skip + 2)
+                        if line.strip():
+                            ind = len(line) - len(line.lstrip())
+                            if ind < si or (ind == si and _SECTION_MARKER.match(line)):
+                                skip = None  # terminating line is not elided
+                            else:
+                                lnum = i + 1
+                                pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
+                                continue
+                        else:
+                            lnum = i + 1
+                            pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
+                            continue
+                    else:
+                        ind = len(line) - len(line.lstrip())
+                        if line.strip() and ind <= skip:
+                            skip = None
+                        else:
+                            lnum = i + 1
+                            pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
+                            continue
                 if i in cur_folded:
-                    skip = len(line) - len(line.lstrip())
+                    if _IDOL_BEGIN_RE.match(line):
+                        skip = -1
+                    elif _SECTION_MARKER.match(line):
+                        skip = -(len(line) - len(line.lstrip()) + 2)
+                    else:
+                        skip = len(line) - len(line.lstrip())
         self._mm_last_folded = cur_folded
 
     def _mm_sync_scroll(self) -> None:
@@ -1431,15 +1516,35 @@ class CanvasCodeView(tk.Frame):
         skip = None
         for i, line in enumerate(self.lines):
             if skip is not None:
-                ind = len(line) - len(line.lstrip())
-                if line.strip() and ind <= skip:
-                    skip = None
-                else:
+                if skip == -1:
+                    if _IDOL_END_RE.match(line):
+                        skip = None
                     continue
+                if skip <= -2:
+                    si = -(skip + 2)
+                    if line.strip():
+                        ind = len(line) - len(line.lstrip())
+                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
+                            skip = None
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    ind = len(line) - len(line.lstrip())
+                    if line.strip() and ind <= skip:
+                        skip = None
+                    else:
+                        continue
             if i == phys:
                 break
             if i in self.folded:
-                skip = len(line) - len(line.lstrip())
+                if _IDOL_BEGIN_RE.match(line):
+                    skip = -1
+                elif _SECTION_MARKER.match(line):
+                    skip = -(len(line) - len(line.lstrip()) + 2)
+                else:
+                    skip = len(line) - len(line.lstrip())
             v += 1
         h = self.canvas.winfo_height()
         v_rows = max(1, h // self._line_h)
@@ -1664,6 +1769,8 @@ class CanvasCodeView(tk.Frame):
         if not (0 <= i < len(self.lines)):
             return False
         line = self.lines[i]
+        if _IDOL_END_RE.match(line):
+            return False
         if _SECTION_MARKER.match(line):
             return True
         if not line.rstrip().endswith((":", "(", "[", "{")):
@@ -2032,15 +2139,35 @@ class CanvasCodeView(tk.Frame):
         skip = None
         for i, line in enumerate(self.lines):
             if skip is not None:
-                ind = len(line) - len(line.lstrip())
-                if line.strip() and ind <= skip:
-                    skip = None
-                else:
+                if skip == -1:
+                    if _IDOL_END_RE.match(line):
+                        skip = None
                     continue
+                if skip <= -2:
+                    si = -(skip + 2)
+                    if line.strip():
+                        ind = len(line) - len(line.lstrip())
+                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
+                            skip = None
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    ind = len(line) - len(line.lstrip())
+                    if line.strip() and ind <= skip:
+                        skip = None
+                    else:
+                        continue
             if cur_v == v_row:
                 return i
             if i in self.folded:
-                skip = len(line) - len(line.lstrip())
+                if _IDOL_BEGIN_RE.match(line):
+                    skip = -1
+                elif _SECTION_MARKER.match(line):
+                    skip = -(len(line) - len(line.lstrip()) + 2)
+                else:
+                    skip = len(line) - len(line.lstrip())
             cur_v += 1
         return len(self.lines) - 1
 
@@ -2049,14 +2176,34 @@ class CanvasCodeView(tk.Frame):
         skip = None
         for i, line in enumerate(self.lines):
             if skip is not None:
-                ind = len(line) - len(line.lstrip())
-                if line.strip() and ind <= skip:
-                    skip = None
-                else:
+                if skip == -1:
+                    if _IDOL_END_RE.match(line):
+                        skip = None
                     continue
+                if skip <= -2:
+                    si = -(skip + 2)
+                    if line.strip():
+                        ind = len(line) - len(line.lstrip())
+                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
+                            skip = None
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    ind = len(line) - len(line.lstrip())
+                    if line.strip() and ind <= skip:
+                        skip = None
+                    else:
+                        continue
             n += 1
             if i in self.folded:
-                skip = len(line) - len(line.lstrip())
+                if _IDOL_BEGIN_RE.match(line):
+                    skip = -1
+                elif _SECTION_MARKER.match(line):
+                    skip = -(len(line) - len(line.lstrip()) + 2)
+                else:
+                    skip = len(line) - len(line.lstrip())
         return n
 
     def _row_from_y(self, y: int) -> int:
@@ -2108,16 +2255,36 @@ class CanvasCodeView(tk.Frame):
         target_v = 0
         for i, line in enumerate(self.lines):
             if skip is not None:
-                ind = len(line) - len(line.lstrip())
-                if line.strip() and ind <= skip:
-                    skip = None
-                else:
+                if skip == -1:
+                    if _IDOL_END_RE.match(line):
+                        skip = None
                     continue
+                if skip <= -2:
+                    si = -(skip + 2)
+                    if line.strip():
+                        ind = len(line) - len(line.lstrip())
+                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
+                            skip = None
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    ind = len(line) - len(line.lstrip())
+                    if line.strip() and ind <= skip:
+                        skip = None
+                    else:
+                        continue
             if i == self.cur_line:
                 target_v = cur_v
                 break
             if i in self.folded:
-                skip = len(line) - len(line.lstrip())
+                if _IDOL_BEGIN_RE.match(line):
+                    skip = -1
+                elif _SECTION_MARKER.match(line):
+                    skip = -(len(line) - len(line.lstrip()) + 2)
+                else:
+                    skip = len(line) - len(line.lstrip())
             cur_v += 1
         h = self.canvas.winfo_height()
         visible_rows = max(1, h // self._line_h)
@@ -2969,15 +3136,35 @@ class CanvasCodeView(tk.Frame):
         skip = None
         for i, line in enumerate(self.lines):
             if skip is not None:
-                ind = len(line) - len(line.lstrip())
-                if line.strip() and ind <= skip:
-                    skip = None
-                else:
+                if skip == -1:
+                    if _IDOL_END_RE.match(line):
+                        skip = None
                     continue
+                if skip <= -2:
+                    si = -(skip + 2)
+                    if line.strip():
+                        ind = len(line) - len(line.lstrip())
+                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
+                            skip = None
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    ind = len(line) - len(line.lstrip())
+                    if line.strip() and ind <= skip:
+                        skip = None
+                    else:
+                        continue
             if i == line_idx:
                 return v
             if i in self.folded:
-                skip = len(line) - len(line.lstrip())
+                if _IDOL_BEGIN_RE.match(line):
+                    skip = -1
+                elif _SECTION_MARKER.match(line):
+                    skip = -(len(line) - len(line.lstrip()) + 2)
+                else:
+                    skip = len(line) - len(line.lstrip())
             v += 1
         return v
 
