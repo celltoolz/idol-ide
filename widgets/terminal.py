@@ -643,14 +643,13 @@ class TerminalPanel(ttk.Frame):
                 _git_usr_bin = os.path.normpath(
                     os.path.join(os.path.dirname(cmd[0]), "..", "usr", "bin")
                 )
-                _cyg_exe = os.path.join(_git_usr_bin, "cygpath.exe")
-                _dbg = (
-                    f"[IDOL Debug] cmd[0]           = {cmd[0]}\n"
-                    f"[IDOL Debug] _git_usr_bin     = {_git_usr_bin}\n"
-                    f"[IDOL Debug] dir exists       = {os.path.isdir(_git_usr_bin)}\n"
-                    f"[IDOL Debug] cygpath.exe here = {os.path.isfile(_cyg_exe)}\n"
-                )
-                self.after(800, lambda d=_dbg: self._write_error(d))
+                # Bash-level diagnostic: check if cygpath is reachable from inside the shell
+                self.after(900, lambda: self._send_silently(
+                    'echo "[DBG] which cygpath=$(which cygpath 2>&1)"\r'
+                ))
+                self.after(950, lambda: self._send_silently(
+                    'echo "[DBG] PATH=$PATH" | tr ":" "\\n" | head -8\r'
+                ))
                 if os.path.isdir(_git_usr_bin):
                     cur_path = env.get("PATH", "")
                     if _git_usr_bin.lower() not in cur_path.lower():
