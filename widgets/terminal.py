@@ -635,6 +635,18 @@ class TerminalPanel(ttk.Frame):
                 venv_bin = os.path.join(self._idol_venv, "bin") + os.pathsep
                 venv_scripts = os.path.join(self._idol_venv, "Scripts") + os.pathsep
                 env["PATH"] = env.get("PATH", "").replace(venv_bin, "").replace(venv_scripts, "")
+            # For Git Bash on Windows, inject the Git usr/bin directory so that
+            # MSYS2 tools (cygpath, sort, etc.) are available even before the
+            # login profile runs.  Derive the path from the bash.exe location so
+            # non-standard Git installs are handled automatically.
+            if platform.system() == "Windows" and "bash" in os.path.basename(cmd[0]).lower():
+                _git_usr_bin = os.path.normpath(
+                    os.path.join(os.path.dirname(cmd[0]), "..", "usr", "bin")
+                )
+                if os.path.isdir(_git_usr_bin):
+                    cur_path = env.get("PATH", "")
+                    if _git_usr_bin.lower() not in cur_path.lower():
+                        env["PATH"] = _git_usr_bin + os.pathsep + cur_path
             # sh/dash don't understand zsh-style prompt codes (%{...%}); strip
             # any inherited PS1 so they fall back to their built-in default.
             _shell_base = os.path.basename(cmd[0]).lower()
