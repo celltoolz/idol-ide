@@ -349,6 +349,8 @@ class IDOL(Tk):
         self._multi_cursors: dict[str, MultiCursor] = {}
         self._breadcrumbs: dict[str, BreadcrumbBar] = {}
 
+        self._editor_font: tuple | None = None  # (family, size, weight, slant)
+
         self._bracket_matcher = BracketMatcher()
         self._find_replace: FindReplaceBar | None = None
 
@@ -1357,6 +1359,8 @@ class IDOL(Tk):
         """
         frame = ttk.Frame(self.notebook)
         cv = CanvasCodeView(frame)
+        if self._editor_font:
+            cv.set_font(*self._editor_font)
         # The sandbox already builds its own breadcrumb internally —
         # no separate widget needed at the tab-frame level for now.
         cv.pack(fill="both", expand=True)
@@ -3564,15 +3568,14 @@ class IDOL(Tk):
         font = askfont(self)
         if not font:
             return
-        font["family"] = font["family"].replace(" ", "\\ ")
-        font_str = "%(family)s %(size)i %(weight)s %(slant)s" % font
-        if font["underline"]:
-            font_str += " underline"
-        if font["overstrike"]:
-            font_str += " overstrike"
-        cv = self._current_codeview
-        if cv:
-            cv.configure(font=font_str)
+        family = font["family"]
+        size   = int(font["size"])
+        weight = font.get("weight", "normal") or "normal"
+        slant  = font.get("slant",  "roman")  or "roman"
+        self._editor_font = (family, size, weight, slant)
+        for cv in self._codeviews.values():
+            if cv is not None:
+                cv.set_font(family, size, weight, slant)
 
     def view_toggle_highlight(self) -> None:
         pass  # BooleanVar already toggled; the poll loop picks it up automatically
@@ -5325,6 +5328,8 @@ class IDOL(Tk):
         LSP open, sidebar palette).
         """
         cv = CanvasCodeView(ttk.Frame(notebook))
+        if self._editor_font:
+            cv.set_font(*self._editor_font)
         frame = cv.master  # the Frame we just constructed
         cv.pack(fill="both", expand=True)
         cv.on_change = self._on_content_changed

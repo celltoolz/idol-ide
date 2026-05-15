@@ -202,6 +202,25 @@ class CanvasCodeView(tk.Frame):
         self.after(500, self._blink_cursor)
         self.after_idle(self.render)
 
+    # ── Font switching ───────────────────────────────────────────────────────
+
+    def set_font(self, family: str, size: int,
+                 weight: str = "normal", slant: str = "roman") -> None:
+        """Change the editor font globally. Reconfigures the tkfont objects
+        in place so every canvas draw call picks up the new face immediately."""
+        self._font.configure(family=family, size=size, weight=weight, slant=slant)
+        self._font_italic.configure(family=family, size=size,
+                                    weight=weight, slant="italic")
+        self._char_w  = self._font.measure("W")
+        self._line_h  = self._font.metrics("linespace") + 2
+        # Invalidate all pixel-width caches — measurements change with the font.
+        self._file_max_w_dirty = True
+        self._content_w_cache  = 0
+        self._mm_lines_cache   = []   # force minimap content rebuild
+        if self._ac_listbox is not None:
+            self._ac_listbox.configure(font=(family, max(8, size - 1)))
+        self.render()
+
     # ── Theme switching ──────────────────────────────────────────────────────
 
     def set_theme(self, name: str) -> None:
