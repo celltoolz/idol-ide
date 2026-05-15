@@ -898,7 +898,7 @@ class CanvasCodeView(tk.Frame):
                lambda _: (self.xview("scroll", +1, "units"), "break")[1])
         c.bind("<Key>",              self._on_key)
         c.bind("<FocusIn>",          lambda _: self.render())
-        c.bind("<FocusOut>",         lambda _: self.render())
+        c.bind("<FocusOut>",         self._on_canvas_focus_out)
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
@@ -2832,6 +2832,8 @@ class CanvasCodeView(tk.Frame):
                 width=24, height=8,
             )
             self._ac_listbox.pack(fill="both", expand=True)
+            self._ac_listbox.bind("<ButtonRelease-1>",
+                                  lambda _: self._accept_autocomplete())
             self._ac_listbox.bind("<Double-Button-1>",
                                   lambda _: self._accept_autocomplete())
         self._ac_listbox.delete(0, "end")
@@ -2847,6 +2849,20 @@ class CanvasCodeView(tk.Frame):
             self._ac_top.withdraw()
         self._ac_items = []
         self._ac_prefix = ""
+
+    def _on_canvas_focus_out(self, _event) -> None:
+        self.render()
+        # Close autocomplete when the editor loses focus (user clicked away,
+        # switched tabs, etc.). Use after() so a listbox click can fire
+        # _accept_autocomplete before the popup is withdrawn.
+        self.after(50, self._ac_dismiss_if_unfocused)
+
+    def _ac_dismiss_if_unfocused(self) -> None:
+        if self._ac_top is None or self._ac_top.state() != "normal":
+            return
+        focused = self.focus_get()
+        if focused is not self.canvas and focused is not self._ac_listbox:
+            self._hide_autocomplete()
 
     def _ac_select(self, delta: int) -> None:
         if not self._ac_items or self._ac_listbox is None:
