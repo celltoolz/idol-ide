@@ -31,6 +31,19 @@ def _selected_text(cv) -> str:
     except tk.TclError:
         return ""
 
+def _cursor_word(cv) -> str:
+    """Return the identifier-like word under the caret, or ''."""
+    if _is_canvas_cv(cv):
+        return cv._cursor_word() or ""
+    try:
+        idx   = cv.index("insert")
+        start = cv.index(f"{idx} wordstart")
+        end   = cv.index(f"{idx} wordend")
+        word  = cv.get(start, end).strip()
+        return word if word.isidentifier() else ""
+    except tk.TclError:
+        return ""
+
 def _offset_to_lc(text: str, offset: int) -> tuple[int, int]:
     """Char offset → (0-indexed line, 0-indexed col). Engine-agnostic."""
     before = text[:offset]
@@ -285,6 +298,10 @@ class FindReplaceBar(tk.Frame):
         sel = _selected_text(codeview)
         if sel and "\n" not in sel:
             self.find_var.set(sel)
+        else:
+            word = _cursor_word(codeview)
+            if word:
+                self.find_var.set(word)
 
         # Place in the top-right of the master frame; lift above everything
         self.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
