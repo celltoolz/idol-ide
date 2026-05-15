@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Status-Active%20Development-brightgreen?style=flat-square" alt="Active Development">
 </p>
 
-IDOL is what IDLE could have been — a full Python IDE with professional-grade tools (LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
+IDOL is what IDLE could have been — a full Python IDE with professional-grade tools (Designer, LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
 
 Runs natively on **Windows**, **macOS**, and **Linux** from a single codebase.
 
@@ -35,9 +35,10 @@ pip install -r requirements.txt
 python main.py
 ```
 
-For LSP (hover, autocomplete, go-to-definition): `pip install python-lsp-server`
-For diagnostics: `pip install ruff`
 For AI features: install [Ollama](https://ollama.com) and run `ollama pull qwen2.5-coder`
+
+For Git features: install [GitHub CLI](https://cli.github.com/) or run `winget install Git.Git GitHub.cli --source winget` to install in Windows
+
 
 → **[Full setup guide](docs/getting-started.md)**
 
@@ -53,7 +54,7 @@ For AI features: install [Ollama](https://ollama.com) and run `ollama pull qwen2
   <img src="screenshots/designer-calculator-running.png" width="41%">
 </p>
 
-The only Python IDE with a **VB6-style visual form designer** built in. Drag-and-drop canvas, 14 widget types, live property editing, variable binding, menu builder, and clean class-based code generation — all in a Tkinter project.
+The only Python IDE with a **VB6-style visual form designer** built in. Drag-and-drop canvas, 15 widget types, live property editing, variable binding, menu builder, and clean class-based code generation — all in a Tkinter project.
 
 → **[Full designer docs](docs/designer.md)**
 

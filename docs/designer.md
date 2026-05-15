@@ -229,8 +229,6 @@ Double-clicking a widget with events:
 
 Double-clicking a widget with no events switches to the Events tab.
 
-**Double-clicking a wired event row** in the Events tab jumps directly to that specific handler in the editor.
-
 **Double-clicking a checked handler row** in the Handlers tab also navigates to that handler (double-clicking an unchecked row enables it instead).
 
 **Double-clicking a wired event row in the Properties panel** (the property name column) also jumps to that handler — so you can navigate to code from any event.
@@ -394,3 +392,5 @@ The canvas state is stored in a `.form.json` sidecar file next to the generated 
 ## Project Type Gating
 
 The Designer only appears for **Tkinter GUI App** projects. Command Line projects see only the standard editor with no extra UI.
+
+`Pro tip: To open Designer without a project go to Designer -> New Form...`
