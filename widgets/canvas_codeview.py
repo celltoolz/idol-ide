@@ -670,19 +670,7 @@ class CanvasCodeView(tk.Frame):
         self.render()
 
     def _refresh_breadcrumb(self) -> None:
-        """Push current file/cursor state into the breadcrumb. Outline
-        support comes in later phases — for now path crumbs only."""
-        try:
-            self.breadcrumb.update_crumbs(
-                filepath=self.filepath,
-                explorer_root=None,
-                cursor_line=self.cur_line + 1,
-                outline=None,
-                is_python=bool(self.filepath
-                               and self.filepath.endswith(".py")),
-            )
-        except Exception:
-            pass
+        pass  # app.py's 25 ms _highlight_active_line loop owns all crumb updates
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 
@@ -716,13 +704,25 @@ class CanvasCodeView(tk.Frame):
         self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Breadcrumb — passes through `get_line` and a stub navigate so
-        # the bar is visually live even before app.py wires outline.
+        # Breadcrumb — passes through `get_line` and a highlight_fn that
+        # tokenizes with the canvas engine so the locals preview uses the
+        # active theme's colours.
+        def _crumb_highlight(text: str) -> list[tuple[str, str]]:
+            fg = self._palette.get("fg", "#cccccc")
+            result = []
+            for tok_text, cat in self._tokenize(text):
+                if not tok_text:
+                    continue
+                spec = self._token_style.get(cat) if cat else None
+                result.append((tok_text, spec[0] if spec else fg))
+            return result
+
         self.breadcrumb = BreadcrumbBar(
             self,
             on_navigate=self._goto_line,
             get_line=lambda ln: (self.lines[ln - 1]
                                  if 0 < ln <= len(self.lines) else ""),
+            highlight_fn=_crumb_highlight,
         )
         self.breadcrumb.grid(row=0, column=0, columnspan=2, sticky="ew")
 
