@@ -4,19 +4,14 @@
 
 - Multi-tab editing with drag reorder, hover close button, and right-click tab menu
 - Hover any tab to see its full file path as a tooltip
-- Syntax highlighting via [Pygments](https://pygments.org/) — Dracula, Monokai, Ayu, Material, and more
-- Line numbers with code folding — click ⊟/⊞ markers to collapse/expand blocks; `# ── Name ───` section-marker comments are also foldable regions
+- Canvas-rendered regex-rule syntax highlighting; themes are JSON files in `themes/` — no Pygments dependency
+- Line numbers with code folding — click **▼**/**▶** markers to collapse/expand blocks; `# ── Name ───` section-marker comments fold from that header to the next section header at the same indent; IDOL designer markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block; **Up/Down arrow keys skip folded blocks**
 - Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes
 - Insert key toggles overwrite mode — block cursor and OVR status bar indicator
 
-## Multi-Cursor Editing
+## Font
 
-- **Alt+Click** to add a cursor; Alt+Click an existing cursor to remove it
-- All cursors type, delete, and navigate in sync
-- **Shift+Arrow** extends an independent selection at each cursor
-- **Ctrl+C** copies all selections at once
-- Smart pairs (brackets, quotes) auto-close and skip-over correctly at every cursor
-- Click placement aligned to nearest character boundary
+**View → Change Font** opens a font chooser dialog where you can set the editor font family, size, and bold/italic style. The selection persists across restarts.
 
 ## Line Move & Duplicate
 
@@ -34,7 +29,7 @@ Enclosing scope pins to the top of the editor while you scroll — fully syntax-
 
 ## Minimap
 
-Live scaled-down view of the full file with hover zoom preview and mouse wheel scrolling. Toggle with the **MAP** button in the nav toolbar.
+Live scaled-down view of the full file with hover zoom preview and mouse wheel scrolling. Toggle with the **MAP** button in the nav toolbar. The minimap is fold-aware — folded lines are hidden in the minimap too.
 
 ## Breadcrumb Bar
 
@@ -86,13 +81,12 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 - The panel is a persistent hidden window; closing it with the × just hides it, history is preserved
 
 > The rows are rendered as Canvas primitives (not widget trees) — hover effects are sub-millisecond
-> `itemconfigure` calls with no full redraws. This is the pilot for the canvas-renderer pattern
-> that will eventually back the Outline, References, Source Control, and Explorer panels.
+> `itemconfigure` calls with no full redraws.
 
 ## Find & Replace
 
 VS Code-style inline bar with case, whole word, and regex toggles. Open with `Ctrl+F`.
 
-## Color Schemes
+## Themes
 
-`.toml` files in the `colorschemes/` directory. Change via `Edit → Color Scheme` or `Ctrl+L` (font/scheme chooser). Add new themes by dropping a `.toml` file in that directory.
+JSON files in the `themes/` directory. Change the active theme via **View → Theme**. Add a new theme by dropping a `.json` file into the `themes/` directory — it appears in the menu on next launch with no code changes needed. Two themes are bundled: `monokai-bright` and `dark-plus`.

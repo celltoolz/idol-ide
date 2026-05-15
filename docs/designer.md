@@ -283,17 +283,17 @@ Dialogs generate a `tk.Toplevel` subclass. Closing the window calls `_on_close` 
 ```python
 class MyDialog(tk.Toplevel):
     def __init__(self, parent, **kwargs):
-        # ── IDOL:BEGIN ──
+        # ── IDOL:BEGIN ─────────────────────(Do not modify below)─────────────────────
         super().__init__(parent, **kwargs)
         self.withdraw()
         self.title("My Dialog")
         self.geometry("400x300")
-        # ── IDOL:END ──
+        # ── IDOL:END ───────────────────────(Do not modify above)─────────────────────
 
-        # ── IDOL:BEGIN ──
+        # ── IDOL:BEGIN ─────────────────────(Do not modify below)─────────────────────
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        # ── IDOL:END ──
+        # ── IDOL:END ───────────────────────(Do not modify above)─────────────────────
 
     # ── Events ──────────────────────────────────────────────────
     def _on_close(self):
@@ -309,10 +309,10 @@ from MyDialog import MyDialog
 
 class Form1(tk.Tk):
     def __init__(self):
-        # ── IDOL:BEGIN ──
+        # ── IDOL:BEGIN ─────────────────────(Do not modify below)─────────────────────
         super().__init__()
         self.dlg_MyDialog = MyDialog(self)   # created once, reused
-        # ── IDOL:END ──
+        # ── IDOL:END ───────────────────────(Do not modify above)─────────────────────
 
     # ── Events ──────────────────────────────────────────────────
     def _open_MyDialog(self):
@@ -331,24 +331,24 @@ Key points:
 
 ```python
 import tkinter as tk
-# ── IDOL:IMPORTS:BEGIN ── (add your imports between the markers)
+# ── IDOL:IMPORTS:BEGIN ─────────────────────────────────────────────────────────
 # Add your imports here
-# ── IDOL:IMPORTS:END ──
+# ── IDOL:IMPORTS:END ───────────────────────────────────────────────────────────
 
 class Form1(tk.Tk):
     def __init__(self):
-        # ── IDOL:BEGIN ────── (generated — do not edit inside markers)
+        # ── IDOL:BEGIN ─────────────────────(Do not modify below)─────────────────────
         super().__init__()
         self.title("My App")
         self.geometry("800x600")
         self.result_var = tk.StringVar()
-        # ── IDOL:END ──────
+        # ── IDOL:END ───────────────────────(Do not modify above)─────────────────────
 
         # Your __init__ code here is preserved across regeneration
 
-        # ── IDOL:BEGIN ──────
+        # ── IDOL:BEGIN ─────────────────────(Do not modify below)─────────────────────
         self._build_ui()
-        # ── IDOL:END ──────
+        # ── IDOL:END ───────────────────────(Do not modify above)─────────────────────
 
     def _build_ui(self):
         self.btn1 = tk.Button(self, text="Click Me", command=self._btn1_click)

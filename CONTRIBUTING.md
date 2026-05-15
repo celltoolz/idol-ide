@@ -269,7 +269,7 @@ Any future static data files belong here, not inside package directories.
 
 Implemented and stable:
 - Multi-tab editing with session persistence (dirty tracking, restore hardening); **CRC dirty tracking** — undo/redo clears the dirty flag automatically when content returns to the last-saved state
-- Regex-rule syntax highlighting (canvas-rendered, no pygments); fold markers (including `# ── Name ───` section-marker folds); Ctrl+/ comment toggle; word occurrence highlights on cursor move
+- Regex-rule syntax highlighting (canvas-rendered, no pygments); **fold markers** — `▼/▶` gutter glyphs; `# ── Name ───` section headers fold to the next section header at the same indent; IDOL codegen markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block regardless of indentation; Up/Down arrow skips folded blocks; Ctrl+/ comment toggle; word occurrence highlights on cursor move
 - **Smart Home key** — first press goes to first non-whitespace; second press goes to column 0 (position-based, no state needed)
 - **Center-on-navigate** — outline and references panel navigation centers the target line in the editor
 - pylsp LSP integration (hover, diagnostics, definition, completion)
@@ -279,9 +279,9 @@ Implemented and stable:
 - **Interpreter statusbar segment** — shows active Python version; click to open interpreter picker popup; selection persists per project root in `~/.idol/settings.json`; venv activation (from terminal toolbar or project wizard) shown as `(.venv) Python x.x.x` and re-activated automatically on next launch
 - **Git ahead/behind statusbar** — live `↑N ↓N` badge in statusbar showing unpushed/unpulled commit counts relative to the remote tracking branch
 - **Fix Encoding nav pill** — non-ASCII paste into an ASCII file surfaces a yellow pill in the breadcrumb bar offering to re-open the file with UTF-8 encoding; pill dismissed once file is saved with the new encoding
-- Sticky scroll, minimap
+- Sticky scroll; **minimap** — embedded in the canvas editor (not a separate widget), fold-aware (folded lines are hidden in the minimap too), hover zoom preview
+- **View → Change Font** — font chooser (family, size, bold/italic) wired to all open canvas tabs; selection persists across restart via `~/.idol/settings.json`
 - **Breadcrumb bar** — path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
-- **Multi-cursor editing** — Alt+Click to add/remove cursors; Shift+Arrow for independent per-cursor selections; Ctrl+C copies all selections; smart pairs and bracket matching work at every cursor; click-placement aligned to nearest character boundary
 - **Line move & duplicate** — Alt+Up/Down moves current line or selected block; Shift+Alt+Down duplicates below (cursor follows); Shift+Alt+Up duplicates below (cursor stays on original)
 - **Unified Panels menu** — View → Panels submenu switches between Output/Terminal/Problems/Debug tabs; Ctrl+` terminal, Ctrl+Shift+U output, Ctrl+Shift+M problems, Ctrl+Shift+Y debug; each shortcut toggles visibility if already active
 - Split editor with scroll sync; scroll lock (hardware Scroll Lock key synced on startup)
@@ -307,12 +307,11 @@ Implemented and stable:
 - Nav toolbar (split run button, panel toggles: AI/Learn/Packages; view toggles: Minimap/Sidebar/Split/Zen)
 - Zen mode (F10), Toggle Sidebar (Ctrl+B)
 - **GuideWindow system** — content-agnostic paginated `Toplevel` used across all guides; see `widgets/guide_window.py`
-- Colorscheme system (`.toml` files)
+- **Theme system** (`themes/*.json` files loaded by `utils/theme_loader.py`; View → Theme menu; drop a new JSON to add a theme with no code change; two bundled themes: `monokai-bright`, `dark-plus`)
 - **Clipboard History panel** (`widgets/clipboard_history.py`) — canvas-virtualized ring of the
   last 50 clipboard entries; opened via Ctrl+Shift+H as a persistent hidden `Toplevel`; canvas
   rows (rect + text) with hover via `itemconfigure`, keyboard nav, pin/unpin (right-click), and
-  search filter; `on_copy` callback on `codeview` delivers text directly on Ctrl+C (bypasses
-  the `<<Copy>>` virtual event which `_copy()` suppresses with `return "break"`)
+  search filter; `on_copy` callback on the canvas editor delivers text directly on Ctrl+C
 - **Undo on the canvas editor** — open follow-up. The legacy
   `tk.Text`-backed undo (`_capture_token_tags` / `_restore_token_tags`
   with `dump -tag` snapshots) is gone alongside the legacy CodeView.
@@ -325,6 +324,7 @@ Implemented and stable:
 ## Planned / In Progress
 
 - **GUI Designer — remaining roadmap:** grid layout mode; live preview (run form in subprocess).
+- **Multi-cursor editing** — Alt+Click to add/remove cursors; deferred to canvas editor model rewrite (not in current canvas engine).
 
 ## Designer — Shipped (Phase 2)
 
