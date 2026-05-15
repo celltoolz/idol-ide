@@ -37,7 +37,7 @@ python main.py
 
 For AI features: install [Ollama](https://ollama.com) and run `ollama pull qwen2.5-coder`
 
-For Git features: install [GitHub CLI](https://cli.github.com/) or run `winget install Git.Git GitHub.cli --source winget` to install in Windows
+For Git features: install [GitHub CLI](https://cli.github.com/) or run `winget install Git.Git GitHub.cli --source winget` to install on Windows
 
 
 → **[Full setup guide](docs/getting-started.md)**
