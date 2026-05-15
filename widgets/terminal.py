@@ -1790,7 +1790,17 @@ class TerminalPanel(ttk.Frame):
             )
         else:
             # bash / sh (including Git Bash on Windows)
+            # On Windows the MSYS2 runtime may skip PATH conversion when launched
+            # via ConPTY, leaving /usr/bin off the path. Inject it directly if
+            # cygpath (a reliable canary) isn't reachable yet.
+            msys_fix = ""
+            if platform.system() == "Windows" and "bash" in shell_name:
+                msys_fix = (
+                    'type -P cygpath >/dev/null 2>&1 ||'
+                    ' export PATH="/usr/local/bin:/usr/bin:/bin:/mingw64/bin:$PATH"; '
+                )
             hook = (
+                f'{msys_fix}'
                 'export PROMPT_COMMAND=\'_ec=$?;'
                 ' printf "\\e]133;D;%d\\a" "$_ec";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
