@@ -2147,13 +2147,14 @@ class TerminalPanel(ttk.Frame):
                     else:
                         # Top of viewport is in the live area — treat as bottom.
                         at_bottom = True
-                # Move rows ABOVE the current prompt into scrollback (and
-                # shift the prompt rows up to start at row 0). The current
-                # prompt stays in pyte's visible buffer, so SIGWINCH from
-                # setwinsize is enough to make the shell repaint it in place
-                # at the new width — no fresh prompt is appended on each
-                # resize.
-                self._snapshot_visible_to_scrollback()
+                # Move rows ABOVE the current prompt into scrollback when
+                # columns change (reflow is needed). For row-only shrinks,
+                # skip the snapshot: the buffer is already correct and the
+                # shift would corrupt PSReadLine's absolute row coordinates,
+                # causing it to erase previous-output rows with spaces when
+                # its SIGWINCH handler runs.
+                if cols != self._cols:
+                    self._snapshot_visible_to_scrollback()
                 self.resize(rows, cols)
                 # Selection coords live in physical canvas rows that change
                 # meaning after reflow — clear rather than try to remap.
