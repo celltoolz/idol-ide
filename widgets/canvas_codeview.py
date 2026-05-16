@@ -808,6 +808,7 @@ class CanvasCodeView(tk.Frame):
         # Active-line highlight controls — set by the host at runtime.
         # highlight_active_line=False suppresses the band entirely.
         # active_line_color overrides the theme's current_line_bg when set.
+        self.tab_size: int = 4
         self.highlight_active_line: bool = True
         self._active_line_color: str | None = None
         # ── Host hooks for context-menu items ────────────────────
@@ -2791,7 +2792,9 @@ class CanvasCodeView(tk.Frame):
         if ks == "Return":
             self._insert_newline(); self._ensure_visible(); self.render(); return "break"
         if ks == "Tab":
-            self._insert_text("    "); self._ensure_visible(); self.render(); return "break"
+            if shift:
+                self._unindent(); self._ensure_visible(); return "break"
+            self._insert_text(" " * self.tab_size); self._ensure_visible(); self.render(); return "break"
 
         if event.char and event.char.isprintable() and not ctrl:
             self._insert_char_with_pairs(event.char)
@@ -3308,6 +3311,19 @@ class CanvasCodeView(tk.Frame):
         self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
         self.render()
         self._fire_change()
+
+    def _unindent(self) -> None:
+        """Shift+Tab — remove up to tab_size leading spaces from each selected line."""
+        start, end = self._selected_line_range()
+        for i in range(start, end + 1):
+            line = self.lines[i]
+            removed = min(len(line) - len(line.lstrip(" ")), self.tab_size)
+            self.lines[i] = line[removed:]
+            if i == self.cur_line:
+                self.cur_col = max(0, self.cur_col - removed)
+        self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
+        self._fire_change()
+        self.render()
 
     def _move_lines(self, delta: int) -> None:
         """Alt+Up/Down — move the selected line block (or current line)
