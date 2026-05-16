@@ -37,7 +37,7 @@
     "function":     {"color": "#66d9ef"},
     "method":       {"color": "#a6e22e"},
     "decorator":    {"color": "#66d9ef"},
-    "parameter":    {"color": "#ccffcc"},
+    "parameter":    {"color": "#66d9ef"},
     "punctuation":  {"color": "#f92672"}
   }
 }

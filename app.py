@@ -3488,8 +3488,10 @@ class IDOL(Tk):
         session_utils.save(self, path)
 
     def workspace_open(self, *_) -> None:
+        initial = str(self._sidebar.explorer._root or os.getcwd())
         path = askopenfilename(
             title="Open Project",
+            initialdir=initial,
             filetypes=[("IDOL Project files", "*.idol-project"), ("All files", "*.*")],
         )
         if not path or not os.path.isfile(path):

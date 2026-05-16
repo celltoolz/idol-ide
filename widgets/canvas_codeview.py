@@ -990,6 +990,10 @@ class CanvasCodeView(tk.Frame):
                 r"breakpoint|help|memoryview|slice|staticmethod|classmethod|"
                 r"property)\b"
             ),                                                    "function"),
+            # Constructor / class call-sites — any PascalCase (or ALL_CAPS)
+            # identifier followed by `(`. Placed before the dot-method rule
+            # so `tk.Label(...)` colors `Label` as a type, not a method.
+            (re.compile(r"\b[A-Z]\w*(?=\s*\()"),                  "type"),
             # Method calls after a dot — dunders (e.g. `__init__` in
             # `super().__init__()`) go to "function", regular method calls
             # (e.g. `self._build_ui()`) go to "method". Mirrors the def-name

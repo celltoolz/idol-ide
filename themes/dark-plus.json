@@ -37,6 +37,6 @@
     "function":     {"color": "#dcdcaa"},
     "method":       {"color": "#dcdcaa"},
     "decorator":    {"color": "#dcdcaa"},
-    "parameter":    {"color": "#9cdcfe"}
+    "parameter":    {"color": "#4ec9b0"}
   }
 }
