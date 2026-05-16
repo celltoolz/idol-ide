@@ -195,15 +195,23 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 - **Zen mode → Designer kills statusbar** — toggle Zen on then off while in the editor, switch to Designer: the status bar disappears until the app is restarted. Likely a `.pack_forget()` / `.pack()` ordering issue in the Zen toggle that leaves the bar un-reparented when the Designer swaps panels.
 
-- **Go to Definition not working** — F12 / right-click Go to Definition appears to do nothing on the canvas editor. Needs investigation: check that the LSP `textDocument/definition` request is using the canvas editor's cursor position correctly and that the response handler navigates the canvas tab (not a legacy `tk.Text` path).
+- ~~**Go to Definition not working**~~ — FIXED (2026-05-16): local `def`/`class` scan handles same-file refs (covers `self.xxx` that pylsp/jedi fails on); LSP fallback for cross-file/stdlib; `uri_to_path` now URL-decodes `%20` so paths with spaces navigate correctly; `path_to_uri` now percent-encodes outgoing URIs.
 
-- **Highlight Active Line / Active Line Color broken** — the palette keys `current_line_bg` exist in the theme JSON but the feature no longer responds to the setting. Verify the current-line highlight rectangle is still being drawn in the render loop and that the color is sourced from `self._palette` (not a stale constant).
+- ~~**Highlight Active Line / Active Line Color broken**~~ — FIXED: canvas engine always drew the band from `self._palette["current_line_bg"]`; `view_toggle_highlight` and `view_active_line_color` both wire correctly into `cv.highlight_active_line` / `cv._active_line_color`.
 
 - **Editor right-click menu** — replace with the new-style IDOL popup (same design as the terminal right-click overlay: canvas-drawn, dark, rounded rows, `ButtonRelease-1` to dismiss). Also fix the `Find && Replace` label — the double `&&` is a Tk accelerator-escape artifact, should be a single `&` or no ampersand.
 
 - **Find & Replace — pre-populate from caret word** — when the user opens Find/Replace (`Ctrl+F`) and the caret is on a word, that word should be inserted into the search entry and fully selected so the user can immediately start typing a replacement or press Enter to find next. Match VS Code behavior.
 
+- **Canvas editor undo/redo** — lost in the canvas upgrade; the legacy `tk.Text`-backed undo is gone. Need a new stack on `self.lines` + cursor + selection state. Push a snapshot before every mutation (keystrokes, paste, delete, indent, move, duplicate, comment toggle). Ctrl+Z / Ctrl+Y. Max ~100 snapshots; trim oldest when over limit. Breakpoint auto-shift should hook into the undo path the same way the legacy editor did.
+
+- **References panel — tab-aware navigation** — clicking a reference should switch to the tab that already has the file open (if any) before jumping to the line; currently opens a new tab or jumps in the wrong one. Also place the caret at the start of the matched word, not just the line start.
+
 ### Features
+
+- **Canvas lexer — call-site coloring** — class names used as constructors (e.g. `IDOL` in `app = IDOL(file_path)`) should render teal (same color as class definitions), not white. Keyword arguments (`key=value` call syntax) should also render teal on the key. Match VS Code's Python color scheme for these token classes.
+
+- **File → Open Project opens into explorer root** — `workspace_open` / the Open Project dialog should default `initialdir` to the directory currently set as the explorer root (or the project root from the session), not the OS default.
 
 - **Settings menu** — `View → Settings` (or `Edit → Settings`) panel consolidating per-user preferences that are currently scattered or missing UI:
   - Font (family / size / bold / italic) — currently only reachable via `View → Change Font`
