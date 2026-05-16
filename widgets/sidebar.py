@@ -33,6 +33,7 @@ class Sidebar(ttk.Frame):
         on_file_move: Callable[[str, str], bool] | None = None,
         on_root_change: Callable[[str], None] | None = None,
         on_file_delete: Callable[[str], None] | None = None,
+        on_ref_navigate: Callable[[str | None, int, int], None] | None = None,
     ) -> None:
         super().__init__(parent, style="Sidebar.TFrame")
 
@@ -69,7 +70,8 @@ class Sidebar(ttk.Frame):
 
         self._refs_hdr = self._make_header("REFERENCES", self._toggle_refs,
                                            closeable=True)
-        self.references = ReferencesPanel(self, on_navigate=on_navigate)
+        _ref_nav = on_ref_navigate or (lambda fp, ln, col: on_navigate(ln))
+        self.references = ReferencesPanel(self, on_navigate=_ref_nav)
 
         self._sash2 = self._make_sash(1, 2)
 

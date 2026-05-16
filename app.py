@@ -539,6 +539,7 @@ class IDOL(Tk):
             on_file_move=self._on_explorer_file_move,
             on_root_change=self._on_explorer_root_change,
             on_file_delete=self._on_explorer_file_delete,
+            on_ref_navigate=self._ref_navigate,
         )
         self._sidebar.configure(width=self._startup_h_sash)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
@@ -1898,6 +1899,14 @@ class IDOL(Tk):
             return
         cv.set_cursor(max(0, lineno - 1), 0)
         cv.scroll_to_line(max(0, lineno - 1))
+
+    def _ref_navigate(self, filepath: str | None, lineno: int, col: int) -> None:
+        """Tab-aware references navigation — switches to the right tab and
+        positions the caret at the start of the matched word."""
+        if filepath:
+            self._open_file_at(filepath, lineno, col)
+        else:
+            self._outline_navigate(lineno)
 
     def _refresh_tab_title(self, tab_id: str) -> None:
         name = self._titles.get(tab_id, "Untitled")

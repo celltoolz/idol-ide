@@ -15,7 +15,7 @@ class ReferencesPanel(ttk.Frame):
     line:col in one color and the preview in another.
     """
 
-    def __init__(self, parent, on_navigate: Callable[[int], None]) -> None:
+    def __init__(self, parent, on_navigate: Callable[[str | None, int, int], None]) -> None:
         super().__init__(parent, style="Sidebar.TFrame")
         self._on_navigate = on_navigate
         self._bg      = "#1e1e1e"
@@ -24,7 +24,8 @@ class ReferencesPanel(ttk.Frame):
         self._accent  = "#569cd6"   # line:col color — updates with theme
         self._preview_fg = "#cccccc"  # preview text color
         self._comment_fg = "#6a9955"  # count label color
-        self._results: list[int] = []  # line numbers in order
+        self._results: list[tuple[int, int]] = []  # (lineno, col) pairs
+        self._filepath: str | None = None           # file the results belong to
         self._build_ui()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ class ReferencesPanel(ttk.Frame):
             text = codeview.get_text()
         else:
             text = codeview.get("1.0", "end-1c")
+        self._filepath = getattr(codeview, "filepath", None)
         pattern = re.compile(r"\b" + re.escape(word) + r"\b")
         results = []
         for lineno, line in enumerate(text.splitlines(), 1):
@@ -46,7 +48,7 @@ class ReferencesPanel(ttk.Frame):
                     preview = preview[:55] + "…"
                 results.append((lineno, m.start(), preview))
 
-        self._results = [r[0] for r in results]
+        self._results = [(r[0], r[1]) for r in results]
         self._word_lbl.config(text=f'"{word}"')
         count = len(results)
         self._count_lbl.config(
@@ -151,7 +153,8 @@ class ReferencesPanel(ttk.Frame):
     def _on_click(self, event) -> None:
         row = self._row_at(event)
         if row is not None:
-            self._on_navigate(self._results[row])
+            lineno, col = self._results[row]
+            self._on_navigate(self._filepath, lineno, col)
 
     def _on_motion(self, event) -> None:
         self._list.tag_remove("hover", "1.0", "end")
