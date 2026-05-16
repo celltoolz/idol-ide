@@ -2881,11 +2881,48 @@ class IDOL(Tk):
 
     def _goto_definition(self) -> None:
         cv = self._current_codeview
-        path = self._files.get(self._current_tab_id)
-        if not cv or not path or not (self._lsp and self._lsp.ready):
+        if not cv:
             return
         line_0, col = _cv_cursor_lc(cv)
-        self._lsp.definition(path, line_0, col, self._handle_definition)
+        # Local search first: finds `def word` / `class word` in the current
+        # buffer without any LSP round-trip.  Covers self.xxx method refs that
+        # pylsp/jedi sometimes fails to resolve.
+        word = self._word_at_cursor(cv)
+        if word and self._goto_definition_local(cv, word):
+            return
+        # Fall back to LSP for cross-file / stdlib navigation.
+        path = self._files.get(self._current_tab_id)
+        if path and (self._lsp and self._lsp.ready):
+            self._lsp.definition(path, line_0, col, self._handle_definition)
+
+    def _word_at_cursor(self, cv) -> str:
+        """Return the Python identifier token touching the cursor, or ''."""
+        line_text = cv.get_line(cv.cur_line)
+        col = cv.cur_col
+        start = col
+        while start > 0 and (line_text[start - 1].isalnum() or line_text[start - 1] == "_"):
+            start -= 1
+        end = col
+        while end < len(line_text) and (line_text[end].isalnum() or line_text[end] == "_"):
+            end += 1
+        return line_text[start:end]
+
+    def _goto_definition_local(self, cv, word: str) -> bool:
+        """Scan the current buffer for `def word` or `class word`.
+
+        Navigates there and returns True if found; returns False otherwise so
+        the caller can fall back to the LSP.
+        """
+        import re
+        pat = re.compile(r"^\s*(def|class)\s+" + re.escape(word) + r"\b")
+        for i, line in enumerate(cv.lines):
+            if pat.match(line):
+                col = line.index(word)
+                cv.set_cursor(i, col)
+                cv.scroll_to_line(i)
+                cv.canvas.focus_set()
+                return True
+        return False
 
     def _handle_definition(self, result) -> None:
         if not result:

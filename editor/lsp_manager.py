@@ -10,6 +10,7 @@ import sys
 import shutil
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import quote, unquote
 
 from .lsp_client import LspClient
 
@@ -20,11 +21,11 @@ def path_to_uri(path: str) -> str:
     resolved = Path(path).resolve().as_posix()
     if not resolved.startswith("/"):
         resolved = "/" + resolved
-    return f"file://{resolved}"
+    return "file://" + quote(resolved, safe="/:@")
 
 
 def uri_to_path(uri: str) -> str:
-    path = uri.removeprefix("file:///").removeprefix("file://")
+    path = unquote(uri.removeprefix("file:///").removeprefix("file://"))
     # On Windows the URI looks like file:///C:/... → C:/...  (drive letter stays)
     # On macOS/Linux file:///Users/... → Users/... so restore the leading slash
     if len(path) > 1 and path[1] == ":":
