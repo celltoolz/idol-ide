@@ -2882,30 +2882,32 @@ class IDOL(Tk):
     def _goto_definition(self) -> None:
         cv = self._current_codeview
         path = self._files.get(self._current_tab_id)
-        if not cv or not path or not self._lsp:
+        if not cv or not path or not (self._lsp and self._lsp.ready):
             return
-        # LSP wants 0-indexed line + column. `_cv_cursor_lc` returns
-        # `(line_0, col)` for both engines.
         line_0, col = _cv_cursor_lc(cv)
         self._lsp.definition(path, line_0, col, self._handle_definition)
 
     def _handle_definition(self, result) -> None:
         if not result:
             return
-        # result may be a single Location or a list
+        # result may be a single Location or a list; also accept LocationLink
+        # (targetUri/targetRange) for forward-compat with servers that prefer it.
         if isinstance(result, dict):
             result = [result]
         if not result:
             return
         loc = result[0]
-        uri = loc.get("uri", "")
+        uri = loc.get("targetUri") or loc.get("uri", "")
+        if not uri:
+            return
         path = uri_to_path(uri)
-        # Normalise to OS path
         path = path.replace("/", os.sep)
         if os.name == "nt" and path.startswith("\\"):
-            path = path[1:]  # strip leading backslash on Windows
-        line = loc["range"]["start"]["line"] + 1
-        col = loc["range"]["start"]["character"]
+            path = path[1:]
+        rng = loc.get("targetSelectionRange") or loc.get("targetRange") or loc.get("range", {})
+        start = rng.get("start", {})
+        line = start.get("line", 0) + 1
+        col  = start.get("character", 0)
         self._open_file_at(path, line, col)
 
     def _open_file_at(self, path: str, line: int, col: int) -> None:
@@ -2915,6 +2917,7 @@ class IDOL(Tk):
                 return
             cv.set_cursor(max(0, line - 1), col)
             cv.scroll_to_line(max(0, line - 1))
+            cv.canvas.focus_set()
 
         # If already open in a tab, just switch to it
         for tab_id, fp in self._files.items():
