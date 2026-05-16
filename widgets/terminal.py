@@ -2147,13 +2147,39 @@ class TerminalPanel(ttk.Frame):
                     else:
                         # Top of viewport is in the live area — treat as bottom.
                         at_bottom = True
-                # Move rows ABOVE the current prompt into scrollback when
-                # columns change (reflow is needed). For row-only shrinks,
-                # skip the snapshot: the buffer is already correct and the
-                # shift would corrupt PSReadLine's absolute row coordinates,
-                # causing it to erase previous-output rows with spaces when
-                # its SIGWINCH handler runs.
-                if cols != self._cols:
+                if rows < self._rows and cols == self._cols:
+                    # Row-shrink only: scroll pyte's buffer to match what the
+                    # PTY console does (keeps cursor visible, so PSReadLine's
+                    # absolute coordinates stay in sync with pyte's buffer).
+                    # scroll_amount = rows the console scrolls up to keep
+                    # cursor visible = max(0, cursor.y - (new_rows - 1)).
+                    scroll_amount = max(0, self._screen.cursor.y - (rows - 1))
+                    if scroll_amount > 0:
+                        for y in range(scroll_amount):
+                            line = self._screen.buffer.get(y)
+                            if line is None:
+                                continue
+                            raw = bool(getattr(line, "idol_wrapped", False))
+                            wrapped = self._row_effective_wrap(line, raw)
+                            segs = self._row_segments_for_history(line, wrapped)
+                            if self._scrollback_open and self._scrollback:
+                                self._scrollback[-1].extend(segs)
+                            else:
+                                self._scrollback.append(segs)
+                            self._scrollback_open = wrapped
+                        new_buf: dict = {}
+                        for new_y in range(rows):
+                            src = self._screen.buffer.get(new_y + scroll_amount)
+                            if src is not None:
+                                new_buf[new_y] = src
+                        self._screen.buffer.clear()
+                        for ny, line in new_buf.items():
+                            self._screen.buffer[ny] = line
+                        self._screen.cursor.y = max(0,
+                            self._screen.cursor.y - scroll_amount)
+                elif cols != self._cols:
+                    # Column change: full snapshot so scrollback can reflow
+                    # at the new width.
                     self._snapshot_visible_to_scrollback()
                 self.resize(rows, cols)
                 # Selection coords live in physical canvas rows that change
