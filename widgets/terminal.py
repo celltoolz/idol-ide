@@ -694,6 +694,8 @@ class TerminalPanel(ttk.Frame):
             # Both the cd and hook injection use _send_silently so the TTY
             # driver never echoes the commands — nothing to clear afterward.
             self.after(400, self._inject_shell_hooks)
+            _cmd_name = os.path.basename(cmd[0]).lower()
+            _is_shell = any(s in _cmd_name for s in ("powershell", "pwsh", "cmd", "bash", "zsh", "sh"))
             _cmd_is_cmd = "cmd" in _cmd_name and "powershell" not in _cmd_name and "pwsh" not in _cmd_name
             if not _cmd_is_cmd:
                 # Suppress rendering until the first OSC 133 (shell prompt hook fires),
@@ -702,8 +704,6 @@ class TerminalPanel(ttk.Frame):
                 self._waiting_first_prompt = True
                 self._clear_timer = self.after(3000, self._clear_screen_direct)
             self.after(3500, self._ensure_render_active)
-            _cmd_name = os.path.basename(cmd[0]).lower()
-            _is_shell = any(s in _cmd_name for s in ("powershell", "pwsh", "cmd", "bash", "zsh", "sh"))
             _cwd = self._cwd
             if _cwd and os.path.isdir(_cwd) and _is_shell:
                 self.after(300, lambda c=_cwd: self._send_silently(f'cd "{c}"\r'))
