@@ -193,15 +193,15 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ### Bugs — Fix First
 
-- **Zen mode → Designer kills statusbar** — toggle Zen on then off while in the editor, switch to Designer: the status bar disappears until the app is restarted. Likely a `.pack_forget()` / `.pack()` ordering issue in the Zen toggle that leaves the bar un-reparented when the Designer swaps panels.
+- ~~**Zen mode → Designer kills statusbar**~~ — FIXED.
 
 - ~~**Go to Definition not working**~~ — FIXED (2026-05-16): local `def`/`class` scan handles same-file refs (covers `self.xxx` that pylsp/jedi fails on); LSP fallback for cross-file/stdlib; `uri_to_path` now URL-decodes `%20` so paths with spaces navigate correctly; `path_to_uri` now percent-encodes outgoing URIs.
 
 - ~~**Highlight Active Line / Active Line Color broken**~~ — FIXED: canvas engine always drew the band from `self._palette["current_line_bg"]`; `view_toggle_highlight` and `view_active_line_color` both wire correctly into `cv.highlight_active_line` / `cv._active_line_color`.
 
-- **Editor right-click menu** — replace with the new-style IDOL popup (same design as the terminal right-click overlay: canvas-drawn, dark, rounded rows, `ButtonRelease-1` to dismiss). Also fix the `Find && Replace` label — the double `&&` is a Tk accelerator-escape artifact, should be a single `&` or no ampersand.
+- ~~**Editor right-click menu**~~ — FIXED: replaced with new-style IDOL canvas-drawn popup; `Find && Replace` label corrected.
 
-- **Find & Replace — pre-populate from caret word** — when the user opens Find/Replace (`Ctrl+F`) and the caret is on a word, that word should be inserted into the search entry and fully selected so the user can immediately start typing a replacement or press Enter to find next. Match VS Code behavior.
+- ~~**Find & Replace — pre-populate from caret word**~~ — FIXED: caret word inserted and selected on Ctrl+F open.
 
 - **Canvas editor undo/redo** — lost in the canvas upgrade; the legacy `tk.Text`-backed undo is gone. Need a new stack on `self.lines` + cursor + selection state. Push a snapshot before every mutation (keystrokes, paste, delete, indent, move, duplicate, comment toggle). Ctrl+Z / Ctrl+Y. Max ~100 snapshots; trim oldest when over limit. Breakpoint auto-shift should hook into the undo path the same way the legacy editor did.
 
