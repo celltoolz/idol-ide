@@ -1723,6 +1723,14 @@ class TerminalPanel(ttk.Frame):
             return f"/{letter}{rest}"
         return str(p).replace("\\", "/")
 
+    @staticmethod
+    def _msys_to_win_path(posix_path: str) -> str:
+        """Convert /c/Users/... → C:/Users/... for filesystem ops on Windows."""
+        if (len(posix_path) >= 3 and posix_path[0] == "/"
+                and posix_path[1].isalpha() and posix_path[2] == "/"):
+            return posix_path[1].upper() + ":/" + posix_path[3:]
+        return posix_path
+
     def _auto_activate_venv(self, cwd: str, shell_name: str) -> None:
         """If a venv exists under *cwd*, source its activate script in the
         live shell so the prompt comes up already inside it. Supports
@@ -1893,10 +1901,13 @@ class TerminalPanel(ttk.Frame):
         # Check for a venv in CWD — try all common names
         venv_activate_path = ""
         cwd_venv = ""
+        # Git Bash on Windows reports CWD as /c/Users/... (MSYS2 POSIX format);
+        # Python's Path on Windows can't resolve that, so convert it first.
+        fs_cwd = self._msys_to_win_path(cwd) if platform.system() == "Windows" else cwd
         if cwd:
             try:
                 for _name in (".venv", "venv", "env", ".env"):
-                    candidate = Path(cwd) / _name
+                    candidate = Path(fs_cwd) / _name
                     if (candidate / "bin" / "activate").exists():
                         venv_activate_path = str(candidate / "bin" / "activate")
                         cwd_venv = str(candidate)
@@ -1911,6 +1922,9 @@ class TerminalPanel(ttk.Frame):
         def _norm(p: str) -> str:
             """Normalize path for comparison — lowercase on Windows, forward slashes."""
             p = p.replace("\\", "/").rstrip("/")
+            # Convert MSYS2/Git Bash POSIX drive paths: /c/Users/... → c:/Users/...
+            if len(p) >= 3 and p[0] == "/" and p[1].isalpha() and p[2] == "/":
+                p = p[1].lower() + ":/" + p[3:]
             if platform.system() == "Windows":
                 p = p.lower()
             return p
