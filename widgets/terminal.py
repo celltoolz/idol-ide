@@ -987,7 +987,7 @@ class TerminalPanel(ttk.Frame):
         # winfo_height() call that may return stale geometry mid-resize.
         if canvas_h <= 1:
             canvas_h = self._canvas.winfo_height()
-        live_h = canvas_h if canvas_h > 1 else self._rows * self._char_h
+        live_h = max(canvas_h, self._rows * self._char_h) if canvas_h > 1 else self._rows * self._char_h
         total_h = self._sb_phys_rows * self._char_h + live_h
         cw = max(self._cols * self._char_w, self._canvas.winfo_width())
         self._canvas.configure(scrollregion=(0, 0, cw, total_h))
