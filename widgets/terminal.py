@@ -966,16 +966,9 @@ class TerminalPanel(ttk.Frame):
 
     def _update_scrollregion(self) -> None:
         live_rows = self._live_used_rows()
-        content_h = (self._sb_phys_rows + live_rows) * self._char_h
+        total_h = (self._sb_phys_rows + live_rows) * self._char_h
         cw = max(self._cols * self._char_w, self._canvas.winfo_width())
-        canvas_h = self._canvas.winfo_height()
-        if canvas_h > 1 and content_h < canvas_h:
-            # Pad above with a negative y1 so the content sits at the bottom of
-            # the viewport and yview_moveto(1.0) keeps the prompt pinned there —
-            # matches real terminal behaviour (blank space above, prompt at bottom).
-            self._canvas.configure(scrollregion=(0, -(canvas_h - content_h), cw, content_h))
-        else:
-            self._canvas.configure(scrollregion=(0, 0, cw, content_h))
+        self._canvas.configure(scrollregion=(0, 0, cw, total_h))
 
     def _canvas_to_term(self, event) -> tuple:
         """Convert a canvas mouse event to (row, col) in terminal grid coords."""
