@@ -61,11 +61,17 @@ class _RobustScreen(pyte.HistoryScreen):
     - Fixes the private SGR dispatch bug in pyte
     - Tracks whether the running app has enabled mouse reporting
     - Tags lines that exit via DECAWM wrap so scrollback can reflow on resize
+    - Implements alternate screen buffer (DECSET 1049) so vim/htop/edit
+      can enter and exit full-screen mode without corrupting the scrollback
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mouse_enabled = False
+        self.in_alt_screen = False
+        # Saved main-screen state while alternate screen is active
+        self._main_buffer: dict | None = None
+        self._main_cursor: tuple | None = None   # (x, y)
         # True while inside a draw() call; lets carriage_return() distinguish
         # wrap-induced CR (correct to flag as wrapped) from explicit "\r" in
         # the byte stream (NOT a wrap — e.g. PSReadLine sending \r\n after
@@ -85,17 +91,39 @@ class _RobustScreen(pyte.HistoryScreen):
         super().carriage_return()
 
     def set_mode(self, *args, private=False, **kwargs):
-        # Mouse tracking modes: 9=X10, 1000=normal, 1002=button, 1003=any, 1006=SGR
-        if private and args and args[0] in (9, 1000, 1002, 1003, 1006):
-            self.mouse_enabled = True
+        if private and args:
+            # Mouse tracking modes: 9=X10, 1000=normal, 1002=button, 1003=any, 1006=SGR
+            if args[0] in (9, 1000, 1002, 1003, 1006):
+                self.mouse_enabled = True
+            # Alternate screen buffer (DEC 1049): save main screen, blank alt screen
+            if args[0] == 1049 and not self.in_alt_screen:
+                self._main_buffer = {y: dict(row) for y, row in self.buffer.items()}
+                self._main_cursor = (self.cursor.x, self.cursor.y)
+                self.buffer.clear()
+                self.cursor.x = 0
+                self.cursor.y = 0
+                self.in_alt_screen = True
         try:
             super().set_mode(*args, private=private, **kwargs)
         except Exception:
             pass
 
     def reset_mode(self, *args, private=False, **kwargs):
-        if private and args and args[0] in (9, 1000, 1002, 1003, 1006):
-            self.mouse_enabled = False
+        if private and args:
+            if args[0] in (9, 1000, 1002, 1003, 1006):
+                self.mouse_enabled = False
+            # Alternate screen exit (DEC 1049): restore main screen
+            if args[0] == 1049 and self.in_alt_screen:
+                self.buffer.clear()
+                if self._main_buffer is not None:
+                    for y, row_dict in self._main_buffer.items():
+                        for x, char in row_dict.items():
+                            self.buffer[y][x] = char
+                    self._main_buffer = None
+                if self._main_cursor is not None:
+                    self.cursor.x, self.cursor.y = self._main_cursor
+                    self._main_cursor = None
+                self.in_alt_screen = False
         try:
             super().reset_mode(*args, private=private, **kwargs)
         except Exception:
@@ -459,15 +487,35 @@ class TerminalPanel(ttk.Frame):
     """Interactive PTY terminal using pyte for VT100 screen buffer."""
 
     _KEY_MAP = {
+        # Basic cursor keys
         "Up":    "\x1b[A",
         "Down":  "\x1b[B",
         "Right": "\x1b[C",
         "Left":  "\x1b[D",
         "Home":  "\x1b[H",
         "End":   "\x1b[F",
+        "Insert":"\x1b[2~",
         "Prior": "\x1b[5~",
         "Next":  "\x1b[6~",
         "Delete":"\x1b[3~",
+        # Ctrl+arrow — word nav and TUI pane switching (tmux, vim, etc.)
+        "Control-Up":    "\x1b[1;5A",
+        "Control-Down":  "\x1b[1;5B",
+        "Control-Right": "\x1b[1;5C",
+        "Control-Left":  "\x1b[1;5D",
+        # Shift+arrow — selection in edit.exe, mc, etc.
+        "Shift-Up":    "\x1b[1;2A",
+        "Shift-Down":  "\x1b[1;2B",
+        "Shift-Right": "\x1b[1;2C",
+        "Shift-Left":  "\x1b[1;2D",
+        "Shift-Home":  "\x1b[1;2H",
+        "Shift-End":   "\x1b[1;2F",
+        # Alt+arrow — common in TUI file managers
+        "Alt-Up":    "\x1b[1;3A",
+        "Alt-Down":  "\x1b[1;3B",
+        "Alt-Right": "\x1b[1;3C",
+        "Alt-Left":  "\x1b[1;3D",
+        # Function keys
         "F1":  "\x1bOP",   "F2":  "\x1bOQ",  "F3":  "\x1bOR",  "F4":  "\x1bOS",
         "F5":  "\x1b[15~", "F6":  "\x1b[17~","F7":  "\x1b[18~","F8":  "\x1b[19~",
         "F9":  "\x1b[20~", "F10": "\x1b[21~","F11": "\x1b[23~","F12": "\x1b[24~",
@@ -848,6 +896,7 @@ class TerminalPanel(ttk.Frame):
         vs.grid(row=0, column=1, sticky="ns")
 
         self._canvas.bind("<ButtonPress-1>",   self._on_click)
+        self._canvas.bind("<ButtonRelease-1>", self._on_release)
         self._canvas.bind("<B1-Motion>",       self._on_drag)
         self._canvas.bind("<MouseWheel>",      self._on_mousewheel)   # Windows / macOS
         self._canvas.bind("<Button-4>",        self._on_mousewheel)   # Linux scroll up
@@ -1287,8 +1336,26 @@ class TerminalPanel(ttk.Frame):
             for chunk in active_chunks:
                 self._stream.feed(chunk)
             if not self._render_suppressed:
-                self._flush_scrollback()   # appends new scrollback lines to widget
-                self._redraw_screen()      # rewrites only live screen rows
+                # Capture scroll position before redraw — scrollback growth
+                # moves live rows down in canvas space; we re-pin if the
+                # user was already at the bottom so TUI title bars stay flush
+                # with the top of the visible area.
+                canvas_h = self._canvas.winfo_height()
+                top_y = self._canvas.canvasy(0)
+                live_start_y = self._sb_phys_rows * self._char_h
+                was_at_bottom = canvas_h <= 1 or top_y >= live_start_y - self._char_h
+
+                if self._screen.in_alt_screen:
+                    # Alternate screen: drain pyte history without persisting
+                    # to scrollback so TUI output never corrupts the main buffer.
+                    while self._screen.history.top:
+                        self._screen.history.top.popleft()
+                else:
+                    self._flush_scrollback()
+
+                self._redraw_screen()
+                if was_at_bottom:
+                    self._canvas.yview_moveto(1.0)
 
         if active_sentinel:
             self._running = False
@@ -1333,18 +1400,43 @@ class TerminalPanel(ttk.Frame):
             pass
         return "break"
 
+    def _term_coords(self, event) -> tuple[int, int]:
+        """Convert canvas event to (screen_row, col) — row relative to live screen top."""
+        canvas_row, col = self._canvas_to_term(event)
+        screen_row = canvas_row - self._sb_phys_rows
+        return max(0, min(screen_row, self._rows - 1)), max(0, min(col, self._cols - 1))
+
+    def _send_mouse(self, btn: int, row: int, col: int, release: bool = False) -> None:
+        """Send an SGR mouse event: \x1b[<btn;col;rowM (press) or m (release)."""
+        suffix = "m" if release else "M"
+        self.send(f"\x1b[<{btn};{col + 1};{row + 1}{suffix}")
+
     def _on_click(self, event) -> str:
         dismiss = getattr(self, "_ctx_overlay_dismiss", None)
         if dismiss:
             dismiss()
         self._canvas.focus_set()
+        if self._screen.mouse_enabled:
+            row, col = self._term_coords(event)
+            self._send_mouse(0, row, col)
+            return "break"
         self._sel_anchor    = self._canvas_to_term(event)
         self._sel_row_start = None
         self._sel_row_end   = None
         self._canvas.delete("sel")
         return "break"
 
+    def _on_release(self, event) -> str:
+        if self._screen.mouse_enabled:
+            row, col = self._term_coords(event)
+            self._send_mouse(0, row, col, release=True)
+        return "break"
+
     def _on_drag(self, event) -> str:
+        if self._screen.mouse_enabled:
+            row, col = self._term_coords(event)
+            self._send_mouse(32, row, col)  # btn 32 = left-button motion
+            return "break"
         if not self._sel_anchor:
             return "break"
         cur    = self._canvas_to_term(event)
@@ -1383,6 +1475,11 @@ class TerminalPanel(ttk.Frame):
                 pass
 
     def _show_context_menu(self, event) -> str:
+        if self._screen.mouse_enabled:
+            # Forward right-click to the TUI app as SGR button 2
+            row, col = self._term_coords(event)
+            self._send_mouse(2, row, col)
+            return "break"
         has_sel = bool(self._sel_row_start and self._sel_row_end
                        and self._sel_row_start < self._sel_row_end)
         items = [
