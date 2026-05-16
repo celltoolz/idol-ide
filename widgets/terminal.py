@@ -518,6 +518,7 @@ class TerminalPanel(ttk.Frame):
         self._session_id = 0   # incremented on each start(); guards stale sentinels
         self._render_suppressed = False   # True during startup; suppresses _redraw_full until clear fires
         self._clear_timer: str | None = None  # after() handle for the fallback clear
+        self._waiting_first_prompt = False    # lifted on first OSC 133 → triggers clean render
 
         # Multi-session support: numbered keys ("s1", "s2", …)
         self._sessions:         dict[str, dict] = {}   # saved background sessions
@@ -664,11 +665,15 @@ class TerminalPanel(ttk.Frame):
             self._scrollback_open = False
             self._sb_phys_rows = 0
             self._phys_to_log = []
-            # Clear any suppression left over from a previous session, then
+            # Clear any suppression/timer left over from a previous session, then
             # wipe the canvas before drawing the new empty screen. Without
             # this, _switch_session → start() leaves the old session's
             # canvas items in place and the new shell's output overlays on
             # top of them until the next session swap.
+            if self._clear_timer:
+                self.after_cancel(self._clear_timer)
+                self._clear_timer = None
+            self._waiting_first_prompt = False
             self._render_suppressed = False
             self._screen = _RobustScreen(self._cols, self._rows, history=self._SCROLLBACK)
             self._stream = pyte.ByteStream(self._screen)
@@ -689,13 +694,14 @@ class TerminalPanel(ttk.Frame):
             # Both the cd and hook injection use _send_silently so the TTY
             # driver never echoes the commands — nothing to clear afterward.
             self.after(400, self._inject_shell_hooks)
-            self._render_suppressed = True
-            if platform.system() == "Windows":
-                # Longer window: covers cd (300ms), hook inject (400ms), venv activate (600ms)
-                self._clear_timer = self.after(900, self._clear_screen_direct)
-            else:
-                self._clear_timer = self.after(700, self._clear_screen_direct)
-            self.after(1500, self._ensure_render_active)
+            _cmd_is_cmd = "cmd" in _cmd_name and "powershell" not in _cmd_name and "pwsh" not in _cmd_name
+            if not _cmd_is_cmd:
+                # Suppress rendering until the first OSC 133 (shell prompt hook fires),
+                # meaning setup is fully done. Fallback clears after 3s if hook never arrives.
+                self._render_suppressed = True
+                self._waiting_first_prompt = True
+                self._clear_timer = self.after(3000, self._clear_screen_direct)
+            self.after(3500, self._ensure_render_active)
             _cmd_name = os.path.basename(cmd[0]).lower()
             _is_shell = any(s in _cmd_name for s in ("powershell", "pwsh", "cmd", "bash", "zsh", "sh"))
             _cwd = self._cwd
@@ -1875,7 +1881,16 @@ class TerminalPanel(ttk.Frame):
         if m133:
             g = m133.group(1)
             exit_code = int(g) if g else None
-            self.after(0, lambda ec=exit_code: self._on_shell_command_done(ec))
+            if self._waiting_first_prompt:
+                # Shell hook fired for the first time — setup is done. Cancel the
+                # fallback timer and show a clean render right now.
+                self._waiting_first_prompt = False
+                if self._clear_timer:
+                    self.after_cancel(self._clear_timer)
+                    self._clear_timer = None
+                self.after(0, self._clear_screen_direct)
+            else:
+                self.after(0, lambda ec=exit_code: self._on_shell_command_done(ec))
         raw = re.sub(r'\x1b\]133;[A-Z](?:;\d*)?(?:\x07|\x1b\\)?', '', raw)
 
         # ── OSC 7: CWD  (file://host/path) ───────────────────────────────────
