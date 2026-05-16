@@ -744,9 +744,22 @@ class TerminalPanel(ttk.Frame):
     def resize(self, rows: int, cols: int) -> bool:
         if rows == self._rows and cols == self._cols:
             return False
+        old_rows, old_cols = self._rows, self._cols
         self._rows = rows
         self._cols = cols
-        self._screen.resize(rows, cols)
+        # When only shrinking rows (columns unchanged), bypass pyte's resize()
+        # which calls index() N times and moves the cursor down. That cursor
+        # drift causes PSReadLine's SIGWINCH handler to erase the prompt with
+        # spaces but then write the new prompt at the drifted position, making
+        # the left side of the prompt appear blank. Column changes and row
+        # expansions still use the normal pyte path (needed for reflow and
+        # history pull-up respectively).
+        if rows < old_rows and cols == old_cols:
+            self._screen.lines = rows
+            self._screen.cursor.y = min(self._screen.cursor.y, rows - 1)
+            self._screen.dirty.update(range(rows))
+        else:
+            self._screen.resize(rows, cols)
         if self._pty and self._running:
             try:
                 self._pty.setwinsize(rows, cols)
@@ -754,7 +767,12 @@ class TerminalPanel(ttk.Frame):
                 pass
         for sess in self._sessions.values():
             try:
-                sess["screen"].resize(rows, cols)
+                if rows < old_rows and cols == old_cols:
+                    sess["screen"].lines = rows
+                    sess["screen"].cursor.y = min(sess["screen"].cursor.y, rows - 1)
+                    sess["screen"].dirty.update(range(rows))
+                else:
+                    sess["screen"].resize(rows, cols)
                 if sess["running"] and sess.get("pty"):
                     sess["pty"].setwinsize(rows, cols)
             except Exception:
@@ -964,9 +982,13 @@ class TerminalPanel(ttk.Frame):
                 break
         return last_used + 1
 
-    def _update_scrollregion(self) -> None:
-        live_rows = self._live_used_rows()
-        total_h = (self._sb_phys_rows + live_rows) * self._char_h
+    def _update_scrollregion(self, canvas_h: int = 0) -> None:
+        # Accept an explicit height from _do_resize to avoid a second
+        # winfo_height() call that may return stale geometry mid-resize.
+        if canvas_h <= 1:
+            canvas_h = self._canvas.winfo_height()
+        live_h = canvas_h if canvas_h > 1 else self._rows * self._char_h
+        total_h = self._sb_phys_rows * self._char_h + live_h
         cw = max(self._cols * self._char_w, self._canvas.winfo_width())
         self._canvas.configure(scrollregion=(0, 0, cw, total_h))
 
@@ -1139,7 +1161,7 @@ class TerminalPanel(ttk.Frame):
             self._draw_row(canvas_row_start + i, phys_segs, tags)
         return len(chunks), [w for _segs, w in chunks]
 
-    def _redraw_full(self) -> None:
+    def _redraw_full(self, canvas_h: int = 0) -> None:
         """Full redraw from scratch (restart / clear / resize). Wraps scrollback
         at the current self._cols so window/sash resize reflows historical lines."""
         if self._render_suppressed:
@@ -1158,7 +1180,7 @@ class TerminalPanel(ttk.Frame):
         self._scrollback_drawn = len(self._scrollback)
         self._draw_screen_rows()
         self._draw_selection()
-        self._update_scrollregion()
+        self._update_scrollregion(canvas_h)
         self._canvas.yview_moveto(1.0)
 
     def _redraw_screen(self) -> None:
@@ -2108,12 +2130,14 @@ class TerminalPanel(ttk.Frame):
                 if cols == self._cols and rows == self._rows:
                     return
                 # Capture viewport anchor BEFORE mutating state so we can
-                # restore the user's scroll position after reflow. canvasy(0)
-                # gives the top-of-viewport in canvas pixels regardless of
-                # scrollregion shape, which avoids depending on the old
-                # _live_used_rows() calculation.
-                _, last = self._canvas.yview()
-                at_bottom = last >= 0.999
+                # restore the user's scroll position after reflow.
+                # Use canvasy(0) (absolute canvas Y at viewport top) rather
+                # than yview() fractions: when the canvas just resized the
+                # old scrollregion makes fractions unreliable, but the
+                # absolute offset stays correct.
+                top_canvas_y = self._canvas.canvasy(0)
+                live_start_y = self._sb_phys_rows * self._char_h
+                at_bottom = top_canvas_y >= live_start_y - self._char_h
                 top_anchor: Optional[tuple[int, int]] = None
                 if not at_bottom and self._phys_to_log:
                     top_phys = int(self._canvas.canvasy(0) // self._char_h)
@@ -2136,7 +2160,9 @@ class TerminalPanel(ttk.Frame):
                 self._sel_anchor = None
                 self._sel_row_start = None
                 self._sel_row_end = None
-                self._redraw_full()
+                # Pass the already-computed canvas height so _update_scrollregion
+                # doesn't call winfo_height() again with potentially stale geometry.
+                self._redraw_full(canvas_h=h)
                 # Restore viewport anchor. _redraw_full already pegged the
                 # view to the bottom, which is correct when the user was at
                 # the live prompt; otherwise we map the captured logical
