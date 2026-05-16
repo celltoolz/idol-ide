@@ -689,10 +689,13 @@ class TerminalPanel(ttk.Frame):
             # Both the cd and hook injection use _send_silently so the TTY
             # driver never echoes the commands — nothing to clear afterward.
             self.after(400, self._inject_shell_hooks)
-            if platform.system() != "Windows":
-                self._render_suppressed = True
+            self._render_suppressed = True
+            if platform.system() == "Windows":
+                # Longer window: covers cd (300ms), hook inject (400ms), venv activate (600ms)
+                self._clear_timer = self.after(900, self._clear_screen_direct)
+            else:
                 self._clear_timer = self.after(700, self._clear_screen_direct)
-                self.after(1500, self._ensure_render_active)
+            self.after(1500, self._ensure_render_active)
             _cmd_name = os.path.basename(cmd[0]).lower()
             _is_shell = any(s in _cmd_name for s in ("powershell", "pwsh", "cmd", "bash", "zsh", "sh"))
             _cwd = self._cwd
@@ -1759,6 +1762,9 @@ class TerminalPanel(ttk.Frame):
             return
         self._venv_auto_activated = True
         if is_pwsh:
+            # Set-ExecutionPolicy -Scope Process allows running the unsigned
+            # Activate.ps1 without touching the system-wide policy (same as VS Code).
+            self._send_silently(f'Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned\r')
             self._send_silently(f'& "{activate}"\r')
         elif is_bashlike and platform.system() == "Windows" and "Scripts" in activate.parts:
             # Scripts/activate for Windows venvs internally calls cygpath, which is
