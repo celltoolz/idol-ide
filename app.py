@@ -4375,6 +4375,11 @@ class IDOL(Tk):
 
         self._designer_palette.reset_to_pointer()
         self._refresh_mode_bar()
+        # Hide autocomplete before the canvas unmaps — pack_forget() doesn't
+        # reliably trigger FocusOut on the inner canvas widget.
+        cv = self._current_codeview
+        if cv and hasattr(cv, "_hide_autocomplete"):
+            cv._hide_autocomplete()
 
         # Auto-load form if canvas is empty (e.g. after session restore)
         if self._design_canvas.form is None:
@@ -4462,7 +4467,8 @@ class IDOL(Tk):
         def _restore_editor_focus():
             cv = self._current_codeview
             if cv:
-                cv.focus_set()
+                inner = getattr(cv, "canvas", cv)
+                inner.focus_set()
                 cv.scroll_to_line(cv.get_cursor()[0])
         self.after_idle(_restore_editor_focus)
 
