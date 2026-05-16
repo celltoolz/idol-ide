@@ -1937,9 +1937,10 @@ class IDOL(Tk):
         cv = self._codeviews.get(tab_id)
         handler = self._key_handlers.get(tab_id)
         if cv:
-            cv.configure(tabs=Font(font=cv.cget("font")).measure(" " * size))
             if hasattr(cv, "tab_size"):
                 cv.tab_size = size
+            else:
+                cv.configure(tabs=Font(font=cv.cget("font")).measure(" " * size))
         if handler:
             handler.tab_size = size
         self._indent_sizes[tab_id] = size
