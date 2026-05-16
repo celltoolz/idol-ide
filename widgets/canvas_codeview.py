@@ -380,6 +380,14 @@ class CanvasCodeView(tk.Frame):
         self._fire_change()
         self.render()
 
+    @property
+    def can_undo(self) -> bool:
+        return bool(self._undo_stack)
+
+    @property
+    def can_redo(self) -> bool:
+        return bool(self._redo_stack)
+
     def set_filepath(self, path: str | None) -> None:
         """Associate the buffer with a file path. Updates `self.language`
         (LSP / lint targeting) and refreshes the breadcrumb."""
@@ -1025,6 +1033,10 @@ class CanvasCodeView(tk.Frame):
         c.bind("<Key>",              self._on_key)
         c.bind("<FocusIn>",          lambda _: self.render())
         c.bind("<FocusOut>",         self._on_canvas_focus_out)
+        # Virtual events fired by app.edit_undo/redo and the right-click
+        # context menu so menu-triggered undo/redo reaches our stack.
+        self.bind("<<Undo>>", lambda _: self._undo())
+        self.bind("<<Redo>>", lambda _: self._redo())
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 

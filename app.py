@@ -3540,8 +3540,10 @@ class IDOL(Tk):
                     has_sel = True
                 except Exception:
                     pass
-            m.entryconfigure("Undo",              state="normal")
-            m.entryconfigure("Redo",              state="normal")
+            can_undo = bool(cv and getattr(cv, "can_undo", True))
+            can_redo = bool(cv and getattr(cv, "can_redo", True))
+            m.entryconfigure("Undo",              state="normal" if can_undo else "disabled")
+            m.entryconfigure("Redo",              state="normal" if can_redo else "disabled")
             m.entryconfigure("Cut",               state="normal" if has_sel  else "disabled")
             m.entryconfigure("Copy",              state="normal" if has_sel  else "disabled")
             m.entryconfigure("Paste",             state="normal" if has_clip else "disabled")
