@@ -162,6 +162,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append(line)
     for d in dialogs:
         out.append(f"        self.dlg_{d} = {d}(self)")
+    if dialogs:
+        out.append("        self.focus()")
     out.append(_INIT_E)
     out.append("")
 
