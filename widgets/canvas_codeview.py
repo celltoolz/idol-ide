@@ -297,6 +297,9 @@ class CanvasCodeView(tk.Frame):
         self.cur_line = 0
         self.cur_col = 0
         self.sel_anchor = None
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._undo_op = ""
         self.scroll_y = 0
         self._scroll_x = 0
         self.folded.clear()
@@ -322,6 +325,60 @@ class CanvasCodeView(tk.Frame):
                 self.on_change()
             except Exception:
                 pass
+
+    # ── Undo / Redo ───────────────────────────────────────────────────────────
+
+    _UNDO_LIMIT = 200
+
+    def _push_undo(self, op: str = "") -> None:
+        """Snapshot the buffer before a mutation.
+
+        op is a short tag used for coalescing: consecutive pushes with
+        the same non-empty op (e.g. "insert_char") collapse into one
+        undo entry so the user undoes whole words, not single chars.
+        Any cursor movement or different op breaks the chain.
+        """
+        self._redo_stack.clear()
+        if op and op == self._undo_op:
+            return  # coalesce — reuse existing snapshot
+        self._undo_stack.append(
+            (list(self.lines), self.cur_line, self.cur_col, self.sel_anchor)
+        )
+        if len(self._undo_stack) > self._UNDO_LIMIT:
+            del self._undo_stack[0]
+        self._undo_op = op
+
+    def _undo(self) -> None:
+        if not self._undo_stack:
+            return
+        self._redo_stack.append(
+            (list(self.lines), self.cur_line, self.cur_col, self.sel_anchor)
+        )
+        lines, cl, cc, sa = self._undo_stack.pop()
+        self.lines = lines
+        self.cur_line = cl
+        self.cur_col  = min(cc, len(lines[cl]))
+        self.sel_anchor = sa
+        self._undo_op = ""
+        self._file_max_w_dirty = True
+        self._fire_change()
+        self.render()
+
+    def _redo(self) -> None:
+        if not self._redo_stack:
+            return
+        self._undo_stack.append(
+            (list(self.lines), self.cur_line, self.cur_col, self.sel_anchor)
+        )
+        lines, cl, cc, sa = self._redo_stack.pop()
+        self.lines = lines
+        self.cur_line = cl
+        self.cur_col  = min(cc, len(lines[cl]))
+        self.sel_anchor = sa
+        self._undo_op = ""
+        self._file_max_w_dirty = True
+        self._fire_change()
+        self.render()
 
     def set_filepath(self, path: str | None) -> None:
         """Associate the buffer with a file path. Updates `self.language`
@@ -809,6 +866,9 @@ class CanvasCodeView(tk.Frame):
         # highlight_active_line=False suppresses the band entirely.
         # active_line_color overrides the theme's current_line_bg when set.
         self.tab_size: int = 4
+        self._undo_stack: list = []   # (lines, cur_line, cur_col, sel_anchor)
+        self._redo_stack: list = []
+        self._undo_op: str = ""       # last push type — drives coalescing
         self.highlight_active_line: bool = True
         self._active_line_color: str | None = None
         # ── Host hooks for context-menu items ────────────────────
@@ -2405,6 +2465,7 @@ class CanvasCodeView(tk.Frame):
             self.render()
             return "break"
         self.cur_line, self.cur_col = self._coords_from_pixel(event.x, event.y)
+        self._undo_op = ""       # click moved cursor — break coalescing
         self.sel_anchor = None
         self._reset_blink()
         self.render()
@@ -2710,6 +2771,11 @@ class CanvasCodeView(tk.Frame):
                 self._move_lines(-1 if ks == "Up" else +1)
             return "break"
 
+        if ctrl and ks.lower() == "z":
+            self._undo(); return "break"
+        if ctrl and ks.lower() == "y":
+            self._redo(); return "break"
+
         # Ctrl+/  — toggle line comment
         if ctrl and ks in ("slash", "question"):   # question = Shift+/ on some kbd
             self._toggle_comment(); return "break"
@@ -2777,6 +2843,7 @@ class CanvasCodeView(tk.Frame):
             self._move_vertical(+10); moved = True
 
         if moved:
+            self._undo_op = ""   # cursor moved — break coalescing chain
             self._ensure_visible()
             self.render()
             return "break"
@@ -2794,7 +2861,7 @@ class CanvasCodeView(tk.Frame):
         if ks == "Tab":
             if shift:
                 self._unindent(); self._ensure_visible(); return "break"
-            self._insert_text(" " * self.tab_size); self._ensure_visible(); self.render(); return "break"
+            self._push_undo(""); self._insert_text(" " * self.tab_size); self._ensure_visible(); self.render(); return "break"
 
         if event.char and event.char.isprintable() and not ctrl:
             self._insert_char_with_pairs(event.char)
@@ -2881,6 +2948,13 @@ class CanvasCodeView(tk.Frame):
             self.cur_col += 1
             return
 
+        # Snapshot before any state mutation.  Plain single-char typing
+        # uses "insert_char" so consecutive keystrokes coalesce; anything
+        # with a selection or auto-pair breaks the chain.
+        _plain = (not self.sel_anchor and
+                  not (ch in _PAIRS and not next_ch.isalnum() and next_ch != "_"))
+        self._push_undo("insert_char" if _plain else "")
+
         # Auto-pair when typing an opener — but only if the cursor is at
         # end-of-line, before whitespace, or before a closer. Don't pair
         # when typing into the middle of a word (e.g. typing `(` between
@@ -2929,6 +3003,7 @@ class CanvasCodeView(tk.Frame):
         self._fire_change()
 
     def _insert_newline(self) -> None:
+        self._push_undo("")
         if self.sel_anchor:
             self._delete_selection()
         line = self.lines[self.cur_line]
@@ -2944,8 +3019,13 @@ class CanvasCodeView(tk.Frame):
 
     def _delete_back(self) -> None:
         if self.sel_anchor:
+            self._push_undo("")
             self._delete_selection()
             return
+        if self.cur_col == 0 and self.cur_line == 0:
+            return
+        op = "delete_back" if self.cur_col > 0 else ""
+        self._push_undo(op)
         if self.cur_col > 0:
             line = self.lines[self.cur_line]
             prev_ch = line[self.cur_col - 1]
@@ -2971,9 +3051,16 @@ class CanvasCodeView(tk.Frame):
 
     def _delete_forward(self) -> None:
         if self.sel_anchor:
+            self._push_undo("")
             self._delete_selection()
             return
         line = self.lines[self.cur_line]
+        at_end_of_file = (self.cur_col >= len(line) and
+                          self.cur_line + 1 >= len(self.lines))
+        if at_end_of_file:
+            return
+        op = "delete_fwd" if self.cur_col < len(line) else ""
+        self._push_undo(op)
         if self.cur_col < len(line):
             self.lines[self.cur_line] = line[:self.cur_col] + line[self.cur_col + 1:]
         elif self.cur_line + 1 < len(self.lines):
@@ -3034,6 +3121,7 @@ class CanvasCodeView(tk.Frame):
     def _cut(self) -> None:
         if not self.sel_anchor:
             return
+        self._push_undo("")
         self._copy()
         self._delete_selection()
         self._ensure_visible()
@@ -3047,6 +3135,7 @@ class CanvasCodeView(tk.Frame):
             return
         if not text:
             return
+        self._push_undo("")
         self._insert_text(text)
         self._ensure_visible()
         self.render()
@@ -3288,6 +3377,7 @@ class CanvasCodeView(tk.Frame):
         cursor line. If every non-blank line is already commented,
         un-comment them all; otherwise add `# ` after each line's
         existing indent. Mirrors app.py:_toggle_comment."""
+        self._push_undo("")
         start, end = self._selected_line_range()
         block = [self.lines[i] for i in range(start, end + 1)]
         non_empty = [l for l in block if l.strip()]
@@ -3314,6 +3404,7 @@ class CanvasCodeView(tk.Frame):
 
     def _unindent(self) -> None:
         """Shift+Tab — remove up to tab_size leading spaces from each selected line."""
+        self._push_undo("")
         start, end = self._selected_line_range()
         for i in range(start, end + 1):
             line = self.lines[i]
@@ -3333,6 +3424,7 @@ class CanvasCodeView(tk.Frame):
             return
         if delta > 0 and end == len(self.lines) - 1:
             return
+        self._push_undo("")
         block = self.lines[start:end + 1]
         if delta < 0:
             above = self.lines[start - 1]
@@ -3352,6 +3444,7 @@ class CanvasCodeView(tk.Frame):
         """Shift+Alt+Down — duplicate selection (or current line) below
         the original. Shift+Alt+Up — same, but cursor stays on the
         original copy. Matches IDOL's Alt+Shift up/down behavior."""
+        self._push_undo("")
         start, end = self._selected_line_range()
         block = self.lines[start:end + 1]
         self.lines[end + 1:end + 1] = list(block)
