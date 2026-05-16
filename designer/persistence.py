@@ -296,5 +296,15 @@ def _extract_body(fn: ast.FunctionDef, lines: list[str]) -> str | None:
             start = i
         else:
             break
+    # Walk forward to include trailing comment lines at body indentation
+    # (AST end_lineno stops at the last statement and excludes trailing comments)
+    while end < len(lines):
+        line = lines[end]
+        stripped = line.strip()
+        leading = len(line) - len(line.lstrip())
+        if stripped.startswith("#") and leading >= body_indent:
+            end += 1
+        else:
+            break
     body_lines = lines[start:end]
     return textwrap.dedent("\n".join(body_lines))
