@@ -292,10 +292,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     if methods or opener_names or active_handlers:
         out.append("    # ── Events " + "─" * 63)
         out.append("")
+        h_options = getattr(form, "handler_options", {})
         for h in active_handlers:
             sig_params = f", {h.params}" if h.params else ""
             out.append(f"    def {h.id}(self{sig_params}):")
-            out.extend(_body_lines(h.id, bodies, h.default_body))
+            option     = h_options.get(h.id, "")
+            stub_body  = h.stub_body_for(option) if option else h.default_body
+            out.extend(_body_lines(h.id, bodies, stub_body))
             out.append("")
         for name in methods:
             ev_key = form_ev_map.get(name)

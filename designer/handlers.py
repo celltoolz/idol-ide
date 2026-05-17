@@ -13,6 +13,41 @@ class HandlerDef:
     params:          str            # params after self in method sig
     default_body:    str            # default stub body
 
+    # ── New fields ────────────────────────────────────────────────────────────
+    # True → opens Connector dialog to wire to a widget event
+    connectable: bool = False
+    # True → always shown in Connected section, never removable
+    always_wired: bool = False
+    # display string for the built-in connection target, e.g. "<Escape>"
+    display_target: str = ""
+    # selectable options shown in the [...] editor row
+    options: tuple[str, ...] = ()
+    # parallel to options: handler stub body for each option (overrides default_body)
+    stub_option_bodies: tuple[str, ...] = ()
+    # parallel to options: body emitted inside the wired widget event for each option
+    wire_option_bodies: tuple[str, ...] = ()
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def stub_body_for(self, option: str) -> str:
+        """Return the handler stub body for the given option name."""
+        if option and option in self.options:
+            idx = self.options.index(option)
+            if idx < len(self.stub_option_bodies):
+                return self.stub_option_bodies[idx]
+        return self.default_body
+
+    def wire_body_for(self, option: str, handler_id: str) -> str:
+        """Return the widget-event body for the given option name.
+
+        Falls back to a plain ``self.handler_id()`` call when no template is defined.
+        """
+        if option and option in self.options:
+            idx = self.options.index(option)
+            if idx < len(self.wire_option_bodies):
+                return self.wire_option_bodies[idx]
+        return f"self.{handler_id}()"
+
 
 HANDLER_CATALOG: list[HandlerDef] = [
     HandlerDef(
@@ -27,6 +62,10 @@ HANDLER_CATALOG: list[HandlerDef] = [
         wiring='self.protocol("WM_DELETE_WINDOW", self._on_close)',
         params="",
         default_body="self.withdraw()",
+        always_wired=True,
+        display_target="WM_DELETE_WINDOW",
+        options=("hide", "destroy"),
+        stub_option_bodies=("self.withdraw()", "self.destroy()"),
     ),
     HandlerDef(
         id="_on_escape",
@@ -40,6 +79,9 @@ HANDLER_CATALOG: list[HandlerDef] = [
         wiring='self.bind("<Escape>", self._on_escape)',
         params="event=None",
         default_body="pass  # TODO",
+        display_target="<Escape>",
+        options=("hide",),
+        stub_option_bodies=("self.withdraw()",),
     ),
     HandlerDef(
         id="_on_return",
@@ -53,6 +95,7 @@ HANDLER_CATALOG: list[HandlerDef] = [
         wiring='self.bind("<Return>", self._on_return)',
         params="event=None",
         default_body="pass  # TODO",
+        display_target="<Return>",
     ),
     HandlerDef(
         id="_on_focus_in",
@@ -66,6 +109,7 @@ HANDLER_CATALOG: list[HandlerDef] = [
         wiring='self.bind("<FocusIn>", self._on_focus_in)',
         params="event=None",
         default_body="pass  # TODO",
+        display_target="<FocusIn>",
     ),
     HandlerDef(
         id="_on_focus_out",
@@ -79,19 +123,27 @@ HANDLER_CATALOG: list[HandlerDef] = [
         wiring='self.bind("<FocusOut>", self._on_focus_out)',
         params="event=None",
         default_body="pass  # TODO",
+        display_target="<FocusOut>",
     ),
     HandlerDef(
         id="_set_always_on_top",
         label="always_on_top",
         description=(
-            "Generates a helper to pin or unpin this window. "
-            "Call self._set_always_on_top(True) to pin, self._set_always_on_top(False) to unpin."
+            "Wire to a button or menu item to control window pinning. "
+            "Choose toggle, enable, or disable when connecting."
         ),
         applies_to=("main", "dialog"),
         default_checked=False,
         wiring="",
         params="value: bool = True",
         default_body='self.attributes("-topmost", value)',
+        connectable=True,
+        options=("toggle", "enable", "disable"),
+        wire_option_bodies=(
+            'self._set_always_on_top(not self.attributes("-topmost"))',
+            "self._set_always_on_top(True)",
+            "self._set_always_on_top(False)",
+        ),
     ),
 ]
 

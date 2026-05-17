@@ -968,6 +968,8 @@ class IDOL(Tk):
             on_navigate_handler=self._on_designer_event_navigate,
             on_reorder_widget=self._on_designer_reorder_widget,
             on_handler_toggle=self._on_designer_handler_toggle,
+            on_handler_connect=self._on_designer_handler_connect,
+            on_handler_disconnect=self._on_designer_handler_disconnect,
             on_component_prop_change=self._on_comp_prop_change,
             on_component_connect=self._on_comp_connect,
             on_component_disconnect=self._on_comp_disconnect,
@@ -4704,6 +4706,43 @@ class IDOL(Tk):
         elif not enabled:
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
         self._set_designer_dirty()
+
+    def _on_designer_handler_connect(self, handler_id: str) -> None:
+        """⚡ button on an Available handler row — enable the handler."""
+        from designer.handlers import HANDLER_CATALOG
+        form = self._design_canvas.form
+        if form is None:
+            return
+        hdef = next((h for h in HANDLER_CATALOG if h.id == handler_id), None)
+        if hdef is None:
+            return
+        if hdef.connectable:
+            # Connectable handlers (e.g. always_on_top) need a widget+event wire.
+            # Connector dialog will be implemented in a later phase.
+            # For now: just enable the handler stub so it appears in the code.
+            pass
+        if handler_id not in form.enabled_handlers:
+            form.enabled_handlers.append(handler_id)
+        self._set_designer_dirty()
+        self._props_panel.load_handlers(form)
+
+    def _on_designer_handler_disconnect(self, handler_id: str, wire) -> None:
+        """× button on a Connected handler row — disable the handler or remove a wire."""
+        from designer.model import HandlerWire
+        form = self._design_canvas.form
+        if form is None:
+            return
+        if wire is not None and isinstance(wire, HandlerWire):
+            # Remove specific widget-event wire for connectable handlers
+            form.handler_wires = [w for w in form.handler_wires
+                                  if not (w.handler_id == wire.handler_id
+                                          and w.widget_id == wire.widget_id
+                                          and w.event_key == wire.event_key)]
+        else:
+            # Remove from enabled_handlers (built-in wired handler)
+            form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+        self._set_designer_dirty()
+        self._props_panel.load_handlers(form)
 
     # ── Component tray handlers ───────────────────────────────────────────────
 
