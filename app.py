@@ -970,6 +970,7 @@ class IDOL(Tk):
             on_handler_toggle=self._on_designer_handler_toggle,
             on_component_prop_change=self._on_comp_prop_change,
             on_component_connect=self._on_comp_connect,
+            on_component_disconnect=self._on_comp_disconnect,
             on_select_component=self._on_comp_select,
         )
         self._props_panel.configure(width=230)
@@ -4814,6 +4815,17 @@ class IDOL(Tk):
             hdef.label,
             _on_wire,
         )
+
+    def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        w = form.get_widget(widget_id)
+        if w is None:
+            return
+        w.events.pop(event_key, None)
+        self._set_designer_dirty()
+        self._props_panel.refresh_comp_connections()
 
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""

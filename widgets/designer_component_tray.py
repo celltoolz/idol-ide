@@ -5,13 +5,13 @@ from typing import Callable, Optional
 
 from utils.ui_font import UI_FONT
 
-_BG      = "#1e1e1e"
-_CHIP    = "#2d2d30"
+_BG = "#1e1e1e"
+_CHIP = "#2d2d30"
 _CHIP_HV = "#3e3e42"
 _CHIP_AC = "#094771"
-_ACCENT  = "#007acc"
-_FG      = "#cccccc"
-_DIM     = "#555555"
+_ACCENT = "#007acc"
+_FG = "#cccccc"
+_DIM = "#555555"
 
 
 class ComponentTray(tk.Frame):
@@ -24,26 +24,29 @@ class ComponentTray(tk.Frame):
     def __init__(
         self,
         master,
-        on_select:   Optional[Callable[[str], None]] = None,
+        on_select: Optional[Callable[[str], None]] = None,
         on_deselect: Optional[Callable[[], None]] = None,
-        on_delete:   Optional[Callable[[str], None]] = None,
-        on_rename:   Optional[Callable[[str, str], None]] = None,
+        on_delete: Optional[Callable[[str], None]] = None,
+        on_rename: Optional[Callable[[str, str], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, height=36, **kwargs)
         self.pack_propagate(False)
-        self._on_select   = on_select
+        self._on_select = on_select
         self._on_deselect = on_deselect
-        self._on_delete   = on_delete
-        self._on_rename   = on_rename
+        self._on_delete = on_delete
+        self._on_rename = on_rename
 
         self._selected: str | None = None
-        self._chips:    dict[str, _Chip] = {}   # comp_id → chip widget
+        self._chips: dict[str, _Chip] = {}  # comp_id → chip widget
 
         # Empty-state label (shown when no components)
         self._empty = tk.Label(
-            self, text="No components — add one from the palette",
-            bg=_BG, fg=_DIM, font=(UI_FONT, 8),
+            self,
+            text="No components — add one from the palette",
+            bg=_BG,
+            fg=_DIM,
+            font=(UI_FONT, 8),
         )
         self._empty.place(relx=0.5, rely=0.5, anchor="center")
 
@@ -81,12 +84,16 @@ class ComponentTray(tk.Frame):
 
     def _add_chip(self, comp_id: str, type_key: str) -> None:
         from designer.component_registry import COMPONENT_REGISTRY
+
         icon = COMPONENT_REGISTRY.get(type_key, None)
         glyph = icon.icon if icon else "?"
         chip = _Chip(
-            self._strip, comp_id, glyph,
+            self._strip,
+            comp_id,
+            glyph,
             on_click=self._handle_click,
             on_right=self._handle_right,
+            on_delete=self._do_delete,
         )
         chip.pack(side="left", padx=(0, 2), fill="y")
         self._chips[comp_id] = chip
@@ -109,9 +116,17 @@ class ComponentTray(tk.Frame):
                 self._on_select(comp_id)
 
     def _handle_right(self, comp_id: str, x_root: int, y_root: int) -> None:
-        menu = tk.Menu(self, tearoff=0, bg="#2d2d30", fg="#cccccc",
-                       activebackground="#094771", activeforeground="#ffffff",
-                       font=(UI_FONT, 9), bd=0, relief="flat")
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg="#2d2d30",
+            fg="#cccccc",
+            activebackground="#094771",
+            activeforeground="#ffffff",
+            font=(UI_FONT, 9),
+            bd=0,
+            relief="flat",
+        )
         menu.add_command(label="Rename…", command=lambda: self._do_rename(comp_id))
         menu.add_separator()
         menu.add_command(label="Delete", command=lambda: self._do_delete(comp_id))
@@ -139,6 +154,7 @@ class ComponentTray(tk.Frame):
 
 # ── Chip widget ───────────────────────────────────────────────────────────────
 
+
 class _Chip(tk.Frame):
     """One icon+name chip in the tray."""
 
@@ -149,12 +165,13 @@ class _Chip(tk.Frame):
         glyph: str,
         on_click: Callable[[str], None],
         on_right: Callable[[str, int, int], None],
+        on_delete: Callable[[str], None],
     ) -> None:
-        super().__init__(master, bg=_CHIP, cursor="hand2",
-                         padx=0, pady=0)
+        super().__init__(master, bg=_CHIP, cursor="hand2", padx=0, pady=0)
         self._comp_id = comp_id
         self._on_click = on_click
         self._on_right = on_right
+        self._on_delete = on_delete
 
         # Left blue accent bar (3px, shown when active)
         self._accent = tk.Frame(self, bg=_CHIP, width=3)
@@ -163,27 +180,44 @@ class _Chip(tk.Frame):
         inner = tk.Frame(self, bg=_CHIP, padx=4, pady=0)
         inner.pack(side="left", fill="both", expand=True)
 
-        icon_lbl = tk.Label(inner, text=glyph, bg=_CHIP, fg=_FG,
-                            font=(UI_FONT, 11))
+        icon_lbl = tk.Label(inner, text=glyph, bg=_CHIP, fg=_FG, font=(UI_FONT, 11))
         icon_lbl.pack(side="left")
 
-        name_lbl = tk.Label(inner, text=comp_id, bg=_CHIP, fg=_FG,
-                            font=(UI_FONT, 8), padx=3)
+        name_lbl = tk.Label(
+            inner, text=comp_id, bg=_CHIP, fg=_FG, font=(UI_FONT, 8), padx=3
+        )
         name_lbl.pack(side="left")
 
-        self._inner  = inner
+        self._inner = inner
         self._labels = [icon_lbl, name_lbl]
+
+        # Hover X — placed over the chip top-right corner, hidden until hover
+        self._x_btn = tk.Label(
+            self,
+            text="×",
+            bg=_CHIP,
+            fg="#884444",
+            font=(UI_FONT, 7, "bold"),
+            cursor="hand2",
+            padx=1,
+            pady=0,
+        )
+        self._x_btn.bind("<ButtonRelease-1>", lambda e: self._on_delete(self._comp_id))
+        self._x_btn.bind("<Enter>", lambda e: self._on_x_enter())
+        self._x_btn.bind("<Leave>", lambda e: self._on_x_leave())
 
         for w in [self, self._accent, inner, icon_lbl, name_lbl]:
             w.bind("<ButtonRelease-1>", lambda e: self._on_click(self._comp_id))
-            w.bind("<Button-3>",
-                   lambda e: self._on_right(self._comp_id, e.x_root, e.y_root))
+            w.bind(
+                "<Button-3>",
+                lambda e: self._on_right(self._comp_id, e.x_root, e.y_root),
+            )
             w.bind("<Enter>", lambda e: self._hover(True))
             w.bind("<Leave>", lambda e: self._hover(False))
 
     def set_active(self, active: bool) -> None:
         bg = _CHIP_AC if active else _CHIP
-        ac = _ACCENT  if active else _CHIP
+        ac = _ACCENT if active else _CHIP
         self.config(bg=bg)
         self._accent.config(bg=ac)
         self._inner.config(bg=bg)
@@ -191,6 +225,18 @@ class _Chip(tk.Frame):
             lbl.config(bg=bg)
 
     def _hover(self, entering: bool) -> None:
+        if entering:
+            self._x_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-1, y=1)
+        else:
+            # Only hide if the pointer has genuinely left the chip bounds
+            px, py = self.winfo_pointerxy()
+            rx, ry = self.winfo_rootx(), self.winfo_rooty()
+            if not (
+                rx <= px <= rx + self.winfo_width()
+                and ry <= py <= ry + self.winfo_height()
+            ):
+                self._x_btn.config(fg="#884444")
+                self._x_btn.place_forget()
         if self._is_active():
             return
         bg = _CHIP_HV if entering else _CHIP
@@ -199,11 +245,25 @@ class _Chip(tk.Frame):
         for lbl in self._labels:
             lbl.config(bg=bg)
 
+    def _on_x_enter(self) -> None:
+        self._x_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-1, y=1)
+        self._x_btn.config(fg="#ff6b6b")
+
+    def _on_x_leave(self) -> None:
+        self._x_btn.config(fg="#884444")
+        px, py = self.winfo_pointerxy()
+        rx, ry = self.winfo_rootx(), self.winfo_rooty()
+        if not (
+            rx <= px <= rx + self.winfo_width() and ry <= py <= ry + self.winfo_height()
+        ):
+            self._x_btn.place_forget()
+
     def _is_active(self) -> bool:
         return self.cget("bg") == _CHIP_AC
 
 
 # ── Rename dialog ─────────────────────────────────────────────────────────────
+
 
 class _RenameDialog(tk.Toplevel):
     """Inline dialog to rename a component."""
@@ -217,14 +277,21 @@ class _RenameDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
 
-        tk.Label(self, text="New name:", bg="#252526", fg="#cccccc",
-                 font=(UI_FONT, 9)).pack(padx=12, pady=(10, 4), anchor="w")
+        tk.Label(
+            self, text="New name:", bg="#252526", fg="#cccccc", font=(UI_FONT, 9)
+        ).pack(padx=12, pady=(10, 4), anchor="w")
 
         self._var = tk.StringVar(value=current_name)
-        entry = tk.Entry(self, textvariable=self._var,
-                         bg="#3c3c3c", fg="#cccccc",
-                         insertbackground="#cccccc",
-                         font=(UI_FONT, 9), relief="flat", bd=4)
+        entry = tk.Entry(
+            self,
+            textvariable=self._var,
+            bg="#3c3c3c",
+            fg="#cccccc",
+            insertbackground="#cccccc",
+            font=(UI_FONT, 9),
+            relief="flat",
+            bd=4,
+        )
         entry.pack(padx=12, fill="x")
         entry.select_range(0, "end")
         entry.focus_set()
@@ -235,14 +302,23 @@ class _RenameDialog(tk.Toplevel):
         btn_row.pack(fill="x", padx=12, pady=(8, 10))
 
         for text, cmd in [("Rename", self._commit), ("Cancel", self.destroy)]:
-            tk.Label(btn_row, text=text, bg="#094771", fg="#ffffff",
-                     font=(UI_FONT, 9), padx=10, pady=3, cursor="hand2"
-                     ).pack(side="left", padx=(0, 6))
+            tk.Label(
+                btn_row,
+                text=text,
+                bg="#094771",
+                fg="#ffffff",
+                font=(UI_FONT, 9),
+                padx=10,
+                pady=3,
+                cursor="hand2",
+            ).pack(side="left", padx=(0, 6))
         # Re-bind properly with ButtonRelease-1 per project style
         for child in btn_row.winfo_children():
             t = child.cget("text")
-            child.bind("<ButtonRelease-1>",
-                       lambda e, c=(self._commit if t == "Rename" else self.destroy): c())
+            child.bind(
+                "<ButtonRelease-1>",
+                lambda e, c=(self._commit if t == "Rename" else self.destroy): c(),
+            )
 
         self.wait_window()
 

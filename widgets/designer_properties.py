@@ -48,9 +48,10 @@ class DesignerProperties(tk.Frame):
         on_navigate_handler:      Optional[Callable[[str],           None]] = None,
         on_reorder_widget:        Optional[Callable[[str, int],      None]] = None,
         on_handler_toggle:        Optional[Callable[[str, bool],     None]] = None,
-        on_component_prop_change: Optional[Callable[[str, str, Any], None]] = None,
-        on_component_connect:     Optional[Callable[[str, str],      None]] = None,
-        on_select_component:      Optional[Callable[[str],           None]] = None,
+        on_component_prop_change:    Optional[Callable[[str, str, Any], None]] = None,
+        on_component_connect:        Optional[Callable[[str, str],      None]] = None,
+        on_component_disconnect:     Optional[Callable[[str, str, str], None]] = None,
+        on_select_component:         Optional[Callable[[str],           None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
@@ -60,9 +61,10 @@ class DesignerProperties(tk.Frame):
         self._on_navigate_handler      = on_navigate_handler
         self._on_reorder_widget        = on_reorder_widget
         self._on_handler_toggle        = on_handler_toggle
-        self._on_component_prop_change = on_component_prop_change
-        self._on_component_connect     = on_component_connect
-        self._on_select_component      = on_select_component
+        self._on_component_prop_change    = on_component_prop_change
+        self._on_component_connect        = on_component_connect
+        self._on_component_disconnect     = on_component_disconnect
+        self._on_select_component         = on_select_component
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -256,6 +258,18 @@ class DesignerProperties(tk.Frame):
             lambda e: self._comp_connect_btn.place_forget())
         self._comp_connect_btn.bind("<ButtonRelease-1>", self._on_comp_connect_click)
 
+        # Floating × disconnect button for Connected Components rows
+        self._comp_disconnect_btn = tk.Label(
+            self._handlers_cv, text="×",
+            bg="#3a1a1a", fg="#ff6b6b",
+            font=(UI_FONT, 10, "bold"), cursor="hand2", padx=4,
+        )
+        self._comp_disconnect_btn.bind("<Enter>",
+            lambda e: self._comp_disconnect_btn.config(bg="#5a1a1a"))
+        self._comp_disconnect_btn.bind("<Leave>",
+            lambda e: self._comp_disconnect_btn.place_forget())
+        self._comp_disconnect_btn.bind("<ButtonRelease-1>", self._on_comp_disconnect_click)
+
         # ── Order tab ─────────────────────────────────────────────────────────
         self._order_frame = tk.Frame(self._nb, bg=_ORD_BG)
         self._nb.add(self._order_frame, text="  Order  ")
@@ -373,16 +387,28 @@ class DesignerProperties(tk.Frame):
                 result.append((method, f"via {ev_key}"))
         return result
 
-    def _collect_comp_connections(self, comp_id: str) -> list[tuple[str, str]]:
-        """Return (method_name, "{widget_id}.{ev_key}") for every widget event wired to this component."""
+    def _collect_comp_connections(self, comp_id: str) -> list[tuple[str, str, bool, "tuple[str,str] | None"]]:
+        """Return (method, label, removable, removal_key) for every connection to this component.
+
+        Non-connector handlers (e.g. _tick) are always shown as wired to Form.init (not removable).
+        Wired widget events are removable via the × button.
+        """
         if self._form is None or self._comp_def is None:
             return []
+        form_name = self._form.name
+        result: list[tuple[str, str, bool, "tuple[str,str] | None"]] = []
+
+        # Implicit connections — handlers with no connector are always auto-wired
+        for hdef in self._comp_def.handler_defs:
+            if not hdef.has_connector:
+                result.append((f"_{comp_id}{hdef.label}", f"{form_name}.init", False, None))
+
+        # Explicit widget.events connections
         comp_methods: set[str] = {f"_{comp_id}{hdef.label}" for hdef in self._comp_def.handler_defs}
-        result: list[tuple[str, str]] = []
         for widget in self._form.widgets:
             for ev_key, method in widget.events.items():
                 if method in comp_methods:
-                    result.append((method, f"{widget.id}.{ev_key}"))
+                    result.append((method, f"{widget.id}.{ev_key}", True, (widget.id, ev_key)))
         return result
 
     def _collect_form_comp_handlers(self, form: FormModel) -> list[tuple[str, str]]:
@@ -440,6 +466,7 @@ class DesignerProperties(tk.Frame):
         if not self._comp_mode:
             return
         self._comp_connect_btn.place_forget()
+        self._comp_disconnect_btn.place_forget()
         self._comp_mode         = False
         self._comp_id           = None
         self._comp_def          = None
@@ -908,7 +935,7 @@ class DesignerProperties(tk.Frame):
             cv.create_rectangle(0, hdr_y, w, hdr_y + _ORD_HDR_H, fill=_ORD_HDR_BG, outline="")
             cv.create_text(8, hdr_y + _ORD_HDR_H // 2, text="⚡ Connected Components",
                            fill=_ORD_HDR_FG, font=(UI_FONT, 7, "bold"), anchor="w")
-            for j, (method, label) in enumerate(cc):
+            for j, (method, label, removable, removal_key) in enumerate(cc):
                 row_start = hdr_y + _ORD_HDR_H
                 y0  = row_start + j * _ORD_ROW_H
                 y1  = y0 + _ORD_ROW_H
@@ -918,8 +945,14 @@ class DesignerProperties(tk.Frame):
                 cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
                 cv.create_text(8, mid, text=method,
                                fill=_ORD_NB_NUM, font=("Consolas", 9), anchor="w")
-                cv.create_text(w - 6, mid, text=label,
+                # Show × button placeholder space only for removable rows on hover
+                label_x = w - 6 if not (removable and is_hov) else w - 22
+                cv.create_text(label_x, mid, text=label,
                                fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
+                if removable and is_hov:
+                    self._comp_disconnect_btn.place(x=w - 2, y=y0 + 2,
+                                                    anchor="ne", height=_ORD_ROW_H - 4)
+                    self._comp_disconnect_btn._removal_key = removal_key  # type: ignore[attr-defined]
             total_px = hdr_y + _ORD_HDR_H + len(cc) * _ORD_ROW_H
         else:
             total_px = total_rows * _ORD_ROW_H
@@ -961,12 +994,14 @@ class DesignerProperties(tk.Frame):
                 self._comp_hov_idx      = idx
                 self._comp_conn_hov_idx = conn_idx
                 self._comp_connect_btn.place_forget()
+                self._comp_disconnect_btn.place_forget()
                 self._handlers_redraw()
                 if idx is not None and self._comp_def:
                     self._show_hint(self._comp_def.handler_defs[idx].description)
                 elif conn_idx is not None:
-                    method, label = self._comp_connections[conn_idx]
-                    self._show_hint(f"{method}  ({label}) — double-click to jump")
+                    method, label, removable, _ = self._comp_connections[conn_idx]
+                    suffix = " — double-click to jump" if not removable else " — double-click to jump · × to disconnect"
+                    self._show_hint(f"{method}  ({label}){suffix}")
                 else:
                     self._clear_hint()
             return
@@ -992,6 +1027,7 @@ class DesignerProperties(tk.Frame):
             self._comp_conn_hov_idx = None
             if changed:
                 self._comp_connect_btn.place_forget()
+                self._comp_disconnect_btn.place_forget()
                 self._handlers_redraw()
             self._clear_hint()
             return
@@ -1027,7 +1063,7 @@ class DesignerProperties(tk.Frame):
         if self._comp_mode:
             conn_idx = self._comp_connection_at(event.y)
             if conn_idx is not None:
-                method, _ = self._comp_connections[conn_idx]
+                method, _label, _removable, _key = self._comp_connections[conn_idx]
                 if self._on_navigate_handler:
                     self._on_navigate_handler(method)
             return
@@ -1058,6 +1094,12 @@ class DesignerProperties(tk.Frame):
         hid = getattr(self._comp_connect_btn, "_handler_id", None)
         if hid and self._comp_id and self._on_component_connect:
             self._on_component_connect(self._comp_id, hid)
+
+    def _on_comp_disconnect_click(self, _event: tk.Event) -> None:
+        key = getattr(self._comp_disconnect_btn, "_removal_key", None)
+        if key and self._comp_id and self._on_component_disconnect:
+            widget_id, ev_key = key
+            self._on_component_disconnect(self._comp_id, widget_id, ev_key)
 
     # ── Props canvas data helpers ─────────────────────────────────────────────
 
