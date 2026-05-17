@@ -34,11 +34,11 @@ class HandlerOptionsEditor(tk.Toplevel):
     ) -> None:
         super().__init__(parent)
         self._on_apply   = on_apply
-        self._options    = list(hdef.options)
+        self._opt_names  = list(hdef.options)
         bodies           = hdef.wire_option_bodies if is_wire else hdef.stub_option_bodies
         self._bodies     = list(bodies)
-        self._selected   = (current_option if current_option in self._options
-                            else (self._options[0] if self._options else ""))
+        self._selected   = (current_option if current_option in self._opt_names
+                            else (self._opt_names[0] if self._opt_names else ""))
         self._hov_idx:   int | None = None
 
         self.title(f"Options — {handler_id}")
@@ -54,7 +54,7 @@ class HandlerOptionsEditor(tk.Toplevel):
         ).pack(padx=12, pady=(10, 4), fill="x")
 
         # Option rows on a canvas so we get full-row hit areas
-        total_h = len(self._options) * _ROW_H
+        total_h = len(self._opt_names) * _ROW_H
         self._cv = tk.Canvas(
             self, bg=_BG, highlightthickness=0,
             width=400, height=max(total_h, _ROW_H),
@@ -96,7 +96,7 @@ class HandlerOptionsEditor(tk.Toplevel):
         cv = self._cv
         cv.delete("all")
         w = max(cv.winfo_width(), 400)
-        for i, (opt, body) in enumerate(zip(self._options, self._bodies)):
+        for i, (opt, body) in enumerate(zip(self._opt_names, self._bodies)):
             y0  = i * _ROW_H
             y1  = y0 + _ROW_H
             mid = (y0 + y1) // 2
@@ -127,12 +127,12 @@ class HandlerOptionsEditor(tk.Toplevel):
 
     def _row_at(self, y: int) -> int | None:
         idx = y // _ROW_H
-        return idx if 0 <= idx < len(self._options) else None
+        return idx if 0 <= idx < len(self._opt_names) else None
 
     def _on_click(self, e: tk.Event) -> None:
         idx = self._row_at(e.y)
         if idx is not None:
-            self._selected = self._options[idx]
+            self._selected = self._opt_names[idx]
             self._draw()
 
     def _on_motion(self, e: tk.Event) -> None:
