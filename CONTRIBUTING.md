@@ -312,11 +312,8 @@ Implemented and stable:
   last 50 clipboard entries; opened via Ctrl+Shift+H as a persistent hidden `Toplevel`; canvas
   rows (rect + text) with hover via `itemconfigure`, keyboard nav, pin/unpin (right-click), and
   search filter; `on_copy` callback on the canvas editor delivers text directly on Ctrl+C
-- **Undo on the canvas editor** — open follow-up. The legacy
-  `tk.Text`-backed undo (`_capture_token_tags` / `_restore_token_tags`
-  with `dump -tag` snapshots) is gone alongside the legacy CodeView.
-  The canvas engine needs its own undo stack on `self.lines` + cursor
-  + selection state; tracked as next-up work.
+- **Undo / Redo on the canvas editor** — 200-entry stack on `self.lines` + cursor + selection state; consecutive same-type edits (char insert, backspace, forward-delete) coalesce into one step; all mutation paths push a snapshot (insert, newline, delete, cut, paste, comment toggle, line move/duplicate, indent, unindent); `Ctrl+Z`/`Ctrl+Y` wired as key bindings and `<<Undo>>`/`<<Redo>>` virtual events; Edit menu items dim when stack is empty
+- **Shift+Tab unindent** — removes up to `tab_size` leading spaces from the current line or every line in the selection
 - **Ghost sash — sidebar** — sidebar's custom Frame-based horizontal sashes use a 2 px `#007acc`
   ghost overlay during drag; actual resize fires on `ButtonRelease` only; also restores the
   missing `<ButtonPress-1>` binding that was never wired to `_sash_press`

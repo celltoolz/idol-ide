@@ -52,9 +52,16 @@ A thin bar between the tab row and the editor showing the full file path and cur
 ## Code Editing Helpers
 
 - **Ctrl+/** — toggle comment on the current line or selection (adds/removes `#`)
+- **Tab / Shift+Tab** — indent or unindent the current line or selected block by the configured tab size (spaces only)
 - **Smart Home** — first press jumps to the first non-whitespace character; second press jumps to column 0 (position-based, no state needed)
 - **Word occurrence highlights** — when the cursor rests on a word, all other occurrences in the file highlight automatically; updates on arrow-key navigation too
 - **Selection collapse** — pressing Left or Right arrow with a selection collapses to the start/end of the selection (VS Code behavior)
+
+## Undo / Redo
+
+The canvas editor has a full undo/redo stack (200-entry limit). Every edit operation — character insert, newline, backspace, forward-delete, cut, paste, comment toggle, line move, line duplicate, indent, and unindent — pushes a snapshot before it runs. Consecutive same-type operations (e.g. several character inserts in a row) coalesce into a single undo step.
+
+`Ctrl+Z` undoes; `Ctrl+Y` redoes. Both are also wired as `<<Undo>>`/`<<Redo>>` virtual events so the **Edit** menu items (and their macOS equivalents) work too. The Edit menu items dim automatically when there is nothing to undo or redo.
 
 ## Non-ASCII Paste Detection
 
@@ -85,7 +92,15 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 
 ## Find & Replace
 
-VS Code-style inline bar with case, whole word, and regex toggles. Open with `Ctrl+F`.
+VS Code-style inline bar with case, whole word, and regex toggles. Open with `Ctrl+F`. When there is no active selection, the search field is pre-populated with the identifier under the caret (if one exists).
+
+## Right-Click Context Menu
+
+The editor's right-click menu is an IDOL-style dark overlay (not a native OS menu). It shows each action with its keyboard shortcut in a two-column layout. Available actions: Cut, Copy, Paste, Select All, Go to Definition, Find & Replace. Go to Definition is disabled if the LSP is not yet connected.
+
+## Active Line Highlight
+
+**View → Highlight Active Line** toggles a subtle background band on the line the cursor is on. **View → Active Line Color** opens a color picker to customize the highlight color. Both settings apply immediately to all open editor tabs.
 
 ## Themes
 

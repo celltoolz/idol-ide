@@ -51,5 +51,5 @@ Live ✕N ⚠N count on the left of the status bar. Click it to open the Problem
 Backed by `python-lsp-server`, which ships with `requirements.txt`.
 
 - **Hover documentation** — rest the mouse over any symbol for inline docs
-- **Go to Definition** — F12 or right-click menu
+- **Go to Definition** — `F12` or right-click menu. IDOL first scans the current buffer for a matching `def` or `class` statement (instant, no LSP round-trip); if that fails and the LSP is ready, it falls through to a full LSP request. The right-click menu item is disabled until the LSP is connected. Both `Location` and `LocationLink` response formats are accepted (forward-compatible with any LSP server)
 - **Autocomplete** — dropdown with kind labels (function, class, variable, etc.); ↑↓ to navigate, Tab/Enter to accept, Escape to dismiss

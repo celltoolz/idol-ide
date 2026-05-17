@@ -203,15 +203,15 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 - ~~**Find & Replace — pre-populate from caret word**~~ — FIXED: caret word inserted and selected on Ctrl+F open.
 
-- **Canvas editor undo/redo** — lost in the canvas upgrade; the legacy `tk.Text`-backed undo is gone. Need a new stack on `self.lines` + cursor + selection state. Push a snapshot before every mutation (keystrokes, paste, delete, indent, move, duplicate, comment toggle). Ctrl+Z / Ctrl+Y. Max ~100 snapshots; trim oldest when over limit. Breakpoint auto-shift should hook into the undo path the same way the legacy editor did.
+- ~~**Canvas editor undo/redo**~~ — FIXED (2026-05-15): 200-entry stack on `self.lines` + cursor + selection; same-type coalescing (char insert, backspace, forward-delete); all mutation paths covered; Ctrl+Z/Y + `<<Undo>>`/`<<Redo>>` virtual events; Edit menu items dim when stack is empty.
 
-- **References panel — tab-aware navigation** — clicking a reference should switch to the tab that already has the file open (if any) before jumping to the line; currently opens a new tab or jumps in the wrong one. Also place the caret at the start of the matched word, not just the line start.
+- ~~**References panel — tab-aware navigation**~~ — FIXED (2026-05-15): clicking a result switches to the correct open tab (or opens the file) and positions the caret at the exact column of the matched word.
 
 ### Features
 
-- **Canvas lexer — call-site coloring** — class names used as constructors (e.g. `IDOL` in `app = IDOL(file_path)`) should render teal (same color as class definitions), not white. Keyword arguments (`key=value` call syntax) should also render teal on the key. Match VS Code's Python color scheme for these token classes.
+- ~~**Canvas lexer — call-site coloring**~~ — FIXED (2026-05-15): constructor call sites (e.g. `IDOL(...)`) and keyword argument keys render teal, matching VS Code's Python color scheme.
 
-- **File → Open Project opens into explorer root** — `workspace_open` / the Open Project dialog should default `initialdir` to the directory currently set as the explorer root (or the project root from the session), not the OS default.
+- ~~**File → Open Project opens into explorer root**~~ — FIXED (2026-05-15): Open Project dialog now defaults `initialdir` to the current explorer root.
 
 - **Settings menu** — `View → Settings` (or `Edit → Settings`) panel consolidating per-user preferences that are currently scattered or missing UI:
   - Font (family / size / bold / italic) — currently only reachable via `View → Change Font`
@@ -323,6 +323,41 @@ Benefits: master stays stable while the feature is in progress; easy to diff the
 
 ---
 
+## Terminal & Editor Polish (2026-05-15 / 2026-05-16)
+
+**Terminal**
+- **Alternate screen buffer (DEC 1049)** — vim, nano, htop, less, mc enter and exit cleanly without corrupting scrollback history
+- **Full mouse forwarding** — click, release, drag, and right-click forwarded as SGR mouse sequences when TUI apps enable mouse mode; wheel scroll sequences also forwarded; scroll falls back to scrollback when mouse mode is off
+- **Extended TUI key map** — Ctrl+Arrow, Shift+Arrow, Alt+Arrow, and Insert forwarded as correct escape sequences; covers tmux pane switching, text selection, and file manager nav in TUI apps
+- **Auto-scroll pin for repainting TUI apps** — Rich Live tables, Textual, and other cursor-up-repaint apps are viewport-pinned to the redrawn block's top border; bottom-pin preserved for PSReadLine / prompt output
+- **OSC 133-gated startup** — rendering suppressed until the injected hook fires its first OSC 133 prompt event; 3-second fallback fires if the hook never arrives; eliminates startup noise on Windows
+- **Git Bash on Windows** — launched with `--login -i` so `/etc/profile` populates MSYS2 PATH; `MSYSTEM=MINGW64` injected; cygpath canary check injects `/usr/bin` when MSYS2 runtime skips conversion
+- **Venv activation on Windows (Git Bash)** — `Scripts/activate` bypassed (requires Cygwin); `VIRTUAL_ENV` and `PATH` set directly in MSYS2-compatible form
+- **Venv activation on Windows (PowerShell)** — `Set-ExecutionPolicy -Scope Process Bypass` prepended so unsigned `Activate.ps1` runs without policy changes
+- **Double-activation guard** — flag prevents both the terminal auto-activate and app-level pending venv path from firing on the same session startup
+- **TUI column-cell rendering** — box-drawing and non-ASCII glyphs rendered per cell within column width, eliminating drift in table borders at high character widths
+
+**Canvas Editor**
+- **Undo / Redo** — 200-entry stack on `self.lines` + cursor + selection; consecutive same-type ops coalesce; all mutation paths covered; Ctrl+Z/Y + `<<Undo>>`/`<<Redo>>` virtual events; Edit menu dims when stack is empty
+- **Shift+Tab unindent** — removes up to `tab_size` leading spaces from the current line or every line in the selection
+- **Active line highlight / color wired live** — `View → Highlight Active Line` and `View → Active Line Color` now apply immediately to all open canvas codeviews (previously stubs)
+- **Right-click context menu** — replaced native `tk.Menu` with IDOL-style dark overlay; two-column label+shortcut layout; Go to Definition disabled when LSP is not ready
+- **Find & Replace pre-populates from caret word** — when no selection exists, the identifier under the caret is inserted and selected in the search field on Ctrl+F open
+
+**Go to Definition**
+- **Local buffer scan** — scans current buffer for matching `def`/`class` first (no LSP round-trip); covers same-file refs that pylsp/jedi often misses
+- **LSP fallback** — fires only when local scan fails and LSP is connected and ready
+- **LocationLink support** — accepts both `Location` and `LocationLink` LSP response formats
+- **URI percent-encoding** — incoming URIs decoded, outgoing URIs encoded; paths with spaces and special chars now navigate correctly
+- **F12 binding** — global app-level `<F12>` binding added
+
+**Other**
+- **References panel** — tab-aware navigation; clicking a result switches to the correct open tab and positions caret at the exact match column
+- **Lexer** — constructor call sites and keyword argument keys render teal, matching VS Code's Python color scheme
+- **Designer codegen** — trailing comment lines in handler bodies now preserved on regeneration; `self.focus()` emitted after all dialog `__init__` calls to restore main window focus
+
+---
+
 ## Phase 3 — IDOL Components (not yet started)
 
 VB6-style non-visual components — drag onto a component tray below the canvas, codegen emits
@@ -367,17 +402,6 @@ section (or a new Helpers zone) on next codegen.
 ---
 
 ## Long-Term Ideas
-
-### Clipboard History Panel
-A dedicated panel (or Command Palette overlay) showing the last N clipboard entries.
-- Ring buffer of copied text (configurable depth, e.g. 50 entries); each entry stores content +
-  timestamp + source file/line
-- Accessible via `Ctrl+Shift+V` or a panel tab; click-to-paste or keyboard nav + Enter
-- Search/filter bar across all entries; single × to delete an entry; "Clear All" button
-- Entries pinned with a 📌 icon survive "Clear All"
-- Storage: in-memory only (never written to disk — clipboard content is sensitive)
-- Implementation sketch: hook `codeview` paste and intercept Ctrl+C/X at the app level;
-  render entries as a canvas-virtualized list (ties directly into the canvas panel idea below)
 
 ### Canvas-Virtualized Side Panel Renderer
 Replace the Frame/Label widget trees in the sidebar panels with a single `Canvas` per section,

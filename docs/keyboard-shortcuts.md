@@ -24,6 +24,8 @@
 | Extend selection (per cursor) | Shift+Arrow |
 | Toggle overwrite mode | Insert |
 | Toggle comment | Ctrl+/ |
+| Indent selection | Tab |
+| Unindent selection | Shift+Tab |
 | Move line up / down | Alt+Up / Alt+Down |
 | Duplicate line down (cursor follows) | Shift+Alt+Down |
 | Duplicate line up (cursor stays) | Shift+Alt+Up |

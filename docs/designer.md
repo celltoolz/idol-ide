@@ -291,6 +291,7 @@ class MyDialog(tk.Toplevel):
         # ── IDOL:BEGIN ─────────────────────(Do not modify below)─────────────────────
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.focus()
         # ── IDOL:END ───────────────────────(Do not modify above)─────────────────────
 
     # ── Events ──────────────────────────────────────────────────
@@ -310,6 +311,7 @@ class Form1(tk.Tk):
         # ── IDOL:BEGIN ─────────────────────(Do not modify below)─────────────────────
         super().__init__()
         self.dlg_MyDialog = MyDialog(self)   # created once, reused
+        self.focus()
         # ── IDOL:END ───────────────────────(Do not modify above)─────────────────────
 
     # ── Events ──────────────────────────────────────────────────
@@ -365,7 +367,7 @@ class Form1(tk.Tk):
 
 Regenerating never discards code you wrote:
 
-- Event handler **bodies** are extracted and spliced back in verbatim, including any **leading comment lines** before the first statement
+- Event handler **bodies** are extracted and spliced back in verbatim, including **leading and trailing comment lines** (comments before the first statement and comments at the end of the body)
 - Event handler **signatures** are preserved — change `*args` to `event: tk.Event` once and IDOL keeps it on every subsequent regeneration
 - User **imports** between the `IDOL:IMPORTS:BEGIN/END` markers survive regeneration
 - The `IDOL:DIALOG_IMPORTS` block is fully auto-managed (always regenerated from link state) — do not add manual imports inside it; use `IDOL:IMPORTS` for your own imports

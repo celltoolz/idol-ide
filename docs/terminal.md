@@ -8,7 +8,10 @@ Full VT100 PTY shell with a **canvas-driven renderer** for pixel-perfect output 
 - Direct keyboard input
 - Scrollback history stored as **logical lines** — re-wrapped automatically when the window or sash is resized, so historical output stays readable at any width
 - **Viewport-anchored reflow** — your scroll position survives resizes; if you were at the bottom, you stay at the bottom
-- **Mouse wheel scrolling** — passes SGR scroll sequences to TUI apps (vim, htop) when mouse mode is active, otherwise scrolls the history buffer
+- **Mouse forwarding** — when a TUI app enables mouse mode, all click, release, drag, and right-click events are forwarded as SGR mouse sequences (`\x1b[<btn;col;rowM/m`); mouse wheel scroll sequences are also forwarded; when mouse mode is off, the wheel scrolls the history buffer instead
+- **Alternate screen buffer** — full DEC 1049 support; full-screen TUI apps (vim, nano, htop, less, mc) enter and exit cleanly without corrupting the scrollback history
+- **Extended TUI key forwarding** — Ctrl+Arrow (word navigation / tmux pane switching), Shift+Arrow (selection in text editors), Alt+Arrow (file manager navigation), and Insert are forwarded as proper escape sequences when the terminal has focus
+- **Auto-scroll pin for repainting TUI apps** — apps that repaint by cursor-up + redraw (Rich Live tables, Textual, etc.) are viewport-pinned to the top of the redrawn block so table borders stay flush; output that doesn't cursor-up remains bottom-pinned (keeping PSReadLine prompts anchored)
 - **Text selection** — click and drag to select; Copy via right-click or `Ctrl+Shift+C`; Paste via right-click or `Ctrl+Shift+V`
 
 Open with `Ctrl+`` ` or the **>_** button in the nav toolbar.
@@ -53,6 +56,7 @@ IDOL injects a small prompt hook on startup that emits standard escape sequences
 
 | Sequence | Purpose |
 |---|---|
+| `OSC 133` | Startup gate — IDOL suppresses rendering until the first OSC 133 prompt event fires, then shows a clean screen; a 3-second fallback fires if the hook never arrives |
 | `OSC 133;D` | Command-done event with exit code — clears the running-filename badge in the status bar |
 | `OSC 7` | Current working directory — drives venv autodetection |
 | `OSC 7776` | Active `$VIRTUAL_ENV` path (IDOL-private) — drives the venv toolbar |
@@ -73,6 +77,12 @@ The terminal toolbar shows the active venv state for the **active session**:
 | A *different* venv is active | **⇄ Switch venv** + venv name |
 
 Clicking **Activate** switches the status bar and all run/debug/package operations to the venv Python automatically. Each session tracks its own venv state independently.
+
+**Platform notes:**
+- **Git Bash on Windows** — launched with `--login -i` flags so `/etc/profile` runs and populates the MSYS2 PATH (making `sort`, `tr`, `cygpath`, etc. available); `MSYSTEM=MINGW64` and related environment variables are injected automatically
+- **Venv activation on Windows (Git Bash)** — `Scripts/activate` is bypassed (it calls `cygpath`, which requires Cygwin); instead `VIRTUAL_ENV` and `PATH` are set directly in MSYS2-compatible form
+- **Venv activation on Windows (PowerShell)** — `Set-ExecutionPolicy -Scope Process Bypass` is prepended so the unsigned `Activate.ps1` runs without changing any system policy
+- **Double-activation guard** — a flag prevents both the terminal's auto-activate path and the app-level pending venv path from both firing on the same session startup
 
 ## Run / Output Panel
 

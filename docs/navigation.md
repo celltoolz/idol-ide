@@ -22,11 +22,11 @@ AST-based view of the current file showing classes, functions, methods, paramete
 
 ## Find References
 
-Right-click any symbol to open the References panel showing all occurrences across the project.
+Right-click any symbol to open the References panel showing all occurrences across the project. Clicking a result opens the correct file tab (if the reference is in a different file) and positions the caret at the exact column where the symbol appears.
 
 ## Find & Replace
 
-`Ctrl+F` opens a VS Code-style inline bar with case-sensitive, whole-word, and regex toggles.
+`Ctrl+F` opens a VS Code-style inline bar with case-sensitive, whole-word, and regex toggles. When there is no active selection, the search field is pre-populated with the identifier under the caret.
 
 ## Navigation History
 

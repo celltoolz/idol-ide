@@ -29,7 +29,7 @@ The wizard includes paginated guides covering:
 - Breakpoints
 - Appearance settings
 
-**Save / Open / Close Project** — `File → Save Project` saves silently; `File → Open Project` restores the full project state including interpreter selection.
+**Save / Open / Close Project** — `File → Save Project` saves silently; `File → Open Project` restores the full project state including interpreter selection. The Open Project file dialog opens at the current Explorer root (or the working directory if none is set).
 
 ## Interpreter & Environment
 
@@ -76,7 +76,7 @@ The status bar (bottom of the window) shows:
 
 ## Zen Mode
 
-**F10** (or **View → Zen Mode**) hides the sidebar, output panel, and status bar for distraction-free editing. A toast notification appears on entry. Toggle with the **ZEN** button in the nav toolbar.
+**F10** (or **View → Zen Mode**) hides the sidebar, output panel, and status bar for distraction-free editing. A toast notification appears on entry. Toggle with the **ZEN** button in the nav toolbar. Entering Zen mode from the Designer normalises to the editor layout first; exiting Zen restores the Designer automatically.
 
 ## Toggle Sidebar
 
