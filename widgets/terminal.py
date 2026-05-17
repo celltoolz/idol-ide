@@ -77,6 +77,14 @@ class _RobustScreen(pyte.HistoryScreen):
         # the byte stream (NOT a wrap — e.g. PSReadLine sending \r\n after
         # Enter on a command that exactly filled the row to col == columns).
         self._draw_wrap_pending = False
+        # Set whenever a cursor-up sequence (CUU / \x1b[NA) is processed in
+        # the current poll frame. Cleared by _poll after each render cycle.
+        # Used to detect non-alt-screen TUI repaints (Rich Live, etc.) vs
+        # normal scrolling output so we can show overflow rows correctly.
+        self.had_cursor_up = False
+        # Minimum cursor.y reached via cursor-up in the current poll frame.
+        # Records where the TUI app jumped to so _poll can scroll there.
+        self.cursor_up_min_y: int | None = None
 
     def draw(self, data: str) -> None:
         self._draw_wrap_pending = True
@@ -89,6 +97,13 @@ class _RobustScreen(pyte.HistoryScreen):
         if self._draw_wrap_pending and self.cursor.x == self.columns:
             self.buffer[self.cursor.y].idol_wrapped = True
         super().carriage_return()
+
+    def cursor_up(self, count=1):
+        self.had_cursor_up = True
+        dest_y = max(0, self.cursor.y - count)
+        if self.cursor_up_min_y is None or dest_y < self.cursor_up_min_y:
+            self.cursor_up_min_y = dest_y
+        super().cursor_up(count)
 
     def set_mode(self, *args, private=False, **kwargs):
         if private and args:
@@ -879,8 +894,13 @@ class TerminalPanel(ttk.Frame):
         self._font      = tkfont.Font(family=_TERM_FONT_FAMILY, size=_TERM_FONT_SIZE)
         self._bold_font = tkfont.Font(family=_TERM_FONT_FAMILY, size=_TERM_FONT_SIZE,
                                       weight="bold")
-        self._char_w = self._font.measure("W")
-        self._char_h = self._font.metrics("linespace")
+        # Use the wider of regular/bold so column count matches both weights.
+        self._char_w = max(self._font.measure("W"), self._bold_font.measure("W"))
+        # Use ascent+descent (no font leading) so box-drawing chars connect
+        # edge-to-edge between rows, the same way real terminal emulators do.
+        # linespace adds leading that creates pixel gaps, breaking │ ─ ┬ etc.
+        _m = self._font.metrics()
+        self._char_h = max(1, _m["ascent"] + _m["descent"])
 
         self._canvas = tk.Canvas(
             text_frame,
@@ -961,21 +981,36 @@ class TerminalPanel(ttk.Frame):
 
     def _draw_row(self, canvas_row: int, segments: list, tags: tuple = ()) -> None:
         """Draw one row of (text, fg, bg, bold) segments at the given canvas row index."""
-        x = 0
         y = canvas_row * self._char_h
+        col = 0
         for text, fg, bg, bold in segments:
-            w = len(text) * self._char_w
+            n = len(text)
+            x = col * self._char_w
+            w = n * self._char_w
             if bg != _DEFAULT_BG:
                 self._canvas.create_rectangle(
                     x, y, x + w, y + self._char_h,
                     fill=bg, outline="", tags=tags,
                 )
-            self._canvas.create_text(
-                x, y, text=text, fill=fg, anchor="nw",
-                font=self._bold_font if bold else self._font,
-                tags=tags,
-            )
-            x += w
+            font = self._bold_font if bold else self._font
+            if text.isascii():
+                # Pure ASCII: Consolas (and every terminal font) is truly
+                # monospace for ASCII, so one canvas item is exact.
+                self._canvas.create_text(
+                    x, y, text=text, fill=fg, anchor="nw",
+                    font=font, tags=tags,
+                )
+            else:
+                # Non-ASCII (box-drawing, Unicode, etc.): centre each glyph
+                # within its cell so that bold/regular and heavy/light chars
+                # all align regardless of individual advance widths.
+                half = self._char_w // 2
+                for i, ch in enumerate(text):
+                    self._canvas.create_text(
+                        (col + i) * self._char_w + half, y, text=ch, fill=fg, anchor="n",
+                        font=font, tags=tags,
+                    )
+            col += n
 
     def _char_at_cursor(self, segments: list, cursor_x: int) -> str:
         """Return the character at column cursor_x from a segment list."""
@@ -1241,7 +1276,6 @@ class TerminalPanel(ttk.Frame):
         self._draw_screen_rows()
         self._draw_selection()
         self._update_scrollregion()
-        self._canvas.yview_moveto(1.0)
 
     def _flush_scrollback(self) -> None:
         """Pull rows out of pyte history, merging wrap-continued rows into one
@@ -1345,6 +1379,7 @@ class TerminalPanel(ttk.Frame):
                 live_start_y = self._sb_phys_rows * self._char_h
                 was_at_bottom = canvas_h <= 1 or top_y >= live_start_y - self._char_h
 
+                old_sb_rows = self._sb_phys_rows
                 if self._screen.in_alt_screen:
                     # Alternate screen: drain pyte history without persisting
                     # to scrollback so TUI output never corrupts the main buffer.
@@ -1352,10 +1387,32 @@ class TerminalPanel(ttk.Frame):
                         self._screen.history.top.popleft()
                 else:
                     self._flush_scrollback()
+                delta_sb = self._sb_phys_rows - old_sb_rows
+
+                had_cursor_up = self._screen.had_cursor_up
+                cursor_up_min_y = self._screen.cursor_up_min_y
+                self._screen.had_cursor_up = False
+                self._screen.cursor_up_min_y = None
 
                 self._redraw_screen()
                 if was_at_bottom:
-                    self._canvas.yview_moveto(1.0)
+                    if (not self._screen.in_alt_screen
+                            and had_cursor_up
+                            and cursor_up_min_y is not None):
+                        # Non-alt-screen TUI app (Rich Live, etc.) repainted by
+                        # cursor-up + redraw.  Scroll so the top of the redrawn
+                        # block (= cursor_up_min_y in live-screen coords) is at
+                        # the top of the viewport, making the table's top border
+                        # visible.  PSReadLine cursor-up stays near the bottom
+                        # (cursor_up_min_y ≈ rows-2), so frac≈1.0 and Tk clamps
+                        # it to the true bottom — no visible change for PS.
+                        total_h = (self._sb_phys_rows * self._char_h
+                                   + max(canvas_h, self._rows * self._char_h))
+                        target_y = (self._sb_phys_rows + cursor_up_min_y) * self._char_h
+                        frac = min(1.0, target_y / total_h) if total_h > 0 else 0.0
+                        self._canvas.yview_moveto(frac)
+                    else:
+                        self._canvas.yview_moveto(1.0)
 
         if active_sentinel:
             self._running = False
