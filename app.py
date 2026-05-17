@@ -456,6 +456,7 @@ class IDOL(Tk):
         )
         self._designer_forms_dirty: bool = False  # True when JSON not yet saved
         self._autogen_after_id: str | None = None   # pending debounced auto-gen timer
+        self._pending_body_resets: set[str] = set()  # method names to drop before next gen
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
@@ -4789,6 +4790,8 @@ class IDOL(Tk):
 
         def on_apply(option: str) -> None:
             if is_wire:
+                # Try to refresh the widget event stub when the option changes
+                self._reset_wire_stub_if_auto(form, wire, hdef, option)
                 form.handler_wires = [
                     HandlerWire(
                         w.handler_id, w.widget_id, w.event_key,
@@ -4808,6 +4811,45 @@ class IDOL(Tk):
             self._props_panel.load_handlers(form)
 
         HandlerOptionsEditor(self, handler_id, hdef, is_wire, current, on_apply)
+
+    def _reset_wire_stub_if_auto(self, form, wire, hdef, new_option: str) -> None:
+        """Queue a body reset for the wire's target method if the body is still auto-generated.
+
+        Compares the current saved body against all known wire_option_bodies.
+        If it matches any (i.e. the user hasn't customised it), drop it from
+        persistence so the next codegen writes the new option's wire body.
+        If the body has been edited, leave it and flash a hint instead.
+        """
+        from pathlib import Path as _Path
+        from designer.persistence import extract_event_bodies as _bodies
+
+        widget = form.get_widget(wire.widget_id)
+        if widget is None:
+            return
+        method = widget.events.get(wire.event_key)
+        if not method:
+            return
+
+        root = getattr(getattr(self, "_sidebar", None), "explorer", None)
+        root = getattr(root, "_root", None)
+        if not root:
+            return
+        py_path = _Path(root) / f"{form.name}.py"
+        if not py_path.exists():
+            return
+
+        saved_bodies = _bodies(py_path)
+        current_body = saved_bodies.get(method, "").strip()
+        known_bodies = {b.strip() for b in hdef.wire_option_bodies}
+
+        if not current_body or current_body in known_bodies:
+            # Auto-generated (or no saved body yet) — safe to reset
+            self._pending_body_resets.add(method)
+        else:
+            # User has customised the stub — don't overwrite, flash a hint
+            self._props_panel._show_status(
+                f"Stub for {method} was edited — update manually.", duration_ms=4000
+            )
 
     # ── Component tray handlers ───────────────────────────────────────────────
 
@@ -5380,6 +5422,10 @@ class IDOL(Tk):
             pre_init, post_init = _init_zones(py_path)
             helpers      = _helpers(py_path)
             user_imports = _user_imports(py_path)
+            # Drop stale auto-bodies so the new wire body becomes the default
+            for _m in self._pending_body_resets:
+                event_bodies.pop(_m, None)
+            self._pending_body_resets.clear()
         else:
             event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = (
                 {}, {}, "", "", "", "",
