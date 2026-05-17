@@ -428,13 +428,20 @@ class DesignerProperties(tk.Frame):
 
         # Track which handler IDs appear in the Connected section (to exclude from Available)
         connected_ids: set[str] = set()
-
         conn_rows: list[dict] = []
 
-        # Built-in wired / always-wired handlers
+        # Connectable handler IDs that already have wires — shown per-wire below
+        wired_connectable_ids = {
+            wire.handler_id for wire in wires
+            if any(h.connectable and h.id == wire.handler_id for h in all_defs)
+        }
+
+        # Built-in wired / always-wired handlers (skip connectable if they have wires)
         for h in all_defs:
             if h.always_wired or h.id in enabled_set:
                 connected_ids.add(h.id)
+                if h.connectable and h.id in wired_connectable_ids:
+                    continue  # shown per-wire in the next loop
                 option = h_options.get(h.id, "")
                 conn_rows.append({
                     "handler_id": h.id,

@@ -291,6 +291,21 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append("")
 
     # ── event methods ─────────────────────────────────────────────────────────
+    # Build map: widget-event method name → wire default body (for connectable wires)
+    _wire_default_bodies: dict[str, str] = {}
+    for _wire in getattr(form, "handler_wires", []):
+        _wgt = form.get_widget(_wire.widget_id)
+        if _wgt is None:
+            continue
+        _mname = _wgt.events.get(_wire.event_key)
+        if not _mname:
+            continue
+        _hdef = _catalog.get(_wire.handler_id)
+        if _hdef:
+            _wbody = _hdef.wire_body_for(_wire.option, _wire.handler_id)
+            if _wbody:
+                _wire_default_bodies[_mname] = _wbody
+
     # Build reverse map: method_name → ev_key, for form-level events
     form_ev_map: dict[str, str] = {
         m: k for k, m in form.form_events.items() if m
@@ -315,6 +330,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
                 default_params, default_body = defs
             else:
                 default_params, default_body = "*args", ""
+            # Use wire body as default if this method is a handler wire target
+            default_body = _wire_default_bodies.get(name) or default_body
             params, ret = sigs.get(name, (default_params, ""))
             ret_str = f" -> {ret}" if ret else ""
             sig_params = f", {params}" if params else ""
@@ -553,7 +570,11 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
 
 
 def _handler_wire_binding_lines(form: FormModel) -> list[str]:
-    """Generate .bind() lines for form-level handler wires (connectable handlers)."""
+    """Generate .bind() lines for handler wires that have no named event stub.
+
+    If the target widget already has widget.events[event_key] set, the normal
+    _widget_lines() binding handles it — no lambda needed here.
+    """
     from .handlers import HANDLER_CATALOG
     wires = getattr(form, "handler_wires", [])
     if not wires:
@@ -565,6 +586,10 @@ def _handler_wire_binding_lines(form: FormModel) -> list[str]:
             continue
         hdef = catalog.get(wire.handler_id)
         if hdef is None:
+            continue
+        widget = form.get_widget(wire.widget_id)
+        # Skip: normal event binding already handles it via widget.events
+        if widget and widget.events.get(wire.event_key):
             continue
         tk_event = _BINDINGS.get(wire.event_key)
         if not tk_event:

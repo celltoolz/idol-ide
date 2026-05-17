@@ -4724,6 +4724,10 @@ class IDOL(Tk):
         if hdef.connectable:
             # Open connector so the user picks a widget + event + option
             def _on_wire(widget_id: str, event_key: str, option: str) -> None:
+                # Auto-create a named event stub on the widget if none exists
+                widget = form.get_widget(widget_id)
+                if widget is not None and not widget.events.get(event_key):
+                    widget.events[event_key] = f"_{widget_id}_{event_key}"
                 wire = HandlerWire(handler_id=handler_id,
                                    widget_id=widget_id,
                                    event_key=event_key,
