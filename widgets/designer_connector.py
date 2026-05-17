@@ -46,7 +46,7 @@ class ComponentConnector(tk.Toplevel):
         self._handler_id        = handler_id
         self._handler_label     = handler_label
         self._on_wire           = on_wire
-        self._options           = options
+        self._opt_list           = options
         self._preselect_widget_id = preselect_widget_id
 
         # Build the display method name
@@ -106,15 +106,15 @@ class ComponentConnector(tk.Toplevel):
 
         # Option row — only shown when options is non-empty
         self._option_var: tk.StringVar | None = None
-        if self._options:
+        if self._opt_list:
             opt_row = tk.Frame(self, bg=_BG)
             opt_row.pack(fill="x", padx=10, pady=(0, 4))
             tk.Label(opt_row, text="Option:", bg=_BG, fg=_DIM,
                      font=(UI_FONT, 8), anchor="w").pack(side="left", padx=(0, 6))
-            self._option_var = tk.StringVar(value=self._options[0])
+            self._option_var = tk.StringVar(value=self._opt_list[0])
             opt_cb = ttk.Combobox(
                 opt_row, textvariable=self._option_var,
-                values=list(self._options), state="readonly",
+                values=list(self._opt_list), state="readonly",
                 width=16, font=(UI_FONT, 9),
             )
             opt_cb.pack(side="left")
