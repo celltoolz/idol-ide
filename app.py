@@ -4756,6 +4756,7 @@ class IDOL(Tk):
         self._set_designer_dirty()
 
     def _on_comp_rename(self, comp_id: str, new_name: str) -> None:
+        from pathlib import Path as _Path
         form = self._design_canvas.form
         if form is None:
             return
@@ -4766,15 +4767,38 @@ class IDOL(Tk):
         comp = form.get_component(comp_id)
         if comp is None:
             return
+
+        old_prefix = f"_{comp_id}_"
+        new_prefix = f"_{new_name}_"
+
+        # Update widget.events values that reference old handler names
+        for widget in form.widgets:
+            widget.events = {
+                ev: (v.replace(old_prefix, new_prefix, 1) if v.startswith(old_prefix) else v)
+                for ev, v in widget.events.items()
+            }
+
+        # Rename in the generated .py file before codegen re-runs
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if root:
+            py_path = _Path(root) / f"{form.name}.py"
+            if py_path.exists():
+                src = py_path.read_text(encoding="utf-8")
+                py_path.write_text(src.replace(old_prefix, new_prefix), encoding="utf-8")
+
         comp.id = new_name
         self._comp_tray.refresh(form.components)
         self._comp_tray.select(new_name)
+        self._props_panel.set_form(form)
         cdef = get_component_def(comp.type)
         if cdef:
             self._props_panel.load_component(comp, cdef)
         self._set_designer_dirty()
 
     def _on_comp_prop_change(self, comp_id: str, prop_key: str, value) -> None:
+        if prop_key == "__name__":
+            self._on_comp_rename(comp_id, value)
+            return
         form = self._design_canvas.form
         if form is None:
             return

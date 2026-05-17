@@ -439,6 +439,7 @@ class DesignerProperties(tk.Frame):
 
         # Populate Properties tab with PropDef rows
         self._props_clear()
+        self._props_insert("comp____name__", "name", descriptor.id)
         for pd in comp_def.prop_defs:
             val = descriptor.props.get(pd.key, pd.default)
             self._props_insert(f"comp__{pd.key}", pd.label, str(val),
@@ -1891,6 +1892,9 @@ class DesignerProperties(tk.Frame):
         if self._comp_def is None:
             return
         key = row[6:]   # strip "comp__"
+        if key == "__name__":
+            self._props_open_editor(row, self._commit_comp_prop)
+            return
         pd  = next((p for p in self._comp_def.prop_defs if p.key == key), None)
         if pd is None or pd.kind == "readonly":
             return
@@ -1902,6 +1906,11 @@ class DesignerProperties(tk.Frame):
     def _commit_comp_prop(self, row_iid: str, raw: str) -> None:
         key = row_iid[6:]   # strip "comp__"
         if self._comp_def is None or self._comp_id is None:
+            return
+        if key == "__name__":
+            name = raw.strip()
+            if name and self._on_component_prop_change:
+                self._on_component_prop_change(self._comp_id, "__name__", name)
             return
         pd = next((p for p in self._comp_def.prop_defs if p.key == key), None)
         if pd is None:
