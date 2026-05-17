@@ -48,7 +48,7 @@ class DesignerProperties(tk.Frame):
         on_navigate_handler:      Optional[Callable[[str],           None]] = None,
         on_reorder_widget:        Optional[Callable[[str, int],      None]] = None,
         on_handler_toggle:        Optional[Callable[[str, bool],     None]] = None,
-        on_handler_connect:       Optional[Callable[[str],           None]] = None,
+        on_handler_connect:       Optional[Callable[[str, "str | None"], None]] = None,
         on_handler_disconnect:    Optional[Callable[[str, "Any"],    None]] = None,
         on_handler_edit:          Optional[Callable[[str],           None]] = None,
         on_component_prop_change:    Optional[Callable[[str, str, Any], None]] = None,
@@ -1287,7 +1287,8 @@ class DesignerProperties(tk.Frame):
     def _on_handler_wire_click(self, _event: tk.Event) -> None:
         hid = getattr(self._handler_wire_btn, "_handler_id", None)
         if hid and self._on_handler_connect:
-            self._on_handler_connect(hid)
+            preselect = self._current_widget.id if self._current_widget else None
+            self._on_handler_connect(hid, preselect)
 
     def _on_handler_edit_click(self, _event: tk.Event) -> None:
         row = getattr(self._handler_edit_btn, "_conn_row", None)

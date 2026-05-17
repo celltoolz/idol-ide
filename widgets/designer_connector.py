@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-"""Connector dialog — wires a component handler to a widget event."""
+"""Connector dialog — wires a handler to a widget event."""
 
 import tkinter as tk
+from tkinter import ttk
 from typing import Callable
 
 from designer.model import FormModel
@@ -18,10 +19,14 @@ _ACC  = "#007acc"
 
 
 class ComponentConnector(tk.Toplevel):
-    """Modal dialog for wiring a component handler to a widget event.
+    """Modal dialog for wiring a handler to a widget event.
 
     Opens with a widget listbox on the left and an event listbox on the right.
-    Clicking Wire calls on_wire(widget_id, event_key) and closes.
+    When options is non-empty, shows an option combobox below the lists.
+    Clicking Wire calls on_wire(widget_id, event_key, option) and closes.
+
+    For component handlers: pass component_id + handler_label (method suffix).
+    For form handlers:      pass component_id="" and handler_id = full method name.
     """
 
     def __init__(
@@ -31,16 +36,26 @@ class ComponentConnector(tk.Toplevel):
         component_id: str,
         handler_id: str,
         handler_label: str,
-        on_wire: Callable[[str, str], None],
+        on_wire: Callable[[str, str, str], None],
+        options: tuple[str, ...] = (),
+        preselect_widget_id: str | None = None,
     ) -> None:
         super().__init__(parent)
-        self._form         = form
-        self._comp_id      = component_id
-        self._handler_id   = handler_id
-        self._handler_label = handler_label
-        self._on_wire      = on_wire
+        self._form              = form
+        self._comp_id           = component_id
+        self._handler_id        = handler_id
+        self._handler_label     = handler_label
+        self._on_wire           = on_wire
+        self._options           = options
+        self._preselect_widget_id = preselect_widget_id
 
-        self.title(f"Connect _{component_id}{handler_label} → Widget Event")
+        # Build the display method name
+        if component_id:
+            self._method_display = f"_{component_id}{handler_label}"
+        else:
+            self._method_display = handler_id
+
+        self.title(f"Connect {self._method_display} → Widget Event")
         self.resizable(False, False)
         self.configure(bg=_BG)
         self.transient(parent)
@@ -53,7 +68,7 @@ class ComponentConnector(tk.Toplevel):
 
     def _build_ui(self) -> None:
         # Title row
-        tk.Label(self, text=f"Wire  _{self._comp_id}{self._handler_label}()  to a widget event",
+        tk.Label(self, text=f"Wire  {self._method_display}()  to a widget event",
                  bg=_BG, fg=_FG, font=(UI_FONT, 9), anchor="w", padx=10,
                  pady=6).pack(fill="x")
 
@@ -89,6 +104,22 @@ class ComponentConnector(tk.Toplevel):
         )
         self._ev_lb.pack(fill="both", expand=True, padx=2, pady=2)
 
+        # Option row — only shown when options is non-empty
+        self._option_var: tk.StringVar | None = None
+        if self._options:
+            opt_row = tk.Frame(self, bg=_BG)
+            opt_row.pack(fill="x", padx=10, pady=(0, 4))
+            tk.Label(opt_row, text="Option:", bg=_BG, fg=_DIM,
+                     font=(UI_FONT, 8), anchor="w").pack(side="left", padx=(0, 6))
+            self._option_var = tk.StringVar(value=self._options[0])
+            opt_cb = ttk.Combobox(
+                opt_row, textvariable=self._option_var,
+                values=list(self._options), state="readonly",
+                width=16, font=(UI_FONT, 9),
+            )
+            opt_cb.pack(side="left")
+            opt_cb.bind("<<ComboboxSelected>>", lambda _: self._update_preview())
+
         # Preview label
         self._preview = tk.Label(
             self, text="Select a widget and event above",
@@ -114,18 +145,27 @@ class ComponentConnector(tk.Toplevel):
         cancel_btn.pack(side="right")
         cancel_btn.bind("<ButtonRelease-1>", lambda e: self.destroy())
 
-        # Populate widgets
+        # Populate widget list; track preselect index
         self._widget_ids: list[str] = []
+        preselect_idx: int | None = None
         for w in self._form.widgets:
             reg = REGISTRY.get(w.type, {})
             if reg.get("events"):
+                if w.id == self._preselect_widget_id:
+                    preselect_idx = len(self._widget_ids)
                 self._wid_lb.insert("end", f"{w.id}  ({w.type})")
                 self._widget_ids.append(w.id)
 
         self._wid_lb.bind("<<ListboxSelect>>", self._on_widget_select)
         self._ev_lb.bind("<<ListboxSelect>>",  self._update_preview)
 
-    def _on_widget_select(self, _event: tk.Event) -> None:
+        # Pre-select widget if requested
+        if preselect_idx is not None:
+            self._wid_lb.selection_set(preselect_idx)
+            self._wid_lb.see(preselect_idx)
+            self._on_widget_select(None)
+
+    def _on_widget_select(self, _event) -> None:
         sel = self._wid_lb.curselection()
         if not sel:
             return
@@ -140,7 +180,7 @@ class ComponentConnector(tk.Toplevel):
             self._ev_lb.insert("end", ev)
         self._update_preview()
 
-    def _update_preview(self, _event: tk.Event | None = None) -> None:
+    def _update_preview(self, _event=None) -> None:
         wsel = self._wid_lb.curselection()
         esel = self._ev_lb.curselection()
         if not wsel or not esel:
@@ -148,9 +188,11 @@ class ComponentConnector(tk.Toplevel):
             return
         wid    = self._widget_ids[wsel[0]]
         ev_key = self._ev_lb.get(esel[0])
-        method = f"_{self._comp_id}{self._handler_label}"
+        option_str = (f"  [{self._option_var.get()}]"
+                      if self._option_var else "")
         self._preview.config(
-            text=f"Wires:  {wid}.{ev_key}  →  self.{method}()", fg="#4ec9b0",
+            text=f"Wires:  {wid}.{ev_key}  →  self.{self._method_display}(){option_str}",
+            fg="#4ec9b0",
         )
 
     def _do_wire(self) -> None:
@@ -160,7 +202,8 @@ class ComponentConnector(tk.Toplevel):
             return
         wid    = self._widget_ids[wsel[0]]
         ev_key = self._ev_lb.get(esel[0])
-        self._on_wire(wid, ev_key)
+        option = self._option_var.get() if self._option_var else ""
+        self._on_wire(wid, ev_key, option)
         self.destroy()
 
     def _center(self, parent: tk.Misc) -> None:

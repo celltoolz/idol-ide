@@ -104,12 +104,14 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         if bodies.get(f"_open_{_d}", "").strip() == _old:
             del bodies[f"_open_{_d}"]
 
-    # Resolve active handlers from catalog
+    # Resolve active handlers from catalog (include handlers that have wires)
     from designer.handlers import handlers_for, HANDLER_CATALOG
     _all_handler_ids = {h.id for h in HANDLER_CATALOG}
     _enabled = set(form.enabled_handlers) & _all_handler_ids
+    _wired_ids = {w.handler_id for w in getattr(form, "handler_wires", [])}
     _catalog  = {h.id: h for h in handlers_for(form.form_type)}
-    active_handlers = [h for h in handlers_for(form.form_type) if h.id in _enabled]
+    _active_ids = _enabled | (_wired_ids & _all_handler_ids)
+    active_handlers = [h for h in handlers_for(form.form_type) if h.id in _active_ids]
 
     out: list[str] = []
 
@@ -219,6 +221,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         y_offset = _MENUBAR if form.menu_items else 0
         for w in form.widgets:
             out.extend(_widget_lines(w, y_offset=y_offset, form=form))
+            out.append("")
+
+        # Handler wire bindings (connectable handlers wired to widget events)
+        wire_lines = _handler_wire_binding_lines(form)
+        if wire_lines:
+            out.extend(wire_lines)
             out.append("")
 
     # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
@@ -544,25 +552,53 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     return lines
 
 
+def _handler_wire_binding_lines(form: FormModel) -> list[str]:
+    """Generate .bind() lines for form-level handler wires (connectable handlers)."""
+    from .handlers import HANDLER_CATALOG
+    wires = getattr(form, "handler_wires", [])
+    if not wires:
+        return []
+    catalog = {h.id: h for h in HANDLER_CATALOG}
+    lines: list[str] = []
+    for wire in wires:
+        if not wire.widget_id:
+            continue
+        hdef = catalog.get(wire.handler_id)
+        if hdef is None:
+            continue
+        tk_event = _BINDINGS.get(wire.event_key)
+        if not tk_event:
+            continue
+        body = hdef.wire_body_for(wire.option, wire.handler_id)
+        lines.append(
+            f'        self.{wire.widget_id}.bind("{tk_event}", lambda e: {body})'
+        )
+    return lines
+
+
 def _collect_methods(form: FormModel) -> list[str]:
     """All unique event/validate method names across the form, in widget order.
 
-    Component handler methods are excluded — they are emitted by _component_handler_lines
-    and must not appear as duplicate stubs in the Events section.
+    Component handler methods and form handler catalog IDs are excluded —
+    they are emitted separately and must not appear as duplicate stubs.
     """
     from .component_registry import COMPONENT_REGISTRY
+    from .handlers import HANDLER_CATALOG
     comp_methods: set[str] = set()
     for comp in form.components:
         cdef = COMPONENT_REGISTRY.get(comp.type)
         if cdef:
             for hdef in cdef.handler_defs:
                 comp_methods.add(f"_{comp.id}{hdef.label}")
+    handler_ids: set[str] = {h.id for h in HANDLER_CATALOG}
 
     seen: set[str] = set()
     methods: list[str] = []
     for w in form.widgets:
         for method_name in w.events.values():
-            if method_name and method_name not in seen and method_name not in comp_methods:
+            if (method_name and method_name not in seen
+                    and method_name not in comp_methods
+                    and method_name not in handler_ids):
                 seen.add(method_name)
                 methods.append(method_name)
         for key in ("validatecommand", "invalidcommand"):

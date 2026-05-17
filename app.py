@@ -4708,24 +4708,47 @@ class IDOL(Tk):
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
         self._set_designer_dirty()
 
-    def _on_designer_handler_connect(self, handler_id: str) -> None:
-        """⚡ button on an Available handler row — enable the handler."""
+    def _on_designer_handler_connect(self, handler_id: str,
+                                        preselect_widget_id: str | None = None) -> None:
+        """⚡ button on an Available handler row — enable or wire the handler."""
         from designer.handlers import HANDLER_CATALOG
+        from designer.model import HandlerWire
+        from widgets.designer_connector import ComponentConnector
         form = self._design_canvas.form
         if form is None:
             return
         hdef = next((h for h in HANDLER_CATALOG if h.id == handler_id), None)
         if hdef is None:
             return
+
         if hdef.connectable:
-            # Connectable handlers (e.g. always_on_top) need a widget+event wire.
-            # Connector dialog will be implemented in a later phase.
-            # For now: just enable the handler stub so it appears in the code.
-            pass
-        if handler_id not in form.enabled_handlers:
-            form.enabled_handlers.append(handler_id)
-        self._set_designer_dirty()
-        self._props_panel.load_handlers(form)
+            # Open connector so the user picks a widget + event + option
+            def _on_wire(widget_id: str, event_key: str, option: str) -> None:
+                wire = HandlerWire(handler_id=handler_id,
+                                   widget_id=widget_id,
+                                   event_key=event_key,
+                                   option=option)
+                form.handler_wires.append(wire)
+                if handler_id not in form.enabled_handlers:
+                    form.enabled_handlers.append(handler_id)
+                self._set_designer_dirty()
+                self._props_panel.load_handlers(form)
+
+            ComponentConnector(
+                self, form,
+                component_id="",
+                handler_id=handler_id,
+                handler_label="",
+                on_wire=_on_wire,
+                options=hdef.options,
+                preselect_widget_id=preselect_widget_id,
+            )
+        else:
+            # Non-connectable handler — just enable it
+            if handler_id not in form.enabled_handlers:
+                form.enabled_handlers.append(handler_id)
+            self._set_designer_dirty()
+            self._props_panel.load_handlers(form)
 
     def _on_designer_handler_disconnect(self, handler_id: str, wire) -> None:
         """× button on a Connected handler row — disable the handler or remove a wire."""
@@ -4899,7 +4922,7 @@ class IDOL(Tk):
         if hdef is None:
             return
 
-        def _on_wire(widget_id: str, event_key: str) -> None:
+        def _on_wire(widget_id: str, event_key: str, option: str = "") -> None:
             w = form.get_widget(widget_id)
             if w is None:
                 return
