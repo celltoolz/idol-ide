@@ -92,9 +92,9 @@ class DesignerProperties(tk.Frame):
         # list of (method_name, "{widget_id}.{ev_key}") tuples
         self._comp_connections:    list[tuple[str, str]] = []
         self._comp_conn_hov_idx:   int | None             = None
-        # Component handlers wired to the currently-loaded widget
-        # list of (method_name, event_key) tuples
-        self._widget_comp_handlers: list[tuple[str, str]] = []
+        # Component handlers wired to the currently-loaded widget/form
+        # list of (method_name, label, removable, removal_key|(comp_id,wid,ev)|None)
+        self._widget_comp_handlers: list[tuple] = []
         self._widget_comp_hov_idx:  int | None             = None
         # Handlers tab — Available / Connected split
         self._handlers_avail_defs: list = []          # HandlerDef objects (not wired)
@@ -479,24 +479,22 @@ class DesignerProperties(tk.Frame):
             self._widget_comp_handlers = self._collect_form_comp_handlers(form)
         self._handlers_redraw()
 
-    def _collect_widget_comp_handlers(self, descriptor: WidgetDescriptor) -> list[tuple[str, str]]:
-        """Return (method_name, label) for every event on descriptor that is a component handler.
-
-        label is 'via {event_key}' so the caller can display the wiring context.
-        """
+    def _collect_widget_comp_handlers(self, descriptor: WidgetDescriptor) -> list[tuple]:
+        """Return (method, label, removable, removal_key) for component handlers on descriptor."""
         if self._form is None:
             return []
         from designer.component_registry import COMPONENT_REGISTRY
-        comp_method_names: set[str] = set()
+        comp_method_to_comp: dict[str, str] = {}
         for comp in self._form.components:
             cdef = COMPONENT_REGISTRY.get(comp.type)
             if cdef:
                 for hdef in cdef.handler_defs:
-                    comp_method_names.add(f"_{comp.id}{hdef.label}")
-        result: list[tuple[str, str]] = []
+                    comp_method_to_comp[f"_{comp.id}{hdef.label}"] = comp.id
+        result: list[tuple] = []
         for ev_key, method in descriptor.events.items():
-            if method in comp_method_names:
-                result.append((method, f"via {ev_key}"))
+            if method in comp_method_to_comp:
+                comp_id = comp_method_to_comp[method]
+                result.append((method, f"via {ev_key}", True, (comp_id, descriptor.id, ev_key)))
         return result
 
     def _collect_comp_connections(self, comp_id: str) -> list[tuple[str, str, bool, "tuple[str,str] | None"]]:
@@ -523,18 +521,37 @@ class DesignerProperties(tk.Frame):
                     result.append((method, f"{widget.id}.{ev_key}", True, (widget.id, ev_key)))
         return result
 
-    def _collect_form_comp_handlers(self, form: FormModel) -> list[tuple[str, str]]:
-        """Return (method_name, comp_id) for every handler on every form component.
+    def _collect_form_comp_handlers(self, form: FormModel) -> list[tuple]:
+        """Return (method, label, removable, removal_key) for all component handlers on the form.
 
-        Used when the form itself is selected so all component handlers are visible.
+        Auto-wired handlers (has_connector=False) are not removable.
+        Handlers wired to a widget event are removable via their (comp_id, widget_id, ev_key).
         """
         from designer.component_registry import COMPONENT_REGISTRY
-        result: list[tuple[str, str]] = []
+        # Build map: method_name → (comp_id, widget_id, ev_key) for explicit widget wires
+        wired: dict[str, tuple] = {}
+        all_comp_methods: dict[str, str] = {}  # method → comp_id
         for comp in form.components:
             cdef = COMPONENT_REGISTRY.get(comp.type)
             if cdef:
                 for hdef in cdef.handler_defs:
-                    result.append((f"_{comp.id}{hdef.label}", comp.id))
+                    all_comp_methods[f"_{comp.id}{hdef.label}"] = comp.id
+        for widget in form.widgets:
+            for ev_key, method in widget.events.items():
+                if method in all_comp_methods:
+                    wired[method] = (all_comp_methods[method], widget.id, ev_key)
+
+        result: list[tuple] = []
+        for comp in form.components:
+            cdef = COMPONENT_REGISTRY.get(comp.type)
+            if cdef:
+                for hdef in cdef.handler_defs:
+                    method = f"_{comp.id}{hdef.label}"
+                    if method in wired:
+                        comp_id, widget_id, ev_key = wired[method]
+                        result.append((method, f"{widget_id}.{ev_key}", True, wired[method]))
+                    else:
+                        result.append((method, comp.id, False, None))
         return result
 
     def load_component(self, descriptor, comp_def) -> None:
@@ -1047,7 +1064,8 @@ class DesignerProperties(tk.Frame):
                            fill=_ORD_HDR_FG, font=(UI_FONT, 7, "bold"), anchor="w")
             y += _ORD_HDR_H
             self._handlers_wch_y0 = y
-            for j, (method, label) in enumerate(wch):
+            for j, row_tup in enumerate(wch):
+                method, label, removable, removal_key = row_tup
                 y0  = y + j * _ORD_ROW_H
                 y1  = y0 + _ORD_ROW_H
                 mid = (y0 + y1) // 2
@@ -1056,8 +1074,13 @@ class DesignerProperties(tk.Frame):
                 cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
                 cv.create_text(8, mid, text=method,
                                fill=_ORD_NB_NUM, font=("Consolas", 9), anchor="w")
-                cv.create_text(w - 6, mid, text=label,
+                label_x = w - 6 if not (removable and is_hov) else w - 22
+                cv.create_text(label_x, mid, text=label,
                                fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
+                if removable and is_hov:
+                    self._comp_disconnect_btn.place(x=w - 2, y=y0 + 2,
+                                                    anchor="ne", height=_ORD_ROW_H - 4)
+                    self._comp_disconnect_btn._wch_removal = removal_key  # type: ignore[attr-defined]
             y += len(wch) * _ORD_ROW_H
         else:
             self._handlers_wch_y0 = y
@@ -1208,8 +1231,9 @@ class DesignerProperties(tk.Frame):
                 parts.append("… to edit options")
             self._show_hint("  ·  ".join(parts[:1]) + " — " + " · ".join(parts[1:]))
         elif comp_idx is not None:
-            method, label = self._widget_comp_handlers[comp_idx]
-            self._show_hint(f"{method}  ({label}) — double-click to jump")
+            method, label, removable, _ = self._widget_comp_handlers[comp_idx]
+            suffix = " — double-click to jump · × to disconnect" if removable else " — double-click to jump"
+            self._show_hint(f"{method}  ({label}){suffix}")
         else:
             self._clear_hint()
 
@@ -1234,6 +1258,7 @@ class DesignerProperties(tk.Frame):
             self._handler_wire_btn.place_forget()
             self._handler_edit_btn.place_forget()
             self._handler_disco_btn.place_forget()
+            self._comp_disconnect_btn.place_forget()
             self._handlers_redraw()
         self._clear_hint()
 
@@ -1268,7 +1293,7 @@ class DesignerProperties(tk.Frame):
         # Connected Components (widget-level comp wires) → jump
         comp_idx = self._widget_comp_handler_at(cy)
         if comp_idx is not None:
-            method, _ = self._widget_comp_handlers[comp_idx]
+            method, *_ = self._widget_comp_handlers[comp_idx]
             if self._on_navigate_handler:
                 self._on_navigate_handler(method)
             return
@@ -1286,10 +1311,18 @@ class DesignerProperties(tk.Frame):
             self._on_component_connect(self._comp_id, hid)
 
     def _on_comp_disconnect_click(self, _event: tk.Event) -> None:
-        key = getattr(self._comp_disconnect_btn, "_removal_key", None)
-        if key and self._comp_id and self._on_component_disconnect:
-            widget_id, ev_key = key
-            self._on_component_disconnect(self._comp_id, widget_id, ev_key)
+        if self._comp_mode:
+            # Component selected: (widget_id, ev_key) stored, comp_id from mode state
+            key = getattr(self._comp_disconnect_btn, "_removal_key", None)
+            if key and self._comp_id and self._on_component_disconnect:
+                widget_id, ev_key = key
+                self._on_component_disconnect(self._comp_id, widget_id, ev_key)
+        else:
+            # Form/widget selected: full (comp_id, widget_id, ev_key) stored
+            key = getattr(self._comp_disconnect_btn, "_wch_removal", None)
+            if key and self._on_component_disconnect:
+                comp_id, widget_id, ev_key = key
+                self._on_component_disconnect(comp_id, widget_id, ev_key)
 
     def _on_handler_wire_click(self, _event: tk.Event) -> None:
         hid = getattr(self._handler_wire_btn, "_handler_id", None)
