@@ -1292,7 +1292,7 @@ class DesignerProperties(tk.Frame):
     def _on_handler_edit_click(self, _event: tk.Event) -> None:
         row = getattr(self._handler_edit_btn, "_conn_row", None)
         if row and self._on_handler_edit:
-            self._on_handler_edit(row["handler_id"])
+            self._on_handler_edit(row["handler_id"], row.get("wire"))
 
     def _on_handler_disco_click(self, _event: tk.Event) -> None:
         row = getattr(self._handler_disco_btn, "_conn_row", None)

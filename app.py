@@ -970,6 +970,7 @@ class IDOL(Tk):
             on_handler_toggle=self._on_designer_handler_toggle,
             on_handler_connect=self._on_designer_handler_connect,
             on_handler_disconnect=self._on_designer_handler_disconnect,
+            on_handler_edit=self._on_designer_handler_edit,
             on_component_prop_change=self._on_comp_prop_change,
             on_component_connect=self._on_comp_connect,
             on_component_disconnect=self._on_comp_disconnect,
@@ -4741,8 +4742,45 @@ class IDOL(Tk):
         else:
             # Remove from enabled_handlers (built-in wired handler)
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+            form.handler_options.pop(handler_id, None)
         self._set_designer_dirty()
         self._props_panel.load_handlers(form)
+
+    def _on_designer_handler_edit(self, handler_id: str, wire) -> None:
+        """… button on a Connected handler row — open the options editor."""
+        from designer.handlers import HANDLER_CATALOG
+        from designer.model import HandlerWire
+        from widgets.handler_options_editor import HandlerOptionsEditor
+        form = self._design_canvas.form
+        if form is None:
+            return
+        hdef = next((h for h in HANDLER_CATALOG if h.id == handler_id), None)
+        if hdef is None or not hdef.options:
+            return
+        is_wire = isinstance(wire, HandlerWire)
+        current = wire.option if is_wire else form.handler_options.get(handler_id, "")
+
+        def on_apply(option: str) -> None:
+            if is_wire:
+                form.handler_wires = [
+                    HandlerWire(
+                        w.handler_id, w.widget_id, w.event_key,
+                        option if (w.handler_id == wire.handler_id
+                                   and w.widget_id == wire.widget_id
+                                   and w.event_key == wire.event_key)
+                        else w.option,
+                    )
+                    for w in form.handler_wires
+                ]
+            else:
+                if option:
+                    form.handler_options[handler_id] = option
+                else:
+                    form.handler_options.pop(handler_id, None)
+            self._set_designer_dirty()
+            self._props_panel.load_handlers(form)
+
+        HandlerOptionsEditor(self, handler_id, hdef, is_wire, current, on_apply)
 
     # ── Component tray handlers ───────────────────────────────────────────────
 
