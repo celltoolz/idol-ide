@@ -143,6 +143,25 @@ class MenuItemDescriptor:
 
 
 @dataclass
+class ComponentDescriptor:
+    """A non-visual component placed in the component tray (e.g. Timer, FileDialog)."""
+    id:    str        # "timer1"
+    type:  str        # "Timer"
+    props: dict[str, Any] = field(default_factory=dict)  # {"interval": 1000, "enabled": True}
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "type": self.type, "props": dict(self.props)}
+
+    @staticmethod
+    def from_dict(d: dict) -> "ComponentDescriptor":
+        return ComponentDescriptor(
+            id=d.get("id", ""),
+            type=d.get("type", ""),
+            props=dict(d.get("props", {})),
+        )
+
+
+@dataclass
 class FormModel:
     """Canonical description of one form (one .form.json / one generated .py)."""
     name: str = "Form1"
@@ -159,6 +178,23 @@ class FormModel:
     form_events: dict[str, str]           = field(default_factory=dict)  # {ev_key: method_name}
     linked_dialogs: list[str]             = field(default_factory=list)  # dialog names owned by this form
     enabled_handlers: list[str]           = field(default_factory=list)  # handler IDs from HANDLER_CATALOG
+    components: list[ComponentDescriptor] = field(default_factory=list)  # non-visual tray components
+
+    # ── component lookup helpers ───────────────────────────────────────────────
+
+    def get_component(self, comp_id: str) -> "ComponentDescriptor | None":
+        for c in self.components:
+            if c.id == comp_id:
+                return c
+        return None
+
+    def next_component_id(self, default_name: str) -> str:
+        """Generate the next unique id for a component type, e.g. 'timer1', 'timer2'."""
+        existing = {c.id for c in self.components}
+        n = 1
+        while f"{default_name}{n}" in existing:
+            n += 1
+        return f"{default_name}{n}"
 
     # ── widget lookup helpers ──────────────────────────────────────────────────
 
@@ -219,6 +255,8 @@ class FormModel:
             d["linked_dialogs"] = list(self.linked_dialogs)
         if self.enabled_handlers:
             d["enabled_handlers"] = list(self.enabled_handlers)
+        if self.components:
+            d["components"] = [c.to_dict() for c in self.components]
         return d
 
     @staticmethod
@@ -246,6 +284,7 @@ class FormModel:
             form_events   =dict(d.get("form_events", {})),
             linked_dialogs=list(d.get("linked_dialogs", [])),
             enabled_handlers=_load_enabled_handlers(d),
+            components=[ComponentDescriptor.from_dict(c) for c in d.get("components", [])],
         )
 
 

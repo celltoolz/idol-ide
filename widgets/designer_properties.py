@@ -42,21 +42,25 @@ class DesignerProperties(tk.Frame):
     def __init__(
         self,
         master,
-        on_prop_change:      Optional[Callable[[str, str, Any],  None]] = None,
-        on_event_change:     Optional[Callable[[str, str, str], None]] = None,
-        on_select_widget:    Optional[Callable[[str | None],    None]] = None,
-        on_navigate_handler: Optional[Callable[[str],           None]] = None,
-        on_reorder_widget:   Optional[Callable[[str, int],      None]] = None,
-        on_handler_toggle:   Optional[Callable[[str, bool],     None]] = None,
+        on_prop_change:           Optional[Callable[[str, str, Any],  None]] = None,
+        on_event_change:          Optional[Callable[[str, str, str], None]] = None,
+        on_select_widget:         Optional[Callable[[str | None],    None]] = None,
+        on_navigate_handler:      Optional[Callable[[str],           None]] = None,
+        on_reorder_widget:        Optional[Callable[[str, int],      None]] = None,
+        on_handler_toggle:        Optional[Callable[[str, bool],     None]] = None,
+        on_component_prop_change: Optional[Callable[[str, str, Any], None]] = None,
+        on_component_connect:     Optional[Callable[[str, str],      None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
-        self._on_prop_change      = on_prop_change
-        self._on_event_change     = on_event_change
-        self._on_select_widget    = on_select_widget
-        self._on_navigate_handler = on_navigate_handler
-        self._on_reorder_widget   = on_reorder_widget
-        self._on_handler_toggle   = on_handler_toggle
+        self._on_prop_change           = on_prop_change
+        self._on_event_change          = on_event_change
+        self._on_select_widget         = on_select_widget
+        self._on_navigate_handler      = on_navigate_handler
+        self._on_reorder_widget        = on_reorder_widget
+        self._on_handler_toggle        = on_handler_toggle
+        self._on_component_prop_change = on_component_prop_change
+        self._on_component_connect     = on_component_connect
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -69,6 +73,15 @@ class DesignerProperties(tk.Frame):
         self._ev_clearing:    bool                      = False
         self._prop_clear_iid: str | None                = None
         self._ev_btn_iid:     str | None                = None
+        # Component mode state
+        self._comp_mode:      bool                      = False
+        self._comp_id:        str | None                = None
+        self._comp_def:       "Any | None"              = None
+        self._comp_hov_idx:   int | None                = None
+        # Component handlers wired to the currently-loaded widget
+        # list of (method_name, event_key) tuples
+        self._widget_comp_handlers: list[tuple[str, str]] = []
+        self._widget_comp_hov_idx:  int | None             = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -225,6 +238,18 @@ class DesignerProperties(tk.Frame):
         self._handlers_hov_idx: int | None = None
         self._handlers_dbl_pending: bool = False
 
+        # Floating ⚡ connect button for component handler rows
+        self._comp_connect_btn = tk.Label(
+            self._handlers_cv, text="⚡",
+            bg="#3a3a3a", fg="#555555",
+            font=(UI_FONT, 9), cursor="hand2", padx=2,
+        )
+        self._comp_connect_btn.bind("<Enter>",
+            lambda e: self._comp_connect_btn.config(fg="#dfc700"))
+        self._comp_connect_btn.bind("<Leave>",
+            lambda e: self._comp_connect_btn.place_forget())
+        self._comp_connect_btn.bind("<ButtonRelease-1>", self._on_comp_connect_click)
+
         # ── Order tab ─────────────────────────────────────────────────────────
         self._order_frame = tk.Frame(self._nb, bg=_ORD_BG)
         self._nb.add(self._order_frame, text="  Order  ")
@@ -262,6 +287,7 @@ class DesignerProperties(tk.Frame):
 
     def load_widget(self, descriptor: WidgetDescriptor) -> None:
         """Populate the panel from *descriptor*."""
+        self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = descriptor
         self._multi_widgets  = []
@@ -269,11 +295,13 @@ class DesignerProperties(tk.Frame):
         self._set_selector(descriptor.id)
         self._populate_props(descriptor, reg)
         self._populate_events(descriptor, reg)
+        self._widget_comp_handlers = self._collect_widget_comp_handlers(descriptor)
         if self._form:
             self.load_handlers(self._form)
 
     def load_form(self, form: FormModel) -> None:
         """Show form-level properties when the canvas background is selected."""
+        self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = None
         self._multi_widgets  = []
@@ -314,10 +342,89 @@ class DesignerProperties(tk.Frame):
         self._handlers_defs    = handlers_for(form.form_type)
         self._handlers_enabled = set(form.enabled_handlers)
         self._handlers_hov_idx = None
+        if self._current_widget is None:
+            self._widget_comp_handlers = self._collect_form_comp_handlers(form)
         self._handlers_redraw()
+
+    def _collect_widget_comp_handlers(self, descriptor: WidgetDescriptor) -> list[tuple[str, str]]:
+        """Return (method_name, label) for every event on descriptor that is a component handler.
+
+        label is 'via {event_key}' so the caller can display the wiring context.
+        """
+        if self._form is None:
+            return []
+        from designer.component_registry import COMPONENT_REGISTRY
+        comp_method_names: set[str] = set()
+        for comp in self._form.components:
+            cdef = COMPONENT_REGISTRY.get(comp.type)
+            if cdef:
+                for hdef in cdef.handler_defs:
+                    comp_method_names.add(f"_{comp.id}{hdef.label}")
+        result: list[tuple[str, str]] = []
+        for ev_key, method in descriptor.events.items():
+            if method in comp_method_names:
+                result.append((method, f"via {ev_key}"))
+        return result
+
+    def _collect_form_comp_handlers(self, form: FormModel) -> list[tuple[str, str]]:
+        """Return (method_name, comp_id) for every handler on every form component.
+
+        Used when the form itself is selected so all component handlers are visible.
+        """
+        from designer.component_registry import COMPONENT_REGISTRY
+        result: list[tuple[str, str]] = []
+        for comp in form.components:
+            cdef = COMPONENT_REGISTRY.get(comp.type)
+            if cdef:
+                for hdef in cdef.handler_defs:
+                    result.append((f"_{comp.id}{hdef.label}", comp.id))
+        return result
+
+    def load_component(self, descriptor, comp_def) -> None:
+        """Switch the panel into component mode and show the component's properties/handlers."""
+        self._exit_comp_mode()
+        self._dismiss_editor()
+        self._current_widget = None
+        self._multi_widgets  = []
+        self._comp_mode  = True
+        self._comp_id    = descriptor.id
+        self._comp_def   = comp_def
+        self._comp_hov_idx = None
+        self._set_selector(descriptor.id)
+
+        # Hide Events and Order tabs
+        self._nb.tab(self._events_frame, state="hidden")
+        self._nb.tab(self._order_frame,  state="hidden")
+        # Show Handlers tab (make sure it is visible)
+        self._nb.tab(self._handlers_frame, state="normal")
+
+        # Populate Properties tab with PropDef rows
+        self._props_clear()
+        for pd in comp_def.prop_defs:
+            val = descriptor.props.get(pd.key, pd.default)
+            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
+                               kind="readonly" if pd.kind == "readonly" else "normal")
+        self._props_redraw()
+
+        # Draw component handlers in the Handlers tab
+        self._handlers_defs    = []
+        self._handlers_enabled = set()
+        self._handlers_redraw()
+
+    def _exit_comp_mode(self) -> None:
+        if not self._comp_mode:
+            return
+        self._nb.tab(self._events_frame, state="normal")
+        self._nb.tab(self._order_frame,  state="normal")
+        self._comp_connect_btn.place_forget()
+        self._comp_mode = False
+        self._comp_id   = None
+        self._comp_def  = None
+        self._comp_hov_idx = None
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
         """Show shared properties panel for a multi-widget selection."""
+        self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = None
         self._multi_widgets  = list(descriptors)
@@ -392,6 +499,7 @@ class DesignerProperties(tk.Frame):
 
     def clear(self) -> None:
         """Reset to the empty / no-selection state."""
+        self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = None
         self._multi_widgets  = []
@@ -667,6 +775,11 @@ class DesignerProperties(tk.Frame):
         cv = self._handlers_cv
         cv.delete("all")
         w = max(cv.winfo_width(), 160)
+
+        if self._comp_mode and self._comp_def is not None:
+            self._comp_handlers_redraw(cv, w)
+            return
+
         defs = self._handlers_defs
 
         if not defs:
@@ -706,30 +819,128 @@ class DesignerProperties(tk.Frame):
             cv.create_text(w - 6, mid, text=badge,
                            fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e", tags=f"hr{i}")
 
-        cv.configure(scrollregion=(0, 0, w, len(defs) * _ORD_ROW_H))
+        total_rows = len(defs)
+
+        # Connected component handlers (wired to this widget's events)
+        wch = self._widget_comp_handlers
+        if wch:
+            sep_y = total_rows * _ORD_ROW_H
+            cv.create_line(0, sep_y, w, sep_y, fill="#3a3a3a")
+            hdr_y = sep_y + 1
+            cv.create_rectangle(0, hdr_y, w, hdr_y + _ORD_HDR_H,
+                                 fill=_ORD_HDR_BG, outline="")
+            cv.create_text(8, hdr_y + _ORD_HDR_H // 2,
+                           text="⚡ Connected Components",
+                           fill=_ORD_HDR_FG, font=(UI_FONT, 7, "bold"), anchor="w")
+            for j, (method, label) in enumerate(wch):
+                row_start = hdr_y + _ORD_HDR_H
+                y0  = row_start + j * _ORD_ROW_H
+                y1  = y0 + _ORD_ROW_H
+                mid = (y0 + y1) // 2
+                is_hov = j == self._widget_comp_hov_idx
+                bg = _ORD_HOV if is_hov else (_ORD_EVEN if j % 2 == 0 else _ORD_ODD)
+                cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
+                cv.create_text(8, mid, text=method,
+                               fill=_ORD_NB_NUM, font=("Consolas", 9), anchor="w")
+                cv.create_text(w - 6, mid, text=label,
+                               fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
+            total_rows_px = (hdr_y + _ORD_HDR_H + len(wch) * _ORD_ROW_H)
+        else:
+            total_rows_px = total_rows * _ORD_ROW_H
+
+        cv.configure(scrollregion=(0, 0, w, total_rows_px))
+
+    def _comp_handlers_redraw(self, cv: tk.Canvas, w: int) -> None:
+        handler_defs = self._comp_def.handler_defs
+        for i, hd in enumerate(handler_defs):
+            y0  = i * _ORD_ROW_H
+            y1  = y0 + _ORD_ROW_H
+            mid = (y0 + y1) // 2
+            is_hov = i == self._comp_hov_idx
+
+            bg = _ORD_HOV if is_hov else (_ORD_EVEN if i % 2 == 0 else _ORD_ODD)
+            cv.create_rectangle(0, y0, w, y1, fill=bg, outline="", tags=f"chr{i}")
+
+            # Method name (no checkbox)
+            method = f"_{self._comp_id}{hd.label}"
+            cv.create_text(8, mid, text=method,
+                           fill=_ORD_FG, font=("Consolas", 9), anchor="w", tags=f"chr{i}")
+
+            # ⚡ badge placeholder (button is placed as floating label on hover)
+            if hd.has_connector and is_hov:
+                btn_x = w - 4
+                btn_y = y0 + 2
+                btn_h = _ORD_ROW_H - 4
+                self._comp_connect_btn.place(x=btn_x, y=btn_y, anchor="ne", height=btn_h)
+                self._comp_connect_btn._handler_id = hd.id  # type: ignore[attr-defined]
+            elif not is_hov:
+                pass  # button stays where it was; _handlers_motion hides it when leaving
+
+        cv.configure(scrollregion=(0, 0, w, len(handler_defs) * _ORD_ROW_H))
 
     def _handlers_idx_at(self, y: int) -> int | None:
+        if self._comp_mode and self._comp_def:
+            i = int(y) // _ORD_ROW_H
+            return i if 0 <= i < len(self._comp_def.handler_defs) else None
         i = int(y) // _ORD_ROW_H
         return i if 0 <= i < len(self._handlers_defs) else None
 
+    def _widget_comp_handler_at(self, y: int) -> int | None:
+        """Return index into _widget_comp_handlers for the Connected Components section, or None."""
+        if not self._widget_comp_handlers or self._comp_mode:
+            return None
+        # Section starts after catalog rows + 1px separator + header
+        section_start = len(self._handlers_defs) * _ORD_ROW_H + 1 + _ORD_HDR_H
+        if y < section_start:
+            return None
+        idx = (y - section_start) // _ORD_ROW_H
+        return idx if 0 <= idx < len(self._widget_comp_handlers) else None
+
     def _handlers_motion(self, event: tk.Event) -> None:
-        idx = self._handlers_idx_at(event.y)
-        if idx == self._handlers_hov_idx:
+        if self._comp_mode:
+            idx = self._handlers_idx_at(event.y)
+            if idx != self._comp_hov_idx:
+                self._comp_hov_idx = idx
+                self._comp_connect_btn.place_forget()
+                self._handlers_redraw()
+                if idx is not None and self._comp_def:
+                    self._show_hint(self._comp_def.handler_defs[idx].description)
+                else:
+                    self._clear_hint()
             return
-        self._handlers_hov_idx = idx
+        idx      = self._handlers_idx_at(event.y)
+        comp_idx = self._widget_comp_handler_at(event.y)
+        if idx == self._handlers_hov_idx and comp_idx == self._widget_comp_hov_idx:
+            return
+        self._handlers_hov_idx    = idx
+        self._widget_comp_hov_idx = comp_idx
         self._handlers_redraw()
         if idx is not None:
             self._show_hint(self._handlers_defs[idx].description)
+        elif comp_idx is not None:
+            method, label = self._widget_comp_handlers[comp_idx]
+            self._show_hint(f"{method}  ({label}) — double-click to jump")
         else:
             self._clear_hint()
 
     def _handlers_leave(self, _event: tk.Event) -> None:
-        if self._handlers_hov_idx is not None:
-            self._handlers_hov_idx = None
+        if self._comp_mode:
+            if self._comp_hov_idx is not None:
+                self._comp_hov_idx = None
+                self._comp_connect_btn.place_forget()
+                self._handlers_redraw()
+            self._clear_hint()
+            return
+        changed = self._handlers_hov_idx is not None or self._widget_comp_hov_idx is not None
+        self._handlers_hov_idx    = None
+        self._widget_comp_hov_idx = None
+        if changed:
             self._handlers_redraw()
         self._clear_hint()
 
     def _handlers_click(self, event: tk.Event) -> None:
+        if self._comp_mode:
+            return  # ⚡ button handles connecting; plain click does nothing
         if self._handlers_dbl_pending:
             self._handlers_dbl_pending = False
             return
@@ -749,7 +960,16 @@ class DesignerProperties(tk.Frame):
             self._on_handler_toggle(h.id, enabled)
 
     def _handlers_dblclick(self, event: tk.Event) -> None:
+        if self._comp_mode:
+            return  # no double-click action in comp mode
         self._handlers_dbl_pending = True
+        # Connected component handler row → jump directly
+        comp_idx = self._widget_comp_handler_at(event.y)
+        if comp_idx is not None:
+            method, _ = self._widget_comp_handlers[comp_idx]
+            if self._on_navigate_handler:
+                self._on_navigate_handler(method)
+            return
         if event.x <= 28:
             return  # checkbox zone — single-click handles it
         idx = self._handlers_idx_at(event.y)
@@ -764,6 +984,11 @@ class DesignerProperties(tk.Frame):
         else:
             if self._on_navigate_handler:
                 self._on_navigate_handler(h.id)
+
+    def _on_comp_connect_click(self, _event: tk.Event) -> None:
+        hid = getattr(self._comp_connect_btn, "_handler_id", None)
+        if hid and self._comp_id and self._on_component_connect:
+            self._on_component_connect(self._comp_id, hid)
 
     # ── Props canvas data helpers ─────────────────────────────────────────────
 
@@ -1542,7 +1767,43 @@ class DesignerProperties(tk.Frame):
         if iid:
             self._dispatch_prop_click(iid)
 
+    def _dispatch_comp_prop_click(self, row: str) -> None:
+        if self._comp_def is None:
+            return
+        key = row[6:]   # strip "comp__"
+        pd  = next((p for p in self._comp_def.prop_defs if p.key == key), None)
+        if pd is None or pd.kind == "readonly":
+            return
+        if pd.kind == "bool":
+            self._props_open_dropdown(row, ["True", "False"], self._commit_comp_prop)
+        else:
+            self._props_open_editor(row, self._commit_comp_prop)
+
+    def _commit_comp_prop(self, row_iid: str, raw: str) -> None:
+        key = row_iid[6:]   # strip "comp__"
+        if self._comp_def is None or self._comp_id is None:
+            return
+        pd = next((p for p in self._comp_def.prop_defs if p.key == key), None)
+        if pd is None:
+            return
+        if pd.kind == "int":
+            try:
+                value: Any = int(raw)
+            except ValueError:
+                return
+        elif pd.kind == "bool":
+            value = raw.lower() == "true"
+        else:
+            value = raw
+        self._props_set(row_iid, str(value))
+        self._props_redraw()
+        if self._on_component_prop_change:
+            self._on_component_prop_change(self._comp_id, key, value)
+
     def _dispatch_prop_click(self, row: str) -> None:
+        if self._comp_mode and row.startswith("comp__"):
+            self._dispatch_comp_prop_click(row)
+            return
         if row in ("var__section", "geo__parent", "anchor__section"):
             return
         if row == "nb__tab":

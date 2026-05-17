@@ -174,6 +174,10 @@ _IDOL_END   = "IDOL:END"
 _IDOL_IMPORT_BEGIN = "IDOL:IMPORTS:BEGIN"
 _IDOL_IMPORT_END   = "IDOL:IMPORTS:END"
 
+# Token for the component initialization block (inside second IDOL:BEGIN block)
+_IDOL_COMP_BEGIN = "IDOL:COMPONENTS:BEGIN"
+_IDOL_COMP_END   = "IDOL:COMPONENTS:END"
+
 
 def extract_init_user_zones(py_path: Path) -> tuple[str, str]:
     """Return (pre_build_ui, post_build_ui) user code from __init__.

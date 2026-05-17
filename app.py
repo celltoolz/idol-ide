@@ -51,8 +51,14 @@ from widgets.package_manager import PackageManagerPanel
 from widgets.clipboard_history import ClipboardHistoryPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
+from widgets.designer_component_tray import ComponentTray
+from widgets.designer_connector import ComponentConnector
 from widgets.form_list_panel import FormListPanel
 from designer.canvas import DesignerCanvas
+from designer.component_registry import (
+    COMPONENT_REGISTRY, get_component_def, default_props,
+)
+from designer.model import ComponentDescriptor
 from designer.registry import REGISTRY as _DESIGNER_REGISTRY
 from designer.toolbar import DesignerToolbar
 
@@ -941,6 +947,16 @@ class IDOL(Tk):
         _vbar.pack(side="right", fill="y")
         _hbar.pack(side="bottom", fill="x")
         self._design_canvas.pack(fill="both", expand=True)
+
+        self._comp_tray = ComponentTray(
+            self._designer_frame,
+            on_select=self._on_comp_select,
+            on_deselect=self._on_comp_deselect,
+            on_delete=self._on_comp_delete,
+            on_rename=self._on_comp_rename,
+        )
+        self._comp_tray.pack(fill="x", side="bottom")
+
         _canvas_area.pack(fill="both", expand=True)
 
         # ── Properties panel (right pane, added to _h_pane in designer mode) ──
@@ -952,6 +968,8 @@ class IDOL(Tk):
             on_navigate_handler=self._on_designer_event_navigate,
             on_reorder_widget=self._on_designer_reorder_widget,
             on_handler_toggle=self._on_designer_handler_toggle,
+            on_component_prop_change=self._on_comp_prop_change,
+            on_component_connect=self._on_comp_connect,
         )
         self._props_panel.configure(width=230)
 
@@ -972,6 +990,7 @@ class IDOL(Tk):
             on_tool_select=self._on_palette_tool_select,
             on_place=self._on_palette_place,
             on_drag_drop=self._on_palette_drag_drop,
+            on_component_add=self._on_comp_add,
         )
         self._designer_palette.pack(fill="both", expand=True)
         self._designer_left_pane.configure(width=180)
@@ -3088,6 +3107,8 @@ class IDOL(Tk):
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
+                self._comp_tray.refresh(form.components)
+                self._comp_tray.deselect()
                 self._refresh_form_list(active=form.name)
             self._refresh_generate_code_state()
         else:
@@ -4418,6 +4439,8 @@ class IDOL(Tk):
         self._design_canvas.load_form(primary)
         self._props_panel.set_form(primary)
         self._props_panel.load_form(primary)
+        self._comp_tray.refresh(primary.components)
+        self._comp_tray.deselect()
         self._designer_menu_had_items = bool(primary.menu_items)
         self._refresh_form_list(active=primary.name)
         self._refresh_generate_code_state()
@@ -4602,6 +4625,7 @@ class IDOL(Tk):
         """Canvas selection → populate properties panel; reset palette only when not placing."""
         if not self._design_canvas._active_tool:
             self._designer_palette.reset_to_pointer()
+        self._comp_tray.deselect()
         self._designer_toolbar.refresh()
         form = self._design_canvas.form
         if form is None:
@@ -4613,6 +4637,9 @@ class IDOL(Tk):
 
     def _on_designer_deselect(self) -> None:
         """Canvas deselect → show form-level properties."""
+        if getattr(self, "_comp_selecting", False):
+            return
+        self._comp_tray.deselect()
         self._designer_toolbar.refresh()
         form = self._design_canvas.form
         if form:
@@ -4675,6 +4702,115 @@ class IDOL(Tk):
         elif not enabled:
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
         self._set_designer_dirty()
+
+    # ── Component tray handlers ───────────────────────────────────────────────
+
+    def _on_comp_add(self, type_key: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        cdef = get_component_def(type_key)
+        if cdef is None:
+            return
+        comp_id = form.next_component_id(cdef.default_name)
+        comp = ComponentDescriptor(id=comp_id, type=type_key,
+                                   props=default_props(type_key))
+        form.components.append(comp)
+        self._comp_tray.refresh(form.components)
+        self._comp_tray.select(comp_id)
+        self._props_panel.load_component(comp, cdef)
+        self._set_designer_dirty()
+
+    def _on_comp_select(self, comp_id: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        cdef = get_component_def(comp.type)
+        if cdef is None:
+            return
+        self._comp_selecting = True
+        try:
+            self._design_canvas.deselect()
+        finally:
+            self._comp_selecting = False
+        self._props_panel.load_component(comp, cdef)
+
+    def _on_comp_deselect(self) -> None:
+        form = self._design_canvas.form
+        if form:
+            self._props_panel.load_form(form)
+
+    def _on_comp_delete(self, comp_id: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        form.components = [c for c in form.components if c.id != comp_id]
+        self._comp_tray.refresh(form.components)
+        self._props_panel.load_form(form)
+        self._set_designer_dirty()
+
+    def _on_comp_rename(self, comp_id: str, new_name: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        if not new_name.isidentifier():
+            return
+        if any(c.id == new_name for c in form.components if c.id != comp_id):
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        comp.id = new_name
+        self._comp_tray.refresh(form.components)
+        self._comp_tray.select(new_name)
+        cdef = get_component_def(comp.type)
+        if cdef:
+            self._props_panel.load_component(comp, cdef)
+        self._set_designer_dirty()
+
+    def _on_comp_prop_change(self, comp_id: str, prop_key: str, value) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        comp.props[prop_key] = value
+        self._set_designer_dirty()
+
+    def _on_comp_connect(self, comp_id: str, handler_id: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        cdef = get_component_def(comp.type)
+        if cdef is None:
+            return
+        hdef = next((h for h in cdef.handler_defs if h.id == handler_id), None)
+        if hdef is None:
+            return
+
+        def _on_wire(widget_id: str, event_key: str) -> None:
+            w = form.get_widget(widget_id)
+            if w is None:
+                return
+            method = f"_{comp_id}{hdef.label}"
+            w.events[event_key] = method
+            self._set_designer_dirty()
+
+        ComponentConnector(
+            self,
+            form,
+            comp_id,
+            handler_id,
+            hdef.label,
+            _on_wire,
+        )
 
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""
@@ -4814,6 +4950,8 @@ class IDOL(Tk):
         self._design_canvas.load_form(form)
         self._props_panel.set_form(form)
         self._props_panel.load_form(form)
+        self._comp_tray.refresh(form.components)
+        self._comp_tray.deselect()
         self._designer_menu_had_items = bool(form.menu_items)
         self._form_list_panel.set_active(form_name)
         self._refresh_generate_code_state()
@@ -4931,6 +5069,8 @@ class IDOL(Tk):
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
+            self._comp_tray.refresh(form.components)
+            self._comp_tray.deselect()
             self._designer_menu_had_items = False
             self._set_designer_dirty()
             self._refresh_form_list(active=name)
@@ -5024,6 +5164,8 @@ class IDOL(Tk):
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
+            self._comp_tray.refresh(form.components)
+            self._comp_tray.deselect()
             self._designer_menu_had_items = bool(form.menu_items)
             self._designer_dirty = False
             self._refresh_form_list(active=form.name)

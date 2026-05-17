@@ -74,6 +74,8 @@ _DIALOG_IMPORT_B = "# ── IDOL:DIALOG_IMPORTS:BEGIN " + "─" * 10 + "(Do not
 _DIALOG_IMPORT_E = "# ── IDOL:DIALOG_IMPORTS:END "   + "─" * 12 + "(Do not modify above)" + "─" * 11
 _INIT_B          = "        # ── IDOL:BEGIN " + "─" * 21 + "(Do not modify below)" + "─" * 21
 _INIT_E          = "        # ── IDOL:END "   + "─" * 23 + "(Do not modify above)" + "─" * 21
+_COMP_B          = "        # ── IDOL:COMPONENTS:BEGIN " + "─" * 46
+_COMP_E          = "        # ── IDOL:COMPONENTS:END "   + "─" * 48
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -173,10 +175,15 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(("        " + line) if line.strip() else "")
         out.append("")
 
-    # Generated _build_ui call block + form event bindings
+    # Generated _build_ui call block + component init + form event bindings
     _anchored = [w for w in form.widgets if w.anchor and w.anchor != "top_left"]
     out.append(_INIT_B)
     out.append("        self._build_ui()")
+    comp_init = _component_init_lines(form)
+    if comp_init:
+        out.append(_COMP_B)
+        out.extend(comp_init)
+        out.append(_COMP_E)
     for ev_key, method_name in form.form_events.items():
         if not method_name:
             continue
@@ -309,6 +316,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(f"    def {opener}(self):")
             out.extend(_body_lines(opener, bodies, default_body))
             out.append("")
+
+    # ── component handler methods ─────────────────────────────────────────────
+    comp_handler_lines = _component_handler_lines(form, bodies)
+    if comp_handler_lines:
+        out.append("    # ── Component Handlers " + "─" * 50)
+        out.append("")
+        out.extend(comp_handler_lines)
 
     # ── helper methods ────────────────────────────────────────────────────────
     out.append("    # ── Functions " + "─" * 59)
@@ -528,12 +542,24 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
 
 
 def _collect_methods(form: FormModel) -> list[str]:
-    """All unique event/validate method names across the form, in widget order."""
+    """All unique event/validate method names across the form, in widget order.
+
+    Component handler methods are excluded — they are emitted by _component_handler_lines
+    and must not appear as duplicate stubs in the Events section.
+    """
+    from .component_registry import COMPONENT_REGISTRY
+    comp_methods: set[str] = set()
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef:
+            for hdef in cdef.handler_defs:
+                comp_methods.add(f"_{comp.id}{hdef.label}")
+
     seen: set[str] = set()
     methods: list[str] = []
     for w in form.widgets:
         for method_name in w.events.values():
-            if method_name and method_name not in seen:
+            if method_name and method_name not in seen and method_name not in comp_methods:
                 seen.add(method_name)
                 methods.append(method_name)
         for key in ("validatecommand", "invalidcommand"):
@@ -772,6 +798,114 @@ def _body_lines(method_name: str, bodies: dict[str, str],
     for line in textwrap.dedent(stub).splitlines():
         result.append(("        " + line) if line.strip() else "")
     return result or [f"        {_STUB}"]
+
+
+# ── Component codegen ────────────────────────────────────────────────────────
+
+def _component_init_lines(form: FormModel) -> list[str]:
+    """Return 8-space-indented __init__ lines for all components on this form."""
+    from .component_registry import COMPONENT_REGISTRY
+    lines: list[str] = []
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef is None:
+            continue
+        lines.extend(_comp_init_for(comp, cdef))
+    return lines
+
+
+def _comp_init_for(comp, cdef) -> list[str]:
+    """Init lines for one component instance."""
+    cid = comp.id
+    lines: list[str] = []
+
+    if comp.type == "Timer":
+        interval = int(comp.props.get("interval", 1000))
+        enabled  = comp.props.get("enabled", True)
+        en_val   = "True" if enabled else "False"
+        lines.append(f"        self._{cid}_interval = {interval}")
+        lines.append(f"        self._{cid}_enabled  = {en_val}")
+        lines.append(f"        self._{cid}_after_id = None")
+        if enabled:
+            lines.append(
+                f"        self._{cid}_after_id = self.after("
+                f"self._{cid}_interval, self._{cid}_tick)"
+            )
+
+    return lines
+
+
+def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[str]:
+    """Return 4-space-indented method lines for all component handlers."""
+    from .component_registry import COMPONENT_REGISTRY
+    lines: list[str] = []
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef is None:
+            continue
+        for hdef in cdef.handler_defs:
+            method = f"_{comp.id}{hdef.label}"  # e.g. "_timer1_tick"
+            lines.extend(_comp_handler_method(comp, hdef, method, bodies))
+            lines.append("")
+    return lines
+
+
+def _strip_timer_reschedule_tail(body: str) -> str:
+    """Remove the codegen-owned reschedule block from a previously-extracted tick body.
+
+    The reschedule tail is always regenerated; stripping it prevents duplication
+    each time the file is re-saved and codegen runs again.
+    """
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        if "Timer reschedule" in line:
+            return "\n".join(lines[:i]).strip()
+    return body
+
+
+def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> list[str]:
+    """Return the def block for one component handler method."""
+    cid = comp.id
+    lines: list[str] = [f"    def {method}(self):"]
+
+    if comp.type == "Timer":
+        if hdef.id == "tick":
+            raw = _strip_timer_reschedule_tail(bodies.get(method, "").strip())
+            user_body = raw if (raw and raw not in (_STUB, "pass")) else hdef.default_body
+            for line in textwrap.dedent(user_body).splitlines():
+                lines.append(("        " + line) if line.strip() else "")
+            lines.append(f"        # Timer reschedule — remove to fire only once")
+            lines.append(f"        if self._{cid}_enabled:")
+            lines.append(
+                f"            self._{cid}_after_id = self.after("
+                f"self._{cid}_interval, self._{cid}_tick)"
+            )
+        elif hdef.id == "start":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        self._{cid}_enabled = True")
+                lines.append(f"        if not self._{cid}_after_id:")
+                lines.append(
+                    f"            self._{cid}_after_id = self.after("
+                    f"self._{cid}_interval, self._{cid}_tick)"
+                )
+        elif hdef.id == "stop":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        self._{cid}_enabled = False")
+                lines.append(f"        if self._{cid}_after_id:")
+                lines.append(f"            self.after_cancel(self._{cid}_after_id)")
+                lines.append(f"            self._{cid}_after_id = None")
+    else:
+        lines.extend(_body_lines(method, bodies, hdef.default_body))
+
+    return lines
 
 
 # ── Anchor resize codegen ──────────────────────────────────────────────────────
