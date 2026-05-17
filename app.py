@@ -970,6 +970,7 @@ class IDOL(Tk):
             on_handler_toggle=self._on_designer_handler_toggle,
             on_component_prop_change=self._on_comp_prop_change,
             on_component_connect=self._on_comp_connect,
+            on_select_component=self._on_comp_select,
         )
         self._props_panel.configure(width=230)
 
@@ -4736,6 +4737,7 @@ class IDOL(Tk):
             self._design_canvas.deselect()
         finally:
             self._comp_selecting = False
+        self._comp_tray.select(comp_id)
         self._props_panel.load_component(comp, cdef)
 
     def _on_comp_deselect(self) -> None:
@@ -4802,6 +4804,7 @@ class IDOL(Tk):
             method = f"_{comp_id}{hdef.label}"
             w.events[event_key] = method
             self._set_designer_dirty()
+            self._props_panel.refresh_comp_connections()
 
         ComponentConnector(
             self,
