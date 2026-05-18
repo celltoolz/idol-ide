@@ -2331,10 +2331,15 @@ class TerminalPanel(ttk.Frame):
                             self._screen.buffer[ny] = line
                         self._screen.cursor.y = max(0,
                             self._screen.cursor.y - scroll_amount)
-                elif cols != self._cols:
-                    # Column change: full snapshot so scrollback can reflow
-                    # at the new width.
-                    self._snapshot_visible_to_scrollback()
+                # Column changes: do NOT snapshot the live buffer.  Snapshotting
+                # shifts pyte's rows up (prompt → row 0) without PSReadLine
+                # knowing, so PSReadLine's cursor-up-N on SIGWINCH lands at the
+                # wrong row → garbled prompt with blank lines and partial text.
+                # pyte's own resize() keeps the buffer intact and PSReadLine's
+                # SIGWINCH handler reflows the prompt correctly on its own.
+                # Historical scrollback still reflows at the new _cols via
+                # _draw_logical_line, so only the current visible rows are
+                # not reflowed — an acceptable trade-off.
                 self.resize(rows, cols)
                 # Selection coords live in physical canvas rows that change
                 # meaning after reflow — clear rather than try to remap.
