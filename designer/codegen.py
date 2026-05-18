@@ -111,14 +111,18 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     for _d in dialogs:
         _opener = f"_open_{_d}"
         _saved  = (bodies.get(_opener) or "").strip()
-        _hide_body    = f"self.dlg_{_d}.deiconify()"
-        _destroy_body = (f"if not self.dlg_{_d}.winfo_exists():\n"
-                         f"    self.dlg_{_d} = {_d}(self)\n"
-                         f"self.dlg_{_d}.deiconify()")
+        _hide_body     = f"self.dlg_{_d}.deiconify()"
+        # Match both old (no is-None guard) and new destroy patterns
+        _destroy_body_old = (f"if not self.dlg_{_d}.winfo_exists():\n"
+                             f"    self.dlg_{_d} = {_d}(self)\n"
+                             f"self.dlg_{_d}.deiconify()")
+        _destroy_body_new = (f"if self.dlg_{_d} is None or not self.dlg_{_d}.winfo_exists():\n"
+                             f"    self.dlg_{_d} = {_d}(self)\n"
+                             f"self.dlg_{_d}.deiconify()")
         _mode = dmodes.get(_d, "hide")
-        if _mode == "destroy" and _saved == _hide_body.strip():
+        if _mode == "destroy" and _saved in (_hide_body.strip(), _destroy_body_old.strip()):
             bodies.pop(_opener, None)
-        elif _mode == "hide" and _saved == _destroy_body.strip():
+        elif _mode == "hide" and _saved in (_destroy_body_old.strip(), _destroy_body_new.strip()):
             bodies.pop(_opener, None)
 
     # Resolve active handlers from catalog (include handlers that have wires)
@@ -182,7 +186,10 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     for line in _menu_variable_decls(form.menu_items):
         out.append(line)
     for d in dialogs:
-        out.append(f"        self.dlg_{d} = {d}(self)")
+        if dmodes.get(d) == "destroy":
+            out.append(f"        self.dlg_{d} = None")
+        else:
+            out.append(f"        self.dlg_{d} = {d}(self)")
     if dialogs:
         out.append("        self.focus()")
     out.append(_INIT_E)
@@ -365,7 +372,7 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         for d in dialogs:
             opener = f"_open_{d}"
             if dmodes.get(d) == "destroy":
-                default_body = (f"if not self.dlg_{d}.winfo_exists():\n"
+                default_body = (f"if self.dlg_{d} is None or not self.dlg_{d}.winfo_exists():\n"
                                 f"    self.dlg_{d} = {d}(self)\n"
                                 f"self.dlg_{d}.deiconify()")
             else:
