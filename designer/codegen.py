@@ -84,7 +84,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
              pre_init: str = "", post_init: str = "", helpers: str = "",
              user_imports: str = "",
              event_signatures: dict[str, tuple[str, str]] | None = None,
-             linked_dialogs: list[str] | None = None) -> str:
+             linked_dialogs: list[str] | None = None,
+             dialog_modes: dict[str, str] | None = None) -> str:
     """Return Python source for *form*.
 
     event_bodies:   {method_name: dedented_body_str} — user event handler code.
@@ -92,10 +93,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     post_init:      user code placed after self._build_ui().
     helpers:        full source of public helper methods (user-written).
     linked_dialogs: dialog class names owned by this form; generates _open_X methods.
+    dialog_modes:   {dialog_name: "hide"|"destroy"} — controls opener body pattern.
     """
     bodies   = dict(event_bodies or {})
     sigs     = event_signatures or {}
     dialogs  = linked_dialogs or []
+    dmodes   = dialog_modes or {}
     needs_ttk = _uses_ttk(form)
 
     # Migrate old single-use opener bodies to the new instance-based pattern
@@ -103,6 +106,20 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         _old = f"{_d}(self).deiconify()"
         if bodies.get(f"_open_{_d}", "").strip() == _old:
             del bodies[f"_open_{_d}"]
+
+    # Auto-migrate opener bodies when hide↔destroy mode changes
+    for _d in dialogs:
+        _opener = f"_open_{_d}"
+        _saved  = (bodies.get(_opener) or "").strip()
+        _hide_body    = f"self.dlg_{_d}.deiconify()"
+        _destroy_body = (f"if not self.dlg_{_d}.winfo_exists():\n"
+                         f"    self.dlg_{_d} = {_d}(self)\n"
+                         f"self.dlg_{_d}.deiconify()")
+        _mode = dmodes.get(_d, "hide")
+        if _mode == "destroy" and _saved == _hide_body.strip():
+            bodies.pop(_opener, None)
+        elif _mode == "hide" and _saved == _destroy_body.strip():
+            bodies.pop(_opener, None)
 
     # Resolve active handlers from catalog (include handlers that have wires)
     from designer.handlers import handlers_for, HANDLER_CATALOG
@@ -321,6 +338,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(f"    def {h.id}(self{sig_params}):")
             option     = h_options.get(h.id, "")
             stub_body  = h.stub_body_for(option) if option else h.default_body
+            # Auto-migrate stub when option changes: if saved body matches any
+            # known option body but not the current one, clear it so stub_body wins
+            if h.stub_option_bodies:
+                _saved_stub = (bodies.get(h.id) or "").strip()
+                _known      = {b.strip() for b in h.stub_option_bodies}
+                if _saved_stub in _known and _saved_stub != stub_body.strip():
+                    bodies.pop(h.id, None)
             out.extend(_body_lines(h.id, bodies, stub_body))
             out.append("")
         for name in methods:
@@ -340,7 +364,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append("")
         for d in dialogs:
             opener = f"_open_{d}"
-            default_body = f"self.dlg_{d}.deiconify()"
+            if dmodes.get(d) == "destroy":
+                default_body = (f"if not self.dlg_{d}.winfo_exists():\n"
+                                f"    self.dlg_{d} = {d}(self)\n"
+                                f"self.dlg_{d}.deiconify()")
+            else:
+                default_body = f"self.dlg_{d}.deiconify()"
             out.append(f"    def {opener}(self):")
             out.extend(_body_lines(opener, bodies, default_body))
             out.append("")

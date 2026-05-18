@@ -5431,6 +5431,19 @@ class IDOL(Tk):
                 {}, {}, "", "", "", "",
             )
 
+        # Determine each linked dialog's close mode for opener body generation
+        dialog_modes: dict[str, str] = {}
+        if form.form_type == "main":
+            for dlg_name in form.linked_dialogs:
+                dlg_json = _Path(root) / f"{dlg_name}.form.json"
+                if dlg_json.exists():
+                    try:
+                        dlg_form = _load(dlg_json)
+                        dialog_modes[dlg_name] = dlg_form.handler_options.get(
+                            "_on_close", "hide")
+                    except Exception:
+                        pass
+
         code = _gen(
             form,
             event_bodies=event_bodies,
@@ -5440,6 +5453,7 @@ class IDOL(Tk):
             helpers=helpers,
             user_imports=user_imports,
             linked_dialogs=list(form.linked_dialogs) if form.form_type == "main" else None,
+            dialog_modes=dialog_modes or None,
         )
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
