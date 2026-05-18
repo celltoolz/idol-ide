@@ -96,8 +96,10 @@ class DesignerProperties(tk.Frame):
         # list of (method_name, label, removable, removal_key|(comp_id,wid,ev)|None)
         self._widget_comp_handlers: list[tuple] = []
         self._widget_comp_hov_idx:  int | None             = None
-        # Connectable comp handlers not yet wired — shown informally in Available Components
-        self._widget_comp_avail: list[tuple[str, str]] = []  # (method, comp_id)
+        # Connectable comp handlers not yet wired — shown in Available Components with ⚡
+        self._widget_comp_avail: list[tuple[str, str, str]] = []  # (method, comp_id, handler_id)
+        self._widget_comp_avail_hov_idx: int | None = None
+        self._handlers_avail_comp_y0: int = 0
         # Handlers tab — Available / Connected split
         self._handlers_avail_defs: list = []          # HandlerDef objects (not wired)
         self._handlers_conn_rows:  list = []          # dicts with conn info
@@ -560,15 +562,15 @@ class DesignerProperties(tk.Frame):
                     # has_connector=True and unwired → omitted here; shown in _collect_form_comp_avail
         return result
 
-    def _collect_form_comp_avail(self, form: FormModel) -> list[tuple[str, str]]:
-        """Return (method, comp_id) for connectable handlers not yet wired to any widget event."""
+    def _collect_form_comp_avail(self, form: FormModel) -> list[tuple[str, str, str]]:
+        """Return (method, comp_id, handler_id) for connectable handlers not yet wired."""
         from designer.component_registry import COMPONENT_REGISTRY
         wired_methods = {
             method
             for widget in form.widgets
             for method in widget.events.values()
         }
-        result: list[tuple[str, str]] = []
+        result: list[tuple[str, str, str]] = []
         for comp in form.components:
             cdef = COMPONENT_REGISTRY.get(comp.type)
             if cdef:
@@ -576,7 +578,7 @@ class DesignerProperties(tk.Frame):
                     if hdef.has_connector:
                         method = f"_{comp.id}{hdef.label}"
                         if method not in wired_methods:
-                            result.append((method, comp.id))
+                            result.append((method, comp.id, hdef.id))
         return result
 
     def load_component(self, descriptor, comp_def) -> None:
@@ -1092,17 +1094,27 @@ class DesignerProperties(tk.Frame):
             cv.create_text(8, y + _ORD_HDR_H // 2, text="Available Components",
                            fill=_ORD_DIM, font=(UI_FONT, 7, "bold"), anchor="w")
             y += _ORD_HDR_H
-            for j, (method, comp_id) in enumerate(avail_comps):
+            self._handlers_avail_comp_y0 = y
+            for j, (method, comp_id, handler_id) in enumerate(avail_comps):
                 y0  = y + j * _ORD_ROW_H
                 y1  = y0 + _ORD_ROW_H
                 mid = (y0 + y1) // 2
-                bg  = _ORD_EVEN if j % 2 == 0 else _ORD_ODD
+                is_hov = j == self._widget_comp_avail_hov_idx
+                bg  = _ORD_HOV if is_hov else (_ORD_EVEN if j % 2 == 0 else _ORD_ODD)
                 cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
                 cv.create_text(8, mid, text=method,
                                fill=_ORD_FG, font=("Consolas", 9), anchor="w")
-                cv.create_text(w - 6, mid, text=comp_id,
+                badge_x = w - 6 if not is_hov else w - 26
+                cv.create_text(badge_x, mid, text=comp_id,
                                fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
+                if is_hov:
+                    self._comp_connect_btn.place(x=w - 2, y=y0 + 2,
+                                                 anchor="ne", height=_ORD_ROW_H - 4)
+                    self._comp_connect_btn._handler_id    = handler_id   # type: ignore[attr-defined]
+                    self._comp_connect_btn._comp_id_override = comp_id   # type: ignore[attr-defined]
             y += len(avail_comps) * _ORD_ROW_H
+        else:
+            self._handlers_avail_comp_y0 = y
 
         if wch:
             if avail_comps:
@@ -1225,6 +1237,16 @@ class DesignerProperties(tk.Frame):
         i = (y - y0) // _ORD_ROW_H
         return i if 0 <= i < len(self._handlers_conn_rows) else None
 
+    def _avail_comp_idx_at(self, y: int) -> int | None:
+        """Row index in the Available Components section, or None."""
+        if self._comp_mode or not self._widget_comp_avail:
+            return None
+        y0 = self._handlers_avail_comp_y0
+        if y < y0:
+            return None
+        i = (y - y0) // _ORD_ROW_H
+        return i if 0 <= i < len(self._widget_comp_avail) else None
+
     def _widget_comp_handler_at(self, y: int) -> int | None:
         """Return index into _widget_comp_handlers for the Connected Components section, or None."""
         if not self._widget_comp_handlers or self._comp_mode:
@@ -1256,21 +1278,25 @@ class DesignerProperties(tk.Frame):
                     self._clear_hint()
             return
 
-        avail_idx = self._handlers_idx_at(cy)
-        conn_idx  = self._handlers_conn_idx_at(cy)
-        comp_idx  = self._widget_comp_handler_at(cy)
+        avail_idx      = self._handlers_idx_at(cy)
+        conn_idx       = self._handlers_conn_idx_at(cy)
+        avail_comp_idx = self._avail_comp_idx_at(cy)
+        comp_idx       = self._widget_comp_handler_at(cy)
 
-        if (avail_idx == self._handlers_hov_idx
-                and conn_idx  == self._handlers_hov_conn_idx
-                and comp_idx  == self._widget_comp_hov_idx):
+        if (avail_idx      == self._handlers_hov_idx
+                and conn_idx       == self._handlers_hov_conn_idx
+                and avail_comp_idx == self._widget_comp_avail_hov_idx
+                and comp_idx       == self._widget_comp_hov_idx):
             return
 
-        self._handlers_hov_idx      = avail_idx
-        self._handlers_hov_conn_idx = conn_idx
-        self._widget_comp_hov_idx   = comp_idx
+        self._handlers_hov_idx          = avail_idx
+        self._handlers_hov_conn_idx     = conn_idx
+        self._widget_comp_avail_hov_idx = avail_comp_idx
+        self._widget_comp_hov_idx       = comp_idx
         self._handler_wire_btn.place_forget()
         self._handler_edit_btn.place_forget()
         self._handler_disco_btn.place_forget()
+        self._comp_connect_btn.place_forget()
         self._handlers_redraw()
 
         if avail_idx is not None:
@@ -1283,6 +1309,9 @@ class DesignerProperties(tk.Frame):
             if row["editable"]:
                 parts.append("… to edit options")
             self._show_hint("  ·  ".join(parts[:1]) + " — " + " · ".join(parts[1:]))
+        elif avail_comp_idx is not None:
+            method, comp_id, _ = self._widget_comp_avail[avail_comp_idx]
+            self._show_hint(f"{method}  ({comp_id}) — ⚡ to connect")
         elif comp_idx is not None:
             method, label, removable, _ = self._widget_comp_handlers[comp_idx]
             suffix = " — double-click to jump · × to disconnect" if removable else " — double-click to jump"
@@ -1301,16 +1330,19 @@ class DesignerProperties(tk.Frame):
                 self._handlers_redraw()
             self._clear_hint()
             return
-        changed = (self._handlers_hov_idx      is not None
-                   or self._handlers_hov_conn_idx is not None
-                   or self._widget_comp_hov_idx   is not None)
-        self._handlers_hov_idx      = None
-        self._handlers_hov_conn_idx = None
-        self._widget_comp_hov_idx   = None
+        changed = (self._handlers_hov_idx          is not None
+                   or self._handlers_hov_conn_idx     is not None
+                   or self._widget_comp_avail_hov_idx is not None
+                   or self._widget_comp_hov_idx       is not None)
+        self._handlers_hov_idx          = None
+        self._handlers_hov_conn_idx     = None
+        self._widget_comp_avail_hov_idx = None
+        self._widget_comp_hov_idx       = None
         if changed:
             self._handler_wire_btn.place_forget()
             self._handler_edit_btn.place_forget()
             self._handler_disco_btn.place_forget()
+            self._comp_connect_btn.place_forget()
             self._comp_disconnect_btn.place_forget()
             self._handlers_redraw()
         self._clear_hint()
@@ -1360,8 +1392,11 @@ class DesignerProperties(tk.Frame):
 
     def _on_comp_connect_click(self, _event: tk.Event) -> None:
         hid = getattr(self._comp_connect_btn, "_handler_id", None)
-        if hid and self._comp_id and self._on_component_connect:
-            self._on_component_connect(self._comp_id, hid)
+        # In comp mode use panel state; in form/widget view use button override set by avail-comp row
+        cid = (self._comp_id if self._comp_mode
+               else getattr(self._comp_connect_btn, "_comp_id_override", None))
+        if hid and cid and self._on_component_connect:
+            self._on_component_connect(cid, hid)
 
     def _on_comp_disconnect_click(self, _event: tk.Event) -> None:
         if self._comp_mode:
