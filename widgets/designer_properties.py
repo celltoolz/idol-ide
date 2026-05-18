@@ -1342,24 +1342,29 @@ class DesignerProperties(tk.Frame):
             self._handlers_redraw()
         self._clear_hint()
 
-    def _on_handler_btn_leave(self, _event: tk.Event) -> None:
+    def _on_handler_btn_leave(self, event: tk.Event) -> None:
         """Deferred leave handler for floating buttons.
 
-        Moving the mouse left OFF a button back onto the canvas row triggers
-        <Leave> on the button before <Motion> fires on the canvas. A direct
-        place_forget() here causes a 1-frame disappear/reappear flicker.
-        Instead we defer: if the pointer is still inside the canvas when the
-        idle callback runs, the canvas Motion event has already re-shown the
-        button and we do nothing; if the pointer truly left the canvas we call
-        the full leave handler to clean up.
+        Moving left off a button back onto the canvas row triggers <Leave> on
+        the button before <Motion> fires on the canvas. We reset the button
+        color immediately (so it doesn't stay lit), then defer the hide check:
+        if the pointer is still inside the canvas the Motion event has already
+        re-placed the button (grey), so we do nothing; if the pointer truly
+        left the canvas we call the full leave handler to clean up.
         """
+        btn = event.widget
+        if btn in (self._handler_wire_btn, self._handler_edit_btn, self._comp_connect_btn):
+            btn.config(fg="#555555")
+        elif btn in (self._handler_disco_btn, self._comp_disconnect_btn):
+            btn.config(bg="#3a1a1a")
+
         def _check():
             cv = self._handlers_cv
             rx, ry = cv.winfo_rootx(), cv.winfo_rooty()
             px, py = cv.winfo_pointerxy()
             if rx <= px < rx + cv.winfo_width() and ry <= py < ry + cv.winfo_height():
                 return  # still inside canvas — Motion already handled it
-            self._handlers_leave(_event)
+            self._handlers_leave(event)
         self.after_idle(_check)
 
     def _handlers_click(self, event: tk.Event) -> None:
