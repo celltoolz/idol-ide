@@ -810,16 +810,23 @@ class TerminalPanel(ttk.Frame):
         old_rows, old_cols = self._rows, self._cols
         self._rows = rows
         self._cols = cols
-        # When only shrinking rows (columns unchanged), bypass pyte's resize()
-        # which calls index() N times and moves the cursor down. That cursor
-        # drift causes PSReadLine's SIGWINCH handler to erase the prompt with
-        # spaces but then write the new prompt at the drifted position, making
-        # the left side of the prompt appear blank. Column changes and row
-        # expansions still use the normal pyte path (needed for reflow and
-        # history pull-up respectively).
-        if rows < old_rows and cols == old_cols:
+        # When rows decrease, bypass pyte's resize() entirely: pyte's resize
+        # calls delete_lines(N) unconditionally from the top, but ConPTY only
+        # scrolls by cursor-based scroll_amount = max(0, cursor.y - (rows-1)).
+        # The mismatch shifts pyte's buffer relative to ConPTY, making
+        # PSReadLine's SIGWINCH cursor-up land on the wrong row and leave
+        # partial/leftover prompt text on screen.  Row expansions and
+        # col-only changes still use the normal pyte path.
+        if rows < old_rows:
             self._screen.lines = rows
             self._screen.cursor.y = min(self._screen.cursor.y, rows - 1)
+            if cols != old_cols:
+                self._screen.columns = cols
+                if cols < old_cols:
+                    for line in self._screen.buffer.values():
+                        for x in range(cols, old_cols):
+                            line.pop(x, None)
+                self._screen.set_margins()
             self._screen.dirty.update(range(rows))
         else:
             self._screen.resize(rows, cols)
@@ -830,9 +837,16 @@ class TerminalPanel(ttk.Frame):
                 pass
         for sess in self._sessions.values():
             try:
-                if rows < old_rows and cols == old_cols:
+                if rows < old_rows:
                     sess["screen"].lines = rows
                     sess["screen"].cursor.y = min(sess["screen"].cursor.y, rows - 1)
+                    if cols != old_cols:
+                        sess["screen"].columns = cols
+                        if cols < old_cols:
+                            for line in sess["screen"].buffer.values():
+                                for x in range(cols, old_cols):
+                                    line.pop(x, None)
+                        sess["screen"].set_margins()
                     sess["screen"].dirty.update(range(rows))
                 else:
                     sess["screen"].resize(rows, cols)
@@ -2301,10 +2315,10 @@ class TerminalPanel(ttk.Frame):
                     else:
                         # Top of viewport is in the live area — treat as bottom.
                         at_bottom = True
-                if rows < self._rows and cols == self._cols:
-                    # Row-shrink only: scroll pyte's buffer to match what the
-                    # PTY console does (keeps cursor visible, so PSReadLine's
-                    # absolute coordinates stay in sync with pyte's buffer).
+                if rows < self._rows:
+                    # Row-shrink (with or without a col change): scroll pyte's
+                    # buffer to match what the PTY console does — keeps cursor
+                    # visible so PSReadLine's absolute coordinates stay in sync.
                     # scroll_amount = rows the console scrolls up to keep
                     # cursor visible = max(0, cursor.y - (new_rows - 1)).
                     scroll_amount = max(0, self._screen.cursor.y - (rows - 1))
@@ -2331,15 +2345,10 @@ class TerminalPanel(ttk.Frame):
                             self._screen.buffer[ny] = line
                         self._screen.cursor.y = max(0,
                             self._screen.cursor.y - scroll_amount)
-                # Column changes: do NOT snapshot the live buffer.  Snapshotting
-                # shifts pyte's rows up (prompt → row 0) without PSReadLine
-                # knowing, so PSReadLine's cursor-up-N on SIGWINCH lands at the
-                # wrong row → garbled prompt with blank lines and partial text.
-                # pyte's own resize() keeps the buffer intact and PSReadLine's
-                # SIGWINCH handler reflows the prompt correctly on its own.
-                # Historical scrollback still reflows at the new _cols via
-                # _draw_logical_line, so only the current visible rows are
-                # not reflowed — an acceptable trade-off.
+                # Do NOT snapshot the live buffer on col changes.  Snapshotting
+                # shifts pyte's rows (prompt → row 0) without PSReadLine
+                # knowing → garbled prompt with blank lines and partial text.
+                # PSReadLine's own SIGWINCH handler reflows the prompt on its own.
                 self.resize(rows, cols)
                 # Selection coords live in physical canvas rows that change
                 # meaning after reflow — clear rather than try to remap.
