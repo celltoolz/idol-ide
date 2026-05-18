@@ -80,8 +80,8 @@ HANDLER_CATALOG: list[HandlerDef] = [
         params="event=None",
         default_body="pass  # TODO",
         display_target="<Escape>",
-        options=("hide",),
-        stub_option_bodies=("self.withdraw()",),
+        options=("hide", "destroy"),
+        stub_option_bodies=("self.withdraw()", "self.destroy()"),
     ),
     HandlerDef(
         id="_on_return",

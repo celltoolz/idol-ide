@@ -279,8 +279,7 @@ class DesignerProperties(tk.Frame):
         )
         self._handler_wire_btn.bind("<Enter>",
             lambda e: self._handler_wire_btn.config(fg="#dfc700"))
-        self._handler_wire_btn.bind("<Leave>",
-            lambda e: self._handler_wire_btn.place_forget())
+        self._handler_wire_btn.bind("<Leave>", self._on_handler_btn_leave)
         self._handler_wire_btn.bind("<ButtonRelease-1>", self._on_handler_wire_click)
 
         self._handler_edit_btn = tk.Label(
@@ -290,8 +289,7 @@ class DesignerProperties(tk.Frame):
         )
         self._handler_edit_btn.bind("<Enter>",
             lambda e: self._handler_edit_btn.config(fg="#cccccc"))
-        self._handler_edit_btn.bind("<Leave>",
-            lambda e: self._handler_edit_btn.place_forget())
+        self._handler_edit_btn.bind("<Leave>", self._on_handler_btn_leave)
         self._handler_edit_btn.bind("<ButtonRelease-1>", self._on_handler_edit_click)
 
         self._handler_disco_btn = tk.Label(
@@ -301,8 +299,7 @@ class DesignerProperties(tk.Frame):
         )
         self._handler_disco_btn.bind("<Enter>",
             lambda e: self._handler_disco_btn.config(bg="#5a1a1a"))
-        self._handler_disco_btn.bind("<Leave>",
-            lambda e: self._handler_disco_btn.place_forget())
+        self._handler_disco_btn.bind("<Leave>", self._on_handler_btn_leave)
         self._handler_disco_btn.bind("<ButtonRelease-1>", self._on_handler_disco_click)
 
         # ── Floating ⚡ connect button for component handler rows ──────────────
@@ -313,8 +310,7 @@ class DesignerProperties(tk.Frame):
         )
         self._comp_connect_btn.bind("<Enter>",
             lambda e: self._comp_connect_btn.config(fg="#dfc700"))
-        self._comp_connect_btn.bind("<Leave>",
-            lambda e: self._comp_connect_btn.place_forget())
+        self._comp_connect_btn.bind("<Leave>", self._on_handler_btn_leave)
         self._comp_connect_btn.bind("<ButtonRelease-1>", self._on_comp_connect_click)
 
         # Floating × disconnect button for Connected Components rows
@@ -325,8 +321,7 @@ class DesignerProperties(tk.Frame):
         )
         self._comp_disconnect_btn.bind("<Enter>",
             lambda e: self._comp_disconnect_btn.config(bg="#5a1a1a"))
-        self._comp_disconnect_btn.bind("<Leave>",
-            lambda e: self._comp_disconnect_btn.place_forget())
+        self._comp_disconnect_btn.bind("<Leave>", self._on_handler_btn_leave)
         self._comp_disconnect_btn.bind("<ButtonRelease-1>", self._on_comp_disconnect_click)
 
         # ── Order tab ─────────────────────────────────────────────────────────
@@ -1346,6 +1341,26 @@ class DesignerProperties(tk.Frame):
             self._comp_disconnect_btn.place_forget()
             self._handlers_redraw()
         self._clear_hint()
+
+    def _on_handler_btn_leave(self, _event: tk.Event) -> None:
+        """Deferred leave handler for floating buttons.
+
+        Moving the mouse left OFF a button back onto the canvas row triggers
+        <Leave> on the button before <Motion> fires on the canvas. A direct
+        place_forget() here causes a 1-frame disappear/reappear flicker.
+        Instead we defer: if the pointer is still inside the canvas when the
+        idle callback runs, the canvas Motion event has already re-shown the
+        button and we do nothing; if the pointer truly left the canvas we call
+        the full leave handler to clean up.
+        """
+        def _check():
+            cv = self._handlers_cv
+            rx, ry = cv.winfo_rootx(), cv.winfo_rooty()
+            px, py = cv.winfo_pointerxy()
+            if rx <= px < rx + cv.winfo_width() and ry <= py < ry + cv.winfo_height():
+                return  # still inside canvas — Motion already handled it
+            self._handlers_leave(_event)
+        self.after_idle(_check)
 
     def _handlers_click(self, event: tk.Event) -> None:
         if self._comp_mode:

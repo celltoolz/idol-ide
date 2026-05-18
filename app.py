@@ -5432,14 +5432,17 @@ class IDOL(Tk):
             )
 
         # Determine each linked dialog's close mode for opener body generation.
-        # Read from the in-memory model so the value is always current regardless
-        # of whether the dialog's .form.json has been flushed to disk yet.
+        # Uses destroy mode if _on_close OR _on_escape is set to "destroy".
+        # Read from the in-memory model so the value is always current.
         dialog_modes: dict[str, str] = {}
         if form.form_type == "main":
             for dlg_name in form.linked_dialogs:
                 dlg_mem = self._designer_forms.get(dlg_name)
                 if dlg_mem is not None:
-                    dialog_modes[dlg_name] = dlg_mem.handler_options.get("_on_close", "hide")
+                    opts = dlg_mem.handler_options
+                    is_destroy = (opts.get("_on_close") == "destroy"
+                                  or opts.get("_on_escape") == "destroy")
+                    dialog_modes[dlg_name] = "destroy" if is_destroy else "hide"
 
         code = _gen(
             form,
