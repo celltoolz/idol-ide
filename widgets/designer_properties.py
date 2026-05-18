@@ -1088,7 +1088,9 @@ class DesignerProperties(tk.Frame):
         cv.configure(scrollregion=(0, 0, w, max(y, 40)))
 
     def _comp_handlers_redraw(self, cv: tk.Canvas, w: int) -> None:
-        handler_defs = self._comp_def.handler_defs
+        # Only connectable handlers appear in the top section; always-wired ones
+        # (has_connector=False) are shown exclusively in Connected Components below.
+        handler_defs = [h for h in self._comp_def.handler_defs if h.has_connector]
         for i, hd in enumerate(handler_defs):
             y0  = i * _ORD_ROW_H
             y1  = y0 + _ORD_ROW_H
@@ -1145,7 +1147,8 @@ class DesignerProperties(tk.Frame):
         """Return index into _comp_connections for y in the Connected Components section, or None."""
         if not self._comp_mode or not self._comp_connections or not self._comp_def:
             return None
-        section_start = len(self._comp_def.handler_defs) * _ORD_ROW_H + 1 + _ORD_HDR_H
+        n_connectable = sum(1 for h in self._comp_def.handler_defs if h.has_connector)
+        section_start = n_connectable * _ORD_ROW_H + 1 + _ORD_HDR_H
         if y < section_start:
             return None
         idx = (y - section_start) // _ORD_ROW_H
@@ -1155,7 +1158,8 @@ class DesignerProperties(tk.Frame):
         """Available-section row index at canvas y, or None."""
         if self._comp_mode and self._comp_def:
             i = int(y) // _ORD_ROW_H
-            return i if 0 <= i < len(self._comp_def.handler_defs) else None
+            n = sum(1 for h in self._comp_def.handler_defs if h.has_connector)
+            return i if 0 <= i < n else None
         y0 = self._handlers_avail_y0
         if y < y0:
             return None
