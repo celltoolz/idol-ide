@@ -96,6 +96,8 @@ class DesignerProperties(tk.Frame):
         # list of (method_name, label, removable, removal_key|(comp_id,wid,ev)|None)
         self._widget_comp_handlers: list[tuple] = []
         self._widget_comp_hov_idx:  int | None             = None
+        # Connectable comp handlers not yet wired — shown informally in Available Components
+        self._widget_comp_avail: list[tuple[str, str]] = []  # (method, comp_id)
         # Handlers tab — Available / Connected split
         self._handlers_avail_defs: list = []          # HandlerDef objects (not wired)
         self._handlers_conn_rows:  list = []          # dicts with conn info
@@ -371,6 +373,7 @@ class DesignerProperties(tk.Frame):
         self._populate_props(descriptor, reg)
         self._populate_events(descriptor, reg)
         self._widget_comp_handlers = self._collect_widget_comp_handlers(descriptor)
+        self._widget_comp_avail    = []   # not used in widget view
         if self._form:
             self.load_handlers(self._form)
 
@@ -477,6 +480,7 @@ class DesignerProperties(tk.Frame):
 
         if self._current_widget is None:
             self._widget_comp_handlers = self._collect_form_comp_handlers(form)
+            self._widget_comp_avail    = self._collect_form_comp_avail(form)
         self._handlers_redraw()
 
     def _collect_widget_comp_handlers(self, descriptor: WidgetDescriptor) -> list[tuple]:
@@ -550,8 +554,29 @@ class DesignerProperties(tk.Frame):
                     if method in wired:
                         comp_id, widget_id, ev_key = wired[method]
                         result.append((method, f"{widget_id}.{ev_key}", True, wired[method]))
-                    else:
+                    elif not hdef.has_connector:
+                        # Always-wired (e.g. tick) — show as connected, not removable
                         result.append((method, comp.id, False, None))
+                    # has_connector=True and unwired → omitted here; shown in _collect_form_comp_avail
+        return result
+
+    def _collect_form_comp_avail(self, form: FormModel) -> list[tuple[str, str]]:
+        """Return (method, comp_id) for connectable handlers not yet wired to any widget event."""
+        from designer.component_registry import COMPONENT_REGISTRY
+        wired_methods = {
+            method
+            for widget in form.widgets
+            for method in widget.events.values()
+        }
+        result: list[tuple[str, str]] = []
+        for comp in form.components:
+            cdef = COMPONENT_REGISTRY.get(comp.type)
+            if cdef:
+                for hdef in cdef.handler_defs:
+                    if hdef.has_connector:
+                        method = f"_{comp.id}{hdef.label}"
+                        if method not in wired_methods:
+                            result.append((method, comp.id))
         return result
 
     def load_component(self, descriptor, comp_def) -> None:
@@ -1055,10 +1080,34 @@ class DesignerProperties(tk.Frame):
         y += len(conn) * _ORD_ROW_H
 
         # ── Connected Components section (widget-level comp wires) ────────────
+        avail_comps = self._widget_comp_avail
         wch = self._widget_comp_handlers
-        if wch:
+        if avail_comps or wch:
             cv.create_line(0, y, w, y, fill="#3a3a3a")
             y += 1
+
+        # Available Components sub-section (connectable handlers not yet wired)
+        if avail_comps:
+            cv.create_rectangle(0, y, w, y + _ORD_HDR_H, fill=_ORD_HDR_BG, outline="")
+            cv.create_text(8, y + _ORD_HDR_H // 2, text="Available Components",
+                           fill=_ORD_DIM, font=(UI_FONT, 7, "bold"), anchor="w")
+            y += _ORD_HDR_H
+            for j, (method, comp_id) in enumerate(avail_comps):
+                y0  = y + j * _ORD_ROW_H
+                y1  = y0 + _ORD_ROW_H
+                mid = (y0 + y1) // 2
+                bg  = _ORD_EVEN if j % 2 == 0 else _ORD_ODD
+                cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
+                cv.create_text(8, mid, text=method,
+                               fill=_ORD_FG, font=("Consolas", 9), anchor="w")
+                cv.create_text(w - 6, mid, text=comp_id,
+                               fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
+            y += len(avail_comps) * _ORD_ROW_H
+
+        if wch:
+            if avail_comps:
+                cv.create_line(0, y, w, y, fill="#3a3a3a")
+                y += 1
             cv.create_rectangle(0, y, w, y + _ORD_HDR_H, fill=_ORD_HDR_BG, outline="")
             cv.create_text(8, y + _ORD_HDR_H // 2, text="⚡ Connected Components",
                            fill=_ORD_HDR_FG, font=(UI_FONT, 7, "bold"), anchor="w")
