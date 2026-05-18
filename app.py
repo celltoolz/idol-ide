@@ -5431,18 +5431,15 @@ class IDOL(Tk):
                 {}, {}, "", "", "", "",
             )
 
-        # Determine each linked dialog's close mode for opener body generation
+        # Determine each linked dialog's close mode for opener body generation.
+        # Read from the in-memory model so the value is always current regardless
+        # of whether the dialog's .form.json has been flushed to disk yet.
         dialog_modes: dict[str, str] = {}
         if form.form_type == "main":
             for dlg_name in form.linked_dialogs:
-                dlg_json = _Path(root) / f"{dlg_name}.form.json"
-                if dlg_json.exists():
-                    try:
-                        dlg_form = _load(dlg_json)
-                        dialog_modes[dlg_name] = dlg_form.handler_options.get(
-                            "_on_close", "hide")
-                    except Exception:
-                        pass
+                dlg_mem = self._designer_forms.get(dlg_name)
+                if dlg_mem is not None:
+                    dialog_modes[dlg_name] = dlg_mem.handler_options.get("_on_close", "hide")
 
         code = _gen(
             form,
