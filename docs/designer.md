@@ -160,18 +160,44 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 
 ## Handlers Tab
 
-The **Handlers** tab (visible when a widget or the form is selected) shows every method that IDOL can generate for the selected widget — not just event callbacks but also utility methods (e.g. `_set_always_on_top`, validate helpers).
+The **Handlers** tab shows every method IDOL can generate and lets you wire connectable handlers to widget events. It uses an **Available / Connected** split — no checkboxes.
 
-**Checkbox column (x ≤ 28px):**
-- **Click** the checkbox area to toggle a handler on or off; unchecked handlers are not emitted during codegen
-- **Double-clicking** the checkbox area also toggles, matching single-click behavior
+### Available Section
 
-**Name column (right of checkbox):**
-- **Single-click** does nothing — prevents accidental navigation
-- **Double-click an unchecked row** — checks the handler and enables it
-- **Double-click a checked row** — auto-generates code if dirty and navigates to that handler in the editor (same behavior as double-clicking a wired event row in Events tab)
+Handlers that are not yet wired or enabled. A **⚡** button appears on hover:
 
-A short **hint bar** at the bottom of the Handlers tab shows a description of the hovered handler.
+- **Connectable handler** (e.g. `open_dialog`, `always_on_top`) — clicking ⚡ opens the **Connector** dialog where you pick a widget and an event; the wire is stored and the handler moves to Connected
+- **Non-connectable handler** (e.g. `on_escape`, `on_return`) — clicking ⚡ enables it immediately; the handler appears in Connected wired to its built-in target
+
+**`multi_wire` handlers** (currently `open_dialog`) stay in Available even after wiring so you can wire them to additional widget events — one wire per dialog.
+
+**Available Components sub-section** — when a widget is selected, component handlers with a connector (e.g. `timer1_start`, `timer1_stop`) appear here. Clicking ⚡ opens the Connector pre-selecting the current widget.
+
+### Connected Section
+
+Enabled or wired handlers, each showing their target on the right (e.g. `btn1.click` or `WM_DELETE_WINDOW`). Two floating buttons appear on hover:
+
+- **×** — disconnects the wire or disables the handler
+- **…** — opens the **Options Editor** for handlers that have named mode variants (e.g. `on_close` with hide vs destroy, `open_dialog` close-mode picker)
+
+**⚡ Connected Components sub-section** (widget-selected only) — component handler methods already wired to this widget's events; × to disconnect.
+
+### Options Editor
+
+When a connected handler has named mode variants, the **…** button opens a picker with two-line rows — bold option name on line 1, orange description on line 2. Selecting an option updates the stub body or wire body and (for `open_dialog`) syncs the linked dialog's `_on_close` mode.
+
+### open_dialog Handler
+
+`open_dialog` (main forms only) wires a widget event to open a linked dialog. The Connector shows two dropdowns:
+
+- **Dialog** — which linked dialog to open
+- **Mode** — **hide (withdraw)** reuses the instance on next open; **destroy (exit)** recreates it fresh
+
+Wiring automatically updates the linked dialog's `_on_close` option to match the chosen mode. Use the **…** button on a connected row to change the mode later — the dialog's `_on_close` updates automatically.
+
+### When the Form is Selected
+
+Both Available and Connected sections show all form-level handlers together with all component handlers from the tray, giving a full picture of what the form generates.
 
 ## Order Tab
 
