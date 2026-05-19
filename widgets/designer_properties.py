@@ -474,6 +474,14 @@ class DesignerProperties(tk.Frame):
                         "hdef":       hdef,
                     })
             self._handlers_conn_rows = conn_rows
+            # Component handlers — show those not yet wired to this specific widget
+            widget_methods = set(widget.events.values())
+            self._widget_comp_avail    = [
+                (method, comp_id, hid)
+                for (method, comp_id, hid) in self._collect_form_comp_avail(form)
+                if method not in widget_methods
+            ]
+            self._widget_comp_handlers = self._collect_widget_comp_handlers(widget)
             self._handlers_redraw()
             return
 
