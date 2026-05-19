@@ -135,7 +135,8 @@ class DesignerProperties(tk.Frame):
         self._selector_arrow.pack(side="right")
 
         for w in (sel_frame, self._selector_label, self._selector_arrow):
-            w.bind("<Button-1>", self._open_selector_menu)
+            w.bind("<Button-1>",   self._open_selector_menu)
+            w.bind("<MouseWheel>", self._selector_scroll)
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
@@ -1935,6 +1936,33 @@ class DesignerProperties(tk.Frame):
             self._selector_label.config(text="Form")
         else:
             self._selector_label.config(text=widget_id)
+
+    def _selector_scroll(self, event: tk.Event) -> None:
+        """Mouse-wheel navigation through the selector items."""
+        if not self._selector_items:
+            return
+        # Determine current index
+        if self._comp_mode and self._comp_id:
+            current_wid = self._comp_id
+        elif self._current_widget:
+            current_wid = self._current_widget.id
+        else:
+            current_wid = None  # form selected
+        cur_idx = next(
+            (i for i, (_, wid, _) in enumerate(self._selector_items) if wid == current_wid),
+            0,
+        )
+        delta = -1 if event.delta > 0 else 1
+        new_idx = max(0, min(len(self._selector_items) - 1, cur_idx + delta))
+        if new_idx == cur_idx:
+            return
+        _, wid, kind = self._selector_items[new_idx]
+        if kind == "component":
+            if self._on_select_component:
+                self._on_select_component(wid)
+        else:
+            if self._on_select_widget:
+                self._on_select_widget(wid)
 
     def _open_selector_menu(self, event=None) -> None:
         """Pop up the control selector dropdown."""
