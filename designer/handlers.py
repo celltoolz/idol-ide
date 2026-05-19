@@ -26,6 +26,8 @@ class HandlerDef:
     stub_option_bodies: tuple[str, ...] = ()
     # parallel to options: body emitted inside the wired widget event for each option
     wire_option_bodies: tuple[str, ...] = ()
+    # widget types this handler can be wired to; empty = all widget types
+    applies_to_widgets: tuple[str, ...] = ()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -138,6 +140,7 @@ HANDLER_CATALOG: list[HandlerDef] = [
         params="event=None",
         default_body='self.attributes("-topmost", not self.attributes("-topmost"))',
         connectable=True,
+        applies_to_widgets=("Button", "Label", "Checkbutton", "Radiobutton"),
         options=("toggle", "enable", "disable"),
         wire_option_bodies=(
             'self.attributes("-topmost", not self.attributes("-topmost"))',

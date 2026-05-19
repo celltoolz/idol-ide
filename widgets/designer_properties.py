@@ -422,13 +422,48 @@ class DesignerProperties(tk.Frame):
         self._handlers_hov_idx       = None
         self._handlers_hov_conn_idx  = None
 
-        enabled_set = set(form.enabled_handlers)
-        wires       = list(getattr(form, "handler_wires",   []))
-        h_options   = dict(getattr(form, "handler_options", {}))
+        wires     = list(getattr(form, "handler_wires",   []))
+        h_options = dict(getattr(form, "handler_options", {}))
 
-        # Track which handler IDs appear in the Connected section (to exclude from Available)
+        # ── Widget-selected mode ───────────────────────────────────────────────
+        # Show only connectable handlers compatible with this widget type.
+        # Connected = only wires that target this specific widget.
+        if self._current_widget is not None:
+            widget = self._current_widget
+            widget_wired_ids = {
+                wire.handler_id for wire in wires
+                if wire.widget_id == widget.id
+            }
+            self._handlers_avail_defs = [
+                h for h in all_defs
+                if h.connectable
+                and (not h.applies_to_widgets or widget.type in h.applies_to_widgets)
+                and h.id not in widget_wired_ids
+            ]
+            conn_rows: list[dict] = []
+            for wire in wires:
+                if wire.widget_id != widget.id:
+                    continue
+                hdef = next((h for h in all_defs if h.id == wire.handler_id), None)
+                if hdef:
+                    conn_rows.append({
+                        "handler_id": hdef.id,
+                        "name":       hdef.id,
+                        "target":     wire.event_key,
+                        "removable":  True,
+                        "editable":   bool(hdef.options),
+                        "wire":       wire,
+                        "option":     wire.option,
+                        "hdef":       hdef,
+                    })
+            self._handlers_conn_rows = conn_rows
+            self._handlers_redraw()
+            return
+
+        # ── Form-selected mode (show everything) ──────────────────────────────
+        enabled_set = set(form.enabled_handlers)
         connected_ids: set[str] = set()
-        conn_rows: list[dict] = []
+        conn_rows = []
 
         # Connectable handler IDs that already have wires — shown per-wire below
         wired_connectable_ids = {
@@ -475,9 +510,8 @@ class DesignerProperties(tk.Frame):
         self._handlers_avail_defs = [h for h in all_defs if h.id not in connected_ids]
         self._handlers_conn_rows  = conn_rows
 
-        if self._current_widget is None:
-            self._widget_comp_handlers = self._collect_form_comp_handlers(form)
-            self._widget_comp_avail    = self._collect_form_comp_avail(form)
+        self._widget_comp_handlers = self._collect_form_comp_handlers(form)
+        self._widget_comp_avail    = self._collect_form_comp_avail(form)
         self._handlers_redraw()
 
     def _collect_widget_comp_handlers(self, descriptor: WidgetDescriptor) -> list[tuple]:
@@ -1016,7 +1050,12 @@ class DesignerProperties(tk.Frame):
             cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
             cv.create_text(8, mid, text=h.id,
                            fill=_ORD_FG, font=("Consolas", 9), anchor="w")
-            badge = "dialog" if h.applies_to == ("dialog",) else "all forms"
+            if self._current_widget is not None:
+                badge = self._current_widget.type
+            elif h.applies_to == ("dialog",):
+                badge = "dialog"
+            else:
+                badge = "all forms"
             badge_x = w - 6 if not is_hov else w - 26
             cv.create_text(badge_x, mid, text=badge,
                            fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
@@ -1343,14 +1382,14 @@ class DesignerProperties(tk.Frame):
         self._clear_hint()
 
     def _on_handler_btn_leave(self, event: tk.Event) -> None:
-        """Deferred leave handler for floating buttons.
+        """Leave handler for floating action buttons.
 
-        Moving left off a button back onto the canvas row triggers <Leave> on
-        the button before <Motion> fires on the canvas. We reset the button
-        color immediately (so it doesn't stay lit), then defer the hide check:
-        if the pointer is still inside the canvas the Motion event has already
-        re-placed the button (grey), so we do nothing; if the pointer truly
-        left the canvas we call the full leave handler to clean up.
+        Resets the button color immediately, then checks pointer position
+        synchronously: by the time <Leave> fires the pointer is already at
+        the new position, so no deferral is needed. If the pointer is still
+        inside the canvas bounds the canvas <Motion> event will re-place the
+        button correctly; if the pointer left the canvas entirely we call the
+        full leave handler to clean everything up.
         """
         btn = event.widget
         if btn in (self._handler_wire_btn, self._handler_edit_btn, self._comp_connect_btn):
@@ -1358,14 +1397,11 @@ class DesignerProperties(tk.Frame):
         elif btn in (self._handler_disco_btn, self._comp_disconnect_btn):
             btn.config(bg="#3a1a1a")
 
-        def _check():
-            cv = self._handlers_cv
-            rx, ry = cv.winfo_rootx(), cv.winfo_rooty()
-            px, py = cv.winfo_pointerxy()
-            if rx <= px < rx + cv.winfo_width() and ry <= py < ry + cv.winfo_height():
-                return  # still inside canvas — Motion already handled it
+        cv = self._handlers_cv
+        rx, ry = cv.winfo_rootx(), cv.winfo_rooty()
+        px, py = cv.winfo_pointerxy()
+        if not (rx <= px < rx + cv.winfo_width() and ry <= py < ry + cv.winfo_height()):
             self._handlers_leave(event)
-        self.after_idle(_check)
 
     def _handlers_click(self, event: tk.Event) -> None:
         if self._comp_mode:
