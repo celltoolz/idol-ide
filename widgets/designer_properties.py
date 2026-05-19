@@ -1015,6 +1015,13 @@ class DesignerProperties(tk.Frame):
     def _handlers_redraw(self) -> None:
         cv = self._handlers_cv
         cv.delete("all")
+        # Canvas .delete("all") removes drawn items but NOT placed Label widgets.
+        # Reset all floating buttons so stale placements don't linger between redraws.
+        self._handler_wire_btn.place_forget()
+        self._handler_edit_btn.place_forget()
+        self._handler_disco_btn.place_forget()
+        self._comp_connect_btn.place_forget()
+        self._comp_disconnect_btn.place_forget()
         w = max(cv.winfo_width(), 160)
 
         if self._comp_mode and self._comp_def is not None:
