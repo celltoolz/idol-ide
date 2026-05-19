@@ -37,6 +37,14 @@ class HandlerDef:
     multi_wire: bool = False
     # Options shown in the mode-change editor on Connected rows (e.g. "hide (withdraw)")
     secondary_options: tuple[str, ...] = ()
+    # "linked_dialogs" → connector pulls primary options from form.linked_dialogs at runtime
+    connector_options_source: str = ""
+    # Descriptions shown in HandlerOptionsEditor alongside secondary_options rows.
+    # Parallel to secondary_options; if empty, falls back to wire_option_bodies.
+    edit_bodies: tuple[str, ...] = ()
+    # Side-effect tag applied after wiring or mode-change. Dispatched in app.py.
+    # "sync_dialog_close_mode" → update linked dialog's _on_close handler_option
+    wire_side_effects: str = ""
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -201,6 +209,12 @@ HANDLER_CATALOG: list[HandlerDef] = [
         multi_wire=True,
         dynamic_wire_body="self._open_{option}()",
         secondary_options=("hide (withdraw)", "destroy (exit)"),
+        connector_options_source="linked_dialogs",
+        edit_bodies=(
+            "withdraw() — reuses instance on next open",
+            "destroy() — recreated fresh on next open",
+        ),
+        wire_side_effects="sync_dialog_close_mode",
     ),
 ]
 
