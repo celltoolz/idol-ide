@@ -39,6 +39,9 @@ class ComponentConnector(tk.Toplevel):
         on_wire: Callable[[str, str, str], None],
         options: tuple[str, ...] = (),
         preselect_widget_id: str | None = None,
+        wire_body_resolver: "Callable[[str], str] | None" = None,
+        secondary_options: tuple[str, ...] = (),
+        secondary_label: str = "Mode",
     ) -> None:
         super().__init__(parent)
         self._form              = form
@@ -46,8 +49,11 @@ class ComponentConnector(tk.Toplevel):
         self._handler_id        = handler_id
         self._handler_label     = handler_label
         self._on_wire           = on_wire
-        self._opt_list           = options
+        self._opt_list            = options
+        self._secondary_opts      = secondary_options
+        self._secondary_label     = secondary_label
         self._preselect_widget_id = preselect_widget_id
+        self._wire_body_resolver  = wire_body_resolver
 
         # Build the display method name
         if component_id:
@@ -104,21 +110,37 @@ class ComponentConnector(tk.Toplevel):
         )
         self._ev_lb.pack(fill="both", expand=True, padx=2, pady=2)
 
-        # Option row — only shown when options is non-empty
-        self._option_var: tk.StringVar | None = None
-        if self._opt_list:
+        # Option row(s) — shown when options or secondary_options are non-empty
+        self._option_var:    tk.StringVar | None = None
+        self._secondary_var: tk.StringVar | None = None
+        if self._opt_list or self._secondary_opts:
             opt_row = tk.Frame(self, bg=_BG)
             opt_row.pack(fill="x", padx=10, pady=(0, 4))
-            tk.Label(opt_row, text="Option:", bg=_BG, fg=_DIM,
-                     font=(UI_FONT, 8), anchor="w").pack(side="left", padx=(0, 6))
-            self._option_var = tk.StringVar(value=self._opt_list[0])
-            opt_cb = ttk.Combobox(
-                opt_row, textvariable=self._option_var,
-                values=list(self._opt_list), state="readonly",
-                width=16, font=(UI_FONT, 9),
-            )
-            opt_cb.pack(side="left")
-            opt_cb.bind("<<ComboboxSelected>>", lambda _: self._update_preview())
+
+            if self._opt_list:
+                primary_label = "Dialog:" if self._secondary_opts else "Option:"
+                tk.Label(opt_row, text=primary_label, bg=_BG, fg=_DIM,
+                         font=(UI_FONT, 8), anchor="w").pack(side="left", padx=(0, 4))
+                self._option_var = tk.StringVar(value=self._opt_list[0])
+                opt_cb = ttk.Combobox(
+                    opt_row, textvariable=self._option_var,
+                    values=list(self._opt_list), state="readonly",
+                    width=14, font=(UI_FONT, 9),
+                )
+                opt_cb.pack(side="left", padx=(0, 12))
+                opt_cb.bind("<<ComboboxSelected>>", lambda _: self._update_preview())
+
+            if self._secondary_opts:
+                tk.Label(opt_row, text=f"{self._secondary_label}:", bg=_BG, fg=_DIM,
+                         font=(UI_FONT, 8), anchor="w").pack(side="left", padx=(0, 4))
+                self._secondary_var = tk.StringVar(value=self._secondary_opts[0])
+                sec_cb = ttk.Combobox(
+                    opt_row, textvariable=self._secondary_var,
+                    values=list(self._secondary_opts), state="readonly",
+                    width=14, font=(UI_FONT, 9),
+                )
+                sec_cb.pack(side="left")
+                sec_cb.bind("<<ComboboxSelected>>", lambda _: self._update_preview())
 
         # Preview label
         self._preview = tk.Label(
@@ -188,10 +210,18 @@ class ComponentConnector(tk.Toplevel):
             return
         wid    = self._widget_ids[wsel[0]]
         ev_key = self._ev_lb.get(esel[0])
-        option_str = (f"  [{self._option_var.get()}]"
-                      if self._option_var else "")
+        option    = self._option_var.get()    if self._option_var    else ""
+        secondary = self._secondary_var.get() if self._secondary_var else ""
+        combined  = f"{option}:{secondary}" if option and secondary else option
+        if self._wire_body_resolver and combined:
+            body = self._wire_body_resolver(combined)
+            mode_tag = f"  [{secondary}]" if secondary else ""
+            rhs = f"{body}{mode_tag}"
+        else:
+            option_str = f"  [{option}]" if option else ""
+            rhs = f"self.{self._method_display}(){option_str}"
         self._preview.config(
-            text=f"Wires:  {wid}.{ev_key}  →  self.{self._method_display}(){option_str}",
+            text=f"Wires:  {wid}.{ev_key}  →  {rhs}",
             fg="#4ec9b0",
         )
 
@@ -202,8 +232,10 @@ class ComponentConnector(tk.Toplevel):
             return
         wid    = self._widget_ids[wsel[0]]
         ev_key = self._ev_lb.get(esel[0])
-        option = self._option_var.get() if self._option_var else ""
-        self._on_wire(wid, ev_key, option)
+        option    = self._option_var.get()    if self._option_var    else ""
+        secondary = self._secondary_var.get() if self._secondary_var else ""
+        combined  = f"{option}:{secondary}" if option and secondary else option
+        self._on_wire(wid, ev_key, combined)
         self.destroy()
 
     def _center(self, parent: tk.Misc) -> None:

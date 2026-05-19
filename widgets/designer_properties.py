@@ -29,6 +29,20 @@ _ORD_HDR_FG  = "#4ec9b0"
 _PROPS_SPLIT = 0.44   # fraction of width for the label column
 
 
+def _parse_multi_wire_name(option: str) -> str:
+    """Convert a multi-wire option string to a display name for the Connected row.
+
+    "Dialog1:destroy (exit)"  → "→ Dialog1 (destroy)"
+    "Dialog1:hide (withdraw)" → "→ Dialog1"
+    "Dialog1"                 → "→ Dialog1"
+    """
+    if ":" in option:
+        dialog, _, mode = option.partition(":")
+        tag = " (destroy)" if mode.startswith("destroy") else ""
+        return f"→ {dialog}{tag}"
+    return f"→ {option}"
+
+
 class DesignerProperties(tk.Frame):
     """Properties + Events panel for the GUI Designer.
 
@@ -439,7 +453,7 @@ class DesignerProperties(tk.Frame):
                 h for h in all_defs
                 if h.connectable
                 and (not h.applies_to_widgets or widget.type in h.applies_to_widgets)
-                and h.id not in widget_wired_ids
+                and (h.id not in widget_wired_ids or h.multi_wire)
             ]
             conn_rows: list[dict] = []
             for wire in wires:
@@ -447,12 +461,14 @@ class DesignerProperties(tk.Frame):
                     continue
                 hdef = next((h for h in all_defs if h.id == wire.handler_id), None)
                 if hdef:
+                    name = (_parse_multi_wire_name(wire.option) if hdef.multi_wire and wire.option
+                            else hdef.id)
                     conn_rows.append({
                         "handler_id": hdef.id,
-                        "name":       hdef.id,
+                        "name":       name,
                         "target":     wire.event_key,
                         "removable":  True,
-                        "editable":   bool(hdef.options),
+                        "editable":   (bool(hdef.options) and hdef.generates_stub) or bool(hdef.secondary_options),
                         "wire":       wire,
                         "option":     wire.option,
                         "hdef":       hdef,
@@ -497,18 +513,25 @@ class DesignerProperties(tk.Frame):
                 connected_ids.add(hdef.id)
                 target = (f"{wire.widget_id}.{wire.event_key}"
                           if wire.widget_id else wire.event_key)
+                # multi_wire handlers: show the resolved action as the row name
+                name = (_parse_multi_wire_name(wire.option) if hdef.multi_wire and wire.option
+                        else hdef.id)
                 conn_rows.append({
                     "handler_id": hdef.id,
-                    "name":       hdef.id,
+                    "name":       name,
                     "target":     target,
                     "removable":  True,
-                    "editable":   bool(hdef.options),
+                    "editable":   (bool(hdef.options) and hdef.generates_stub) or bool(hdef.secondary_options),
                     "wire":       wire,
                     "option":     wire.option,
                     "hdef":       hdef,
                 })
 
-        self._handlers_avail_defs = [h for h in all_defs if h.id not in connected_ids]
+        # multi_wire handlers (e.g. _open_dialog) stay in Available even when wired
+        self._handlers_avail_defs = [
+            h for h in all_defs
+            if h.id not in connected_ids or h.multi_wire
+        ]
         self._handlers_conn_rows  = conn_rows
 
         self._widget_comp_handlers = self._collect_form_comp_handlers(form)
@@ -2001,6 +2024,10 @@ class DesignerProperties(tk.Frame):
             menu.tk_popup(rx, ry)
         finally:
             menu.grab_release()
+
+    def show_hint(self, message: str, duration_ms: int = 3000) -> None:
+        """Public: briefly show an informational message in the status bar."""
+        self._show_status(message, duration_ms)
 
     def _show_status(self, message: str, duration_ms: int = 2000) -> None:
         """Briefly show an error message in the status bar at the bottom of the panel."""

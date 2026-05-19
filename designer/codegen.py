@@ -132,7 +132,10 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     _wired_ids = {w.handler_id for w in getattr(form, "handler_wires", [])}
     _catalog  = {h.id: h for h in handlers_for(form.form_type)}
     _active_ids = _enabled | (_wired_ids & _all_handler_ids)
-    active_handlers = [h for h in handlers_for(form.form_type) if h.id in _active_ids]
+    # Exclude generates_stub=False handlers (e.g. _open_dialog) from method generation.
+    # Their wire body goes directly into the widget event method via _wire_default_bodies.
+    active_handlers = [h for h in handlers_for(form.form_type)
+                       if h.id in _active_ids and h.generates_stub]
 
     out: list[str] = []
 

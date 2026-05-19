@@ -13,7 +13,7 @@ _FG   = "#cccccc"
 _DIM  = "#858585"
 _CODE = "#ce9178"   # warm orange for code previews
 
-_ROW_H = 38
+_ROW_H = 54   # tall enough for two lines
 
 
 class HandlerOptionsEditor(tk.Toplevel):
@@ -31,12 +31,17 @@ class HandlerOptionsEditor(tk.Toplevel):
         is_wire: bool,
         current_option: str,
         on_apply: Callable[[str], None],
+        override_options: "list[str] | None" = None,
+        override_bodies:  "list[str] | None" = None,
     ) -> None:
         super().__init__(parent)
         self._on_apply   = on_apply
-        self._opt_names  = list(hdef.options)
-        bodies           = hdef.wire_option_bodies if is_wire else hdef.stub_option_bodies
-        self._bodies     = list(bodies)
+        self._opt_names  = override_options if override_options is not None else list(hdef.options)
+        if override_bodies is not None:
+            raw_bodies = override_bodies
+        else:
+            raw_bodies = list(hdef.wire_option_bodies if is_wire else hdef.stub_option_bodies)
+        self._bodies     = raw_bodies
         self._selected   = (current_option if current_option in self._opt_names
                             else (self._opt_names[0] if self._opt_names else ""))
         self._hov_idx:   int | None = None
@@ -99,29 +104,30 @@ class HandlerOptionsEditor(tk.Toplevel):
         for i, (opt, body) in enumerate(zip(self._opt_names, self._bodies)):
             y0  = i * _ROW_H
             y1  = y0 + _ROW_H
-            mid = (y0 + y1) // 2
             sel = opt == self._selected
             hov = i == self._hov_idx
 
             bg = _SEL if sel else (_HOV if hov else _ROW)
             cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
 
-            # Radio circle
-            rx, ry = 16, mid
-            cv.create_oval(rx - 6, ry - 6, rx + 6, ry + 6,
+            # Radio circle — vertically centred on the label line (1/3 down the row)
+            label_y = y0 + _ROW_H // 3
+            rx = 16
+            cv.create_oval(rx - 6, label_y - 6, rx + 6, label_y + 6,
                            fill=bg, outline="#555555")
             if sel:
-                cv.create_oval(rx - 3, ry - 3, rx + 3, ry + 3,
+                cv.create_oval(rx - 3, label_y - 3, rx + 3, label_y + 3,
                                fill="#007acc", outline="")
 
-            # Option name
-            cv.create_text(rx + 14, mid, text=opt,
+            # Line 1 — option name (bold)
+            cv.create_text(rx + 14, label_y, text=opt,
                            fill=_FG, font=(UI_FONT, 9, "bold"), anchor="w")
 
-            # Code body preview (truncated)
-            preview = (body[:52] + "…") if len(body) > 53 else body
-            cv.create_text(rx + 80, mid, text=preview,
-                           fill=_CODE, font=("Consolas", 8), anchor="w")
+            # Line 2 — body description (dimmed, indented to align with label text)
+            if body:
+                body_y = y0 + (_ROW_H * 2 // 3)
+                cv.create_text(rx + 14, body_y, text=body,
+                               fill=_CODE, font=("Consolas", 8), anchor="w")
 
     # ── Interaction ───────────────────────────────────────────────────────────
 

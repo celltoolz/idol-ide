@@ -4723,30 +4723,67 @@ class IDOL(Tk):
             return
 
         if hdef.connectable:
+            # _open_dialog: two separate dropdowns — dialog picker + close-mode picker
+            if handler_id == "_open_dialog":
+                if not form.linked_dialogs:
+                    self._props_panel.show_hint(
+                        "No linked dialogs. Link a dialog to this form first "
+                        "via the Forms panel."
+                    )
+                    return
+                connector_options   = tuple(form.linked_dialogs)
+                secondary_options   = ("hide (withdraw)", "destroy (exit)")
+                secondary_label     = "Mode"
+            else:
+                connector_options   = hdef.options
+                secondary_options   = ()
+                secondary_label     = "Mode"
+
             # Open connector so the user picks a widget + event + option
             def _on_wire(widget_id: str, event_key: str, option: str) -> None:
                 # Auto-create a named event stub on the widget if none exists
                 widget = form.get_widget(widget_id)
                 if widget is not None and not widget.events.get(event_key):
                     widget.events[event_key] = f"_{widget_id}_{event_key}"
+
+                # For _open_dialog: option is "DialogName:mode" — update dialog's close mode
+                if handler_id == "_open_dialog" and ":" in option:
+                    dlg_name, _, mode_str = option.partition(":")
+                    mode_key = "destroy" if mode_str.startswith("destroy") else "hide"
+                    dlg_form = self._designer_forms.get(dlg_name)
+                    if dlg_form:
+                        dlg_form.handler_options["_on_close"] = mode_key
+                        if "_on_close" not in dlg_form.enabled_handlers:
+                            dlg_form.enabled_handlers.append("_on_close")
+
                 wire = HandlerWire(handler_id=handler_id,
                                    widget_id=widget_id,
                                    event_key=event_key,
                                    option=option)
                 form.handler_wires.append(wire)
-                if handler_id not in form.enabled_handlers:
+                # generates_stub=False handlers don't need an enabled_handlers entry
+                if hdef.generates_stub and handler_id not in form.enabled_handlers:
                     form.enabled_handlers.append(handler_id)
                 self._set_designer_dirty()
                 self._props_panel.load_handlers(form)
 
+            # Pass a resolver so the connector preview shows the actual generated call.
+            resolver = (
+                (lambda opt: hdef.wire_body_for(opt, handler_id))
+                if hdef.dynamic_wire_body
+                else None
+            )
             ComponentConnector(
                 self, form,
                 component_id="",
                 handler_id=handler_id,
                 handler_label="",
                 on_wire=_on_wire,
-                options=hdef.options,
+                options=connector_options,
                 preselect_widget_id=preselect_widget_id,
+                wire_body_resolver=resolver,
+                secondary_options=secondary_options,
+                secondary_label=secondary_label,
             )
         else:
             # Non-connectable handler — just enable it
@@ -4783,9 +4820,47 @@ class IDOL(Tk):
         if form is None:
             return
         hdef = next((h for h in HANDLER_CATALOG if h.id == handler_id), None)
-        if hdef is None or not hdef.options:
+        if hdef is None or not (hdef.options or hdef.secondary_options):
             return
         is_wire = isinstance(wire, HandlerWire)
+
+        # Multi-wire handlers (e.g. _open_dialog): edit the secondary option (mode)
+        if is_wire and hdef.multi_wire and hdef.secondary_options:
+            opt_parts   = wire.option.partition(":")
+            dialog_name = opt_parts[0]
+            current_mode = opt_parts[2] if opt_parts[1] else hdef.secondary_options[0]
+
+            def on_mode_apply(new_mode: str) -> None:
+                new_combined = f"{dialog_name}:{new_mode}"
+                form.handler_wires = [
+                    HandlerWire(
+                        w.handler_id, w.widget_id, w.event_key,
+                        new_combined if (w.handler_id == wire.handler_id
+                                         and w.widget_id == wire.widget_id
+                                         and w.event_key == wire.event_key)
+                        else w.option,
+                    )
+                    for w in form.handler_wires
+                ]
+                mode_key = "destroy" if new_mode.startswith("destroy") else "hide"
+                dlg_form = self._designer_forms.get(dialog_name)
+                if dlg_form:
+                    dlg_form.handler_options["_on_close"] = mode_key
+                    if "_on_close" not in dlg_form.enabled_handlers:
+                        dlg_form.enabled_handlers.append("_on_close")
+                self._set_designer_dirty()
+                self._props_panel.load_handlers(form)
+
+            HandlerOptionsEditor(
+                self, handler_id, hdef, is_wire=True,
+                current_option=current_mode,
+                on_apply=on_mode_apply,
+                override_options=list(hdef.secondary_options),
+                override_bodies=["withdraw() — reuses instance on next open",
+                                 "destroy() — recreated fresh on next open"],
+            )
+            return
+
         current = wire.option if is_wire else form.handler_options.get(handler_id, "")
 
         def on_apply(option: str) -> None:
@@ -5440,8 +5515,8 @@ class IDOL(Tk):
                 dlg_mem = self._designer_forms.get(dlg_name)
                 if dlg_mem is not None:
                     opts = dlg_mem.handler_options
-                    is_destroy = (opts.get("_on_close") == "destroy"
-                                  or opts.get("_on_escape") == "destroy")
+                    is_destroy = (opts.get("_on_close", "").startswith("destroy")
+                                  or opts.get("_on_escape", "").startswith("destroy"))
                     dialog_modes[dlg_name] = "destroy" if is_destroy else "hide"
 
         code = _gen(

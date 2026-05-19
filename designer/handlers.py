@@ -28,13 +28,38 @@ class HandlerDef:
     wire_option_bodies: tuple[str, ...] = ()
     # widget types this handler can be wired to; empty = all widget types
     applies_to_widgets: tuple[str, ...] = ()
+    # False → no "def _id(self):" stub emitted (wire body goes directly in widget event)
+    generates_stub: bool = True
+    # Template for the wire body when option is not in the static options list
+    # Use {option} as a placeholder, e.g. "self._open_{option}()"
+    dynamic_wire_body: str = ""
+    # True → stays in Available even after wiring (can be wired to multiple targets)
+    multi_wire: bool = False
+    # Options shown in the mode-change editor on Connected rows (e.g. "hide (withdraw)")
+    secondary_options: tuple[str, ...] = ()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    def _resolve_option(self, option: str) -> str:
+        """Map option to a current option name, handling old short forms.
+
+        Allows "destroy" to match "destroy (exit)" and "hide" to match
+        "hide (withdraw)" so projects saved before the rename still work.
+        """
+        if not option:
+            return option
+        if option in self.options:
+            return option
+        for o in self.options:
+            if o.startswith(option):
+                return o
+        return option
+
     def stub_body_for(self, option: str) -> str:
         """Return the handler stub body for the given option name."""
-        if option and option in self.options:
-            idx = self.options.index(option)
+        opt = self._resolve_option(option)
+        if opt and opt in self.options:
+            idx = self.options.index(opt)
             if idx < len(self.stub_option_bodies):
                 return self.stub_option_bodies[idx]
         return self.default_body
@@ -42,12 +67,19 @@ class HandlerDef:
     def wire_body_for(self, option: str, handler_id: str) -> str:
         """Return the widget-event body for the given option name.
 
-        Falls back to a plain ``self.handler_id()`` call when no template is defined.
+        Static options are checked first (with backward-compat normalization);
+        dynamic_wire_body is used as a fallback template for dynamic values
+        such as dialog names. Falls back to ``self.handler_id()`` when nothing matches.
         """
-        if option and option in self.options:
-            idx = self.options.index(option)
+        opt = self._resolve_option(option)
+        if opt and opt in self.options:
+            idx = self.options.index(opt)
             if idx < len(self.wire_option_bodies):
                 return self.wire_option_bodies[idx]
+        if self.dynamic_wire_body and option:
+            # Strip :secondary suffix (e.g. "Dialog1:destroy (exit)" → "Dialog1")
+            base = option.split(":")[0]
+            return self.dynamic_wire_body.replace("{option}", base)
         return f"self.{handler_id}()"
 
 
@@ -66,8 +98,11 @@ HANDLER_CATALOG: list[HandlerDef] = [
         default_body="self.withdraw()",
         always_wired=True,
         display_target="WM_DELETE_WINDOW",
-        options=("hide", "destroy"),
-        stub_option_bodies=("self.withdraw()", "self.destroy()"),
+        options=("hide (withdraw)", "destroy (exit)"),
+        stub_option_bodies=(
+            "self.withdraw()  — reuses instance on next open",
+            "self.destroy()  — recreated fresh on next open",
+        ),
     ),
     HandlerDef(
         id="_on_escape",
@@ -82,7 +117,7 @@ HANDLER_CATALOG: list[HandlerDef] = [
         params="event=None",
         default_body="pass  # TODO",
         display_target="<Escape>",
-        options=("hide", "destroy"),
+        options=("hide (withdraw)", "destroy (exit)"),
         stub_option_bodies=("self.withdraw()", "self.destroy()"),
     ),
     HandlerDef(
@@ -147,6 +182,25 @@ HANDLER_CATALOG: list[HandlerDef] = [
             'self.attributes("-topmost", True)',
             'self.attributes("-topmost", False)',
         ),
+    ),
+    HandlerDef(
+        id="_open_dialog",
+        label="open_dialog",
+        description=(
+            "Wire to any widget event to open a linked dialog window. "
+            "Pick the dialog and its close mode in the connector. "
+            "Can be wired to multiple widget events — one per dialog."
+        ),
+        applies_to=("main",),
+        default_checked=False,
+        wiring="",
+        params="event=None",
+        default_body="pass  # TODO",
+        connectable=True,
+        generates_stub=False,
+        multi_wire=True,
+        dynamic_wire_body="self._open_{option}()",
+        secondary_options=("hide (withdraw)", "destroy (exit)"),
     ),
 ]
 
