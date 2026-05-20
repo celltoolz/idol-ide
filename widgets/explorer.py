@@ -100,6 +100,17 @@ class FileExplorer(ttk.Frame):
         if self._on_root_change:
             self._on_root_change(str(root))
 
+    def refresh(self) -> None:
+        """Repopulate the tree for the current root without firing on_root_change."""
+        if self._root is None:
+            return
+        root = self._root
+        self._tree.delete(*self._tree.get_children())
+        if root.parent != root:
+            self._tree.insert("", 0, text="  ..", values=[str(root.parent)],
+                              tags=("parent_dir",))
+        self._populate("", root)
+
     def apply_git_status(self, status_map: dict[str, str]) -> None:
         """Recolour and badge visible tree items to reflect git status.
 

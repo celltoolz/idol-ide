@@ -3153,6 +3153,14 @@ class IDOL(Tk):
         if os.path.isfile(entry):
             self._open_file(entry, update_explorer=False)
             self._set_run_entry(entry)
+        # For GUI projects, also open the generated form file as the active tab
+        if project_type == "gui":
+            _active_form = self._design_canvas.form
+            if _active_form:
+                self.designer_generate_code()
+                _form_py = os.path.join(project_path, f"{_active_form.name}.py")
+                if os.path.isfile(_form_py):
+                    self._open_file(_form_py, update_explorer=False)
         # Auto-create the project file so "Open Project" works immediately
         self.after(500, self.workspace_save)
 
@@ -3169,7 +3177,8 @@ class IDOL(Tk):
         if path:
             self._open_file(path)
 
-    def _open_file(self, path: str, update_explorer: bool = True) -> None:
+    def _open_file(self, path: str, update_explorer: bool = True,
+                   select: bool = True) -> None:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -3177,16 +3186,19 @@ class IDOL(Tk):
             showerror("Open Error", str(exc))
             return
 
+        # Remember the currently active tab so we can restore it when select=False.
+        prev_tab_id = self._current_tab_id
+
         # If the current tab is an empty unmodified Untitled, remember it so we
         # can close it after the new tab is open (closing first would trigger the
         # "no tabs left" fallback and spawn another Untitled).
-        old_tab_id = self._current_tab_id
         replace = (
-            old_tab_id is not None
-            and self._titles.get(old_tab_id) == "Untitled"
-            and not self._dirty.get(old_tab_id)
-            and self._codeviews[old_tab_id] is not None
-            and not _cv_text(self._codeviews[old_tab_id]).strip()
+            select  # only replace Untitled when opening as the active tab
+            and prev_tab_id is not None
+            and self._titles.get(prev_tab_id) == "Untitled"
+            and not self._dirty.get(prev_tab_id)
+            and self._codeviews[prev_tab_id] is not None
+            and not _cv_text(self._codeviews[prev_tab_id]).strip()
         )
 
         self._new_tab(os.path.basename(path), content, filepath=path)
@@ -3196,8 +3208,10 @@ class IDOL(Tk):
             self._set_explorer_root(path)
 
         if replace:
-            old_index = self.notebook.tabs().index(old_tab_id)
+            old_index = self.notebook.tabs().index(prev_tab_id)
             self._close_tab(old_index)
+        elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
+            self.notebook.select(prev_tab_id)
 
     def _on_explorer_file_delete(self, path: str) -> None:
         """Called by the explorer after a file is deleted from disk.
@@ -5341,11 +5355,9 @@ class IDOL(Tk):
                 from pathlib import Path as _Path
                 py_path = str(_Path(root) / f"{name}.py")
                 if _Path(py_path).exists():
-                    self._open_file(py_path, update_explorer=False)
-                # Refresh explorer so new files appear
-                exp_root = self._sidebar.explorer._root
-                if exp_root:
-                    self._sidebar.explorer.set_root(str(exp_root))
+                    self._open_file(py_path, update_explorer=False, select=False)
+                # Refresh explorer so new files appear without triggering a terminal cd
+                self._sidebar.explorer.refresh()
 
         def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
             font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)

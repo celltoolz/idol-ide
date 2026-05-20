@@ -982,7 +982,12 @@ class DesignerProperties(tk.Frame):
                 (iid.startswith("ev__")      and self._current_widget is not None) or
                 (iid.startswith("form_ev__") and self._form is not None)
             )
-            if can_wire:
+            entry_active = (
+                self._entry_editor is not None
+                and self._entry_editor.winfo_exists()
+                and self._entry_editor.master is self._events_cv
+            )
+            if can_wire and not entry_active:
                 self._ev_wire_btn.place(x=x + w - bw, y=y, width=bw, height=h)
                 self._ev_wire_btn.lift()
                 self._ev_btn_iid = iid
