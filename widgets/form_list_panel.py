@@ -32,6 +32,7 @@ class FormListPanel(tk.Frame):
     on_new()                     – + button pressed
     on_link(dialog, form)        – drag dialog dropped onto a form row
     on_unlink(dialog, form)      – × clicked on a linked dialog row
+    on_delete(name)              – × clicked on a form/unlinked-dialog row
     """
 
     def __init__(
@@ -41,6 +42,7 @@ class FormListPanel(tk.Frame):
         on_new:    Optional[Callable[[], None]]    = None,
         on_link:   Optional[Callable[[str, str], None]] = None,
         on_unlink: Optional[Callable[[str, str], None]] = None,
+        on_delete: Optional[Callable[[str], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, **kwargs)
@@ -48,6 +50,7 @@ class FormListPanel(tk.Frame):
         self._on_new    = on_new
         self._on_link   = on_link
         self._on_unlink = on_unlink
+        self._on_delete = on_delete
 
         self._forms:  list[tuple[str, str]] = []  # [(name, form_type), ...]
         self._links:  dict[str, list[str]]  = {}  # {form_name: [dialog_names]}
@@ -221,14 +224,22 @@ class FormListPanel(tk.Frame):
             c.create_text(label_x, (y0 + y1) // 2, text=name, fill=fg,
                           font=(UI_FONT, 9), anchor="w")
 
-            # × unlink button on hover for linked dialog rows
-            if kind == "linked" and is_hov and not self._drag_name:
-                c.create_text(
-                    cw - 8, (y0 + y1) // 2,
-                    text="×", fill=_UNLINK_FG,
-                    font=(UI_FONT, 10, "bold"), anchor="e",
-                    tags=(f"unlink_{i}",),
-                )
+            # × button on hover — unlink for linked dialogs, delete for forms/unlinked dialogs
+            if is_hov and not self._drag_name:
+                if kind == "linked":
+                    c.create_text(
+                        cw - 8, (y0 + y1) // 2,
+                        text="×", fill=_UNLINK_FG,
+                        font=(UI_FONT, 10, "bold"), anchor="e",
+                        tags=(f"unlink_{i}",),
+                    )
+                elif kind in ("form", "dialog"):
+                    c.create_text(
+                        cw - 8, (y0 + y1) // 2,
+                        text="×", fill=_UNLINK_FG,
+                        font=(UI_FONT, 10, "bold"), anchor="e",
+                        tags=(f"delete_{i}",),
+                    )
 
     # ── Mouse: click ──────────────────────────────────────────────────────────
 
@@ -323,12 +334,15 @@ class FormListPanel(tk.Frame):
             row = self._rows[idx]
             if row["kind"] == "section":
                 return
-            if row["kind"] == "linked":
-                cw = self._canvas.winfo_width()
-                if event.x >= cw - 20:
-                    if self._on_unlink:
-                        self._on_unlink(row["name"], row["parent"])
-                    return
+            cw = self._canvas.winfo_width()
+            if row["kind"] == "linked" and event.x >= cw - 20:
+                if self._on_unlink:
+                    self._on_unlink(row["name"], row["parent"])
+                return
+            if row["kind"] in ("form", "dialog") and event.x >= cw - 20:
+                if self._on_delete:
+                    self._on_delete(row["name"])
+                return
             if self._on_select:
                 self._on_select(row["name"])
 

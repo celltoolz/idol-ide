@@ -547,6 +547,7 @@ class IDOL(Tk):
             on_root_change=self._on_explorer_root_change,
             on_file_delete=self._on_explorer_file_delete,
             on_ref_navigate=self._ref_navigate,
+            on_open_in_designer=self._open_form_json_in_designer,
         )
         self._sidebar.configure(width=self._startup_h_sash)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
@@ -988,6 +989,7 @@ class IDOL(Tk):
             on_new=self.designer_new_form,
             on_link=self._on_form_link,
             on_unlink=self._on_form_unlink,
+            on_delete=self._on_designer_form_delete,
         )
         self._form_list_panel.pack(fill="x")
 
@@ -5241,6 +5243,72 @@ class IDOL(Tk):
         self._set_designer_dirty()
         self._refresh_form_list()
 
+    def _on_designer_form_delete(self, name: str) -> None:
+        """Tree × click on form/unlinked-dialog — permanently delete it."""
+        from tkinter.messagebox import askyesno
+        from pathlib import Path as _Path
+
+        confirmed = askyesno(
+            "Delete Form",
+            f'Permanently delete "{name}"?\n\n'
+            "This will remove its .py and .form.json files and cannot be undone.",
+            icon="warning",
+            parent=self,
+        )
+        if not confirmed:
+            return
+
+        root = getattr(self._sidebar.explorer, "_root", None)
+
+        # Close any open editor tabs that point to this form's .py file
+        if root:
+            py_norm = os.path.normcase(str(_Path(root) / f"{name}.py"))
+            for tab_id, tab_path in list(self._files.items()):
+                if tab_path and os.path.normcase(tab_path) == py_norm:
+                    idx = self.notebook.tabs().index(tab_id)
+                    self._close_tab(idx)
+                    break
+
+        # Remove from linked_dialogs of any parent form
+        for form in self._designer_forms.values():
+            if name in form.linked_dialogs:
+                form.linked_dialogs.remove(name)
+
+        # Remove from in-memory dict
+        self._designer_forms.pop(name, None)
+
+        # If this was the active canvas form, switch to the first remaining form
+        current = self._design_canvas.form
+        if current and current.name == name:
+            remaining = list(self._designer_forms.values())
+            if remaining:
+                next_form = remaining[0]
+                self._design_canvas.load_form(next_form)
+                self._props_panel.set_form(next_form)
+                self._props_panel.load_form(next_form)
+                self._comp_tray.refresh(next_form.components)
+                self._comp_tray.deselect()
+            else:
+                self._design_canvas.load_form(None)
+                self._props_panel._form = None
+                self._props_panel._current_widget = None
+                self._props_panel._clear_form_selection()
+                self._comp_tray.refresh([])
+
+        # Delete files from disk
+        if root:
+            for ext in (".py", ".form.json"):
+                fp = _Path(root) / f"{name}{ext}"
+                try:
+                    fp.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        self._refresh_form_list()
+        self._set_designer_dirty()
+        self._sidebar.explorer.refresh()
+        self._refresh_generate_code_state()
+
     def designer_new_form(self) -> None:
         """Open a small dialog to create a new form or dialog."""
         from designer.model import FormModel as _FormModel
@@ -5452,6 +5520,30 @@ class IDOL(Tk):
             from tkinter.messagebox import showerror
 
             showerror("Open Form", f"Could not load form:\n{exc}", parent=self)
+
+    def _open_form_json_in_designer(self, path: str) -> None:
+        """Open a .form.json from the explorer right-click menu into the designer."""
+        from pathlib import Path as _Path
+        from designer.persistence import load as _load
+
+        try:
+            form, _ = _load(_Path(path))
+            self._designer_forms[form.name] = form
+            self._design_canvas.load_form(form)
+            self._props_panel.set_form(form)
+            self._props_panel.load_form(form)
+            self._comp_tray.refresh(form.components)
+            self._comp_tray.deselect()
+            self._designer_menu_had_items = bool(form.menu_items)
+            self._designer_dirty = False
+            self._refresh_form_list(active=form.name)
+            self._show_mode_bar()
+            self._refresh_generate_code_state()
+            if not self._designer_mode:
+                self._enter_designer_mode()
+        except Exception as exc:
+            from tkinter.messagebox import showerror
+            showerror("Open in Designer", f"Could not load form:\n{exc}", parent=self)
 
     def designer_generate_code(self) -> None:
         """Regenerate .py for all forms in the project and save checksums."""
