@@ -45,6 +45,9 @@ class HandlerDef:
     # Side-effect tag applied after wiring or mode-change. Dispatched in app.py.
     # "sync_dialog_close_mode" → update linked dialog's _on_close handler_option
     wire_side_effects: str = ""
+    # Display-only description shown as the second line in HandlerOptionsEditor,
+    # parallel to options. When set, stub_option_bodies contains clean code only.
+    option_hints: tuple[str, ...] = ()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -108,8 +111,12 @@ HANDLER_CATALOG: list[HandlerDef] = [
         display_target="WM_DELETE_WINDOW",
         options=("hide (withdraw)", "destroy (exit)"),
         stub_option_bodies=(
-            "self.withdraw()  — reuses instance on next open",
-            "self.destroy()  — recreated fresh on next open",
+            "self.withdraw()",
+            "self.destroy()",
+        ),
+        option_hints=(
+            "withdraw() — reuses instance on next open",
+            "destroy() — recreated fresh on next open",
         ),
     ),
     HandlerDef(

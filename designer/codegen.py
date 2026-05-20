@@ -101,28 +101,29 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     dmodes   = dialog_modes or {}
     needs_ttk = _uses_ttk(form)
 
-    # Migrate old single-use opener bodies to the new instance-based pattern
-    for _d in dialogs:
-        _old = f"{_d}(self).deiconify()"
-        if bodies.get(f"_open_{_d}", "").strip() == _old:
-            del bodies[f"_open_{_d}"]
-
-    # Auto-migrate opener bodies when hide↔destroy mode changes
+    # Auto-migrate opener bodies: clear any known auto-generated body so the current
+    # mode's body always wins. User-customised bodies are left untouched.
     for _d in dialogs:
         _opener = f"_open_{_d}"
         _saved  = (bodies.get(_opener) or "").strip()
-        _hide_body     = f"self.dlg_{_d}.deiconify()"
-        # Match both old (no is-None guard) and new destroy patterns
-        _destroy_body_old = (f"if not self.dlg_{_d}.winfo_exists():\n"
-                             f"    self.dlg_{_d} = {_d}(self)\n"
-                             f"self.dlg_{_d}.deiconify()")
-        _destroy_body_new = (f"if self.dlg_{_d} is None or not self.dlg_{_d}.winfo_exists():\n"
-                             f"    self.dlg_{_d} = {_d}(self)\n"
-                             f"self.dlg_{_d}.deiconify()")
-        _mode = dmodes.get(_d, "hide")
-        if _mode == "destroy" and _saved in (_hide_body.strip(), _destroy_body_old.strip()):
-            bodies.pop(_opener, None)
-        elif _mode == "hide" and _saved in (_destroy_body_old.strip(), _destroy_body_new.strip()):
+        if _saved in {
+            f"{_d}(self).deiconify()",                              # very old: single-use
+            f"self.dlg_{_d}.deiconify()",                          # hide — no focus
+            (f"self.dlg_{_d}.deiconify()\n"                        # hide — with focus
+             f"self.dlg_{_d}.lift()\n"
+             f"self.dlg_{_d}.focus_force()"),
+            (f"if not self.dlg_{_d}.winfo_exists():\n"             # destroy — old guard, no focus
+             f"    self.dlg_{_d} = {_d}(self)\n"
+             f"self.dlg_{_d}.deiconify()"),
+            (f"if self.dlg_{_d} is None or not self.dlg_{_d}.winfo_exists():\n"  # destroy — no focus
+             f"    self.dlg_{_d} = {_d}(self)\n"
+             f"self.dlg_{_d}.deiconify()"),
+            (f"if self.dlg_{_d} is None or not self.dlg_{_d}.winfo_exists():\n"  # destroy — with focus
+             f"    self.dlg_{_d} = {_d}(self)\n"
+             f"self.dlg_{_d}.deiconify()\n"
+             f"self.dlg_{_d}.lift()\n"
+             f"self.dlg_{_d}.focus_force()"),
+        }:
             bodies.pop(_opener, None)
 
     # Resolve active handlers from catalog (include handlers that have wires)
@@ -377,9 +378,13 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             if dmodes.get(d) == "destroy":
                 default_body = (f"if self.dlg_{d} is None or not self.dlg_{d}.winfo_exists():\n"
                                 f"    self.dlg_{d} = {d}(self)\n"
-                                f"self.dlg_{d}.deiconify()")
+                                f"self.dlg_{d}.deiconify()\n"
+                                f"self.dlg_{d}.lift()\n"
+                                f"self.dlg_{d}.focus_force()")
             else:
-                default_body = f"self.dlg_{d}.deiconify()"
+                default_body = (f"self.dlg_{d}.deiconify()\n"
+                                f"self.dlg_{d}.lift()\n"
+                                f"self.dlg_{d}.focus_force()")
             out.append(f"    def {opener}(self):")
             out.extend(_body_lines(opener, bodies, default_body))
             out.append("")

@@ -39,6 +39,8 @@ class HandlerOptionsEditor(tk.Toplevel):
         self._opt_names  = override_options if override_options is not None else list(hdef.options)
         if override_bodies is not None:
             raw_bodies = override_bodies
+        elif not is_wire and getattr(hdef, "option_hints", ()):
+            raw_bodies = list(hdef.option_hints)
         else:
             raw_bodies = list(hdef.wire_option_bodies if is_wire else hdef.stub_option_bodies)
         self._bodies     = raw_bodies
