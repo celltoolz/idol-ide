@@ -358,21 +358,30 @@ Benefits: master stays stable while the feature is in progress; easy to diff the
 
 ---
 
-## Phase 3 — IDOL Components (not yet started)
+## Phase 3 — IDOL Components (Timer shipped 2026-05-16)
 
-VB6-style non-visual components — drag onto a component tray below the canvas, codegen emits
-the import + pre-wired class skeleton.
+VB6-style non-visual components placed in a chip tray below the canvas. Click a component in
+the palette COMPONENTS section to add it; the tray shows icon+name chips; selecting a chip
+shows its properties and handlers in the Properties panel; codegen emits init variables and
+handler stubs into the generated `.py`.
 
-**Candidate components (priority order):**
-1. `threading.Timer` — periodic callback skeleton
-2. `sqlite3` — connection + cursor + query helpers
-3. `socket` — TCP client or server skeleton
-4. `tkinter.filedialog` — open/save dialog helpers
-5. `smtplib / email` — send-mail skeleton
-6. `csv / json` — file read/write helpers
-7. `http.server` — simple HTTP server skeleton
-8. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`,
-   `controls`, etc.); user drags from tray, not autogenned by default
+**Architecture:** `designer/component_registry.py` (`ComponentDef`, `PropDef`,
+`ComponentHandlerDef` + `COMPONENT_REGISTRY`), `ComponentDescriptor` in `designer/model.py`,
+`widgets/designer_component_tray.py` (chip strip), `widgets/designer_connector.py` (⚡ wiring
+dialog). Component handlers are underscore-prefixed methods so `extract_event_bodies()` in
+`persistence.py` picks them up with no changes — user bodies survive regen automatically.
+Wiring a handler to a widget event stores `widget.events[event_key] = method_name` — existing
+codegen emits the `.bind()` call with no changes.
+
+**Shipped:**
+- ✅ **Timer** — `self.after()` periodic callback (no threading, no locks). Props: Interval
+  (ms), Enabled. Handlers: `_tick` (user logic), `_start` (⚡ connectable), `_stop` (⚡ connectable).
+
+**Candidate components (next up):**
+1. **FileDialog** — `tkinter.filedialog.askopenfilename/asksaveasfilename`; props: Title, InitDir, Filter, DefaultExt; handlers: `_show_open` (⚡), `_show_save` (⚡), `_on_file_selected`
+2. **Socket** — `socket` module; props: Protocol (TCP/UDP), RemoteHost, RemotePort, LocalPort, State (readonly); handlers: `_connect` (⚡), `_listen` (⚡), `_send` (⚡), `_disconnect` (⚡), `_on_data_received`, `_on_connected`, `_on_error`
+3. **Database** — `sqlite3`; props: DatabaseFile; handlers: `_open_db` (⚡), `_close_db` (⚡), `_execute` (⚡), `_on_results`
+4. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`, `controls`, etc.)
 
 ### Dialog Helper Injector
 

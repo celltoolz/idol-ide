@@ -21,12 +21,14 @@ class FileExplorer(ttk.Frame):
     def __init__(self, parent, on_open_file: Callable[[str], None],
                  on_file_move: Callable[[str, str], bool] | None = None,
                  on_root_change: Callable[[str], None] | None = None,
-                 on_file_delete: Callable[[str], None] | None = None) -> None:
+                 on_file_delete: Callable[[str], None] | None = None,
+                 on_open_in_designer: Callable[[str], None] | None = None) -> None:
         super().__init__(parent, style="Explorer.TFrame")
         self._on_open = on_open_file
         self._on_file_move = on_file_move  # (old_path, new_path) -> bool (False = cancel)
         self._on_root_change = on_root_change
         self._on_file_delete = on_file_delete  # (path) -> None
+        self._on_open_in_designer = on_open_in_designer
         self._root: Path | None = None
 
         self._tree = ttk.Treeview(
@@ -70,6 +72,7 @@ class FileExplorer(ttk.Frame):
 
         self._menu = Menu(self._tree, tearoff=0)
         self._menu.add_command(label="Open File",             command=self._open_selected)
+        self._menu.add_command(label="Open in Designer",      command=self._open_in_designer_selected)
         self._menu.add_command(label="Set as Root Directory", command=self._set_selected_as_root)
         self._menu.add_separator()
         self._menu.add_command(label="New File",              command=self._new_file)
@@ -99,6 +102,17 @@ class FileExplorer(ttk.Frame):
         self._populate("", root)
         if self._on_root_change:
             self._on_root_change(str(root))
+
+    def refresh(self) -> None:
+        """Repopulate the tree for the current root without firing on_root_change."""
+        if self._root is None:
+            return
+        root = self._root
+        self._tree.delete(*self._tree.get_children())
+        if root.parent != root:
+            self._tree.insert("", 0, text="  ..", values=[str(root.parent)],
+                              tags=("parent_dir",))
+        self._populate("", root)
 
     def apply_git_status(self, status_map: dict[str, str]) -> None:
         """Recolour and badge visible tree items to reflect git status.
@@ -223,9 +237,12 @@ class FileExplorer(ttk.Frame):
         is_parent = bool(item and "parent_dir" in self._tree.item(item, "tags"))
         is_file   = bool(values and values[0] != self._LOADING
                          and Path(values[0]).is_file())
-        is_item   = bool(values and values[0] != self._LOADING and not is_parent)
+        is_item      = bool(values and values[0] != self._LOADING and not is_parent)
+        is_form_json = bool(is_file and values and str(values[0]).endswith(".form.json"))
         self._menu.entryconfigure("Open File",
                                   state="normal" if is_file else "disabled")
+        self._menu.entryconfigure("Open in Designer",
+                                  state="normal" if (is_form_json and self._on_open_in_designer) else "disabled")
         self._menu.entryconfigure("Set as Root Directory",
                                   state="normal" if not is_file and not is_parent and item else "disabled")
         self._menu.entryconfigure("Rename",
@@ -247,6 +264,12 @@ class FileExplorer(ttk.Frame):
     def _open_selected(self) -> None:
         if self._menu_item:
             self._activate(self._menu_item)
+
+    def _open_in_designer_selected(self) -> None:
+        if self._menu_item and self._on_open_in_designer:
+            values = self._tree.item(self._menu_item, "values")
+            if values and values[0] != self._LOADING:
+                self._on_open_in_designer(str(values[0]))
 
     def _rename_selected(self) -> None:
         if not self._menu_item:

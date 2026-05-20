@@ -1183,9 +1183,13 @@ class CanvasCodeView(tk.Frame):
             y = (v_row - self.scroll_y) * self._line_h
 
             # Current-line highlight (only when no selection)
+            try:
+                _focused = self.canvas.focus_get()
+            except KeyError:
+                _focused = None
             if (self.highlight_active_line
                     and i == self.cur_line and self.sel_anchor is None
-                    and self.canvas.focus_get() is self.canvas):
+                    and _focused is self.canvas):
                 hl_color = self._active_line_color or self._palette["current_line_bg"]
                 c.create_rectangle(self._gutter_w, y, w, y + self._line_h,
                                    fill=hl_color, outline="")

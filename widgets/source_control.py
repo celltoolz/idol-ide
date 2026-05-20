@@ -494,12 +494,19 @@ class _HistorySection(Frame):
     def _rebuild_rows(self) -> None:
         if not hasattr(self, "_inner"):
             return   # canvas not built yet (trace fired during __init__)
-        # Skip full rebuild if the commit list hasn't changed
-        new_hashes = [c.hash for c in self._filtered]
-        old_hashes = [w._commit_hash for w in self._inner.winfo_children()
-                      if hasattr(w, "_commit_hash")]
-        if new_hashes == old_hashes:
+        # Skip rebuild only when commit list, expansion set, AND per-commit load state
+        # are all unchanged from the last render.
+        new_hashes   = [c.hash for c in self._filtered]
+        old_hashes   = [w._commit_hash for w in self._inner.winfo_children()
+                        if hasattr(w, "_commit_hash")]
+        new_expanded = frozenset(self._expanded)
+        new_loaded   = {h: self._file_cache.get(h) is not None for h in self._expanded}
+        if (new_hashes  == old_hashes
+                and new_expanded == getattr(self, "_rendered_expanded", None)
+                and new_loaded   == getattr(self, "_rendered_loaded",   None)):
             return
+        self._rendered_expanded = new_expanded
+        self._rendered_loaded   = new_loaded
         self._hide_hover()
         for w in self._inner.winfo_children():
             w.destroy()

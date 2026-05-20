@@ -74,6 +74,8 @@ _DIALOG_IMPORT_B = "# ── IDOL:DIALOG_IMPORTS:BEGIN " + "─" * 10 + "(Do not
 _DIALOG_IMPORT_E = "# ── IDOL:DIALOG_IMPORTS:END "   + "─" * 12 + "(Do not modify above)" + "─" * 11
 _INIT_B          = "        # ── IDOL:BEGIN " + "─" * 21 + "(Do not modify below)" + "─" * 21
 _INIT_E          = "        # ── IDOL:END "   + "─" * 23 + "(Do not modify above)" + "─" * 21
+_COMP_B          = "        # ── IDOL:COMPONENTS:BEGIN " + "─" * 46
+_COMP_E          = "        # ── IDOL:COMPONENTS:END "   + "─" * 48
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -82,7 +84,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
              pre_init: str = "", post_init: str = "", helpers: str = "",
              user_imports: str = "",
              event_signatures: dict[str, tuple[str, str]] | None = None,
-             linked_dialogs: list[str] | None = None) -> str:
+             linked_dialogs: list[str] | None = None,
+             dialog_modes: dict[str, str] | None = None) -> str:
     """Return Python source for *form*.
 
     event_bodies:   {method_name: dedented_body_str} — user event handler code.
@@ -90,24 +93,50 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     post_init:      user code placed after self._build_ui().
     helpers:        full source of public helper methods (user-written).
     linked_dialogs: dialog class names owned by this form; generates _open_X methods.
+    dialog_modes:   {dialog_name: "hide"|"destroy"} — controls opener body pattern.
     """
     bodies   = dict(event_bodies or {})
     sigs     = event_signatures or {}
     dialogs  = linked_dialogs or []
+    dmodes   = dialog_modes or {}
     needs_ttk = _uses_ttk(form)
 
-    # Migrate old single-use opener bodies to the new instance-based pattern
+    # Auto-migrate opener bodies: clear any known auto-generated body so the current
+    # mode's body always wins. User-customised bodies are left untouched.
     for _d in dialogs:
-        _old = f"{_d}(self).deiconify()"
-        if bodies.get(f"_open_{_d}", "").strip() == _old:
-            del bodies[f"_open_{_d}"]
+        _opener = f"_open_{_d}"
+        _saved  = (bodies.get(_opener) or "").strip()
+        if _saved in {
+            f"{_d}(self).deiconify()",                              # very old: single-use
+            f"self.dlg_{_d}.deiconify()",                          # hide — no focus
+            (f"self.dlg_{_d}.deiconify()\n"                        # hide — with focus
+             f"self.dlg_{_d}.lift()\n"
+             f"self.dlg_{_d}.focus_force()"),
+            (f"if not self.dlg_{_d}.winfo_exists():\n"             # destroy — old guard, no focus
+             f"    self.dlg_{_d} = {_d}(self)\n"
+             f"self.dlg_{_d}.deiconify()"),
+            (f"if self.dlg_{_d} is None or not self.dlg_{_d}.winfo_exists():\n"  # destroy — no focus
+             f"    self.dlg_{_d} = {_d}(self)\n"
+             f"self.dlg_{_d}.deiconify()"),
+            (f"if self.dlg_{_d} is None or not self.dlg_{_d}.winfo_exists():\n"  # destroy — with focus
+             f"    self.dlg_{_d} = {_d}(self)\n"
+             f"self.dlg_{_d}.deiconify()\n"
+             f"self.dlg_{_d}.lift()\n"
+             f"self.dlg_{_d}.focus_force()"),
+        }:
+            bodies.pop(_opener, None)
 
-    # Resolve active handlers from catalog
+    # Resolve active handlers from catalog (include handlers that have wires)
     from designer.handlers import handlers_for, HANDLER_CATALOG
     _all_handler_ids = {h.id for h in HANDLER_CATALOG}
     _enabled = set(form.enabled_handlers) & _all_handler_ids
+    _wired_ids = {w.handler_id for w in getattr(form, "handler_wires", [])}
     _catalog  = {h.id: h for h in handlers_for(form.form_type)}
-    active_handlers = [h for h in handlers_for(form.form_type) if h.id in _enabled]
+    _active_ids = _enabled | (_wired_ids & _all_handler_ids)
+    # Exclude generates_stub=False handlers (e.g. _open_dialog) from method generation.
+    # Their wire body goes directly into the widget event method via _wire_default_bodies.
+    active_handlers = [h for h in handlers_for(form.form_type)
+                       if h.id in _active_ids and h.generates_stub]
 
     out: list[str] = []
 
@@ -161,7 +190,10 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     for line in _menu_variable_decls(form.menu_items):
         out.append(line)
     for d in dialogs:
-        out.append(f"        self.dlg_{d} = {d}(self)")
+        if dmodes.get(d) == "destroy":
+            out.append(f"        self.dlg_{d} = None")
+        else:
+            out.append(f"        self.dlg_{d} = {d}(self)")
     if dialogs:
         out.append("        self.focus()")
     out.append(_INIT_E)
@@ -173,10 +205,15 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append(("        " + line) if line.strip() else "")
         out.append("")
 
-    # Generated _build_ui call block + form event bindings
+    # Generated _build_ui call block + component init + form event bindings
     _anchored = [w for w in form.widgets if w.anchor and w.anchor != "top_left"]
     out.append(_INIT_B)
     out.append("        self._build_ui()")
+    comp_init = _component_init_lines(form)
+    if comp_init:
+        out.append(_COMP_B)
+        out.extend(comp_init)
+        out.append(_COMP_E)
     for ev_key, method_name in form.form_events.items():
         if not method_name:
             continue
@@ -212,6 +249,12 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         y_offset = _MENUBAR if form.menu_items else 0
         for w in form.widgets:
             out.extend(_widget_lines(w, y_offset=y_offset, form=form))
+            out.append("")
+
+        # Handler wire bindings (connectable handlers wired to widget events)
+        wire_lines = _handler_wire_binding_lines(form)
+        if wire_lines:
+            out.extend(wire_lines)
             out.append("")
 
     # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
@@ -276,6 +319,21 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append("")
 
     # ── event methods ─────────────────────────────────────────────────────────
+    # Build map: widget-event method name → wire default body (for connectable wires)
+    _wire_default_bodies: dict[str, str] = {}
+    for _wire in getattr(form, "handler_wires", []):
+        _wgt = form.get_widget(_wire.widget_id)
+        if _wgt is None:
+            continue
+        _mname = _wgt.events.get(_wire.event_key)
+        if not _mname:
+            continue
+        _hdef = _catalog.get(_wire.handler_id)
+        if _hdef:
+            _wbody = _hdef.wire_body_for(_wire.option, _wire.handler_id)
+            if _wbody:
+                _wire_default_bodies[_mname] = _wbody
+
     # Build reverse map: method_name → ev_key, for form-level events
     form_ev_map: dict[str, str] = {
         m: k for k, m in form.form_events.items() if m
@@ -285,10 +343,20 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     if methods or opener_names or active_handlers:
         out.append("    # ── Events " + "─" * 63)
         out.append("")
+        h_options = getattr(form, "handler_options", {})
         for h in active_handlers:
             sig_params = f", {h.params}" if h.params else ""
             out.append(f"    def {h.id}(self{sig_params}):")
-            out.extend(_body_lines(h.id, bodies, h.default_body))
+            option     = h_options.get(h.id, "")
+            stub_body  = h.stub_body_for(option) if option else h.default_body
+            # Auto-migrate stub when option changes: if saved body matches any
+            # known option body but not the current one, clear it so stub_body wins
+            if h.stub_option_bodies:
+                _saved_stub = (bodies.get(h.id) or "").strip()
+                _known      = {b.strip() for b in h.stub_option_bodies}
+                if _saved_stub in _known and _saved_stub != stub_body.strip():
+                    bodies.pop(h.id, None)
+            out.extend(_body_lines(h.id, bodies, stub_body))
             out.append("")
         for name in methods:
             ev_key = form_ev_map.get(name)
@@ -297,6 +365,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
                 default_params, default_body = defs
             else:
                 default_params, default_body = "*args", ""
+            # Use wire body as default if this method is a handler wire target
+            default_body = _wire_default_bodies.get(name) or default_body
             params, ret = sigs.get(name, (default_params, ""))
             ret_str = f" -> {ret}" if ret else ""
             sig_params = f", {params}" if params else ""
@@ -305,10 +375,26 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
             out.append("")
         for d in dialogs:
             opener = f"_open_{d}"
-            default_body = f"self.dlg_{d}.deiconify()"
+            if dmodes.get(d) == "destroy":
+                default_body = (f"if self.dlg_{d} is None or not self.dlg_{d}.winfo_exists():\n"
+                                f"    self.dlg_{d} = {d}(self)\n"
+                                f"self.dlg_{d}.deiconify()\n"
+                                f"self.dlg_{d}.lift()\n"
+                                f"self.dlg_{d}.focus_force()")
+            else:
+                default_body = (f"self.dlg_{d}.deiconify()\n"
+                                f"self.dlg_{d}.lift()\n"
+                                f"self.dlg_{d}.focus_force()")
             out.append(f"    def {opener}(self):")
             out.extend(_body_lines(opener, bodies, default_body))
             out.append("")
+
+    # ── component handler methods ─────────────────────────────────────────────
+    comp_handler_lines = _component_handler_lines(form, bodies)
+    if comp_handler_lines:
+        out.append("    # ── Component Handlers " + "─" * 50)
+        out.append("")
+        out.extend(comp_handler_lines)
 
     # ── helper methods ────────────────────────────────────────────────────────
     out.append("    # ── Functions " + "─" * 59)
@@ -527,13 +613,61 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     return lines
 
 
+def _handler_wire_binding_lines(form: FormModel) -> list[str]:
+    """Generate .bind() lines for handler wires that have no named event stub.
+
+    If the target widget already has widget.events[event_key] set, the normal
+    _widget_lines() binding handles it — no lambda needed here.
+    """
+    from .handlers import HANDLER_CATALOG
+    wires = getattr(form, "handler_wires", [])
+    if not wires:
+        return []
+    catalog = {h.id: h for h in HANDLER_CATALOG}
+    lines: list[str] = []
+    for wire in wires:
+        if not wire.widget_id:
+            continue
+        hdef = catalog.get(wire.handler_id)
+        if hdef is None:
+            continue
+        widget = form.get_widget(wire.widget_id)
+        # Skip: normal event binding already handles it via widget.events
+        if widget and widget.events.get(wire.event_key):
+            continue
+        tk_event = _BINDINGS.get(wire.event_key)
+        if not tk_event:
+            continue
+        body = hdef.wire_body_for(wire.option, wire.handler_id)
+        lines.append(
+            f'        self.{wire.widget_id}.bind("{tk_event}", lambda e: {body})'
+        )
+    return lines
+
+
 def _collect_methods(form: FormModel) -> list[str]:
-    """All unique event/validate method names across the form, in widget order."""
+    """All unique event/validate method names across the form, in widget order.
+
+    Component handler methods and form handler catalog IDs are excluded —
+    they are emitted separately and must not appear as duplicate stubs.
+    """
+    from .component_registry import COMPONENT_REGISTRY
+    from .handlers import HANDLER_CATALOG
+    comp_methods: set[str] = set()
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef:
+            for hdef in cdef.handler_defs:
+                comp_methods.add(f"_{comp.id}{hdef.label}")
+    handler_ids: set[str] = {h.id for h in HANDLER_CATALOG}
+
     seen: set[str] = set()
     methods: list[str] = []
     for w in form.widgets:
         for method_name in w.events.values():
-            if method_name and method_name not in seen:
+            if (method_name and method_name not in seen
+                    and method_name not in comp_methods
+                    and method_name not in handler_ids):
                 seen.add(method_name)
                 methods.append(method_name)
         for key in ("validatecommand", "invalidcommand"):
@@ -772,6 +906,114 @@ def _body_lines(method_name: str, bodies: dict[str, str],
     for line in textwrap.dedent(stub).splitlines():
         result.append(("        " + line) if line.strip() else "")
     return result or [f"        {_STUB}"]
+
+
+# ── Component codegen ────────────────────────────────────────────────────────
+
+def _component_init_lines(form: FormModel) -> list[str]:
+    """Return 8-space-indented __init__ lines for all components on this form."""
+    from .component_registry import COMPONENT_REGISTRY
+    lines: list[str] = []
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef is None:
+            continue
+        lines.extend(_comp_init_for(comp, cdef))
+    return lines
+
+
+def _comp_init_for(comp, cdef) -> list[str]:
+    """Init lines for one component instance."""
+    cid = comp.id
+    lines: list[str] = []
+
+    if comp.type == "Timer":
+        interval = int(comp.props.get("interval", 1000))
+        enabled  = comp.props.get("enabled", True)
+        en_val   = "True" if enabled else "False"
+        lines.append(f"        self._{cid}_interval = {interval}")
+        lines.append(f"        self._{cid}_enabled  = {en_val}")
+        lines.append(f"        self._{cid}_after_id = None")
+        if enabled:
+            lines.append(
+                f"        self._{cid}_after_id = self.after("
+                f"self._{cid}_interval, self._{cid}_tick)"
+            )
+
+    return lines
+
+
+def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[str]:
+    """Return 4-space-indented method lines for all component handlers."""
+    from .component_registry import COMPONENT_REGISTRY
+    lines: list[str] = []
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef is None:
+            continue
+        for hdef in cdef.handler_defs:
+            method = f"_{comp.id}{hdef.label}"  # e.g. "_timer1_tick"
+            lines.extend(_comp_handler_method(comp, hdef, method, bodies))
+            lines.append("")
+    return lines
+
+
+def _strip_timer_reschedule_tail(body: str) -> str:
+    """Remove the codegen-owned reschedule block from a previously-extracted tick body.
+
+    The reschedule tail is always regenerated; stripping it prevents duplication
+    each time the file is re-saved and codegen runs again.
+    """
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        if "Timer reschedule" in line:
+            return "\n".join(lines[:i]).strip()
+    return body
+
+
+def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> list[str]:
+    """Return the def block for one component handler method."""
+    cid = comp.id
+    lines: list[str] = [f"    def {method}(self):"]
+
+    if comp.type == "Timer":
+        if hdef.id == "tick":
+            raw = _strip_timer_reschedule_tail(bodies.get(method, "").strip())
+            user_body = raw if (raw and raw not in (_STUB, "pass")) else hdef.default_body
+            for line in textwrap.dedent(user_body).splitlines():
+                lines.append(("        " + line) if line.strip() else "")
+            lines.append(f"        # Timer reschedule — remove to fire only once")
+            lines.append(f"        if self._{cid}_enabled:")
+            lines.append(
+                f"            self._{cid}_after_id = self.after("
+                f"self._{cid}_interval, self._{cid}_tick)"
+            )
+        elif hdef.id == "start":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        self._{cid}_enabled = True")
+                lines.append(f"        if not self._{cid}_after_id:")
+                lines.append(
+                    f"            self._{cid}_after_id = self.after("
+                    f"self._{cid}_interval, self._{cid}_tick)"
+                )
+        elif hdef.id == "stop":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        self._{cid}_enabled = False")
+                lines.append(f"        if self._{cid}_after_id:")
+                lines.append(f"            self.after_cancel(self._{cid}_after_id)")
+                lines.append(f"            self._{cid}_after_id = None")
+    else:
+        lines.extend(_body_lines(method, bodies, hdef.default_body))
+
+    return lines
 
 
 # ── Anchor resize codegen ──────────────────────────────────────────────────────

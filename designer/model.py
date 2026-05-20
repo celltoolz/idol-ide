@@ -143,6 +143,53 @@ class MenuItemDescriptor:
 
 
 @dataclass
+class HandlerWire:
+    """One connection between a form handler and either a built-in target or a widget event."""
+    handler_id: str   # e.g. "_on_escape"
+    widget_id:  str   # widget id for widget-event wires; "" for built-in (always_wired)
+    event_key:  str   # e.g. "click"; for always_wired this mirrors display_target
+    option:     str = ""  # selected option name, e.g. "hide", "toggle"
+
+    def to_dict(self) -> dict:
+        d: dict = {
+            "handler_id": self.handler_id,
+            "widget_id":  self.widget_id,
+            "event_key":  self.event_key,
+        }
+        if self.option:
+            d["option"] = self.option
+        return d
+
+    @staticmethod
+    def from_dict(d: dict) -> "HandlerWire":
+        return HandlerWire(
+            handler_id=d.get("handler_id", ""),
+            widget_id =d.get("widget_id",  ""),
+            event_key =d.get("event_key",  ""),
+            option    =d.get("option",     ""),
+        )
+
+
+@dataclass
+class ComponentDescriptor:
+    """A non-visual component placed in the component tray (e.g. Timer, FileDialog)."""
+    id:    str        # "timer1"
+    type:  str        # "Timer"
+    props: dict[str, Any] = field(default_factory=dict)  # {"interval": 1000, "enabled": True}
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "type": self.type, "props": dict(self.props)}
+
+    @staticmethod
+    def from_dict(d: dict) -> "ComponentDescriptor":
+        return ComponentDescriptor(
+            id=d.get("id", ""),
+            type=d.get("type", ""),
+            props=dict(d.get("props", {})),
+        )
+
+
+@dataclass
 class FormModel:
     """Canonical description of one form (one .form.json / one generated .py)."""
     name: str = "Form1"
@@ -159,6 +206,25 @@ class FormModel:
     form_events: dict[str, str]           = field(default_factory=dict)  # {ev_key: method_name}
     linked_dialogs: list[str]             = field(default_factory=list)  # dialog names owned by this form
     enabled_handlers: list[str]           = field(default_factory=list)  # handler IDs from HANDLER_CATALOG
+    components: list[ComponentDescriptor] = field(default_factory=list)  # non-visual tray components
+    handler_wires:   list[HandlerWire]    = field(default_factory=list)  # explicit handler→widget-event wires
+    handler_options: dict[str, str]       = field(default_factory=dict)  # {handler_id: option_name}
+
+    # ── component lookup helpers ───────────────────────────────────────────────
+
+    def get_component(self, comp_id: str) -> "ComponentDescriptor | None":
+        for c in self.components:
+            if c.id == comp_id:
+                return c
+        return None
+
+    def next_component_id(self, default_name: str) -> str:
+        """Generate the next unique id for a component type, e.g. 'timer1', 'timer2'."""
+        existing = {c.id for c in self.components}
+        n = 1
+        while f"{default_name}{n}" in existing:
+            n += 1
+        return f"{default_name}{n}"
 
     # ── widget lookup helpers ──────────────────────────────────────────────────
 
@@ -219,6 +285,12 @@ class FormModel:
             d["linked_dialogs"] = list(self.linked_dialogs)
         if self.enabled_handlers:
             d["enabled_handlers"] = list(self.enabled_handlers)
+        if self.components:
+            d["components"] = [c.to_dict() for c in self.components]
+        if self.handler_wires:
+            d["handler_wires"] = [w.to_dict() for w in self.handler_wires]
+        if self.handler_options:
+            d["handler_options"] = dict(self.handler_options)
         return d
 
     @staticmethod
@@ -246,6 +318,9 @@ class FormModel:
             form_events   =dict(d.get("form_events", {})),
             linked_dialogs=list(d.get("linked_dialogs", [])),
             enabled_handlers=_load_enabled_handlers(d),
+            components=[ComponentDescriptor.from_dict(c) for c in d.get("components", [])],
+            handler_wires=[HandlerWire.from_dict(w) for w in d.get("handler_wires", [])],
+            handler_options=dict(d.get("handler_options", {})),
         )
 
 

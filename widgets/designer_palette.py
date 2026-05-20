@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
+from designer.component_registry import COMPONENT_REGISTRY, all_component_types
 from designer.registry import REGISTRY, all_types
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar
@@ -35,12 +36,14 @@ class DesignerPalette(tk.Frame):
         on_tool_select: Optional[Callable[[str | None], None]] = None,
         on_place: Optional[Callable[[str], None]] = None,
         on_drag_drop: Optional[Callable[[str, int, int], None]] = None,
+        on_component_add: Optional[Callable[[str], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, **kwargs)
-        self._on_tool_select = on_tool_select
-        self._on_place = on_place
-        self._on_drag_drop = on_drag_drop
+        self._on_tool_select  = on_tool_select
+        self._on_place        = on_place
+        self._on_drag_drop    = on_drag_drop
+        self._on_component_add = on_component_add
         self._selected: str | None = None   # None = pointer tool
         self._items:    dict[str | None, tk.Frame] = {}
         self._drag_pending: dict | None = None
@@ -81,6 +84,16 @@ class DesignerPalette(tk.Frame):
             reg = REGISTRY[type_key]
             self._add_item(type_key, reg["label"], reg["draw_preview"])
 
+        # ── COMPONENTS section ────────────────────────────────────────────────
+        ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
+        tk.Label(self._list, text="COMPONENTS", bg=_BG, fg=_DIM,
+                 font=(UI_FONT, 8, "bold"), anchor="w",
+                 padx=8).pack(fill="x", pady=(0, 2))
+
+        for type_key in all_component_types():
+            cdef = COMPONENT_REGISTRY[type_key]
+            self._add_component_item(type_key, cdef.label, cdef.icon)
+
         # Select pointer by default
         self._apply_selection(None)
 
@@ -117,6 +130,28 @@ class DesignerPalette(tk.Frame):
 
         self._items[type_key] = row
         row._accent = accent   # type: ignore[attr-defined]
+
+    def _add_component_item(self, type_key: str, label: str, icon: str) -> None:
+        row = tk.Frame(self._list, bg=_ITEM, cursor="hand2")
+        row.pack(fill="x", padx=4, pady=1)
+
+        accent = tk.Frame(row, bg=_ITEM, width=3)
+        accent.pack(side="left", fill="y")
+
+        icon_lbl = tk.Label(row, text=icon, bg=_ITEM, fg=_FG,
+                            font=(UI_FONT, 13), width=3, anchor="center")
+        icon_lbl.pack(side="left", padx=(4, 2), pady=2)
+
+        name_lbl = tk.Label(row, text=label, bg=_ITEM, fg=_FG,
+                            font=(UI_FONT, 8), anchor="w")
+        name_lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        for w in (row, accent, icon_lbl, name_lbl):
+            w.bind("<ButtonRelease-1>", lambda e, k=type_key: self._comp_add(k))
+            w.bind("<Enter>", lambda e, r=row, a=accent, il=icon_lbl, nl=name_lbl:
+                   self._comp_hover(r, a, il, nl, True))
+            w.bind("<Leave>", lambda e, r=row, a=accent, il=icon_lbl, nl=name_lbl:
+                   self._comp_hover(r, a, il, nl, False))
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -229,6 +264,19 @@ class DesignerPalette(tk.Frame):
             for child in row.winfo_children():
                 if not isinstance(child, tk.Canvas):
                     child.config(bg=_ITEM)
+
+    def _comp_add(self, type_key: str) -> None:
+        if self._on_component_add:
+            self._on_component_add(type_key)
+
+    def _comp_hover(self, row: tk.Frame, accent: tk.Frame,
+                    icon_lbl: tk.Label, name_lbl: tk.Label,
+                    entering: bool) -> None:
+        bg = "#3e3e42" if entering else _ITEM
+        row.config(bg=bg)
+        accent.config(bg=bg)
+        icon_lbl.config(bg=bg)
+        name_lbl.config(bg=bg)
 
     # ── Pointer tool preview ──────────────────────────────────────────────────
 

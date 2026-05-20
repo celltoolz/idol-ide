@@ -51,8 +51,14 @@ from widgets.package_manager import PackageManagerPanel
 from widgets.clipboard_history import ClipboardHistoryPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
+from widgets.designer_component_tray import ComponentTray
+from widgets.designer_connector import ComponentConnector
 from widgets.form_list_panel import FormListPanel
 from designer.canvas import DesignerCanvas
+from designer.component_registry import (
+    COMPONENT_REGISTRY, get_component_def, default_props,
+)
+from designer.model import ComponentDescriptor
 from designer.registry import REGISTRY as _DESIGNER_REGISTRY
 from designer.toolbar import DesignerToolbar
 
@@ -450,6 +456,7 @@ class IDOL(Tk):
         )
         self._designer_forms_dirty: bool = False  # True when JSON not yet saved
         self._autogen_after_id: str | None = None   # pending debounced auto-gen timer
+        self._pending_body_resets: set[str] = set()  # method names to drop before next gen
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
@@ -540,6 +547,7 @@ class IDOL(Tk):
             on_root_change=self._on_explorer_root_change,
             on_file_delete=self._on_explorer_file_delete,
             on_ref_navigate=self._ref_navigate,
+            on_open_in_designer=self._open_form_json_in_designer,
         )
         self._sidebar.configure(width=self._startup_h_sash)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
@@ -941,6 +949,16 @@ class IDOL(Tk):
         _vbar.pack(side="right", fill="y")
         _hbar.pack(side="bottom", fill="x")
         self._design_canvas.pack(fill="both", expand=True)
+
+        self._comp_tray = ComponentTray(
+            self._designer_frame,
+            on_select=self._on_comp_select,
+            on_deselect=self._on_comp_deselect,
+            on_delete=self._on_comp_delete,
+            on_rename=self._on_comp_rename,
+        )
+        self._comp_tray.pack(fill="x", side="bottom")
+
         _canvas_area.pack(fill="both", expand=True)
 
         # ── Properties panel (right pane, added to _h_pane in designer mode) ──
@@ -952,6 +970,13 @@ class IDOL(Tk):
             on_navigate_handler=self._on_designer_event_navigate,
             on_reorder_widget=self._on_designer_reorder_widget,
             on_handler_toggle=self._on_designer_handler_toggle,
+            on_handler_connect=self._on_designer_handler_connect,
+            on_handler_disconnect=self._on_designer_handler_disconnect,
+            on_handler_edit=self._on_designer_handler_edit,
+            on_component_prop_change=self._on_comp_prop_change,
+            on_component_connect=self._on_comp_connect,
+            on_component_disconnect=self._on_comp_disconnect,
+            on_select_component=self._on_comp_select,
         )
         self._props_panel.configure(width=230)
 
@@ -964,6 +989,7 @@ class IDOL(Tk):
             on_new=self.designer_new_form,
             on_link=self._on_form_link,
             on_unlink=self._on_form_unlink,
+            on_delete=self._on_designer_form_delete,
         )
         self._form_list_panel.pack(fill="x")
 
@@ -972,6 +998,7 @@ class IDOL(Tk):
             on_tool_select=self._on_palette_tool_select,
             on_place=self._on_palette_place,
             on_drag_drop=self._on_palette_drag_drop,
+            on_component_add=self._on_comp_add,
         )
         self._designer_palette.pack(fill="both", expand=True)
         self._designer_left_pane.configure(width=180)
@@ -3088,6 +3115,8 @@ class IDOL(Tk):
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
+                self._comp_tray.refresh(form.components)
+                self._comp_tray.deselect()
                 self._refresh_form_list(active=form.name)
             self._refresh_generate_code_state()
         else:
@@ -3126,6 +3155,14 @@ class IDOL(Tk):
         if os.path.isfile(entry):
             self._open_file(entry, update_explorer=False)
             self._set_run_entry(entry)
+        # For GUI projects, also open the generated form file as the active tab
+        if project_type == "gui":
+            _active_form = self._design_canvas.form
+            if _active_form:
+                self.designer_generate_code()
+                _form_py = os.path.join(project_path, f"{_active_form.name}.py")
+                if os.path.isfile(_form_py):
+                    self._open_file(_form_py, update_explorer=False)
         # Auto-create the project file so "Open Project" works immediately
         self.after(500, self.workspace_save)
 
@@ -3142,7 +3179,8 @@ class IDOL(Tk):
         if path:
             self._open_file(path)
 
-    def _open_file(self, path: str, update_explorer: bool = True) -> None:
+    def _open_file(self, path: str, update_explorer: bool = True,
+                   select: bool = True) -> None:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -3150,16 +3188,19 @@ class IDOL(Tk):
             showerror("Open Error", str(exc))
             return
 
+        # Remember the currently active tab so we can restore it when select=False.
+        prev_tab_id = self._current_tab_id
+
         # If the current tab is an empty unmodified Untitled, remember it so we
         # can close it after the new tab is open (closing first would trigger the
         # "no tabs left" fallback and spawn another Untitled).
-        old_tab_id = self._current_tab_id
         replace = (
-            old_tab_id is not None
-            and self._titles.get(old_tab_id) == "Untitled"
-            and not self._dirty.get(old_tab_id)
-            and self._codeviews[old_tab_id] is not None
-            and not _cv_text(self._codeviews[old_tab_id]).strip()
+            select  # only replace Untitled when opening as the active tab
+            and prev_tab_id is not None
+            and self._titles.get(prev_tab_id) == "Untitled"
+            and not self._dirty.get(prev_tab_id)
+            and self._codeviews[prev_tab_id] is not None
+            and not _cv_text(self._codeviews[prev_tab_id]).strip()
         )
 
         self._new_tab(os.path.basename(path), content, filepath=path)
@@ -3169,8 +3210,10 @@ class IDOL(Tk):
             self._set_explorer_root(path)
 
         if replace:
-            old_index = self.notebook.tabs().index(old_tab_id)
+            old_index = self.notebook.tabs().index(prev_tab_id)
             self._close_tab(old_index)
+        elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
+            self.notebook.select(prev_tab_id)
 
     def _on_explorer_file_delete(self, path: str) -> None:
         """Called by the explorer after a file is deleted from disk.
@@ -4418,6 +4461,8 @@ class IDOL(Tk):
         self._design_canvas.load_form(primary)
         self._props_panel.set_form(primary)
         self._props_panel.load_form(primary)
+        self._comp_tray.refresh(primary.components)
+        self._comp_tray.deselect()
         self._designer_menu_had_items = bool(primary.menu_items)
         self._refresh_form_list(active=primary.name)
         self._refresh_generate_code_state()
@@ -4602,6 +4647,7 @@ class IDOL(Tk):
         """Canvas selection → populate properties panel; reset palette only when not placing."""
         if not self._design_canvas._active_tool:
             self._designer_palette.reset_to_pointer()
+        self._comp_tray.deselect()
         self._designer_toolbar.refresh()
         form = self._design_canvas.form
         if form is None:
@@ -4613,6 +4659,9 @@ class IDOL(Tk):
 
     def _on_designer_deselect(self) -> None:
         """Canvas deselect → show form-level properties."""
+        if getattr(self, "_comp_selecting", False):
+            return
+        self._comp_tray.deselect()
         self._designer_toolbar.refresh()
         form = self._design_canvas.form
         if form:
@@ -4675,6 +4724,362 @@ class IDOL(Tk):
         elif not enabled:
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
         self._set_designer_dirty()
+
+    def _on_designer_handler_connect(self, handler_id: str,
+                                        preselect_widget_id: str | None = None) -> None:
+        """⚡ button on an Available handler row — enable or wire the handler."""
+        from designer.handlers import HANDLER_CATALOG
+        from designer.model import HandlerWire
+        from widgets.designer_connector import ComponentConnector
+        form = self._design_canvas.form
+        if form is None:
+            return
+        hdef = next((h for h in HANDLER_CATALOG if h.id == handler_id), None)
+        if hdef is None:
+            return
+
+        if hdef.connectable:
+            # Resolve primary connector options (static tuple or dynamic source)
+            if hdef.connector_options_source == "linked_dialogs":
+                if not form.linked_dialogs:
+                    self._props_panel.show_hint(
+                        "No linked dialogs. Link a dialog to this form first "
+                        "via the Forms panel."
+                    )
+                    return
+                connector_options = tuple(form.linked_dialogs)
+            else:
+                connector_options = hdef.options
+
+            # Open connector so the user picks a widget + event + option
+            def _on_wire(widget_id: str, event_key: str, option: str) -> None:
+                # Auto-create a named event stub on the widget if none exists
+                widget = form.get_widget(widget_id)
+                if widget is not None and not widget.events.get(event_key):
+                    widget.events[event_key] = f"_{widget_id}_{event_key}"
+
+                self._apply_wire_side_effects(form, hdef, option)
+
+                wire = HandlerWire(handler_id=handler_id,
+                                   widget_id=widget_id,
+                                   event_key=event_key,
+                                   option=option)
+                form.handler_wires.append(wire)
+                # generates_stub=False handlers don't need an enabled_handlers entry
+                if hdef.generates_stub and handler_id not in form.enabled_handlers:
+                    form.enabled_handlers.append(handler_id)
+                self._set_designer_dirty()
+                self._props_panel.load_handlers(form)
+
+            # Pass a resolver so the connector preview shows the actual generated call.
+            resolver = (
+                (lambda opt: hdef.wire_body_for(opt, handler_id))
+                if hdef.dynamic_wire_body
+                else None
+            )
+            ComponentConnector(
+                self, form,
+                component_id="",
+                handler_id=handler_id,
+                handler_label="",
+                on_wire=_on_wire,
+                options=connector_options,
+                preselect_widget_id=preselect_widget_id,
+                wire_body_resolver=resolver,
+                secondary_options=hdef.secondary_options,
+            )
+        else:
+            # Non-connectable handler — just enable it
+            if handler_id not in form.enabled_handlers:
+                form.enabled_handlers.append(handler_id)
+            self._set_designer_dirty()
+            self._props_panel.load_handlers(form)
+
+    def _on_designer_handler_disconnect(self, handler_id: str, wire) -> None:
+        """× button on a Connected handler row — disable the handler or remove a wire."""
+        from designer.model import HandlerWire
+        form = self._design_canvas.form
+        if form is None:
+            return
+        if wire is not None and isinstance(wire, HandlerWire):
+            # Remove specific widget-event wire for connectable handlers
+            form.handler_wires = [w for w in form.handler_wires
+                                  if not (w.handler_id == wire.handler_id
+                                          and w.widget_id == wire.widget_id
+                                          and w.event_key == wire.event_key)]
+        else:
+            # Remove from enabled_handlers (built-in wired handler)
+            form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+            form.handler_options.pop(handler_id, None)
+        self._set_designer_dirty()
+        self._props_panel.load_handlers(form)
+
+    def _on_designer_handler_edit(self, handler_id: str, wire) -> None:
+        """… button on a Connected handler row — open the options editor."""
+        from designer.handlers import HANDLER_CATALOG
+        from designer.model import HandlerWire
+        from widgets.handler_options_editor import HandlerOptionsEditor
+        form = self._design_canvas.form
+        if form is None:
+            return
+        hdef = next((h for h in HANDLER_CATALOG if h.id == handler_id), None)
+        if hdef is None or not (hdef.options or hdef.secondary_options):
+            return
+        is_wire = isinstance(wire, HandlerWire)
+
+        # Multi-wire handlers: edit the secondary option (mode)
+        if is_wire and hdef.multi_wire and hdef.secondary_options:
+            opt_parts    = wire.option.partition(":")
+            primary_part = opt_parts[0]
+            current_mode = opt_parts[2] if opt_parts[1] else hdef.secondary_options[0]
+
+            def on_mode_apply(new_mode: str) -> None:
+                new_combined = f"{primary_part}:{new_mode}"
+                form.handler_wires = [
+                    HandlerWire(
+                        w.handler_id, w.widget_id, w.event_key,
+                        new_combined if (w.handler_id == wire.handler_id
+                                         and w.widget_id == wire.widget_id
+                                         and w.event_key == wire.event_key)
+                        else w.option,
+                    )
+                    for w in form.handler_wires
+                ]
+                self._apply_wire_side_effects(form, hdef, new_combined)
+                self._set_designer_dirty()
+                self._props_panel.load_handlers(form)
+
+            HandlerOptionsEditor(
+                self, handler_id, hdef, is_wire=True,
+                current_option=current_mode,
+                on_apply=on_mode_apply,
+                override_options=list(hdef.secondary_options),
+                override_bodies=list(hdef.edit_bodies) if hdef.edit_bodies else None,
+            )
+            return
+
+        current = wire.option if is_wire else form.handler_options.get(handler_id, "")
+
+        def on_apply(option: str) -> None:
+            if is_wire:
+                # Try to refresh the widget event stub when the option changes
+                self._reset_wire_stub_if_auto(form, wire, hdef, option)
+                form.handler_wires = [
+                    HandlerWire(
+                        w.handler_id, w.widget_id, w.event_key,
+                        option if (w.handler_id == wire.handler_id
+                                   and w.widget_id == wire.widget_id
+                                   and w.event_key == wire.event_key)
+                        else w.option,
+                    )
+                    for w in form.handler_wires
+                ]
+            else:
+                if option:
+                    form.handler_options[handler_id] = option
+                else:
+                    form.handler_options.pop(handler_id, None)
+            self._set_designer_dirty()
+            self._props_panel.load_handlers(form)
+
+        HandlerOptionsEditor(self, handler_id, hdef, is_wire, current, on_apply)
+
+    def _apply_wire_side_effects(self, form, hdef, option: str) -> None:
+        """Dispatch post-wire side effects declared in hdef.wire_side_effects."""
+        if hdef.wire_side_effects == "sync_dialog_close_mode" and ":" in option:
+            dlg_name, _, mode_str = option.partition(":")
+            # mode_str is already the full secondary option string e.g. "destroy (exit)";
+            # store it directly so HandlerOptionsEditor can match it exactly.
+            dlg_form = self._designer_forms.get(dlg_name)
+            if dlg_form:
+                dlg_form.handler_options["_on_close"] = mode_str
+                if "_on_close" not in dlg_form.enabled_handlers:
+                    dlg_form.enabled_handlers.append("_on_close")
+
+    def _reset_wire_stub_if_auto(self, form, wire, hdef, new_option: str) -> None:
+        """Queue a body reset for the wire's target method if the body is still auto-generated.
+
+        Compares the current saved body against all known wire_option_bodies.
+        If it matches any (i.e. the user hasn't customised it), drop it from
+        persistence so the next codegen writes the new option's wire body.
+        If the body has been edited, leave it and flash a hint instead.
+        """
+        from pathlib import Path as _Path
+        from designer.persistence import extract_event_bodies as _bodies
+
+        widget = form.get_widget(wire.widget_id)
+        if widget is None:
+            return
+        method = widget.events.get(wire.event_key)
+        if not method:
+            return
+
+        root = getattr(getattr(self, "_sidebar", None), "explorer", None)
+        root = getattr(root, "_root", None)
+        if not root:
+            return
+        py_path = _Path(root) / f"{form.name}.py"
+        if not py_path.exists():
+            return
+
+        saved_bodies = _bodies(py_path)
+        current_body = saved_bodies.get(method, "").strip()
+        known_bodies = {b.strip() for b in hdef.wire_option_bodies}
+
+        if not current_body or current_body in known_bodies:
+            # Auto-generated (or no saved body yet) — safe to reset
+            self._pending_body_resets.add(method)
+        else:
+            # User has customised the stub — don't overwrite, flash a hint
+            self._props_panel._show_status(
+                f"Stub for {method} was edited — update manually.", duration_ms=4000
+            )
+
+    # ── Component tray handlers ───────────────────────────────────────────────
+
+    def _on_comp_add(self, type_key: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        cdef = get_component_def(type_key)
+        if cdef is None:
+            return
+        comp_id = form.next_component_id(cdef.default_name)
+        comp = ComponentDescriptor(id=comp_id, type=type_key,
+                                   props=default_props(type_key))
+        form.components.append(comp)
+        self._comp_tray.refresh(form.components)
+        self._comp_tray.select(comp_id)
+        self._props_panel.load_component(comp, cdef)
+        self._set_designer_dirty()
+
+    def _on_comp_select(self, comp_id: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        cdef = get_component_def(comp.type)
+        if cdef is None:
+            return
+        self._comp_selecting = True
+        try:
+            self._design_canvas.deselect()
+        finally:
+            self._comp_selecting = False
+        self._comp_tray.select(comp_id)
+        self._props_panel.load_component(comp, cdef)
+
+    def _on_comp_deselect(self) -> None:
+        form = self._design_canvas.form
+        if form:
+            self._props_panel.load_form(form)
+
+    def _on_comp_delete(self, comp_id: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        form.components = [c for c in form.components if c.id != comp_id]
+        self._comp_tray.refresh(form.components)
+        self._props_panel.load_form(form)
+        self._set_designer_dirty()
+
+    def _on_comp_rename(self, comp_id: str, new_name: str) -> None:
+        from pathlib import Path as _Path
+        form = self._design_canvas.form
+        if form is None:
+            return
+        if not new_name.isidentifier():
+            return
+        if any(c.id == new_name for c in form.components if c.id != comp_id):
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+
+        old_prefix = f"_{comp_id}_"
+        new_prefix = f"_{new_name}_"
+
+        # Update widget.events values that reference old handler names
+        for widget in form.widgets:
+            widget.events = {
+                ev: (v.replace(old_prefix, new_prefix, 1) if v.startswith(old_prefix) else v)
+                for ev, v in widget.events.items()
+            }
+
+        # Rename in the generated .py file before codegen re-runs
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if root:
+            py_path = _Path(root) / f"{form.name}.py"
+            if py_path.exists():
+                src = py_path.read_text(encoding="utf-8")
+                py_path.write_text(src.replace(old_prefix, new_prefix), encoding="utf-8")
+
+        comp.id = new_name
+        self._comp_tray.refresh(form.components)
+        self._comp_tray.select(new_name)
+        self._props_panel.set_form(form)
+        cdef = get_component_def(comp.type)
+        if cdef:
+            self._props_panel.load_component(comp, cdef)
+        self._set_designer_dirty()
+
+    def _on_comp_prop_change(self, comp_id: str, prop_key: str, value) -> None:
+        if prop_key == "__name__":
+            self._on_comp_rename(comp_id, value)
+            return
+        form = self._design_canvas.form
+        if form is None:
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        comp.props[prop_key] = value
+        self._set_designer_dirty()
+
+    def _on_comp_connect(self, comp_id: str, handler_id: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        cdef = get_component_def(comp.type)
+        if cdef is None:
+            return
+        hdef = next((h for h in cdef.handler_defs if h.id == handler_id), None)
+        if hdef is None:
+            return
+
+        def _on_wire(widget_id: str, event_key: str, option: str = "") -> None:
+            w = form.get_widget(widget_id)
+            if w is None:
+                return
+            method = f"_{comp_id}{hdef.label}"
+            w.events[event_key] = method
+            self._set_designer_dirty()
+            self._props_panel.refresh_comp_connections()
+
+        ComponentConnector(
+            self,
+            form,
+            comp_id,
+            handler_id,
+            hdef.label,
+            _on_wire,
+        )
+
+    def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
+        form = self._design_canvas.form
+        if form is None:
+            return
+        w = form.get_widget(widget_id)
+        if w is None:
+            return
+        w.events.pop(event_key, None)
+        self._set_designer_dirty()
+        self._props_panel.refresh_comp_connections()
 
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""
@@ -4814,6 +5219,8 @@ class IDOL(Tk):
         self._design_canvas.load_form(form)
         self._props_panel.set_form(form)
         self._props_panel.load_form(form)
+        self._comp_tray.refresh(form.components)
+        self._comp_tray.deselect()
         self._designer_menu_had_items = bool(form.menu_items)
         self._form_list_panel.set_active(form_name)
         self._refresh_generate_code_state()
@@ -4835,6 +5242,72 @@ class IDOL(Tk):
         form.linked_dialogs.remove(dialog_name)
         self._set_designer_dirty()
         self._refresh_form_list()
+
+    def _on_designer_form_delete(self, name: str) -> None:
+        """Tree × click on form/unlinked-dialog — permanently delete it."""
+        from tkinter.messagebox import askyesno
+        from pathlib import Path as _Path
+
+        confirmed = askyesno(
+            "Delete Form",
+            f'Permanently delete "{name}"?\n\n'
+            "This will remove its .py and .form.json files and cannot be undone.",
+            icon="warning",
+            parent=self,
+        )
+        if not confirmed:
+            return
+
+        root = getattr(self._sidebar.explorer, "_root", None)
+
+        # Close any open editor tabs that point to this form's .py file
+        if root:
+            py_norm = os.path.normcase(str(_Path(root) / f"{name}.py"))
+            for tab_id, tab_path in list(self._files.items()):
+                if tab_path and os.path.normcase(tab_path) == py_norm:
+                    idx = self.notebook.tabs().index(tab_id)
+                    self._close_tab(idx)
+                    break
+
+        # Remove from linked_dialogs of any parent form
+        for form in self._designer_forms.values():
+            if name in form.linked_dialogs:
+                form.linked_dialogs.remove(name)
+
+        # Remove from in-memory dict
+        self._designer_forms.pop(name, None)
+
+        # If this was the active canvas form, switch to the first remaining form
+        current = self._design_canvas.form
+        if current and current.name == name:
+            remaining = list(self._designer_forms.values())
+            if remaining:
+                next_form = remaining[0]
+                self._design_canvas.load_form(next_form)
+                self._props_panel.set_form(next_form)
+                self._props_panel.load_form(next_form)
+                self._comp_tray.refresh(next_form.components)
+                self._comp_tray.deselect()
+            else:
+                self._design_canvas.load_form(None)
+                self._props_panel._form = None
+                self._props_panel._current_widget = None
+                self._props_panel._clear_form_selection()
+                self._comp_tray.refresh([])
+
+        # Delete files from disk
+        if root:
+            for ext in (".py", ".form.json"):
+                fp = _Path(root) / f"{name}{ext}"
+                try:
+                    fp.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        self._refresh_form_list()
+        self._set_designer_dirty()
+        self._sidebar.explorer.refresh()
+        self._refresh_generate_code_state()
 
     def designer_new_form(self) -> None:
         """Open a small dialog to create a new form or dialog."""
@@ -4931,6 +5404,8 @@ class IDOL(Tk):
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
+            self._comp_tray.refresh(form.components)
+            self._comp_tray.deselect()
             self._designer_menu_had_items = False
             self._set_designer_dirty()
             self._refresh_form_list(active=name)
@@ -4948,11 +5423,9 @@ class IDOL(Tk):
                 from pathlib import Path as _Path
                 py_path = str(_Path(root) / f"{name}.py")
                 if _Path(py_path).exists():
-                    self._open_file(py_path, update_explorer=False)
-                # Refresh explorer so new files appear
-                exp_root = self._sidebar.explorer._root
-                if exp_root:
-                    self._sidebar.explorer.set_root(str(exp_root))
+                    self._open_file(py_path, update_explorer=False, select=False)
+                # Refresh explorer so new files appear without triggering a terminal cd
+                self._sidebar.explorer.refresh()
 
         def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
             font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
@@ -5024,6 +5497,8 @@ class IDOL(Tk):
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
+            self._comp_tray.refresh(form.components)
+            self._comp_tray.deselect()
             self._designer_menu_had_items = bool(form.menu_items)
             self._designer_dirty = False
             self._refresh_form_list(active=form.name)
@@ -5045,6 +5520,30 @@ class IDOL(Tk):
             from tkinter.messagebox import showerror
 
             showerror("Open Form", f"Could not load form:\n{exc}", parent=self)
+
+    def _open_form_json_in_designer(self, path: str) -> None:
+        """Open a .form.json from the explorer right-click menu into the designer."""
+        from pathlib import Path as _Path
+        from designer.persistence import load as _load
+
+        try:
+            form, _ = _load(_Path(path))
+            self._designer_forms[form.name] = form
+            self._design_canvas.load_form(form)
+            self._props_panel.set_form(form)
+            self._props_panel.load_form(form)
+            self._comp_tray.refresh(form.components)
+            self._comp_tray.deselect()
+            self._designer_menu_had_items = bool(form.menu_items)
+            self._designer_dirty = False
+            self._refresh_form_list(active=form.name)
+            self._show_mode_bar()
+            self._refresh_generate_code_state()
+            if not self._designer_mode:
+                self._enter_designer_mode()
+        except Exception as exc:
+            from tkinter.messagebox import showerror
+            showerror("Open in Designer", f"Could not load form:\n{exc}", parent=self)
 
     def designer_generate_code(self) -> None:
         """Regenerate .py for all forms in the project and save checksums."""
@@ -5095,10 +5594,27 @@ class IDOL(Tk):
             pre_init, post_init = _init_zones(py_path)
             helpers      = _helpers(py_path)
             user_imports = _user_imports(py_path)
+            # Drop stale auto-bodies so the new wire body becomes the default
+            for _m in self._pending_body_resets:
+                event_bodies.pop(_m, None)
+            self._pending_body_resets.clear()
         else:
             event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = (
                 {}, {}, "", "", "", "",
             )
+
+        # Determine each linked dialog's close mode for opener body generation.
+        # Uses destroy mode if _on_close OR _on_escape is set to "destroy".
+        # Read from the in-memory model so the value is always current.
+        dialog_modes: dict[str, str] = {}
+        if form.form_type == "main":
+            for dlg_name in form.linked_dialogs:
+                dlg_mem = self._designer_forms.get(dlg_name)
+                if dlg_mem is not None:
+                    opts = dlg_mem.handler_options
+                    is_destroy = (opts.get("_on_close", "").startswith("destroy")
+                                  or opts.get("_on_escape", "").startswith("destroy"))
+                    dialog_modes[dlg_name] = "destroy" if is_destroy else "hide"
 
         code = _gen(
             form,
@@ -5109,6 +5625,7 @@ class IDOL(Tk):
             helpers=helpers,
             user_imports=user_imports,
             linked_dialogs=list(form.linked_dialogs) if form.form_type == "main" else None,
+            dialog_modes=dialog_modes or None,
         )
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
