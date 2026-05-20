@@ -1668,6 +1668,7 @@ class IDOL(Tk):
         tab_id = self._current_tab_id
         if tab_id is None:
             return
+        self._encoding_pill.pack_forget()
         self._update_title()
         self._statusbar.set_indent(self._indent_sizes.get(tab_id, 4))
         # Reflect overwrite state of the new tab's handler
@@ -3164,6 +3165,7 @@ class IDOL(Tk):
                 _form_py = os.path.join(project_path, f"{_active_form.name}.py")
                 if os.path.isfile(_form_py):
                     self._open_file(_form_py, update_explorer=False)
+            self._enter_designer_mode()
         # Auto-create the project file so "Open Project" works immediately
         self.after(500, self.workspace_save)
 
