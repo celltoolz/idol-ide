@@ -1407,6 +1407,7 @@ class IDOL(Tk):
         # legacy CodeView fires via its `<<ContentChanged>>` virtual
         # event — canvas engine routes through `on_change` instead.
         cv.on_change = self._on_content_changed
+        cv.on_bad_paste = self._show_encoding_pill
 
         # Copy → ClipboardHistory ring. Mirrors the legacy
         # `_setup_codeview` wiring: when the user hits Ctrl+C, push
@@ -5938,6 +5939,7 @@ class IDOL(Tk):
         frame = cv.master  # the Frame we just constructed
         cv.pack(fill="both", expand=True)
         cv.on_change = self._on_content_changed
+        cv.on_bad_paste = self._show_encoding_pill
         if content:
             cv.set_text(content)
         cv.set_filepath(filepath)

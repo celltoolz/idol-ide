@@ -914,6 +914,7 @@ class CanvasCodeView(tk.Frame):
         self.on_cursor_move = None
         self.on_lines_changed = None
         self.on_copy = None
+        self.on_bad_paste = None
         # Autocomplete provider — async callback the host wires to a
         # completion source (LSP, jedi, etc.). Signature:
         #     callable(prefix: str, trigger_char: str|None,
@@ -3148,6 +3149,8 @@ class CanvasCodeView(tk.Frame):
         self.render()
         self._fire_change()
 
+    _BAD_PASTE_CHARS = frozenset("\xa0​           　")
+
     def _paste(self) -> None:
         try:
             text = self.canvas.clipboard_get()
@@ -3159,6 +3162,11 @@ class CanvasCodeView(tk.Frame):
         self._insert_text(text)
         self._ensure_visible()
         self.render()
+        if self.on_bad_paste and any(c in self._BAD_PASTE_CHARS for c in text):
+            try:
+                self.on_bad_paste()
+            except Exception:
+                pass
 
     def _select_all(self) -> None:
         self.sel_anchor = (0, 0)

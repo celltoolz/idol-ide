@@ -213,6 +213,23 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 - ~~**File → Open Project opens into explorer root**~~ — FIXED (2026-05-15): Open Project dialog now defaults `initialdir` to the current explorer root.
 
+- **Designer save / discard / snapshot** — right now codegen runs silently on every change;
+  we need an explicit save/discard cycle so users can exit without committing edits:
+  - **Context-aware menu label** — `Designer → Save Form` when a main form is active,
+    `Designer → Save Dialog` when a dialog is active
+  - **CRC snapshot on entry** — capture a CRC of the `.form.json` + `.py` on designer start
+    (and again after each explicit save) so we know whether there are unsaved changes
+  - **Discard on exit** — if the CRC differs, prompt "Save / Discard / Cancel" when switching
+    away from designer mode or closing the project; discarding reverts both files to the
+    snapshot state
+  - **Applies to both files** — snapshot must cover the `.form.json` sidecar *and* the
+    generated `.py`; a partial save is not useful
+  - **Undo stack hook** — the designer undo stack is already implemented; investigate whether
+    the snapshot baseline can be derived from the stack bottom rather than a separate CRC file
+  - **Needs a full planning session** — do not implement ad-hoc; design the snapshot
+    lifecycle (where stored, when cleared, edge cases: new form, delete form, rename) before
+    writing any code
+
 - **Settings menu** — `View → Settings` (or `Edit → Settings`) panel consolidating per-user preferences that are currently scattered or missing UI:
   - Font (family / size / bold / italic) — currently only reachable via `View → Change Font`
   - Theme — currently only via `View → Theme`
