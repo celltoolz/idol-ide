@@ -496,7 +496,7 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
             except Exception:
                 pass
         app.after_idle(app._show_mode_bar)
-        if layout.get("designer_mode_active") and hasattr(app, "_enter_designer_mode"):
+        if hasattr(app, "_enter_designer_mode"):
             app.after(300, app._enter_designer_mode)
 
     # Restore Ollama URL if customized
