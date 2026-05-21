@@ -147,7 +147,18 @@ class ComponentConnector(tk.Toplevel):
             self, text="Select a widget and event above",
             bg=_BG, fg=_DIM, font=(UI_FONT, 8), anchor="w", padx=10,
         )
-        self._preview.pack(fill="x", pady=(0, 4))
+        self._preview.pack(fill="x", pady=(0, 2))
+
+        # Warning label — visible when selected event already has a handler
+        self._warn_lbl = tk.Label(
+            self, text="",
+            bg=_BG, fg="#e8a844", font=(UI_FONT, 8), anchor="w", padx=10,
+        )
+        self._warn_lbl.pack(fill="x", pady=(0, 4))
+
+        # Parallel lists — clean event keys + in-use tracking
+        self._ev_keys:  list[str] = []
+        self._used_evs: set[str]  = set()
 
         # Button row
         btn_row = tk.Frame(self, bg=_BG)
@@ -197,9 +208,13 @@ class ComponentConnector(tk.Toplevel):
             return
         reg    = REGISTRY.get(widget.type, {})
         events = reg.get("events", [])
+        self._used_evs = set(widget.events.keys())
+        self._ev_keys  = list(events)
         self._ev_lb.delete(0, "end")
         for ev in events:
-            self._ev_lb.insert("end", ev)
+            label = f"◆ {ev}" if ev in self._used_evs else ev
+            self._ev_lb.insert("end", label)
+        self._warn_lbl.config(text="")
         self._update_preview()
 
     def _update_preview(self, _event=None) -> None:
@@ -207,9 +222,10 @@ class ComponentConnector(tk.Toplevel):
         esel = self._ev_lb.curselection()
         if not wsel or not esel:
             self._preview.config(text="Select a widget and event above", fg=_DIM)
+            self._warn_lbl.config(text="")
             return
         wid    = self._widget_ids[wsel[0]]
-        ev_key = self._ev_lb.get(esel[0])
+        ev_key = self._ev_keys[esel[0]]
         option    = self._option_var.get()    if self._option_var    else ""
         secondary = self._secondary_var.get() if self._secondary_var else ""
         combined  = f"{option}:{secondary}" if option and secondary else option
@@ -224,6 +240,14 @@ class ComponentConnector(tk.Toplevel):
             text=f"Wires:  {wid}.{ev_key}  →  {rhs}",
             fg="#4ec9b0",
         )
+        if ev_key in self._used_evs:
+            existing = self._form.get_widget(wid)
+            existing_handler = existing.events.get(ev_key, "") if existing else ""
+            self._warn_lbl.config(
+                text=f"⚠  '{ev_key}' already calls {existing_handler} — wiring will overwrite it",
+            )
+        else:
+            self._warn_lbl.config(text="")
 
     def _do_wire(self) -> None:
         wsel = self._wid_lb.curselection()
@@ -231,7 +255,7 @@ class ComponentConnector(tk.Toplevel):
         if not wsel or not esel:
             return
         wid    = self._widget_ids[wsel[0]]
-        ev_key = self._ev_lb.get(esel[0])
+        ev_key = self._ev_keys[esel[0]]
         option    = self._option_var.get()    if self._option_var    else ""
         secondary = self._secondary_var.get() if self._secondary_var else ""
         combined  = f"{option}:{secondary}" if option and secondary else option
