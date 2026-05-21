@@ -144,6 +144,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     out.append("import tkinter as tk")
     if needs_ttk:
         out.append("from tkinter import ttk")
+    for _imp in _collect_component_imports(form):
+        out.append(_imp)
     out.append(_IMPORT_B)
     if user_imports:
         for line in user_imports.splitlines():
@@ -910,6 +912,21 @@ def _body_lines(method_name: str, bodies: dict[str, str],
 
 # ── Component codegen ────────────────────────────────────────────────────────
 
+def _collect_component_imports(form: FormModel) -> list[str]:
+    """Return deduplicated extra import lines required by components on this form."""
+    from .component_registry import COMPONENT_REGISTRY
+    seen: set[str] = set()
+    result: list[str] = []
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef:
+            for imp in cdef.codegen_imports:
+                if imp not in seen:
+                    seen.add(imp)
+                    result.append(imp)
+    return result
+
+
 def _component_init_lines(form: FormModel) -> list[str]:
     """Return 8-space-indented __init__ lines for all components on this form."""
     from .component_registry import COMPONENT_REGISTRY
@@ -939,6 +956,18 @@ def _comp_init_for(comp, cdef) -> list[str]:
                 f"        self._{cid}_after_id = self.after("
                 f"self._{cid}_interval, self._{cid}_tick)"
             )
+
+    elif comp.type == "CommonDialog":
+        title       = str(comp.props.get("title",       "Open"))
+        init_dir    = str(comp.props.get("init_dir",    ""))
+        filter_str  = str(comp.props.get("filter",      "All Files (*.*)|*.*"))
+        default_ext = str(comp.props.get("default_ext", ""))
+        lines.append(f"        self._{cid}_title       = {repr(title)}")
+        lines.append(f"        self._{cid}_init_dir    = {repr(init_dir)}")
+        lines.append(f"        self._{cid}_filter      = {repr(filter_str)}")
+        lines.append(f"        self._{cid}_default_ext = {repr(default_ext)}")
+        lines.append(f'        self._{cid}_filename    = ""')
+        lines.append(f'        self._{cid}_filetitle   = ""')
 
     return lines
 
@@ -1010,6 +1039,30 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> lis
                 lines.append(f"        if self._{cid}_after_id:")
                 lines.append(f"            self.after_cancel(self._{cid}_after_id)")
                 lines.append(f"            self._{cid}_after_id = None")
+
+    elif comp.type == "CommonDialog":
+        if hdef.id in ("show_open", "show_save"):
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                dial_fn = "askopenfilename" if hdef.id == "show_open" else "asksaveasfilename"
+                lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
+                lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
+                lines.append(f"        result = filedialog.{dial_fn}(")
+                lines.append(f"            title=self._{cid}_title or None,")
+                lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                lines.append(f"            filetypes=_ft,")
+                lines.append(f"            defaultextension=self._{cid}_default_ext or None,")
+                lines.append(f"        )")
+                lines.append(f"        if result:")
+                lines.append(f"            self._{cid}_filename  = result")
+                lines.append(f"            self._{cid}_filetitle = result.rsplit('/', 1)[-1]")
+                lines.append(f"            self._{cid}_on_file_selected()")
+        else:
+            lines.extend(_body_lines(method, bodies, hdef.default_body))
+
     else:
         lines.extend(_body_lines(method, bodies, hdef.default_body))
 
