@@ -1490,10 +1490,15 @@ class IDOL(Tk):
                     if it.get("label")
                 ]
                 callback(labels)
+            # For member access with a partial prefix (e.g. self._c), pyls
+            # needs triggerKind=2 at the position right after "." — if we
+            # send the current cursor (past the prefix) it returns empty.
+            # Walk the column back by len(prefix) so pyls sees the dot trigger.
+            lsp_col = _cv.cur_col - len(prefix) if trigger_char == "." and prefix else _cv.cur_col
             self._lsp.completion(
                 _cv.filepath,
                 _cv.cur_line,
-                _cv.cur_col,
+                lsp_col,
                 _items_cb,
                 trigger_char=trigger_char,
             )

@@ -2897,9 +2897,12 @@ class CanvasCodeView(tk.Frame):
                 self._hide_autocomplete()
             return "break"
         # Any movement / editing key dismisses the popup (it's reopened
-        # on the next identifier keystroke).
+        # on the next identifier keystroke). Pure modifier keys (Shift,
+        # Ctrl, Alt, Meta) have no char and should not dismiss it.
         if self._ac_top is not None and self._ac_top.state() == "normal":
-            self._hide_autocomplete()
+            if not ks.startswith(("Shift_", "Control_", "Alt_", "Meta_",
+                                   "Super_", "Hyper_", "Caps_Lock", "Num_Lock")):
+                self._hide_autocomplete()
         return None
 
     # ── Movement helpers ──────────────────────────────────────────────────────
