@@ -990,6 +990,8 @@ def _comp_init_for(comp, cdef) -> list[str]:
         lines.append(f"        self._{cid}_default_ext = {repr(default_ext)}")
         lines.append(f'        self._{cid}_filename    = ""')
         lines.append(f'        self._{cid}_filetitle   = ""')
+        lines.append(f'        self._{cid}_color_rgb   = None')
+        lines.append(f'        self._{cid}_color_hex   = ""')
 
     return lines
 
@@ -1105,6 +1107,20 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"            self._{cid}_filename  = result")
                 lines.append(f"            self._{cid}_filetitle = result.rsplit('/', 1)[-1]")
                 lines.append(f"            self._{cid}_on_file_selected()")
+        elif hdef.id == "choose_color":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        result = colorchooser.askcolor(")
+                lines.append(f"            title=self._{cid}_title or None,")
+                lines.append(f"            color=self._{cid}_color_hex or None,")
+                lines.append(f"        )")
+                lines.append(f"        if result[0] is not None:")
+                lines.append(f"            self._{cid}_color_rgb = result[0]")
+                lines.append(f"            self._{cid}_color_hex = result[1]")
+                lines.append(f"            self._{cid}_on_color_selected()")
         elif hdef.id in ("ask_open_file", "ask_save_file"):
             raw = bodies.get(method, "").strip()
             if raw and raw not in (_STUB, "pass"):

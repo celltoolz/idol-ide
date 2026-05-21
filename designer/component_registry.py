@@ -104,7 +104,7 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
         icon="📁",
         description="Open/Save/Dir dialogs via tkinter.filedialog — wire _show_open, _show_save, or _choose_dir to a button",
         default_name="cd",
-        codegen_imports=["from tkinter import filedialog"],
+        codegen_imports=["from tkinter import filedialog", "from tkinter import colorchooser"],
         prop_defs=(
             PropDef(
                 key="title",
@@ -177,6 +177,14 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 applies_to_widgets=("Button", "Label"),
             ),
             ComponentHandlerDef(
+                id="choose_color",
+                label="_choose_color",
+                description="Opens a color-picker dialog. Wire to a Button or Label click.",
+                has_connector=True,
+                default_body="",
+                applies_to_widgets=("Button", "Label"),
+            ),
+            ComponentHandlerDef(
                 id="on_file_selected",
                 label="_on_file_selected",
                 description="Called after the user picks a file. Read self._cd1_filename here.",
@@ -187,6 +195,13 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 id="on_file_opened",
                 label="_on_file_opened",
                 description="Called after file content is read when no target widget is wired. Use self._cd1_file_content.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_color_selected",
+                label="_on_color_selected",
+                description="Called after the user picks a color. Read self._cd1_color_hex and self._cd1_color_rgb.",
                 has_connector=False,
                 default_body="pass  # TODO",
             ),
