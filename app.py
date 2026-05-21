@@ -5065,12 +5065,31 @@ class IDOL(Tk):
         if hdef is None:
             return
 
+        # For file-object handlers, build a dynamic "Populate" widget list
+        _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
+        _POPULATE_TYPES    = ("Entry", "Text", "Listbox")
+        if handler_id in _FILE_OBJ_HANDLERS:
+            _targets = [w.id for w in form.widgets if w.type in _POPULATE_TYPES]
+            _secondary_opts = tuple(_targets) + ("(none)",)
+            _secondary_label = "Populate"
+            _secondary_warn  = (
+                "" if _targets else
+                "⚠  No Entry, Text, or Listbox on form — add one or choose (none)"
+            )
+        else:
+            _secondary_opts  = ()
+            _secondary_label = "Mode"
+            _secondary_warn  = ""
+
         def _on_wire(widget_id: str, event_key: str, option: str = "") -> None:
             w = form.get_widget(widget_id)
             if w is None:
                 return
             method = f"_{comp_id}{hdef.label}"
             w.events[event_key] = method
+            # Store populate target so codegen can generate widget-specific code
+            if handler_id in _FILE_OBJ_HANDLERS:
+                comp.props[f"{handler_id}_target"] = option  # e.g. "entry1" or "(none)"
             self._set_designer_dirty()
             self._props_panel.refresh_comp_connections()
 
@@ -5081,6 +5100,9 @@ class IDOL(Tk):
             handler_id,
             hdef.label,
             _on_wire,
+            secondary_options=_secondary_opts,
+            secondary_label=_secondary_label,
+            initial_warning=_secondary_warn,
         )
 
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:

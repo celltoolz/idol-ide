@@ -42,6 +42,7 @@ class ComponentConnector(tk.Toplevel):
         wire_body_resolver: "Callable[[str], str] | None" = None,
         secondary_options: tuple[str, ...] = (),
         secondary_label: str = "Mode",
+        initial_warning: str = "",
     ) -> None:
         super().__init__(parent)
         self._form              = form
@@ -54,6 +55,7 @@ class ComponentConnector(tk.Toplevel):
         self._secondary_label     = secondary_label
         self._preselect_widget_id = preselect_widget_id
         self._wire_body_resolver  = wire_body_resolver
+        self._initial_warning     = initial_warning
 
         # Build the display method name
         if component_id:
@@ -149,9 +151,10 @@ class ComponentConnector(tk.Toplevel):
         )
         self._preview.pack(fill="x", pady=(0, 2))
 
-        # Warning label — visible when selected event already has a handler
+        # Warning label — visible when selected event already has a handler,
+        # or pre-populated via initial_warning (e.g. no populate targets found).
         self._warn_lbl = tk.Label(
-            self, text="",
+            self, text=self._initial_warning,
             bg=_BG, fg="#e8a844", font=(UI_FONT, 8), anchor="w", padx=10,
         )
         self._warn_lbl.pack(fill="x", pady=(0, 4))
@@ -228,7 +231,8 @@ class ComponentConnector(tk.Toplevel):
         ev_key = self._ev_keys[esel[0]]
         option    = self._option_var.get()    if self._option_var    else ""
         secondary = self._secondary_var.get() if self._secondary_var else ""
-        combined  = f"{option}:{secondary}" if option and secondary else option
+        combined  = (f"{option}:{secondary}" if option and secondary
+                     else secondary if secondary else option)
         if self._wire_body_resolver and combined:
             body = self._wire_body_resolver(combined)
             mode_tag = f"  [{secondary}]" if secondary else ""
@@ -258,7 +262,8 @@ class ComponentConnector(tk.Toplevel):
         ev_key = self._ev_keys[esel[0]]
         option    = self._option_var.get()    if self._option_var    else ""
         secondary = self._secondary_var.get() if self._secondary_var else ""
-        combined  = f"{option}:{secondary}" if option and secondary else option
+        combined  = (f"{option}:{secondary}" if option and secondary
+                     else secondary if secondary else option)
         self._on_wire(wid, ev_key, combined)
         self.destroy()
 

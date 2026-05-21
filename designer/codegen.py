@@ -1012,7 +1012,7 @@ def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[st
             method = f"_{comp.id}{hdef.label}"
             if hdef.has_connector and method not in wired:
                 continue  # connectable but not wired — skip
-            lines.extend(_comp_handler_method(comp, hdef, method, bodies))
+            lines.extend(_comp_handler_method(comp, hdef, method, bodies, form))
             lines.append("")
     return lines
 
@@ -1030,7 +1030,8 @@ def _strip_timer_reschedule_tail(body: str) -> str:
     return body
 
 
-def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> list[str]:
+def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
+                         form: "FormModel | None" = None) -> list[str]:
     """Return the def block for one component handler method."""
     cid = comp.id
     lines: list[str] = [f"    def {method}(self):"]
@@ -1104,6 +1105,65 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> lis
                 lines.append(f"            self._{cid}_filename  = result")
                 lines.append(f"            self._{cid}_filetitle = result.rsplit('/', 1)[-1]")
                 lines.append(f"            self._{cid}_on_file_selected()")
+        elif hdef.id in ("ask_open_file", "ask_save_file"):
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                prop_key = f"{hdef.id}_target"
+                target_id = comp.props.get(prop_key, "(none)")
+                target_w   = form.get_widget(target_id) if form and target_id != "(none)" else None
+                target_type = target_w.type if target_w else None
+
+                if hdef.id == "ask_open_file":
+                    lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
+                    lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
+                    lines.append(f"        f = filedialog.askopenfile(")
+                    lines.append(f"            title=self._{cid}_title or None,")
+                    lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                    lines.append(f"            filetypes=_ft,")
+                    lines.append(f"        )")
+                    lines.append(f"        if f:")
+                    lines.append(f"            with f:")
+                    lines.append(f"                _content = f.read()")
+                    lines.append(f"            self._{cid}_filename  = f.name")
+                    lines.append(f"            self._{cid}_filetitle = f.name.rsplit('/', 1)[-1]")
+                    if target_type == "Entry":
+                        lines.append(f"            self.{target_id}.delete(0, 'end')")
+                        lines.append(f"            self.{target_id}.insert(0, _content)")
+                    elif target_type == "Text":
+                        lines.append(f"            self.{target_id}.delete('1.0', 'end')")
+                        lines.append(f"            self.{target_id}.insert('1.0', _content)")
+                    elif target_type == "Listbox":
+                        lines.append(f"            self.{target_id}.delete(0, 'end')")
+                        lines.append(f"            for _line in _content.splitlines():")
+                        lines.append(f"                self.{target_id}.insert('end', _line)")
+                    else:  # (none) or unknown
+                        lines.append(f"            self._{cid}_file_content = _content")
+                        lines.append(f"            self._{cid}_on_file_opened()")
+                else:  # ask_save_file
+                    lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
+                    lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
+                    if target_type == "Entry":
+                        lines.append(f"        _content = self.{target_id}.get()")
+                    elif target_type == "Text":
+                        lines.append(f"        _content = self.{target_id}.get('1.0', 'end-1c')")
+                    elif target_type == "Listbox":
+                        lines.append(f"        _content = '\\n'.join(self.{target_id}.get(0, 'end'))")
+                    else:
+                        lines.append(f"        _content = self._{cid}_file_content")
+                    lines.append(f"        f = filedialog.asksaveasfile(")
+                    lines.append(f"            title=self._{cid}_title or None,")
+                    lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                    lines.append(f"            filetypes=_ft,")
+                    lines.append(f"            defaultextension=self._{cid}_default_ext or None,")
+                    lines.append(f"        )")
+                    lines.append(f"        if f:")
+                    lines.append(f"            with f:")
+                    lines.append(f"                f.write(_content)")
+                    lines.append(f"            self._{cid}_filename  = f.name")
+                    lines.append(f"            self._{cid}_filetitle = f.name.rsplit('/', 1)[-1]")
         else:
             lines.extend(_body_lines(method, bodies, hdef.default_body))
 
