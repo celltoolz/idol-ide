@@ -2885,6 +2885,8 @@ class CanvasCodeView(tk.Frame):
         if ks == "Tab":
             if shift:
                 self._unindent(); self._ensure_visible(); return "break"
+            if self.sel_anchor is not None:
+                self._indent(); self._ensure_visible(); return "break"
             self._push_undo(""); self._insert_text(" " * self.tab_size); self._ensure_visible(); self.render(); return "break"
 
         if event.char and event.char.isprintable() and not ctrl:
@@ -3435,6 +3437,23 @@ class CanvasCodeView(tk.Frame):
         self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
         self.render()
         self._fire_change()
+
+    def _indent(self) -> None:
+        """Tab with selection — add tab_size spaces to the start of each selected line."""
+        self._push_undo("")
+        start, end = self._selected_line_range()
+        spaces = " " * self.tab_size
+        for i in range(start, end + 1):
+            self.lines[i] = spaces + self.lines[i]
+            if i == self.cur_line:
+                self.cur_col += self.tab_size
+        if self.sel_anchor is not None:
+            al, ac = self.sel_anchor
+            if start <= al <= end:
+                self.sel_anchor = (al, ac + self.tab_size)
+        self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
+        self._fire_change()
+        self.render()
 
     def _unindent(self) -> None:
         """Shift+Tab — remove up to tab_size leading spaces from each selected line."""
