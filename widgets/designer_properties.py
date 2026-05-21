@@ -682,10 +682,12 @@ class DesignerProperties(tk.Frame):
         self._handlers_redraw()
 
     def refresh_comp_connections(self) -> None:
-        """Re-collect and redraw the Connected Components section after a wire is added."""
+        """Re-collect and redraw after a component wire is added or removed."""
         if self._comp_mode and self._comp_id:
             self._comp_connections = self._collect_comp_connections(self._comp_id)
             self._handlers_redraw()
+        elif self._current_widget is not None and self._form is not None:
+            self.load_handlers(self._form)
 
     def _exit_comp_mode(self) -> None:
         if not self._comp_mode:

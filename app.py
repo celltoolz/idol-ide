@@ -4953,6 +4953,11 @@ class IDOL(Tk):
         form.components.append(comp)
         self._comp_tray.refresh(form.components)
         self._comp_tray.select(comp_id)
+        self._comp_selecting = True
+        try:
+            self._design_canvas.deselect()
+        finally:
+            self._comp_selecting = False
         self._props_panel.load_component(comp, cdef)
         self._set_designer_dirty()
 
