@@ -3955,7 +3955,7 @@ class IDOL(Tk):
         if not cv:
             return ""
         try:
-            return cv.get("sel.first", "sel.last")
+            return cv.selected_text()
         except Exception:
             return ""
 
