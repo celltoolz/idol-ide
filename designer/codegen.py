@@ -1132,13 +1132,16 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     if target_type == "Entry":
                         lines.append(f"            self.{target_id}.delete(0, 'end')")
                         lines.append(f"            self.{target_id}.insert(0, _content)")
+                        lines.append(f"            self._{cid}_on_file_selected()")
                     elif target_type == "Text":
                         lines.append(f"            self.{target_id}.delete('1.0', 'end')")
                         lines.append(f"            self.{target_id}.insert('1.0', _content)")
+                        lines.append(f"            self._{cid}_on_file_selected()")
                     elif target_type == "Listbox":
                         lines.append(f"            self.{target_id}.delete(0, 'end')")
                         lines.append(f"            for _line in _content.splitlines():")
                         lines.append(f"                self.{target_id}.insert('end', _line)")
+                        lines.append(f"            self._{cid}_on_file_selected()")
                     else:  # (none) or unknown
                         lines.append(f"            self._{cid}_file_content = _content")
                         lines.append(f"            self._{cid}_on_file_opened()")
@@ -1164,6 +1167,7 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(f"                f.write(_content)")
                     lines.append(f"            self._{cid}_filename  = f.name")
                     lines.append(f"            self._{cid}_filetitle = f.name.rsplit('/', 1)[-1]")
+                    lines.append(f"            self._{cid}_on_file_selected()")
         else:
             lines.extend(_body_lines(method, bodies, hdef.default_body))
 
