@@ -2582,13 +2582,16 @@ class CanvasCodeView(tk.Frame):
 
     def _on_right_click(self, event):
         self.canvas.focus_set()
-        try:
-            row = self._row_from_y(event.y)
-            col = self._col_from_x(row, event.x)
-            self.cur_line, self.cur_col = row, col
-            self.render()
-        except Exception:
-            pass
+        # Only move the cursor when there is no active selection — with a
+        # selection we preserve it so Copy/Cut act on the right range.
+        if self.sel_anchor is None:
+            try:
+                row = self._row_from_y(event.y)
+                col = self._col_from_x(row, event.x)
+                self.cur_line, self.cur_col = row, col
+                self.render()
+            except Exception:
+                pass
 
         has_sel = self.sel_anchor is not None and self.sel_anchor != (
             self.cur_line, self.cur_col
