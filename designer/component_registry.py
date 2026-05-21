@@ -102,7 +102,7 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
         type_key="CommonDialog",
         label="CommonDialog",
         icon="📁",
-        description="Open/Save file dialogs via tkinter.filedialog — wire _show_open or _show_save to a button",
+        description="Open/Save/Dir dialogs via tkinter.filedialog — wire _show_open, _show_save, or _choose_dir to a button",
         default_name="cd",
         codegen_imports=["from tkinter import filedialog"],
         prop_defs=(
@@ -148,6 +148,14 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 id="show_save",
                 label="_show_save",
                 description="Opens a Save-File dialog. Wire to a Button or Label click.",
+                has_connector=True,
+                default_body="",
+                applies_to_widgets=("Button", "Label"),
+            ),
+            ComponentHandlerDef(
+                id="choose_dir",
+                label="_choose_dir",
+                description="Opens a Choose-Directory dialog. Wire to a Button or Label click.",
                 has_connector=True,
                 default_body="",
                 applies_to_widgets=("Button", "Label"),

@@ -1090,6 +1090,20 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> lis
                 lines.append(f"            self._{cid}_filename  = result")
                 lines.append(f"            self._{cid}_filetitle = result.rsplit('/', 1)[-1]")
                 lines.append(f"            self._{cid}_on_file_selected()")
+        elif hdef.id == "choose_dir":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        result = filedialog.askdirectory(")
+                lines.append(f"            title=self._{cid}_title or None,")
+                lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                lines.append(f"        )")
+                lines.append(f"        if result:")
+                lines.append(f"            self._{cid}_filename  = result")
+                lines.append(f"            self._{cid}_filetitle = result.rsplit('/', 1)[-1]")
+                lines.append(f"            self._{cid}_on_file_selected()")
         else:
             lines.extend(_body_lines(method, bodies, hdef.default_body))
 
