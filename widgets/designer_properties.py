@@ -707,6 +707,8 @@ class DesignerProperties(tk.Frame):
             self.load_handlers(self._form)
             reg = REGISTRY.get(self._current_widget.type, {})
             self._populate_events(self._current_widget, reg)
+        elif self._form is not None:
+            self.load_handlers(self._form)
 
     def _exit_comp_mode(self) -> None:
         if not self._comp_mode:
