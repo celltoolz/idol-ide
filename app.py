@@ -5103,6 +5103,7 @@ class IDOL(Tk):
             secondary_options=_secondary_opts,
             secondary_label=_secondary_label,
             initial_warning=_secondary_warn,
+            preselect_widget_id=self._design_canvas.selected_id,
         )
 
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
