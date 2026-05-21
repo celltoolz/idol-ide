@@ -912,14 +912,35 @@ def _body_lines(method_name: str, bodies: dict[str, str],
 
 # ── Component codegen ────────────────────────────────────────────────────────
 
+def _comp_wired_methods(form: FormModel) -> set[str]:
+    """All component handler method names currently wired to a widget event."""
+    return {m for w in form.widgets for m in w.events.values()}
+
+
+def _comp_should_emit(comp, cdef, wired_methods: set[str]) -> bool:
+    """True if this component should generate any code.
+
+    A Timer with enabled=True auto-starts from __init__ and always emits.
+    All other components only emit when at least one connectable handler is wired.
+    """
+    if comp.type == "Timer" and comp.props.get("enabled", True):
+        return True
+    return any(
+        f"_{comp.id}{hdef.label}" in wired_methods
+        for hdef in cdef.handler_defs
+        if hdef.has_connector
+    )
+
+
 def _collect_component_imports(form: FormModel) -> list[str]:
     """Return deduplicated extra import lines required by components on this form."""
     from .component_registry import COMPONENT_REGISTRY
+    wired = _comp_wired_methods(form)
     seen: set[str] = set()
     result: list[str] = []
     for comp in form.components:
         cdef = COMPONENT_REGISTRY.get(comp.type)
-        if cdef:
+        if cdef and _comp_should_emit(comp, cdef, wired):
             for imp in cdef.codegen_imports:
                 if imp not in seen:
                     seen.add(imp)
@@ -928,12 +949,13 @@ def _collect_component_imports(form: FormModel) -> list[str]:
 
 
 def _component_init_lines(form: FormModel) -> list[str]:
-    """Return 8-space-indented __init__ lines for all components on this form."""
+    """Return 8-space-indented __init__ lines for components that will emit code."""
     from .component_registry import COMPONENT_REGISTRY
+    wired = _comp_wired_methods(form)
     lines: list[str] = []
     for comp in form.components:
         cdef = COMPONENT_REGISTRY.get(comp.type)
-        if cdef is None:
+        if cdef is None or not _comp_should_emit(comp, cdef, wired):
             continue
         lines.extend(_comp_init_for(comp, cdef))
     return lines
@@ -973,15 +995,23 @@ def _comp_init_for(comp, cdef) -> list[str]:
 
 
 def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[str]:
-    """Return 4-space-indented method lines for all component handlers."""
+    """Return 4-space-indented method lines for active component handlers.
+
+    Connectable handlers are only emitted when wired to a widget event.
+    Non-connectable callbacks (tick, on_file_selected) are only emitted when
+    the component itself emits (i.e. _comp_should_emit is True).
+    """
     from .component_registry import COMPONENT_REGISTRY
+    wired = _comp_wired_methods(form)
     lines: list[str] = []
     for comp in form.components:
         cdef = COMPONENT_REGISTRY.get(comp.type)
-        if cdef is None:
+        if cdef is None or not _comp_should_emit(comp, cdef, wired):
             continue
         for hdef in cdef.handler_defs:
-            method = f"_{comp.id}{hdef.label}"  # e.g. "_timer1_tick"
+            method = f"_{comp.id}{hdef.label}"
+            if hdef.has_connector and method not in wired:
+                continue  # connectable but not wired — skip
             lines.extend(_comp_handler_method(comp, hdef, method, bodies))
             lines.append("")
     return lines

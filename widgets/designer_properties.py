@@ -582,9 +582,19 @@ class DesignerProperties(tk.Frame):
         form_name = self._form.name
         result: list[tuple[str, str, bool, "tuple[str,str] | None"]] = []
 
-        # Implicit connections — handlers with no connector are always auto-wired
+        # Implicit connections (non-connectable callbacks like _tick, _on_file_selected)
+        # only show as connected once at least one connectable sibling is wired,
+        # or the Timer is auto-enabled.
+        comp_obj = self._form.get_component(comp_id)
+        timer_auto = (comp_obj is not None
+                      and comp_obj.type == "Timer"
+                      and comp_obj.props.get("enabled", True))
+        any_wired = any(
+            any(f"_{comp_id}{hdef.label}" in w.events.values() for w in self._form.widgets)
+            for hdef in self._comp_def.handler_defs if hdef.has_connector
+        )
         for hdef in self._comp_def.handler_defs:
-            if not hdef.has_connector:
+            if not hdef.has_connector and (any_wired or timer_auto):
                 result.append((f"_{comp_id}{hdef.label}", f"{form_name}.init", False, None))
 
         # Explicit widget.events connections
@@ -625,8 +635,15 @@ class DesignerProperties(tk.Frame):
                         comp_id, widget_id, ev_key = wired[method]
                         result.append((method, f"{widget_id}.{ev_key}", True, wired[method]))
                     elif not hdef.has_connector:
-                        # Always-wired (e.g. tick) — show as connected, not removable
-                        result.append((method, comp.id, False, None))
+                        # Non-connectable callback — only show if component emits
+                        any_conn_wired = any(
+                            f"_{comp.id}{h.label}" in wired
+                            for h in cdef.handler_defs if h.has_connector
+                        )
+                        timer_auto = (comp.type == "Timer"
+                                      and comp.props.get("enabled", True))
+                        if any_conn_wired or timer_auto:
+                            result.append((method, comp.id, False, None))
                     # has_connector=True and unwired → omitted here; shown in _collect_form_comp_avail
         return result
 
