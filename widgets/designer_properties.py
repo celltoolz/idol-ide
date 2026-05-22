@@ -102,6 +102,7 @@ class DesignerProperties(tk.Frame):
         self._comp_id:        str | None                = None
         self._comp_def:       "Any | None"              = None
         self._comp_hov_idx:   int | None                = None
+        self._comp_dtitles_expanded: bool               = False
         # Widgets wired to the selected component's handlers (comp mode)
         # list of (method_name, "{widget_id}.{ev_key}") tuples
         self._comp_connections:    list[tuple[str, str]] = []
@@ -605,6 +606,68 @@ class DesignerProperties(tk.Frame):
                     result.append((method, f"{widget.id}.{ev_key}", True, (widget.id, ev_key)))
         return result
 
+    # ── CommonDialog per-handler title helpers ────────────────────────────────
+
+    _CD_HANDLER_TITLE_KEYS: "list[tuple[str, str]]" = [
+        ("show_open",      "show_open_title"),
+        ("show_save",      "show_save_title"),
+        ("choose_dir",     "choose_dir_title"),
+        ("ask_open_file",  "ask_open_file_title"),
+        ("ask_save_file",  "ask_save_file_title"),
+        ("choose_color",   "choose_color_title"),
+        ("ask_input",      "ask_input_title"),
+    ]
+
+    def _insert_dialog_titles_section(self, descriptor) -> None:
+        """Add the collapsible Dialog Titles section for a CommonDialog component."""
+        if self._form is None or self._comp_def is None:
+            return
+        # Build map: method_name → widget_id for wired events
+        method_to_widget: dict[str, str] = {}
+        for w in self._form.widgets:
+            for ev_method in w.events.values():
+                method_to_widget[ev_method] = w.id
+        # Collect rows: connectable handlers that are wired AND have a title set
+        qualifying: list[tuple[str, str, str, str]] = []
+        for handler_id, prop_key in self._CD_HANDLER_TITLE_KEYS:
+            hdef = next((h for h in self._comp_def.handler_defs if h.id == handler_id), None)
+            if hdef is None or not hdef.has_connector:
+                continue
+            method    = f"_{descriptor.id}{hdef.label}"
+            title_val = str(descriptor.props.get(prop_key, ""))
+            if method not in method_to_widget or not title_val:
+                continue
+            qualifying.append((handler_id, prop_key, title_val, method_to_widget[method]))
+        if not qualifying:
+            return
+        arrow   = "▼" if self._comp_dtitles_expanded else "▶"
+        summary = ", ".join(t for _, _, t, _ in qualifying[:3])
+        if len(qualifying) > 3:
+            summary += "..."
+        self._props_insert("comp__dtitle__header", f"{arrow} Dialog Title", summary)
+        self._props_set_link("comp__dtitle__header", True)
+        if self._comp_dtitles_expanded:
+            for handler_id, prop_key, title_val, widget_id in qualifying:
+                self._props_insert(
+                    f"comp__dtitle__{prop_key}",
+                    f"  {handler_id}  [{widget_id}]",
+                    title_val,
+                )
+
+    def _rebuild_comp_props(self, descriptor) -> None:
+        """Rebuild just the Properties tab rows for the selected component."""
+        if self._comp_def is None:
+            return
+        self._props_clear()
+        self._props_insert("comp____name__", "name", descriptor.id)
+        for pd in self._comp_def.prop_defs:
+            val = descriptor.props.get(pd.key, pd.default)
+            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
+                               kind="readonly" if pd.kind == "readonly" else "normal")
+        if descriptor.type == "CommonDialog":
+            self._insert_dialog_titles_section(descriptor)
+        self._props_redraw()
+
     def _collect_form_comp_handlers(self, form: FormModel) -> list[tuple]:
         """Return (method, label, removable, removal_key) for all component handlers on the form.
 
@@ -685,6 +748,8 @@ class DesignerProperties(tk.Frame):
             val = descriptor.props.get(pd.key, pd.default)
             self._props_insert(f"comp__{pd.key}", pd.label, str(val),
                                kind="readonly" if pd.kind == "readonly" else "normal")
+        if descriptor.type == "CommonDialog":
+            self._insert_dialog_titles_section(descriptor)
         self._props_redraw()
 
         # Events tab: empty for components
@@ -703,6 +768,10 @@ class DesignerProperties(tk.Frame):
         if self._comp_mode and self._comp_id:
             self._comp_connections = self._collect_comp_connections(self._comp_id)
             self._handlers_redraw()
+            # Refresh props so Dialog Titles section picks up new wires/titles
+            comp_obj = self._form.get_component(self._comp_id) if self._form else None
+            if comp_obj and self._comp_def:
+                self._rebuild_comp_props(comp_obj)
         elif self._current_widget is not None and self._form is not None:
             self.load_handlers(self._form)
             reg = REGISTRY.get(self._current_widget.type, {})
@@ -715,12 +784,13 @@ class DesignerProperties(tk.Frame):
             return
         self._comp_connect_btn.place_forget()
         self._comp_disconnect_btn.place_forget()
-        self._comp_mode         = False
-        self._comp_id           = None
-        self._comp_def          = None
-        self._comp_hov_idx      = None
-        self._comp_connections  = []
-        self._comp_conn_hov_idx = None
+        self._comp_mode              = False
+        self._comp_id                = None
+        self._comp_def               = None
+        self._comp_hov_idx           = None
+        self._comp_connections       = []
+        self._comp_conn_hov_idx      = None
+        self._comp_dtitles_expanded  = False
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
         """Show shared properties panel for a multi-widget selection."""
@@ -2382,6 +2452,15 @@ class DesignerProperties(tk.Frame):
         if key == "__name__":
             self._props_open_editor(row, self._commit_comp_prop)
             return
+        if key == "dtitle__header":
+            self._comp_dtitles_expanded = not self._comp_dtitles_expanded
+            comp_obj = self._form.get_component(self._comp_id) if self._form and self._comp_id else None
+            if comp_obj:
+                self._rebuild_comp_props(comp_obj)
+            return
+        if key.startswith("dtitle__") and key != "dtitle__header":
+            self._props_open_editor(row, self._commit_comp_prop)
+            return
         pd  = next((p for p in self._comp_def.prop_defs if p.key == key), None)
         if pd is None or pd.kind == "readonly":
             return
@@ -2398,6 +2477,15 @@ class DesignerProperties(tk.Frame):
             name = raw.strip()
             if name and self._on_component_prop_change:
                 self._on_component_prop_change(self._comp_id, "__name__", name)
+            return
+        if key.startswith("dtitle__") and key != "dtitle__header":
+            prop_key = key[8:]   # e.g. "show_open_title"
+            self._props_set(row_iid, raw)
+            if self._on_component_prop_change:
+                self._on_component_prop_change(self._comp_id, prop_key, raw)
+            comp_obj = self._form.get_component(self._comp_id) if self._form else None
+            if comp_obj:
+                self._rebuild_comp_props(comp_obj)
             return
         pd = next((p for p in self._comp_def.prop_defs if p.key == key), None)
         if pd is None:

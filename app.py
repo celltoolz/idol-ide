@@ -5068,18 +5068,29 @@ class IDOL(Tk):
         # For file-object handlers, build a dynamic "Populate" widget list
         _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
         _POPULATE_TYPES    = ("Entry", "Text", "Listbox")
+        _INPUT_TYPES       = ("string", "integer", "float")
         if handler_id in _FILE_OBJ_HANDLERS:
             _targets = [w.id for w in form.widgets if w.type in _POPULATE_TYPES]
-            _secondary_opts = tuple(_targets) + ("(none)",)
+            _primary_opts    = ()
+            _secondary_opts  = tuple(_targets) + ("(none)",)
             _secondary_label = "Populate"
             _secondary_warn  = (
                 "" if _targets else
                 "⚠  No Entry, Text, or Listbox on form — add one or choose (none)"
             )
-        else:
+        elif handler_id == "ask_input":
+            _primary_opts    = _INPUT_TYPES
             _secondary_opts  = ()
             _secondary_label = "Mode"
             _secondary_warn  = ""
+        else:
+            _primary_opts    = ()
+            _secondary_opts  = ()
+            _secondary_label = "Mode"
+            _secondary_warn  = ""
+
+        _show_title = (comp.type == "CommonDialog")
+        _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
 
         def _on_wire(widget_id: str, event_key: str, option: str = "") -> None:
             w = form.get_widget(widget_id)
@@ -5087,9 +5098,20 @@ class IDOL(Tk):
                 return
             method = f"_{comp_id}{hdef.label}"
             w.events[event_key] = method
-            # Store populate target so codegen can generate widget-specific code
+            # Split title off the end of the option string (encoded as "main|title")
+            if _show_title and "|" in option:
+                main_opt, title_val = option.rsplit("|", 1)
+            else:
+                main_opt, title_val = option, ""
+            if _show_title:
+                if title_val:
+                    comp.props[f"{handler_id}_title"] = title_val
+                elif f"{handler_id}_title" in comp.props:
+                    del comp.props[f"{handler_id}_title"]
             if handler_id in _FILE_OBJ_HANDLERS:
-                comp.props[f"{handler_id}_target"] = option  # e.g. "entry1" or "(none)"
+                comp.props[f"{handler_id}_target"] = main_opt
+            elif handler_id == "ask_input":
+                comp.props["ask_input_type"] = main_opt or "string"
             self._set_designer_dirty()
             self._props_panel.refresh_comp_connections()
 
@@ -5100,10 +5122,13 @@ class IDOL(Tk):
             handler_id,
             hdef.label,
             _on_wire,
+            options=_primary_opts,
             secondary_options=_secondary_opts,
             secondary_label=_secondary_label,
             initial_warning=_secondary_warn,
             preselect_widget_id=self._design_canvas.selected_id,
+            show_title_entry=_show_title,
+            initial_title=_init_title,
         )
 
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:

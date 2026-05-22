@@ -43,6 +43,8 @@ class ComponentConnector(tk.Toplevel):
         secondary_options: tuple[str, ...] = (),
         secondary_label: str = "Mode",
         initial_warning: str = "",
+        show_title_entry: bool = False,
+        initial_title: str = "",
     ) -> None:
         super().__init__(parent)
         self._form              = form
@@ -56,6 +58,9 @@ class ComponentConnector(tk.Toplevel):
         self._preselect_widget_id = preselect_widget_id
         self._wire_body_resolver  = wire_body_resolver
         self._initial_warning     = initial_warning
+        self._show_title_entry    = show_title_entry
+        self._initial_title       = initial_title
+        self._title_var: tk.StringVar | None = None
 
         # Build the display method name
         if component_id:
@@ -143,6 +148,24 @@ class ComponentConnector(tk.Toplevel):
                 )
                 sec_cb.pack(side="left")
                 sec_cb.bind("<<ComboboxSelected>>", lambda _: self._update_preview())
+
+        # Title entry — optional, shown for components that support per-handler titles
+        if self._show_title_entry:
+            title_row = tk.Frame(self, bg=_BG)
+            title_row.pack(fill="x", padx=10, pady=(0, 4))
+            tk.Label(title_row, text="Title:", bg=_BG, fg=_DIM,
+                     font=(UI_FONT, 8), anchor="w", width=7).pack(side="left", padx=(0, 4))
+            self._title_var = tk.StringVar(value=self._initial_title)
+            title_entry = tk.Entry(
+                title_row, textvariable=self._title_var,
+                bg="#3c3c3c", fg="#cccccc",
+                insertbackground="#cccccc",
+                relief="flat", highlightthickness=1,
+                highlightbackground="#555555",
+                font=(UI_FONT, 9),
+            )
+            title_entry.pack(side="left", fill="x", expand=True)
+            title_entry.bind("<KeyRelease>", lambda _: self._update_preview())
 
         # Preview label
         self._preview = tk.Label(
@@ -240,8 +263,10 @@ class ComponentConnector(tk.Toplevel):
         else:
             option_str = f"  [{option}]" if option else ""
             rhs = f"self.{self._method_display}(){option_str}"
+        title = self._title_var.get().strip() if self._title_var else ""
+        title_tag = f'  title: "{title}"' if title else ""
         self._preview.config(
-            text=f"Wires:  {wid}.{ev_key}  →  {rhs}",
+            text=f"Wires:  {wid}.{ev_key}  →  {rhs}{title_tag}",
             fg="#4ec9b0",
         )
         if ev_key in self._used_evs:
@@ -264,7 +289,9 @@ class ComponentConnector(tk.Toplevel):
         secondary = self._secondary_var.get() if self._secondary_var else ""
         combined  = (f"{option}:{secondary}" if option and secondary
                      else secondary if secondary else option)
-        self._on_wire(wid, ev_key, combined)
+        title = self._title_var.get().strip() if self._title_var else ""
+        combined_final = f"{combined}|{title}" if title else combined
+        self._on_wire(wid, ev_key, combined_final)
         self.destroy()
 
     def _center(self, parent: tk.Misc) -> None:

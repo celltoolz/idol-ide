@@ -980,18 +980,35 @@ def _comp_init_for(comp, cdef) -> list[str]:
             )
 
     elif comp.type == "CommonDialog":
-        title       = str(comp.props.get("title",       "Open"))
-        init_dir    = str(comp.props.get("init_dir",    ""))
-        filter_str  = str(comp.props.get("filter",      "All Files (*.*)|*.*"))
-        default_ext = str(comp.props.get("default_ext", ""))
-        lines.append(f"        self._{cid}_title       = {repr(title)}")
-        lines.append(f"        self._{cid}_init_dir    = {repr(init_dir)}")
-        lines.append(f"        self._{cid}_filter      = {repr(filter_str)}")
-        lines.append(f"        self._{cid}_default_ext = {repr(default_ext)}")
-        lines.append(f'        self._{cid}_filename    = ""')
-        lines.append(f'        self._{cid}_filetitle   = ""')
-        lines.append(f'        self._{cid}_color_rgb   = None')
-        lines.append(f'        self._{cid}_color_hex   = ""')
+        title         = str(comp.props.get("title",         "Open"))
+        init_dir      = str(comp.props.get("init_dir",      ""))
+        filter_str    = str(comp.props.get("filter",        "All Files (*.*)|*.*"))
+        default_ext   = str(comp.props.get("default_ext",   ""))
+        prompt        = str(comp.props.get("prompt",        "Enter a value:"))
+        default_value = str(comp.props.get("default_value", ""))
+        lines.append(f"        self._{cid}_title         = {repr(title)}")
+        lines.append(f"        self._{cid}_init_dir      = {repr(init_dir)}")
+        lines.append(f"        self._{cid}_filter        = {repr(filter_str)}")
+        lines.append(f"        self._{cid}_default_ext   = {repr(default_ext)}")
+        lines.append(f"        self._{cid}_prompt        = {repr(prompt)}")
+        lines.append(f"        self._{cid}_default_value = {repr(default_value)}")
+        lines.append(f'        self._{cid}_filename      = ""')
+        lines.append(f'        self._{cid}_filetitle     = ""')
+        lines.append(f'        self._{cid}_result        = None')
+        lines.append(f'        self._{cid}_color_rgb     = None')
+        lines.append(f'        self._{cid}_color_hex     = ""')
+        # Per-handler title overrides (empty string = fall back to _title at runtime)
+        for _hid, _prop in (
+            ("show_open",      "show_open_title"),
+            ("show_save",      "show_save_title"),
+            ("choose_dir",     "choose_dir_title"),
+            ("ask_open_file",  "ask_open_file_title"),
+            ("ask_save_file",  "ask_save_file_title"),
+            ("choose_color",   "choose_color_title"),
+            ("ask_input",      "ask_input_title"),
+        ):
+            _val = str(comp.props.get(_prop, ""))
+            lines.append(f"        self._{cid}_{_hid}_title = {repr(_val)}")
 
     return lines
 
@@ -1084,7 +1101,7 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
                 lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
                 lines.append(f"        result = filedialog.{dial_fn}(")
-                lines.append(f"            title=self._{cid}_title or None,")
+                lines.append(f"            title=(self._{cid}_{hdef.id}_title or self._{cid}_title) or None,")
                 lines.append(f"            initialdir=self._{cid}_init_dir or None,")
                 lines.append(f"            filetypes=_ft,")
                 lines.append(f"            defaultextension=self._{cid}_default_ext or None,")
@@ -1100,7 +1117,7 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(("        " + line) if line.strip() else "")
             else:
                 lines.append(f"        result = filedialog.askdirectory(")
-                lines.append(f"            title=self._{cid}_title or None,")
+                lines.append(f"            title=(self._{cid}_choose_dir_title or self._{cid}_title) or None,")
                 lines.append(f"            initialdir=self._{cid}_init_dir or None,")
                 lines.append(f"        )")
                 lines.append(f"        if result:")
@@ -1114,7 +1131,7 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(("        " + line) if line.strip() else "")
             else:
                 lines.append(f"        result = colorchooser.askcolor(")
-                lines.append(f"            title=self._{cid}_title or None,")
+                lines.append(f"            title=(self._{cid}_choose_color_title or self._{cid}_title) or None,")
                 lines.append(f"            color=self._{cid}_color_hex or None,")
                 lines.append(f"        )")
                 lines.append(f"        if result[0] is not None:")
@@ -1136,7 +1153,7 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
                     lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
                     lines.append(f"        f = filedialog.askopenfile(")
-                    lines.append(f"            title=self._{cid}_title or None,")
+                    lines.append(f"            title=(self._{cid}_ask_open_file_title or self._{cid}_title) or None,")
                     lines.append(f"            initialdir=self._{cid}_init_dir or None,")
                     lines.append(f"            filetypes=_ft,")
                     lines.append(f"        )")
@@ -1173,7 +1190,7 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     else:
                         lines.append(f"        _content = self._{cid}_file_content")
                     lines.append(f"        f = filedialog.asksaveasfile(")
-                    lines.append(f"            title=self._{cid}_title or None,")
+                    lines.append(f"            title=(self._{cid}_ask_save_file_title or self._{cid}_title) or None,")
                     lines.append(f"            initialdir=self._{cid}_init_dir or None,")
                     lines.append(f"            filetypes=_ft,")
                     lines.append(f"            defaultextension=self._{cid}_default_ext or None,")
@@ -1184,6 +1201,30 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(f"            self._{cid}_filename  = f.name")
                     lines.append(f"            self._{cid}_filetitle = f.name.rsplit('/', 1)[-1]")
                     lines.append(f"            self._{cid}_on_file_selected()")
+        elif hdef.id == "ask_input":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                input_type = comp.props.get("ask_input_type", "string")
+                fn_map = {"string": "askstring", "integer": "askinteger", "float": "askfloat"}
+                fn = fn_map.get(input_type, "askstring")
+                if input_type == "integer":
+                    lines.append(f"        _dv = int(self._{cid}_default_value) if self._{cid}_default_value else None")
+                elif input_type == "float":
+                    lines.append(f"        _dv = float(self._{cid}_default_value) if self._{cid}_default_value else None")
+                else:
+                    lines.append(f"        _dv = self._{cid}_default_value or None")
+                lines.append(f"        result = simpledialog.{fn}(")
+                lines.append(f"            self._{cid}_ask_input_title or self._{cid}_title,")
+                lines.append(f"            self._{cid}_prompt,")
+                lines.append(f"            parent=self,")
+                lines.append(f"            initialvalue=_dv,")
+                lines.append(f"        )")
+                lines.append(f"        if result is not None:")
+                lines.append(f"            self._{cid}_result = result")
+                lines.append(f"            self._{cid}_on_input_result()")
         else:
             lines.extend(_body_lines(method, bodies, hdef.default_body))
 
