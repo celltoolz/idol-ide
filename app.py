@@ -976,6 +976,7 @@ class IDOL(Tk):
             on_component_prop_change=self._on_comp_prop_change,
             on_component_connect=self._on_comp_connect,
             on_component_disconnect=self._on_comp_disconnect,
+            on_component_edit=self._on_comp_edit,
             on_select_component=self._on_comp_select,
         )
         self._props_panel.configure(width=230)
@@ -5141,6 +5142,101 @@ class IDOL(Tk):
         w.events.pop(event_key, None)
         self._set_designer_dirty()
         self._props_panel.refresh_comp_connections()
+
+    def _on_comp_edit(self, comp_id: str, widget_id: str, event_key: str) -> None:
+        """Open the Connector dialog pre-populated for an existing component wire."""
+        form = self._design_canvas.form
+        if form is None:
+            return
+        comp = form.get_component(comp_id)
+        if comp is None:
+            return
+        cdef = get_component_def(comp.type)
+        if cdef is None:
+            return
+        # Find the handler_id from the method name stored on the widget event
+        w = form.get_widget(widget_id)
+        if w is None:
+            return
+        method = w.events.get(event_key, "")
+        hdef = next(
+            (h for h in cdef.handler_defs
+             if f"_{comp_id}{h.label}" == method),
+            None,
+        )
+        if hdef is None:
+            return
+        handler_id = hdef.id
+
+        _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
+        _POPULATE_TYPES    = ("Entry", "Text", "Listbox")
+        _INPUT_TYPES       = ("string", "integer", "float")
+        if handler_id in _FILE_OBJ_HANDLERS:
+            _targets = [wd.id for wd in form.widgets if wd.type in _POPULATE_TYPES]
+            _primary_opts    = ()
+            _secondary_opts  = tuple(_targets) + ("(none)",)
+            _secondary_label = "Populate"
+            _secondary_warn  = (
+                "" if _targets else
+                "⚠  No Entry, Text, or Listbox on form — add one or choose (none)"
+            )
+        elif handler_id == "ask_input":
+            _primary_opts    = _INPUT_TYPES
+            _secondary_opts  = ()
+            _secondary_label = "Mode"
+            _secondary_warn  = ""
+        else:
+            _primary_opts    = ()
+            _secondary_opts  = ()
+            _secondary_label = "Mode"
+            _secondary_warn  = ""
+
+        _show_title = (comp.type == "CommonDialog")
+        _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+
+        def _on_wire(new_widget_id: str, new_event_key: str, option: str = "") -> None:
+            # Remove the old binding if widget or event changed
+            if new_widget_id != widget_id or new_event_key != event_key:
+                old_w = form.get_widget(widget_id)
+                if old_w:
+                    old_w.events.pop(event_key, None)
+            new_w = form.get_widget(new_widget_id)
+            if new_w is None:
+                return
+            new_w.events[new_event_key] = method
+            if _show_title and "|" in option:
+                main_opt, title_val = option.rsplit("|", 1)
+            else:
+                main_opt, title_val = option, ""
+            if _show_title:
+                if title_val:
+                    comp.props[f"{handler_id}_title"] = title_val
+                elif f"{handler_id}_title" in comp.props:
+                    del comp.props[f"{handler_id}_title"]
+            if handler_id in _FILE_OBJ_HANDLERS:
+                comp.props[f"{handler_id}_target"] = main_opt
+            elif handler_id == "ask_input":
+                comp.props["ask_input_type"] = main_opt or "string"
+            self._set_designer_dirty()
+            self._props_panel.refresh_comp_connections()
+
+        ComponentConnector(
+            self,
+            form,
+            comp_id,
+            handler_id,
+            hdef.label,
+            _on_wire,
+            options=_primary_opts,
+            secondary_options=_secondary_opts,
+            secondary_label=_secondary_label,
+            initial_warning=_secondary_warn,
+            preselect_widget_id=widget_id,
+            preselect_event_key=event_key,
+            show_title_entry=_show_title,
+            initial_title=_init_title,
+            wire_label="Update",
+        )
 
     def _on_designer_double_click(self, widget_id: str) -> None:
         """Double-click on canvas widget → jump to first event handler or flash Events tab."""

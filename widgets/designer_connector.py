@@ -45,6 +45,8 @@ class ComponentConnector(tk.Toplevel):
         initial_warning: str = "",
         show_title_entry: bool = False,
         initial_title: str = "",
+        wire_label: str = "Wire",
+        preselect_event_key: str | None = None,
     ) -> None:
         super().__init__(parent)
         self._form              = form
@@ -60,6 +62,8 @@ class ComponentConnector(tk.Toplevel):
         self._initial_warning     = initial_warning
         self._show_title_entry    = show_title_entry
         self._initial_title       = initial_title
+        self._wire_label          = wire_label
+        self._preselect_event_key = preselect_event_key
         self._title_var: tk.StringVar | None = None
 
         # Build the display method name
@@ -191,7 +195,7 @@ class ComponentConnector(tk.Toplevel):
         btn_row.pack(fill="x", padx=10, pady=(0, 10))
 
         self._wire_btn = tk.Label(
-            btn_row, text="Wire", bg=_ACC, fg="#ffffff",
+            btn_row, text=self._wire_label, bg=_ACC, fg="#ffffff",
             font=(UI_FONT, 9), padx=12, pady=4, cursor="hand2",
         )
         self._wire_btn.pack(side="right", padx=(6, 0))
@@ -241,6 +245,10 @@ class ComponentConnector(tk.Toplevel):
             label = f"◆ {ev}" if ev in self._used_evs else ev
             self._ev_lb.insert("end", label)
         self._warn_lbl.config(text="")
+        if self._preselect_event_key and self._preselect_event_key in self._ev_keys:
+            ev_idx = self._ev_keys.index(self._preselect_event_key)
+            self._ev_lb.selection_set(ev_idx)
+            self._ev_lb.see(ev_idx)
         self._update_preview()
 
     def _update_preview(self, _event=None) -> None:
@@ -269,7 +277,9 @@ class ComponentConnector(tk.Toplevel):
             text=f"Wires:  {wid}.{ev_key}  →  {rhs}{title_tag}",
             fg="#4ec9b0",
         )
-        if ev_key in self._used_evs:
+        if (ev_key in self._used_evs
+                and not (wid == self._preselect_widget_id
+                         and ev_key == self._preselect_event_key)):
             existing = self._form.get_widget(wid)
             existing_handler = existing.events.get(ev_key, "") if existing else ""
             self._warn_lbl.config(

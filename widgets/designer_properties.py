@@ -68,6 +68,7 @@ class DesignerProperties(tk.Frame):
         on_component_prop_change:    Optional[Callable[[str, str, Any], None]] = None,
         on_component_connect:        Optional[Callable[[str, str],      None]] = None,
         on_component_disconnect:     Optional[Callable[[str, str, str], None]] = None,
+        on_component_edit:           Optional[Callable[[str, str, str], None]] = None,
         on_select_component:         Optional[Callable[[str],           None]] = None,
         **kwargs,
     ) -> None:
@@ -84,6 +85,7 @@ class DesignerProperties(tk.Frame):
         self._on_component_prop_change    = on_component_prop_change
         self._on_component_connect        = on_component_connect
         self._on_component_disconnect     = on_component_disconnect
+        self._on_component_edit           = on_component_edit
         self._on_select_component         = on_select_component
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
@@ -339,6 +341,17 @@ class DesignerProperties(tk.Frame):
             lambda e: self._comp_disconnect_btn.config(bg="#5a1a1a"))
         self._comp_disconnect_btn.bind("<Leave>", self._on_handler_btn_leave)
         self._comp_disconnect_btn.bind("<ButtonRelease-1>", self._on_comp_disconnect_click)
+
+        # Floating … edit button for wired Connected Components rows
+        self._comp_edit_btn = tk.Label(
+            self._handlers_cv, text="…",
+            bg="#3a3a3a", fg="#555555",
+            font=(UI_FONT, 9), cursor="hand2", padx=3,
+        )
+        self._comp_edit_btn.bind("<Enter>",
+            lambda e: self._comp_edit_btn.config(fg="#cccccc"))
+        self._comp_edit_btn.bind("<Leave>", self._on_handler_btn_leave)
+        self._comp_edit_btn.bind("<ButtonRelease-1>", self._on_comp_edit_click)
 
         # ── Order tab ─────────────────────────────────────────────────────────
         self._order_frame = tk.Frame(self._nb, bg=_ORD_BG)
@@ -807,6 +820,7 @@ class DesignerProperties(tk.Frame):
             return
         self._comp_connect_btn.place_forget()
         self._comp_disconnect_btn.place_forget()
+        self._comp_edit_btn.place_forget()
         self._comp_mode              = False
         self._comp_id                = None
         self._comp_def               = None
@@ -1181,6 +1195,7 @@ class DesignerProperties(tk.Frame):
         self._handler_disco_btn.place_forget()
         self._comp_connect_btn.place_forget()
         self._comp_disconnect_btn.place_forget()
+        self._comp_edit_btn.place_forget()
         w = max(cv.winfo_width(), 160)
 
         if self._comp_mode and self._comp_def is not None:
@@ -1336,13 +1351,19 @@ class DesignerProperties(tk.Frame):
                 cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
                 cv.create_text(8, mid, text=method,
                                fill=_ORD_NB_NUM, font=("Consolas", 9), anchor="w")
-                label_x = w - 6 if not (removable and is_hov) else w - 22
+                btn_reserve = (40 if removable else 0) if is_hov else 0
+                label_x = w - 6 - btn_reserve
                 cv.create_text(label_x, mid, text=label,
                                fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
                 if removable and is_hov:
-                    self._comp_disconnect_btn.place(x=w - 2, y=y0 + 2,
-                                                    anchor="ne", height=_ORD_ROW_H - 4)
+                    btn_x = w - 2
+                    btn_h = _ORD_ROW_H - 4
+                    self._comp_disconnect_btn.place(x=btn_x, y=y0 + 2,
+                                                    anchor="ne", height=btn_h)
                     self._comp_disconnect_btn._wch_removal = removal_key  # type: ignore[attr-defined]
+                    self._comp_edit_btn.place(x=btn_x - 20, y=y0 + 2,
+                                              anchor="ne", height=btn_h)
+                    self._comp_edit_btn._wch_removal = removal_key  # type: ignore[attr-defined]
             y += len(wch) * _ORD_ROW_H
         else:
             self._handlers_wch_y0 = y
@@ -1392,14 +1413,19 @@ class DesignerProperties(tk.Frame):
                 cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
                 cv.create_text(8, mid, text=method,
                                fill=_ORD_NB_NUM, font=("Consolas", 9), anchor="w")
-                # Show × button placeholder space only for removable rows on hover
-                label_x = w - 6 if not (removable and is_hov) else w - 22
+                btn_reserve = (40 if removable else 0) if is_hov else 0
+                label_x = w - 6 - btn_reserve
                 cv.create_text(label_x, mid, text=label,
                                fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
                 if removable and is_hov:
-                    self._comp_disconnect_btn.place(x=w - 2, y=y0 + 2,
-                                                    anchor="ne", height=_ORD_ROW_H - 4)
+                    btn_x = w - 2
+                    btn_h = _ORD_ROW_H - 4
+                    self._comp_disconnect_btn.place(x=btn_x, y=y0 + 2,
+                                                    anchor="ne", height=btn_h)
                     self._comp_disconnect_btn._removal_key = removal_key  # type: ignore[attr-defined]
+                    self._comp_edit_btn.place(x=btn_x - 20, y=y0 + 2,
+                                              anchor="ne", height=btn_h)
+                    self._comp_edit_btn._removal_key = removal_key  # type: ignore[attr-defined]
             total_px = hdr_y + _ORD_HDR_H + len(cc) * _ORD_ROW_H
         else:
             total_px = total_rows * _ORD_ROW_H
@@ -1473,7 +1499,7 @@ class DesignerProperties(tk.Frame):
                     self._show_hint(self._comp_def.handler_defs[idx].description)
                 elif conn_idx is not None:
                     method, label, removable, _ = self._comp_connections[conn_idx]
-                    suffix = " — double-click to jump" if not removable else " — double-click to jump · × to disconnect"
+                    suffix = " — double-click to jump" if not removable else " — double-click to jump · … to edit · × to disconnect"
                     self._show_hint(f"{method}  ({label}){suffix}")
                 else:
                     self._clear_hint()
@@ -1515,7 +1541,7 @@ class DesignerProperties(tk.Frame):
             self._show_hint(f"{method}  ({comp_id}) — ⚡ to connect")
         elif comp_idx is not None:
             method, label, removable, _ = self._widget_comp_handlers[comp_idx]
-            suffix = " — double-click to jump · × to disconnect" if removable else " — double-click to jump"
+            suffix = " — double-click to jump · … to edit · × to disconnect" if removable else " — double-click to jump"
             self._show_hint(f"{method}  ({label}){suffix}")
         else:
             self._clear_hint()
@@ -1545,6 +1571,7 @@ class DesignerProperties(tk.Frame):
             self._handler_disco_btn.place_forget()
             self._comp_connect_btn.place_forget()
             self._comp_disconnect_btn.place_forget()
+            self._comp_edit_btn.place_forget()
             self._handlers_redraw()
         self._clear_hint()
 
@@ -1559,7 +1586,8 @@ class DesignerProperties(tk.Frame):
         full leave handler to clean everything up.
         """
         btn = event.widget
-        if btn in (self._handler_wire_btn, self._handler_edit_btn, self._comp_connect_btn):
+        if btn in (self._handler_wire_btn, self._handler_edit_btn,
+                   self._comp_connect_btn, self._comp_edit_btn):
             btn.config(fg="#555555")
         elif btn in (self._handler_disco_btn, self._comp_disconnect_btn):
             btn.config(bg="#3a1a1a")
@@ -1634,6 +1662,18 @@ class DesignerProperties(tk.Frame):
             if key and self._on_component_disconnect:
                 comp_id, widget_id, ev_key = key
                 self._on_component_disconnect(comp_id, widget_id, ev_key)
+
+    def _on_comp_edit_click(self, _event: tk.Event) -> None:
+        if self._comp_mode:
+            key = getattr(self._comp_edit_btn, "_removal_key", None)
+            if key and self._comp_id and self._on_component_edit:
+                widget_id, ev_key = key
+                self._on_component_edit(self._comp_id, widget_id, ev_key)
+        else:
+            key = getattr(self._comp_edit_btn, "_wch_removal", None)
+            if key and self._on_component_edit:
+                comp_id, widget_id, ev_key = key
+                self._on_component_edit(comp_id, widget_id, ev_key)
 
     def _on_handler_wire_click(self, _event: tk.Event) -> None:
         hid = getattr(self._handler_wire_btn, "_handler_id", None)
