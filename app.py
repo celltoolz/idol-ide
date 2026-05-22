@@ -5098,10 +5098,13 @@ class IDOL(Tk):
 
         _show_title        = (comp.type == "CommonDialog")
         _title_entry_label = "Message" if handler_id == "messagebox" else "Title"
+        _show_extra        = (handler_id == "messagebox")
         if handler_id == "messagebox":
             _init_title = comp.props.get("messagebox_message", "")
+            _init_extra = comp.props.get("messagebox_title", "")
         else:
             _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+            _init_extra = ""
 
         def _on_wire(widget_id: str, event_key: str, option: str = "") -> None:
             w = form.get_widget(widget_id)
@@ -5109,25 +5112,34 @@ class IDOL(Tk):
                 return
             method = f"_{comp_id}{hdef.label}"
             w.events[event_key] = method
-            if _show_title and "|" in option:
-                main_opt, title_val = option.rsplit("|", 1)
-            else:
-                main_opt, title_val = option, ""
             if handler_id == "messagebox":
+                _parts   = option.split("|", 2)
+                main_opt = _parts[0]
+                msg_text = _parts[1] if len(_parts) > 1 else ""
+                dlg_title = _parts[2] if len(_parts) > 2 else ""
                 comp.props["messagebox_type"] = main_opt or "askyesno"
-                if title_val:
-                    comp.props["messagebox_message"] = title_val
+                if msg_text:
+                    comp.props["messagebox_message"] = msg_text
                 elif "messagebox_message" in comp.props:
                     del comp.props["messagebox_message"]
-            elif _show_title:
-                if title_val:
-                    comp.props[f"{handler_id}_title"] = title_val
-                elif f"{handler_id}_title" in comp.props:
-                    del comp.props[f"{handler_id}_title"]
-            if handler_id in _FILE_OBJ_HANDLERS:
-                comp.props[f"{handler_id}_target"] = main_opt
-            elif handler_id == "ask_input":
-                comp.props["ask_input_type"] = main_opt or "string"
+                if dlg_title:
+                    comp.props["messagebox_title"] = dlg_title
+                elif "messagebox_title" in comp.props:
+                    del comp.props["messagebox_title"]
+            else:
+                if _show_title and "|" in option:
+                    main_opt, title_val = option.rsplit("|", 1)
+                else:
+                    main_opt, title_val = option, ""
+                if _show_title:
+                    if title_val:
+                        comp.props[f"{handler_id}_title"] = title_val
+                    elif f"{handler_id}_title" in comp.props:
+                        del comp.props[f"{handler_id}_title"]
+                if handler_id in _FILE_OBJ_HANDLERS:
+                    comp.props[f"{handler_id}_target"] = main_opt
+                elif handler_id == "ask_input":
+                    comp.props["ask_input_type"] = main_opt or "string"
             self._set_designer_dirty()
             self._props_panel.refresh_comp_connections()
 
@@ -5146,6 +5158,9 @@ class IDOL(Tk):
             show_title_entry=_show_title,
             initial_title=_init_title,
             title_entry_label=_title_entry_label,
+            show_extra_entry=_show_extra,
+            initial_extra=_init_extra,
+            extra_entry_label="Title",
         )
 
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
@@ -5215,10 +5230,13 @@ class IDOL(Tk):
 
         _show_title        = (comp.type == "CommonDialog")
         _title_entry_label = "Message" if handler_id == "messagebox" else "Title"
+        _show_extra        = (handler_id == "messagebox")
         if handler_id == "messagebox":
             _init_title = comp.props.get("messagebox_message", "")
+            _init_extra = comp.props.get("messagebox_title", "")
         else:
             _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+            _init_extra = ""
 
         def _on_wire(new_widget_id: str, new_event_key: str, option: str = "") -> None:
             # Remove the old binding if widget or event changed
@@ -5230,25 +5248,34 @@ class IDOL(Tk):
             if new_w is None:
                 return
             new_w.events[new_event_key] = method
-            if _show_title and "|" in option:
-                main_opt, title_val = option.rsplit("|", 1)
-            else:
-                main_opt, title_val = option, ""
             if handler_id == "messagebox":
+                _parts    = option.split("|", 2)
+                main_opt  = _parts[0]
+                msg_text  = _parts[1] if len(_parts) > 1 else ""
+                dlg_title = _parts[2] if len(_parts) > 2 else ""
                 comp.props["messagebox_type"] = main_opt or "askyesno"
-                if title_val:
-                    comp.props["messagebox_message"] = title_val
+                if msg_text:
+                    comp.props["messagebox_message"] = msg_text
                 elif "messagebox_message" in comp.props:
                     del comp.props["messagebox_message"]
-            elif _show_title:
-                if title_val:
-                    comp.props[f"{handler_id}_title"] = title_val
-                elif f"{handler_id}_title" in comp.props:
-                    del comp.props[f"{handler_id}_title"]
-            if handler_id in _FILE_OBJ_HANDLERS:
-                comp.props[f"{handler_id}_target"] = main_opt
-            elif handler_id == "ask_input":
-                comp.props["ask_input_type"] = main_opt or "string"
+                if dlg_title:
+                    comp.props["messagebox_title"] = dlg_title
+                elif "messagebox_title" in comp.props:
+                    del comp.props["messagebox_title"]
+            else:
+                if _show_title and "|" in option:
+                    main_opt, title_val = option.rsplit("|", 1)
+                else:
+                    main_opt, title_val = option, ""
+                if _show_title:
+                    if title_val:
+                        comp.props[f"{handler_id}_title"] = title_val
+                    elif f"{handler_id}_title" in comp.props:
+                        del comp.props[f"{handler_id}_title"]
+                if handler_id in _FILE_OBJ_HANDLERS:
+                    comp.props[f"{handler_id}_target"] = main_opt
+                elif handler_id == "ask_input":
+                    comp.props["ask_input_type"] = main_opt or "string"
             self._set_designer_dirty()
             self._props_panel.refresh_comp_connections()
 
@@ -5268,6 +5295,9 @@ class IDOL(Tk):
             show_title_entry=_show_title,
             initial_title=_init_title,
             title_entry_label=_title_entry_label,
+            show_extra_entry=_show_extra,
+            initial_extra=_init_extra,
+            extra_entry_label="Title",
             wire_label="Update",
         )
 

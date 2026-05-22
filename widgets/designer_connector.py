@@ -46,6 +46,9 @@ class ComponentConnector(tk.Toplevel):
         show_title_entry: bool = False,
         initial_title: str = "",
         title_entry_label: str = "Title",
+        show_extra_entry: bool = False,
+        initial_extra: str = "",
+        extra_entry_label: str = "Title",
         wire_label: str = "Wire",
         preselect_event_key: str | None = None,
     ) -> None:
@@ -64,9 +67,13 @@ class ComponentConnector(tk.Toplevel):
         self._show_title_entry    = show_title_entry
         self._initial_title       = initial_title
         self._title_entry_label   = title_entry_label
+        self._show_extra_entry    = show_extra_entry
+        self._initial_extra       = initial_extra
+        self._extra_entry_label   = extra_entry_label
         self._wire_label          = wire_label
         self._preselect_event_key = preselect_event_key
         self._title_var: tk.StringVar | None = None
+        self._extra_var: tk.StringVar | None = None
 
         # Build the display method name
         if component_id:
@@ -173,6 +180,24 @@ class ComponentConnector(tk.Toplevel):
             title_entry.pack(side="left", fill="x", expand=True)
             title_entry.bind("<KeyRelease>", lambda _: self._update_preview())
 
+        # Extra entry (e.g. dialog title for messagebox, shown below message entry)
+        if self._show_extra_entry:
+            extra_row = tk.Frame(self, bg=_BG)
+            extra_row.pack(fill="x", padx=10, pady=(0, 4))
+            tk.Label(extra_row, text=f"{self._extra_entry_label}:", bg=_BG, fg=_DIM,
+                     font=(UI_FONT, 8), anchor="w", width=7).pack(side="left", padx=(0, 4))
+            self._extra_var = tk.StringVar(value=self._initial_extra)
+            extra_entry = tk.Entry(
+                extra_row, textvariable=self._extra_var,
+                bg="#3c3c3c", fg="#cccccc",
+                insertbackground="#cccccc",
+                relief="flat", highlightthickness=1,
+                highlightbackground="#555555",
+                font=(UI_FONT, 9),
+            )
+            extra_entry.pack(side="left", fill="x", expand=True)
+            extra_entry.bind("<KeyRelease>", lambda _: self._update_preview())
+
         # Preview label
         self._preview = tk.Label(
             self, text="Select a widget and event above",
@@ -275,8 +300,10 @@ class ComponentConnector(tk.Toplevel):
             rhs = f"self.{self._method_display}(){option_str}"
         title = self._title_var.get().strip() if self._title_var else ""
         title_tag = f'  {self._title_entry_label.lower()}: "{title}"' if title else ""
+        extra = self._extra_var.get().strip() if self._extra_var else ""
+        extra_tag = f'  {self._extra_entry_label.lower()}: "{extra}"' if extra else ""
         self._preview.config(
-            text=f"Wires:  {wid}.{ev_key}  →  {rhs}{title_tag}",
+            text=f"Wires:  {wid}.{ev_key}  →  {rhs}{title_tag}{extra_tag}",
             fg="#4ec9b0",
         )
         if (ev_key in self._used_evs
@@ -302,7 +329,13 @@ class ComponentConnector(tk.Toplevel):
         combined  = (f"{option}:{secondary}" if option and secondary
                      else secondary if secondary else option)
         title = self._title_var.get().strip() if self._title_var else ""
-        combined_final = f"{combined}|{title}" if title else combined
+        extra = self._extra_var.get().strip() if self._extra_var else ""
+        if extra:
+            combined_final = f"{combined}|{title}|{extra}"
+        elif title:
+            combined_final = f"{combined}|{title}"
+        else:
+            combined_final = combined
         self._on_wire(wid, ev_key, combined_final)
         self.destroy()
 
