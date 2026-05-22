@@ -42,6 +42,17 @@ class ComponentConnector(tk.Toplevel):
         wire_body_resolver: "Callable[[str], str] | None" = None,
         secondary_options: tuple[str, ...] = (),
         secondary_label: str = "Mode",
+        initial_warning: str = "",
+        show_title_entry: bool = False,
+        initial_title: str = "",
+        title_entry_label: str = "Title",
+        show_extra_entry: bool = False,
+        initial_extra: str = "",
+        extra_entry_label: str = "Title",
+        wire_label: str = "Wire",
+        preselect_event_key: str | None = None,
+        menu_items: "tuple | list" = (),
+        stub_checker: "Callable[[str], bool] | None" = None,
     ) -> None:
         super().__init__(parent)
         self._form              = form
@@ -54,6 +65,20 @@ class ComponentConnector(tk.Toplevel):
         self._secondary_label     = secondary_label
         self._preselect_widget_id = preselect_widget_id
         self._wire_body_resolver  = wire_body_resolver
+        self._initial_warning     = initial_warning
+        self._show_title_entry    = show_title_entry
+        self._initial_title       = initial_title
+        self._title_entry_label   = title_entry_label
+        self._show_extra_entry    = show_extra_entry
+        self._initial_extra       = initial_extra
+        self._extra_entry_label   = extra_entry_label
+        self._wire_label          = wire_label
+        self._preselect_event_key = preselect_event_key
+        self._menu_items          = list(menu_items)
+        self._stub_checker        = stub_checker
+        self._menu_item_names:    set[str] = set()
+        self._title_var: tk.StringVar | None = None
+        self._extra_var: tk.StringVar | None = None
 
         # Build the display method name
         if component_id:
@@ -142,19 +167,67 @@ class ComponentConnector(tk.Toplevel):
                 sec_cb.pack(side="left")
                 sec_cb.bind("<<ComboboxSelected>>", lambda _: self._update_preview())
 
+        # Title entry — optional, shown for components that support per-handler titles
+        if self._show_title_entry:
+            title_row = tk.Frame(self, bg=_BG)
+            title_row.pack(fill="x", padx=10, pady=(0, 4))
+            tk.Label(title_row, text=f"{self._title_entry_label}:", bg=_BG, fg=_DIM,
+                     font=(UI_FONT, 8), anchor="w", width=7).pack(side="left", padx=(0, 4))
+            self._title_var = tk.StringVar(value=self._initial_title)
+            title_entry = tk.Entry(
+                title_row, textvariable=self._title_var,
+                bg="#3c3c3c", fg="#cccccc",
+                insertbackground="#cccccc",
+                relief="flat", highlightthickness=1,
+                highlightbackground="#555555",
+                font=(UI_FONT, 9),
+            )
+            title_entry.pack(side="left", fill="x", expand=True)
+            title_entry.bind("<KeyRelease>", lambda _: self._update_preview())
+
+        # Extra entry (e.g. dialog title for messagebox, shown below message entry)
+        if self._show_extra_entry:
+            extra_row = tk.Frame(self, bg=_BG)
+            extra_row.pack(fill="x", padx=10, pady=(0, 4))
+            tk.Label(extra_row, text=f"{self._extra_entry_label}:", bg=_BG, fg=_DIM,
+                     font=(UI_FONT, 8), anchor="w", width=7).pack(side="left", padx=(0, 4))
+            self._extra_var = tk.StringVar(value=self._initial_extra)
+            extra_entry = tk.Entry(
+                extra_row, textvariable=self._extra_var,
+                bg="#3c3c3c", fg="#cccccc",
+                insertbackground="#cccccc",
+                relief="flat", highlightthickness=1,
+                highlightbackground="#555555",
+                font=(UI_FONT, 9),
+            )
+            extra_entry.pack(side="left", fill="x", expand=True)
+            extra_entry.bind("<KeyRelease>", lambda _: self._update_preview())
+
         # Preview label
         self._preview = tk.Label(
             self, text="Select a widget and event above",
             bg=_BG, fg=_DIM, font=(UI_FONT, 8), anchor="w", padx=10,
         )
-        self._preview.pack(fill="x", pady=(0, 4))
+        self._preview.pack(fill="x", pady=(0, 2))
+
+        # Warning label — visible when selected event already has a handler,
+        # or pre-populated via initial_warning (e.g. no populate targets found).
+        self._warn_lbl = tk.Label(
+            self, text=self._initial_warning,
+            bg=_BG, fg="#e8a844", font=(UI_FONT, 8), anchor="w", padx=10,
+        )
+        self._warn_lbl.pack(fill="x", pady=(0, 4))
+
+        # Parallel lists — clean event keys + in-use tracking
+        self._ev_keys:  list[str] = []
+        self._used_evs: set[str]  = set()
 
         # Button row
         btn_row = tk.Frame(self, bg=_BG)
         btn_row.pack(fill="x", padx=10, pady=(0, 10))
 
         self._wire_btn = tk.Label(
-            btn_row, text="Wire", bg=_ACC, fg="#ffffff",
+            btn_row, text=self._wire_label, bg=_ACC, fg="#ffffff",
             font=(UI_FONT, 9), padx=12, pady=4, cursor="hand2",
         )
         self._wire_btn.pack(side="right", padx=(6, 0))
@@ -178,6 +251,26 @@ class ComponentConnector(tk.Toplevel):
                 self._wid_lb.insert("end", f"{w.id}  ({w.type})")
                 self._widget_ids.append(w.id)
 
+        # Add connectable menu items (non-cascade command items at indent > 0)
+        items = self._menu_items
+        for i, mi in enumerate(items):
+            if mi.indent == 0 or mi.caption == "-" or not mi.name:
+                continue
+            if mi.kind in ("checkbutton", "radiobutton"):
+                continue
+            is_cascade = any(
+                items[j].indent == mi.indent + 1
+                for j in range(i + 1, len(items))
+                if items[j].indent <= mi.indent + 1
+            )
+            if is_cascade:
+                continue
+            if mi.name == self._preselect_widget_id:
+                preselect_idx = len(self._widget_ids)
+            self._wid_lb.insert("end", f"{mi.name}  (MenuItem)")
+            self._widget_ids.append(mi.name)
+            self._menu_item_names.add(mi.name)
+
         self._wid_lb.bind("<<ListboxSelect>>", self._on_widget_select)
         self._ev_lb.bind("<<ListboxSelect>>",  self._update_preview)
 
@@ -192,14 +285,37 @@ class ComponentConnector(tk.Toplevel):
         if not sel:
             return
         wid = self._widget_ids[sel[0]]
+
+        if wid in self._menu_item_names:
+            mi = next((m for m in self._menu_items if m.name == wid), None)
+            self._ev_keys  = ["command"]
+            self._used_evs = {"command"} if mi and mi.command_handler else set()
+            self._ev_lb.delete(0, "end")
+            label = "◆ command" if self._used_evs else "command"
+            self._ev_lb.insert("end", label)
+            self._warn_lbl.config(text="")
+            if self._preselect_event_key == "command":
+                self._ev_lb.selection_set(0)
+                self._ev_lb.see(0)
+            self._update_preview()
+            return
+
         widget = self._form.get_widget(wid)
         if widget is None:
             return
         reg    = REGISTRY.get(widget.type, {})
         events = reg.get("events", [])
+        self._used_evs = set(widget.events.keys())
+        self._ev_keys  = list(events)
         self._ev_lb.delete(0, "end")
         for ev in events:
-            self._ev_lb.insert("end", ev)
+            label = f"◆ {ev}" if ev in self._used_evs else ev
+            self._ev_lb.insert("end", label)
+        self._warn_lbl.config(text="")
+        if self._preselect_event_key and self._preselect_event_key in self._ev_keys:
+            ev_idx = self._ev_keys.index(self._preselect_event_key)
+            self._ev_lb.selection_set(ev_idx)
+            self._ev_lb.see(ev_idx)
         self._update_preview()
 
     def _update_preview(self, _event=None) -> None:
@@ -207,12 +323,14 @@ class ComponentConnector(tk.Toplevel):
         esel = self._ev_lb.curselection()
         if not wsel or not esel:
             self._preview.config(text="Select a widget and event above", fg=_DIM)
+            self._warn_lbl.config(text="")
             return
         wid    = self._widget_ids[wsel[0]]
-        ev_key = self._ev_lb.get(esel[0])
+        ev_key = self._ev_keys[esel[0]]
         option    = self._option_var.get()    if self._option_var    else ""
         secondary = self._secondary_var.get() if self._secondary_var else ""
-        combined  = f"{option}:{secondary}" if option and secondary else option
+        combined  = (f"{option}:{secondary}" if option and secondary
+                     else secondary if secondary else option)
         if self._wire_body_resolver and combined:
             body = self._wire_body_resolver(combined)
             mode_tag = f"  [{secondary}]" if secondary else ""
@@ -220,10 +338,35 @@ class ComponentConnector(tk.Toplevel):
         else:
             option_str = f"  [{option}]" if option else ""
             rhs = f"self.{self._method_display}(){option_str}"
+        title = self._title_var.get().strip() if self._title_var else ""
+        title_tag = f'  {self._title_entry_label.lower()}: "{title}"' if title else ""
+        extra = self._extra_var.get().strip() if self._extra_var else ""
+        extra_tag = f'  {self._extra_entry_label.lower()}: "{extra}"' if extra else ""
         self._preview.config(
-            text=f"Wires:  {wid}.{ev_key}  →  {rhs}",
+            text=f"Wires:  {wid}.{ev_key}  →  {rhs}{title_tag}{extra_tag}",
             fg="#4ec9b0",
         )
+        if (ev_key in self._used_evs
+                and not (wid == self._preselect_widget_id
+                         and ev_key == self._preselect_event_key)):
+            if wid in self._menu_item_names:
+                mi = next((m for m in self._menu_items if m.name == wid), None)
+                raw = mi.command_handler if mi else ""
+                existing_handler = raw
+            else:
+                existing = self._form.get_widget(wid)
+                existing_handler = existing.events.get(ev_key, "") if existing else ""
+            is_stub = (self._stub_checker is not None
+                       and existing_handler
+                       and self._stub_checker(existing_handler))
+            if not is_stub:
+                self._warn_lbl.config(
+                    text=f"⚠  '{ev_key}' already calls {existing_handler} — wiring will overwrite it",
+                )
+            else:
+                self._warn_lbl.config(text="")
+        else:
+            self._warn_lbl.config(text="")
 
     def _do_wire(self) -> None:
         wsel = self._wid_lb.curselection()
@@ -231,11 +374,20 @@ class ComponentConnector(tk.Toplevel):
         if not wsel or not esel:
             return
         wid    = self._widget_ids[wsel[0]]
-        ev_key = self._ev_lb.get(esel[0])
+        ev_key = self._ev_keys[esel[0]]
         option    = self._option_var.get()    if self._option_var    else ""
         secondary = self._secondary_var.get() if self._secondary_var else ""
-        combined  = f"{option}:{secondary}" if option and secondary else option
-        self._on_wire(wid, ev_key, combined)
+        combined  = (f"{option}:{secondary}" if option and secondary
+                     else secondary if secondary else option)
+        title = self._title_var.get().strip() if self._title_var else ""
+        extra = self._extra_var.get().strip() if self._extra_var else ""
+        if extra:
+            combined_final = f"{combined}|{title}|{extra}"
+        elif title:
+            combined_final = f"{combined}|{title}"
+        else:
+            combined_final = combined
+        self._on_wire(wid, ev_key, combined_final)
         self.destroy()
 
     def _center(self, parent: tk.Misc) -> None:

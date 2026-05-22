@@ -2582,13 +2582,16 @@ class CanvasCodeView(tk.Frame):
 
     def _on_right_click(self, event):
         self.canvas.focus_set()
-        try:
-            row = self._row_from_y(event.y)
-            col = self._col_from_x(row, event.x)
-            self.cur_line, self.cur_col = row, col
-            self.render()
-        except Exception:
-            pass
+        # Only move the cursor when there is no active selection — with a
+        # selection we preserve it so Copy/Cut act on the right range.
+        if self.sel_anchor is None:
+            try:
+                row = self._row_from_y(event.y)
+                col = self._col_from_x(row, event.x)
+                self.cur_line, self.cur_col = row, col
+                self.render()
+            except Exception:
+                pass
 
         has_sel = self.sel_anchor is not None and self.sel_anchor != (
             self.cur_line, self.cur_col
@@ -2882,6 +2885,8 @@ class CanvasCodeView(tk.Frame):
         if ks == "Tab":
             if shift:
                 self._unindent(); self._ensure_visible(); return "break"
+            if self.sel_anchor is not None:
+                self._indent(); self._ensure_visible(); return "break"
             self._push_undo(""); self._insert_text(" " * self.tab_size); self._ensure_visible(); self.render(); return "break"
 
         if event.char and event.char.isprintable() and not ctrl:
@@ -2897,9 +2902,12 @@ class CanvasCodeView(tk.Frame):
                 self._hide_autocomplete()
             return "break"
         # Any movement / editing key dismisses the popup (it's reopened
-        # on the next identifier keystroke).
+        # on the next identifier keystroke). Pure modifier keys (Shift,
+        # Ctrl, Alt, Meta) have no char and should not dismiss it.
         if self._ac_top is not None and self._ac_top.state() == "normal":
-            self._hide_autocomplete()
+            if not ks.startswith(("Shift_", "Control_", "Alt_", "Meta_",
+                                   "Super_", "Hyper_", "Caps_Lock", "Num_Lock")):
+                self._hide_autocomplete()
         return None
 
     # ── Movement helpers ──────────────────────────────────────────────────────
@@ -3429,6 +3437,23 @@ class CanvasCodeView(tk.Frame):
         self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
         self.render()
         self._fire_change()
+
+    def _indent(self) -> None:
+        """Tab with selection — add tab_size spaces to the start of each selected line."""
+        self._push_undo("")
+        start, end = self._selected_line_range()
+        spaces = " " * self.tab_size
+        for i in range(start, end + 1):
+            self.lines[i] = spaces + self.lines[i]
+            if i == self.cur_line:
+                self.cur_col += self.tab_size
+        if self.sel_anchor is not None:
+            al, ac = self.sel_anchor
+            if start <= al <= end:
+                self.sel_anchor = (al, ac + self.tab_size)
+        self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
+        self._fire_change()
+        self.render()
 
     def _unindent(self) -> None:
         """Shift+Tab — remove up to tab_size leading spaces from each selected line."""

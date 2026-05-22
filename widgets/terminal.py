@@ -807,29 +807,25 @@ class TerminalPanel(ttk.Frame):
     def resize(self, rows: int, cols: int) -> bool:
         if rows == self._rows and cols == self._cols:
             return False
-        old_rows, old_cols = self._rows, self._cols
+        old_cols = self._cols
         self._rows = rows
         self._cols = cols
-        # When rows decrease, bypass pyte's resize() entirely: pyte's resize
-        # calls delete_lines(N) unconditionally from the top, but ConPTY only
-        # scrolls by cursor-based scroll_amount = max(0, cursor.y - (rows-1)).
-        # The mismatch shifts pyte's buffer relative to ConPTY, making
-        # PSReadLine's SIGWINCH cursor-up land on the wrong row and leave
-        # partial/leftover prompt text on screen.  Row expansions and
-        # col-only changes still use the normal pyte path.
-        if rows < old_rows:
-            self._screen.lines = rows
-            self._screen.cursor.y = min(self._screen.cursor.y, rows - 1)
-            if cols != old_cols:
-                self._screen.columns = cols
-                if cols < old_cols:
-                    for line in self._screen.buffer.values():
-                        for x in range(cols, old_cols):
-                            line.pop(x, None)
-                self._screen.set_margins()
-            self._screen.dirty.update(range(rows))
-        else:
-            self._screen.resize(rows, cols)
+        # Bypass pyte's resize() entirely: pyte's resize has two problems:
+        # 1. On row-shrink it calls delete_lines(N) unconditionally from the
+        #    top, but ConPTY only scrolls by max(0, cursor.y - (rows-1)).
+        #    The mismatch shifts pyte's buffer relative to ConPTY, causing
+        #    PSReadLine's SIGWINCH cursor-up to land on the wrong row.
+        # 2. On col-shrink it pops cells beyond the new width, permanently
+        #    destroying chars PSReadLine would restore via SIGWINCH.
+        # _screen_to_lines() already limits rendering to self._screen.columns,
+        # so retained extra-width cells are invisible until PSReadLine rewrites
+        # them at the new wrapping position.
+        self._screen.lines = rows
+        self._screen.cursor.y = min(self._screen.cursor.y, rows - 1)
+        if cols != old_cols:
+            self._screen.columns = cols
+        self._screen.set_margins()
+        self._screen.dirty.update(range(rows))
         if self._pty and self._running:
             try:
                 self._pty.setwinsize(rows, cols)
@@ -837,19 +833,12 @@ class TerminalPanel(ttk.Frame):
                 pass
         for sess in self._sessions.values():
             try:
-                if rows < old_rows:
-                    sess["screen"].lines = rows
-                    sess["screen"].cursor.y = min(sess["screen"].cursor.y, rows - 1)
-                    if cols != old_cols:
-                        sess["screen"].columns = cols
-                        if cols < old_cols:
-                            for line in sess["screen"].buffer.values():
-                                for x in range(cols, old_cols):
-                                    line.pop(x, None)
-                        sess["screen"].set_margins()
-                    sess["screen"].dirty.update(range(rows))
-                else:
-                    sess["screen"].resize(rows, cols)
+                sess["screen"].lines = rows
+                sess["screen"].cursor.y = min(sess["screen"].cursor.y, rows - 1)
+                if cols != old_cols:
+                    sess["screen"].columns = cols
+                sess["screen"].set_margins()
+                sess["screen"].dirty.update(range(rows))
                 if sess["running"] and sess.get("pty"):
                     sess["pty"].setwinsize(rows, cols)
             except Exception:
@@ -1167,6 +1156,125 @@ class TerminalPanel(ttk.Frame):
                 segments.append((run_text, run_fg, run_bg, run_bold))
             lines.append(segments)
         return lines
+
+    def _reflow_live_buffer(self, old_cols: int) -> None:
+        """Reflow pyte's live buffer from old_cols to self._screen.columns.
+
+        Logical lines (rows joined by DECAWM idol_wrapped=True) are merged
+        and re-broken at the new column width, matching VS Code terminal
+        behaviour.  Cursor position is updated so pyte's tracked row/col
+        stays consistent with PSReadLine's SIGWINCH cursor-up calculation.
+        Only called when not in alt-screen mode (TUI apps handle their own
+        SIGWINCH reflow).
+        """
+        import pyte.screens as _ps
+        new_cols = self._screen.columns
+        if old_cols == new_cols:
+            return
+
+        buffer       = self._screen.buffer
+        default_char = self._screen.default_char
+        num_rows     = self._screen.lines
+
+        actual_keys = sorted(buffer.keys())
+        if not actual_keys:
+            return
+        max_row = actual_keys[-1]
+
+        cur_y = self._screen.cursor.y
+        cur_x = min(self._screen.cursor.x, old_cols - 1)
+
+        def _is_real_wrap(row_obj) -> bool:
+            if row_obj is None or not getattr(row_obj, "idol_wrapped", False):
+                return False
+            last = row_obj.get(old_cols - 1)
+            if last is None:
+                return False
+            return (bool(last.data and last.data != " ")
+                    or last.fg != "default" or last.bg != "default")
+
+        # ── Extract logical lines ─────────────────────────────────────────
+        # Each entry: (list[Char], cursor_offset_into_line | None)
+        logical: list = []
+        i = 0
+        while i <= max_row:
+            chars:    list     = []
+            cur_off: int | None = None
+            j = i
+            while True:
+                row = buffer.get(j)
+                if j == cur_y:
+                    cur_off = len(chars) + cur_x
+                if row is not None:
+                    for col in range(old_cols):
+                        chars.append(row[col])    # StaticDefaultDict → default for missing
+                else:
+                    chars.extend([default_char] * old_cols)
+                wraps = _is_real_wrap(row)
+                j += 1
+                if not wraps or j > max_row:
+                    break
+            # Strip trailing default-space cells (keep up to cursor position)
+            tail = len(chars)
+            while tail > 0 and chars[tail - 1] == default_char:
+                tail -= 1
+            if cur_off is not None:
+                tail = max(tail, cur_off)
+            chars = chars[:tail]
+            logical.append((chars, cur_off))
+            i = j
+
+        # ── Re-wrap at new_cols ───────────────────────────────────────────
+        new_buf: dict = {}
+        r = 0
+        new_cur_y = cur_y
+        new_cur_x = cur_x
+
+        for chars, cur_off in logical:
+            if not chars:
+                new_buf[r] = _ps.StaticDefaultDict(default_char)
+                r += 1
+                continue
+            total = len(chars)
+            idx   = 0
+            while True:
+                chunk = chars[idx:idx + new_cols]
+                wraps = idx + new_cols < total
+                line  = _ps.StaticDefaultDict(default_char)
+                line.idol_wrapped = wraps
+                for col, ch in enumerate(chunk):
+                    if ch != default_char:
+                        line[col] = ch
+                # Track cursor: inclusive upper-bound so an offset exactly at
+                # the end of a full chunk matches here (gets bumped below).
+                if cur_off is not None:
+                    lo, hi = idx, idx + len(chunk)
+                    if lo <= cur_off <= hi:
+                        new_cur_y = r
+                        new_cur_x = cur_off - idx
+                new_buf[r] = line
+                r += 1
+                idx += new_cols
+                if not wraps:
+                    break
+
+        # Cursor one past the end of a full-width row → move to next row col 0
+        if new_cur_x >= new_cols:
+            new_cur_y += 1
+            new_cur_x  = 0
+            if new_cur_y not in new_buf:
+                blank = _ps.StaticDefaultDict(default_char)
+                blank.idol_wrapped = False
+                new_buf[new_cur_y] = blank
+
+        # ── Commit ───────────────────────────────────────────────────────
+        buffer.clear()
+        for row_idx, line in new_buf.items():
+            buffer[row_idx] = line
+
+        self._screen.cursor.y = max(0, min(new_cur_y, num_rows - 1))
+        self._screen.cursor.x = max(0, min(new_cur_x, new_cols - 1))
+        self._screen.dirty.update(range(num_rows))
 
     def _row_effective_wrap(self, line, wrapped: bool) -> bool:
         """Return True only if this row actually wrap-continues onto the next.
@@ -2349,7 +2457,14 @@ class TerminalPanel(ttk.Frame):
                 # shifts pyte's rows (prompt → row 0) without PSReadLine
                 # knowing → garbled prompt with blank lines and partial text.
                 # PSReadLine's own SIGWINCH handler reflows the prompt on its own.
+                old_cols = self._cols   # captured before resize() mutates self._cols
                 self.resize(rows, cols)
+                # Immediately reflow the live buffer so the display updates
+                # before PSReadLine's SIGWINCH response arrives, matching
+                # VS Code terminal behaviour.  Skip for alt-screen apps (vim,
+                # htop, etc.) — they handle their own SIGWINCH reflow.
+                if cols != old_cols and not self._screen.in_alt_screen:
+                    self._reflow_live_buffer(old_cols)
                 # Selection coords live in physical canvas rows that change
                 # meaning after reflow — clear rather than try to remap.
                 self._sel_anchor = None

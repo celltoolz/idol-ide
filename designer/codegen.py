@@ -144,6 +144,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     out.append("import tkinter as tk")
     if needs_ttk:
         out.append("from tkinter import ttk")
+    for _imp in _collect_component_imports(form):
+        out.append(_imp)
     out.append(_IMPORT_B)
     if user_imports:
         for line in user_imports.splitlines():
@@ -820,8 +822,13 @@ def _menu_lines(items) -> list[str]:
             sc   = f', accelerator="{item.shortcut}"' if item.shortcut else ""
             lines.append(f'        {parent}.add_radiobutton(label="{label}"{vvar}{val}{cmd}{sc}{ul}{disabled})')
         else:
-            # Leaf command
-            cmd = f", command=self._{name}_click" if name else ""
+            # Leaf command — command_handler set means a component handler is wired directly
+            if item.command_handler:
+                cmd = f", command=self.{item.command_handler}"
+            elif name:
+                cmd = f", command=self._{name}_click"
+            else:
+                cmd = ""
             sc  = f', accelerator="{item.shortcut}"' if item.shortcut else ""
             lines.append(f'        {parent}.add_command(label="{label}"{cmd}{sc}{ul}{disabled})')
 
@@ -910,13 +917,71 @@ def _body_lines(method_name: str, bodies: dict[str, str],
 
 # ── Component codegen ────────────────────────────────────────────────────────
 
-def _component_init_lines(form: FormModel) -> list[str]:
-    """Return 8-space-indented __init__ lines for all components on this form."""
+def _comp_wired_methods(form: FormModel) -> set[str]:
+    """All component handler method names currently wired to a widget event."""
+    return {m for w in form.widgets for m in w.events.values()}
+
+
+def _comp_should_emit(comp, cdef, wired_methods: set[str]) -> bool:
+    """True if this component should generate any code.
+
+    A Timer with enabled=True auto-starts from __init__ and always emits.
+    All other components only emit when at least one connectable handler is wired.
+    """
+    if comp.type == "Timer" and comp.props.get("enabled", True):
+        return True
+    return any(
+        f"_{comp.id}{hdef.label}" in wired_methods
+        for hdef in cdef.handler_defs
+        if hdef.has_connector
+    )
+
+
+def _collect_component_imports(form: FormModel) -> list[str]:
+    """Return deduplicated extra import lines required by components on this form.
+
+    For CommonDialog, only imports for handler modules that are actually wired
+    are emitted (e.g. colorchooser is skipped when choose_color is not wired).
+    """
     from .component_registry import COMPONENT_REGISTRY
+    _FILEDIALOG_HIDS = {"show_open", "show_save", "choose_dir", "ask_open_file", "ask_save_file"}
+    wired = _comp_wired_methods(form)
+    seen: set[str] = set()
+    result: list[str] = []
+    for comp in form.components:
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef is None or not _comp_should_emit(comp, cdef, wired):
+            continue
+        if comp.type == "CommonDialog":
+            wired_hids = {
+                hdef.id for hdef in cdef.handler_defs
+                if hdef.has_connector and f"_{comp.id}{hdef.label}" in wired
+            }
+            for imp, needed in (
+                ("from tkinter import filedialog",   _FILEDIALOG_HIDS),
+                ("from tkinter import colorchooser", {"choose_color"}),
+                ("from tkinter import simpledialog", {"ask_input"}),
+                ("from tkinter import messagebox",   {"messagebox"}),
+            ):
+                if wired_hids & needed and imp not in seen:
+                    seen.add(imp)
+                    result.append(imp)
+        else:
+            for imp in cdef.codegen_imports:
+                if imp not in seen:
+                    seen.add(imp)
+                    result.append(imp)
+    return result
+
+
+def _component_init_lines(form: FormModel) -> list[str]:
+    """Return 8-space-indented __init__ lines for components that will emit code."""
+    from .component_registry import COMPONENT_REGISTRY
+    wired = _comp_wired_methods(form)
     lines: list[str] = []
     for comp in form.components:
         cdef = COMPONENT_REGISTRY.get(comp.type)
-        if cdef is None:
+        if cdef is None or not _comp_should_emit(comp, cdef, wired):
             continue
         lines.extend(_comp_init_for(comp, cdef))
     return lines
@@ -940,20 +1005,61 @@ def _comp_init_for(comp, cdef) -> list[str]:
                 f"self._{cid}_interval, self._{cid}_tick)"
             )
 
+    elif comp.type == "CommonDialog":
+        init_dir      = str(comp.props.get("init_dir",      ""))
+        filter_str    = str(comp.props.get("filter",        "All Files (*.*)|*.*"))
+        default_ext   = str(comp.props.get("default_ext",   ""))
+        prompt        = str(comp.props.get("prompt",        "Enter a value:"))
+        default_value = str(comp.props.get("default_value", ""))
+        lines.append(f"        self._{cid}_init_dir      = {repr(init_dir)}")
+        lines.append(f"        self._{cid}_filter        = {repr(filter_str)}")
+        lines.append(f"        self._{cid}_default_ext   = {repr(default_ext)}")
+        lines.append(f"        self._{cid}_prompt        = {repr(prompt)}")
+        lines.append(f"        self._{cid}_default_value = {repr(default_value)}")
+        lines.append(f'        self._{cid}_filename      = ""')
+        lines.append(f'        self._{cid}_filetitle     = ""')
+        lines.append(f'        self._{cid}_result        = None')
+        lines.append(f'        self._{cid}_color_rgb     = None')
+        lines.append(f'        self._{cid}_color_hex     = ""')
+        mb_type    = str(comp.props.get("messagebox_type",    "askyesno"))
+        mb_message = str(comp.props.get("messagebox_message", ""))
+        lines.append(f"        self._{cid}_messagebox_type    = {repr(mb_type)}")
+        lines.append(f"        self._{cid}_messagebox_message = {repr(mb_message)}")
+        for _hid, _prop in (
+            ("show_open",      "show_open_title"),
+            ("show_save",      "show_save_title"),
+            ("choose_dir",     "choose_dir_title"),
+            ("ask_open_file",  "ask_open_file_title"),
+            ("ask_save_file",  "ask_save_file_title"),
+            ("choose_color",   "choose_color_title"),
+            ("ask_input",      "ask_input_title"),
+            ("messagebox",     "messagebox_title"),
+        ):
+            _val = str(comp.props.get(_prop, ""))
+            lines.append(f"        self._{cid}_{_hid}_title = {repr(_val)}")
+
     return lines
 
 
 def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[str]:
-    """Return 4-space-indented method lines for all component handlers."""
+    """Return 4-space-indented method lines for active component handlers.
+
+    Connectable handlers are only emitted when wired to a widget event.
+    Non-connectable callbacks (tick, on_file_selected) are only emitted when
+    the component itself emits (i.e. _comp_should_emit is True).
+    """
     from .component_registry import COMPONENT_REGISTRY
+    wired = _comp_wired_methods(form)
     lines: list[str] = []
     for comp in form.components:
         cdef = COMPONENT_REGISTRY.get(comp.type)
-        if cdef is None:
+        if cdef is None or not _comp_should_emit(comp, cdef, wired):
             continue
         for hdef in cdef.handler_defs:
-            method = f"_{comp.id}{hdef.label}"  # e.g. "_timer1_tick"
-            lines.extend(_comp_handler_method(comp, hdef, method, bodies))
+            method = f"_{comp.id}{hdef.label}"
+            if hdef.has_connector and method not in wired:
+                continue  # connectable but not wired — skip
+            lines.extend(_comp_handler_method(comp, hdef, method, bodies, form))
             lines.append("")
     return lines
 
@@ -971,7 +1077,8 @@ def _strip_timer_reschedule_tail(body: str) -> str:
     return body
 
 
-def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> list[str]:
+def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
+                         form: "FormModel | None" = None) -> list[str]:
     """Return the def block for one component handler method."""
     cid = comp.id
     lines: list[str] = [f"    def {method}(self):"]
@@ -1010,6 +1117,165 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str]) -> lis
                 lines.append(f"        if self._{cid}_after_id:")
                 lines.append(f"            self.after_cancel(self._{cid}_after_id)")
                 lines.append(f"            self._{cid}_after_id = None")
+
+    elif comp.type == "CommonDialog":
+        if hdef.id in ("show_open", "show_save"):
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                dial_fn = "askopenfilename" if hdef.id == "show_open" else "asksaveasfilename"
+                lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
+                lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
+                lines.append(f"        result = filedialog.{dial_fn}(")
+                lines.append(f"            parent=self,")
+                lines.append(f"            title=self._{cid}_{hdef.id}_title or None,")
+                lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                lines.append(f"            filetypes=_ft,")
+                lines.append(f"            defaultextension=self._{cid}_default_ext or None,")
+                lines.append(f"        )")
+                lines.append(f"        if result:")
+                lines.append(f"            self._{cid}_filename  = result")
+                lines.append(f"            self._{cid}_filetitle = result.rsplit('/', 1)[-1]")
+                lines.append(f"            self._{cid}_on_file_selected()")
+        elif hdef.id == "choose_dir":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        result = filedialog.askdirectory(")
+                lines.append(f"            parent=self,")
+                lines.append(f"            title=self._{cid}_choose_dir_title or None,")
+                lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                lines.append(f"        )")
+                lines.append(f"        if result:")
+                lines.append(f"            self._{cid}_filename  = result")
+                lines.append(f"            self._{cid}_filetitle = result.rsplit('/', 1)[-1]")
+                lines.append(f"            self._{cid}_on_file_selected()")
+        elif hdef.id == "choose_color":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                lines.append(f"        result = colorchooser.askcolor(")
+                lines.append(f"            parent=self,")
+                lines.append(f"            title=self._{cid}_choose_color_title or None,")
+                lines.append(f"            color=self._{cid}_color_hex or None,")
+                lines.append(f"        )")
+                lines.append(f"        if result[0] is not None:")
+                lines.append(f"            self._{cid}_color_rgb = result[0]")
+                lines.append(f"            self._{cid}_color_hex = result[1]")
+                lines.append(f"            self._{cid}_on_color_selected()")
+        elif hdef.id in ("ask_open_file", "ask_save_file"):
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                prop_key = f"{hdef.id}_target"
+                target_id = comp.props.get(prop_key, "(none)")
+                target_w   = form.get_widget(target_id) if form and target_id != "(none)" else None
+                target_type = target_w.type if target_w else None
+
+                if hdef.id == "ask_open_file":
+                    lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
+                    lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
+                    lines.append(f"        f = filedialog.askopenfile(")
+                    lines.append(f"            parent=self,")
+                    lines.append(f"            title=self._{cid}_ask_open_file_title or None,")
+                    lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                    lines.append(f"            filetypes=_ft,")
+                    lines.append(f"        )")
+                    lines.append(f"        if f:")
+                    lines.append(f"            with f:")
+                    lines.append(f"                _content = f.read()")
+                    lines.append(f"            self._{cid}_filename  = f.name")
+                    lines.append(f"            self._{cid}_filetitle = f.name.rsplit('/', 1)[-1]")
+                    if target_type == "Entry":
+                        lines.append(f"            self.{target_id}.delete(0, 'end')")
+                        lines.append(f"            self.{target_id}.insert(0, _content)")
+                        lines.append(f"            self._{cid}_on_file_selected()")
+                    elif target_type == "Text":
+                        lines.append(f"            self.{target_id}.delete('1.0', 'end')")
+                        lines.append(f"            self.{target_id}.insert('1.0', _content)")
+                        lines.append(f"            self._{cid}_on_file_selected()")
+                    elif target_type == "Listbox":
+                        lines.append(f"            self.{target_id}.delete(0, 'end')")
+                        lines.append(f"            for _line in _content.splitlines():")
+                        lines.append(f"                self.{target_id}.insert('end', _line)")
+                        lines.append(f"            self._{cid}_on_file_selected()")
+                    else:  # (none) or unknown
+                        lines.append(f"            self._{cid}_file_content = _content")
+                        lines.append(f"            self._{cid}_on_file_opened()")
+                else:  # ask_save_file
+                    lines.append(f"        _parts = self._{cid}_filter.split('|') if self._{cid}_filter else []")
+                    lines.append(f"        _ft = list(zip(_parts[::2], _parts[1::2])) or [('All Files', '*.*')]")
+                    if target_type == "Entry":
+                        lines.append(f"        _content = self.{target_id}.get()")
+                    elif target_type == "Text":
+                        lines.append(f"        _content = self.{target_id}.get('1.0', 'end-1c')")
+                    elif target_type == "Listbox":
+                        lines.append(f"        _content = '\\n'.join(self.{target_id}.get(0, 'end'))")
+                    else:
+                        lines.append(f"        _content = self._{cid}_file_content")
+                    lines.append(f"        f = filedialog.asksaveasfile(")
+                    lines.append(f"            parent=self,")
+                    lines.append(f"            title=self._{cid}_ask_save_file_title or None,")
+                    lines.append(f"            initialdir=self._{cid}_init_dir or None,")
+                    lines.append(f"            filetypes=_ft,")
+                    lines.append(f"            defaultextension=self._{cid}_default_ext or None,")
+                    lines.append(f"        )")
+                    lines.append(f"        if f:")
+                    lines.append(f"            with f:")
+                    lines.append(f"                f.write(_content)")
+                    lines.append(f"            self._{cid}_filename  = f.name")
+                    lines.append(f"            self._{cid}_filetitle = f.name.rsplit('/', 1)[-1]")
+                    lines.append(f"            self._{cid}_on_file_selected()")
+        elif hdef.id == "ask_input":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                input_type = comp.props.get("ask_input_type", "string")
+                fn_map = {"string": "askstring", "integer": "askinteger", "float": "askfloat"}
+                fn = fn_map.get(input_type, "askstring")
+                if input_type == "integer":
+                    lines.append(f"        _dv = int(self._{cid}_default_value) if self._{cid}_default_value else None")
+                elif input_type == "float":
+                    lines.append(f"        _dv = float(self._{cid}_default_value) if self._{cid}_default_value else None")
+                else:
+                    lines.append(f"        _dv = self._{cid}_default_value or None")
+                lines.append(f"        result = simpledialog.{fn}(")
+                lines.append(f"            self._{cid}_ask_input_title or None,")
+                lines.append(f"            self._{cid}_prompt,")
+                lines.append(f"            parent=self,")
+                lines.append(f"            initialvalue=_dv,")
+                lines.append(f"        )")
+                lines.append(f"        if result is not None:")
+                lines.append(f"            self._{cid}_result = result")
+                lines.append(f"            self._{cid}_on_input_result()")
+        elif hdef.id == "messagebox":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                fn = comp.props.get("messagebox_type", "askyesno")
+                if fn not in {"askyesno", "askokcancel", "askretrycancel", "askquestion"}:
+                    fn = "askyesno"
+                lines.append(f"        self._{cid}_result = messagebox.{fn}(")
+                lines.append(f"            parent=self,")
+                lines.append(f"            title=self._{cid}_messagebox_title or None,")
+                lines.append(f"            message=self._{cid}_messagebox_message,")
+                lines.append(f"        )")
+                lines.append(f"        self._{cid}_on_messagebox_result()")
+        else:
+            lines.extend(_body_lines(method, bodies, hdef.default_body))
+
     else:
         lines.extend(_body_lines(method, bodies, hdef.default_body))
 
