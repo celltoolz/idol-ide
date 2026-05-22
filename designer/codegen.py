@@ -822,8 +822,13 @@ def _menu_lines(items) -> list[str]:
             sc   = f', accelerator="{item.shortcut}"' if item.shortcut else ""
             lines.append(f'        {parent}.add_radiobutton(label="{label}"{vvar}{val}{cmd}{sc}{ul}{disabled})')
         else:
-            # Leaf command
-            cmd = f", command=self._{name}_click" if name else ""
+            # Leaf command — command_handler set means a component handler is wired directly
+            if item.command_handler:
+                cmd = f", command=self.{item.command_handler}"
+            elif name:
+                cmd = f", command=self._{name}_click"
+            else:
+                cmd = ""
             sc  = f', accelerator="{item.shortcut}"' if item.shortcut else ""
             lines.append(f'        {parent}.add_command(label="{label}"{cmd}{sc}{ul}{disabled})')
 

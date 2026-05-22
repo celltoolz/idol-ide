@@ -5106,11 +5106,50 @@ class IDOL(Tk):
             _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
             _init_extra = ""
 
+        # Connectable menu items (non-cascade command items at indent > 0)
+        _all_mi = form.menu_items
+        _conn_mi = [
+            mi for i, mi in enumerate(_all_mi)
+            if mi.indent > 0 and mi.caption != "-" and mi.name
+            and mi.kind not in ("checkbutton", "radiobutton")
+            and not any(
+                _all_mi[j].indent == mi.indent + 1
+                for j in range(i + 1, len(_all_mi))
+                if _all_mi[j].indent <= mi.indent + 1
+            )
+        ]
+
+        def _is_stub(method_name: str) -> bool:
+            import re as _re
+            root = getattr(self._sidebar.explorer, "_root", None)
+            if not root:
+                return True
+            from pathlib import Path as _Path
+            py_path = _Path(root) / f"{form.name}.py"
+            if not py_path.exists():
+                return True
+            try:
+                src = py_path.read_text(encoding="utf-8")
+            except Exception:
+                return False
+            m = _re.search(
+                rf"def {_re.escape(method_name)}\(self[^)]*\):\s*\n[ \t]+(pass\b)",
+                src, _re.MULTILINE,
+            )
+            return bool(m)
+
         def _on_wire(widget_id: str, event_key: str, option: str = "") -> None:
+            method = f"_{comp_id}{hdef.label}"
+            # Menu item target
+            mi = next((m for m in _conn_mi if m.name == widget_id), None)
+            if mi is not None:
+                mi.command_handler = method
+                self._set_designer_dirty()
+                self._props_panel.refresh_comp_connections()
+                return
             w = form.get_widget(widget_id)
             if w is None:
                 return
-            method = f"_{comp_id}{hdef.label}"
             w.events[event_key] = method
             if handler_id == "messagebox":
                 _parts   = option.split("|", 2)
@@ -5161,11 +5200,20 @@ class IDOL(Tk):
             show_extra_entry=_show_extra,
             initial_extra=_init_extra,
             extra_entry_label="Title",
+            menu_items=_conn_mi,
+            stub_checker=_is_stub,
         )
 
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
         form = self._design_canvas.form
         if form is None:
+            return
+        if widget_id.startswith("__mi__"):
+            mi = form.get_menu_item(widget_id[6:])
+            if mi:
+                mi.command_handler = ""
+            self._set_designer_dirty()
+            self._props_panel.refresh_comp_connections()
             return
         w = form.get_widget(widget_id)
         if w is None:
@@ -5185,11 +5233,15 @@ class IDOL(Tk):
         cdef = get_component_def(comp.type)
         if cdef is None:
             return
-        # Find the handler_id from the method name stored on the widget event
-        w = form.get_widget(widget_id)
-        if w is None:
-            return
-        method = w.events.get(event_key, "")
+        # Find the handler_id — from widget event or menu item command_handler
+        if widget_id.startswith("__mi__"):
+            mi = form.get_menu_item(widget_id[6:])
+            method = mi.command_handler if mi else ""
+        else:
+            w = form.get_widget(widget_id)
+            if w is None:
+                return
+            method = w.events.get(event_key, "")
         hdef = next(
             (h for h in cdef.handler_defs
              if f"_{comp_id}{h.label}" == method),
@@ -5238,12 +5290,59 @@ class IDOL(Tk):
             _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
             _init_extra = ""
 
+        # Connectable menu items (non-cascade command items at indent > 0)
+        _all_mi = form.menu_items
+        _conn_mi = [
+            mi for i, mi in enumerate(_all_mi)
+            if mi.indent > 0 and mi.caption != "-" and mi.name
+            and mi.kind not in ("checkbutton", "radiobutton")
+            and not any(
+                _all_mi[j].indent == mi.indent + 1
+                for j in range(i + 1, len(_all_mi))
+                if _all_mi[j].indent <= mi.indent + 1
+            )
+        ]
+
+        # Resolve widget_id for menu items (strip __mi__ prefix for connector)
+        _preselect_wid = widget_id[6:] if widget_id.startswith("__mi__") else widget_id
+
+        def _is_stub(method_name: str) -> bool:
+            import re as _re
+            root = getattr(self._sidebar.explorer, "_root", None)
+            if not root:
+                return True
+            from pathlib import Path as _Path
+            py_path = _Path(root) / f"{form.name}.py"
+            if not py_path.exists():
+                return True
+            try:
+                src = py_path.read_text(encoding="utf-8")
+            except Exception:
+                return False
+            m = _re.search(
+                rf"def {_re.escape(method_name)}\(self[^)]*\):\s*\n[ \t]+(pass\b)",
+                src, _re.MULTILINE,
+            )
+            return bool(m)
+
         def _on_wire(new_widget_id: str, new_event_key: str, option: str = "") -> None:
-            # Remove the old binding if widget or event changed
-            if new_widget_id != widget_id or new_event_key != event_key:
-                old_w = form.get_widget(widget_id)
-                if old_w:
-                    old_w.events.pop(event_key, None)
+            # Remove old binding
+            if new_widget_id != _preselect_wid or new_event_key != event_key:
+                if widget_id.startswith("__mi__"):
+                    old_mi = form.get_menu_item(widget_id[6:])
+                    if old_mi:
+                        old_mi.command_handler = ""
+                else:
+                    old_w = form.get_widget(widget_id)
+                    if old_w:
+                        old_w.events.pop(event_key, None)
+            # Set new binding
+            new_mi = next((m for m in _conn_mi if m.name == new_widget_id), None)
+            if new_mi is not None:
+                new_mi.command_handler = method
+                self._set_designer_dirty()
+                self._props_panel.refresh_comp_connections()
+                return
             new_w = form.get_widget(new_widget_id)
             if new_w is None:
                 return
@@ -5290,7 +5389,7 @@ class IDOL(Tk):
             secondary_options=_secondary_opts,
             secondary_label=_secondary_label,
             initial_warning=_secondary_warn,
-            preselect_widget_id=widget_id,
+            preselect_widget_id=_preselect_wid,
             preselect_event_key=event_key,
             show_title_entry=_show_title,
             initial_title=_init_title,
@@ -5299,6 +5398,8 @@ class IDOL(Tk):
             initial_extra=_init_extra,
             extra_entry_label="Title",
             wire_label="Update",
+            menu_items=_conn_mi,
+            stub_checker=_is_stub,
         )
 
     def _on_designer_double_click(self, widget_id: str) -> None:

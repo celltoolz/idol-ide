@@ -234,6 +234,12 @@ class FormModel:
                 return w
         return None
 
+    def get_menu_item(self, name: str) -> "MenuItemDescriptor | None":
+        for m in self.menu_items:
+            if m.name == name:
+                return m
+        return None
+
     def add_widget(self, widget: WidgetDescriptor) -> None:
         self.widgets.append(widget)
 

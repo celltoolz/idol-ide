@@ -619,6 +619,15 @@ class DesignerProperties(tk.Frame):
             for ev_key, method in widget.events.items():
                 if method in comp_methods:
                     result.append((method, f"{widget.id}.{ev_key}", True, (widget.id, ev_key)))
+        # Menu item command connections
+        for mi in self._form.menu_items:
+            if mi.command_handler in comp_methods:
+                result.append((
+                    mi.command_handler,
+                    f"{mi.name}.command",
+                    True,
+                    (f"__mi__{mi.name}", "command"),
+                ))
         return result
 
     # ── CommonDialog per-handler title helpers ────────────────────────────────
@@ -707,10 +716,12 @@ class DesignerProperties(tk.Frame):
         """Return (method, label, removable, removal_key) for all component handlers on the form.
 
         Auto-wired handlers (has_connector=False) are not removable.
-        Handlers wired to a widget event are removable via their (comp_id, widget_id, ev_key).
+        Handlers wired to a widget event or menu item command are removable.
+        removal_key is (comp_id, widget_id, ev_key) for widget events and
+        (comp_id, "__mi__"+item_name, "command") for menu item commands.
         """
         from designer.component_registry import COMPONENT_REGISTRY
-        # Build map: method_name → (comp_id, widget_id, ev_key) for explicit widget wires
+        # Build map: method_name → (comp_id, target_id, ev_key)
         wired: dict[str, tuple] = {}
         all_comp_methods: dict[str, str] = {}  # method → comp_id
         for comp in form.components:
@@ -722,6 +733,11 @@ class DesignerProperties(tk.Frame):
             for ev_key, method in widget.events.items():
                 if method in all_comp_methods:
                     wired[method] = (all_comp_methods[method], widget.id, ev_key)
+        # Also scan menu items for component handler commands
+        for mi in form.menu_items:
+            if mi.command_handler and mi.command_handler in all_comp_methods:
+                method = mi.command_handler
+                wired[method] = (all_comp_methods[method], f"__mi__{mi.name}", "command")
 
         result: list[tuple] = []
         for comp in form.components:
@@ -745,8 +761,11 @@ class DesignerProperties(tk.Frame):
                         continue
                     method = f"_{comp.id}{hdef.label}"
                     if method in wired:
-                        _, widget_id, ev_key = wired[method]
-                        result.append((method, f"{widget_id}.{ev_key}", True, wired[method]))
+                        _, target_id, ev_key = wired[method]
+                        label = (f"{target_id[6:]}.command"  # strip __mi__ prefix for display
+                                 if target_id.startswith("__mi__")
+                                 else f"{target_id}.{ev_key}")
+                        result.append((method, label, True, wired[method]))
         return result
 
     def _collect_form_comp_avail(self, form: FormModel) -> list[tuple[str, str, str]]:

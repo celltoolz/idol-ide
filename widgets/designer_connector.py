@@ -51,6 +51,8 @@ class ComponentConnector(tk.Toplevel):
         extra_entry_label: str = "Title",
         wire_label: str = "Wire",
         preselect_event_key: str | None = None,
+        menu_items: "tuple | list" = (),
+        stub_checker: "Callable[[str], bool] | None" = None,
     ) -> None:
         super().__init__(parent)
         self._form              = form
@@ -72,6 +74,9 @@ class ComponentConnector(tk.Toplevel):
         self._extra_entry_label   = extra_entry_label
         self._wire_label          = wire_label
         self._preselect_event_key = preselect_event_key
+        self._menu_items          = list(menu_items)
+        self._stub_checker        = stub_checker
+        self._menu_item_names:    set[str] = set()
         self._title_var: tk.StringVar | None = None
         self._extra_var: tk.StringVar | None = None
 
@@ -246,6 +251,26 @@ class ComponentConnector(tk.Toplevel):
                 self._wid_lb.insert("end", f"{w.id}  ({w.type})")
                 self._widget_ids.append(w.id)
 
+        # Add connectable menu items (non-cascade command items at indent > 0)
+        items = self._menu_items
+        for i, mi in enumerate(items):
+            if mi.indent == 0 or mi.caption == "-" or not mi.name:
+                continue
+            if mi.kind in ("checkbutton", "radiobutton"):
+                continue
+            is_cascade = any(
+                items[j].indent == mi.indent + 1
+                for j in range(i + 1, len(items))
+                if items[j].indent <= mi.indent + 1
+            )
+            if is_cascade:
+                continue
+            if mi.name == self._preselect_widget_id:
+                preselect_idx = len(self._widget_ids)
+            self._wid_lb.insert("end", f"{mi.name}  (MenuItem)")
+            self._widget_ids.append(mi.name)
+            self._menu_item_names.add(mi.name)
+
         self._wid_lb.bind("<<ListboxSelect>>", self._on_widget_select)
         self._ev_lb.bind("<<ListboxSelect>>",  self._update_preview)
 
@@ -260,6 +285,21 @@ class ComponentConnector(tk.Toplevel):
         if not sel:
             return
         wid = self._widget_ids[sel[0]]
+
+        if wid in self._menu_item_names:
+            mi = next((m for m in self._menu_items if m.name == wid), None)
+            self._ev_keys  = ["command"]
+            self._used_evs = {"command"} if mi and mi.command_handler else set()
+            self._ev_lb.delete(0, "end")
+            label = "◆ command" if self._used_evs else "command"
+            self._ev_lb.insert("end", label)
+            self._warn_lbl.config(text="")
+            if self._preselect_event_key == "command":
+                self._ev_lb.selection_set(0)
+                self._ev_lb.see(0)
+            self._update_preview()
+            return
+
         widget = self._form.get_widget(wid)
         if widget is None:
             return
@@ -309,11 +349,22 @@ class ComponentConnector(tk.Toplevel):
         if (ev_key in self._used_evs
                 and not (wid == self._preselect_widget_id
                          and ev_key == self._preselect_event_key)):
-            existing = self._form.get_widget(wid)
-            existing_handler = existing.events.get(ev_key, "") if existing else ""
-            self._warn_lbl.config(
-                text=f"⚠  '{ev_key}' already calls {existing_handler} — wiring will overwrite it",
-            )
+            if wid in self._menu_item_names:
+                mi = next((m for m in self._menu_items if m.name == wid), None)
+                raw = mi.command_handler if mi else ""
+                existing_handler = raw
+            else:
+                existing = self._form.get_widget(wid)
+                existing_handler = existing.events.get(ev_key, "") if existing else ""
+            is_stub = (self._stub_checker is not None
+                       and existing_handler
+                       and self._stub_checker(existing_handler))
+            if not is_stub:
+                self._warn_lbl.config(
+                    text=f"⚠  '{ev_key}' already calls {existing_handler} — wiring will overwrite it",
+                )
+            else:
+                self._warn_lbl.config(text="")
         else:
             self._warn_lbl.config(text="")
 
