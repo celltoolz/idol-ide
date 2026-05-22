@@ -622,37 +622,56 @@ class DesignerProperties(tk.Frame):
         """Add the collapsible Dialog Titles section for a CommonDialog component."""
         if self._form is None or self._comp_def is None:
             return
-        # Build map: method_name → widget_id for wired events
-        method_to_widget: dict[str, str] = {}
+        # Build map: method_name → "widget_id.event_key" for wired events
+        method_to_conn: dict[str, str] = {}
         for w in self._form.widgets:
-            for ev_method in w.events.values():
-                method_to_widget[ev_method] = w.id
-        # Collect rows: connectable handlers that are wired AND have a title set
-        qualifying: list[tuple[str, str, str, str]] = []
+            for ev_key, ev_method in w.events.items():
+                method_to_conn[ev_method] = f"{w.id}.{ev_key}"
+        # Collect rows: connectable handlers that are wired (title may be empty)
+        qualifying: list[tuple[str, str, str]] = []
         for handler_id, prop_key in self._CD_HANDLER_TITLE_KEYS:
             hdef = next((h for h in self._comp_def.handler_defs if h.id == handler_id), None)
             if hdef is None or not hdef.has_connector:
                 continue
             method    = f"_{descriptor.id}{hdef.label}"
-            title_val = str(descriptor.props.get(prop_key, ""))
-            if method not in method_to_widget or not title_val:
+            if method not in method_to_conn:
                 continue
-            qualifying.append((handler_id, prop_key, title_val, method_to_widget[method]))
+            title_val = str(descriptor.props.get(prop_key, ""))
+            qualifying.append((handler_id, prop_key, title_val))
         if not qualifying:
             return
         arrow   = "▼" if self._comp_dtitles_expanded else "▶"
-        summary = ", ".join(t for _, _, t, _ in qualifying[:3])
-        if len(qualifying) > 3:
-            summary += "..."
-        self._props_insert("comp__dtitle__header", f"{arrow} Dialog Title", summary)
+        set_titles = [t for _, _, t in qualifying if t]
+        summary = ", ".join(set_titles[:3]) + ("..." if len(set_titles) > 3 else "")
+        self._props_insert("comp__dtitle__header", f"{arrow} Dialog Title",
+                           summary or "(none set)")
         self._props_set_link("comp__dtitle__header", True)
         if self._comp_dtitles_expanded:
-            for handler_id, prop_key, title_val, widget_id in qualifying:
+            for handler_id, prop_key, title_val in qualifying:
                 self._props_insert(
                     f"comp__dtitle__{prop_key}",
-                    f"  {handler_id}  [{widget_id}]",
+                    f"  {handler_id}",
                     title_val,
                 )
+
+    def _dtitle_conn_hint(self, prop_key: str) -> str:
+        """Return 'Connected to widget.event' hint for a Dialog Title sub-row."""
+        if self._form is None or self._comp_def is None or self._comp_id is None:
+            return ""
+        handler_id = next(
+            (hid for hid, pk in self._CD_HANDLER_TITLE_KEYS if pk == prop_key), None
+        )
+        if handler_id is None:
+            return ""
+        hdef = next((h for h in self._comp_def.handler_defs if h.id == handler_id), None)
+        if hdef is None:
+            return ""
+        method = f"_{self._comp_id}{hdef.label}"
+        for w in self._form.widgets:
+            for ev_key, ev_method in w.events.items():
+                if ev_method == method:
+                    return f"Connected to {w.id}.{ev_key}"
+        return ""
 
     def _rebuild_comp_props(self, descriptor) -> None:
         """Rebuild just the Properties tab rows for the selected component."""
@@ -692,22 +711,26 @@ class DesignerProperties(tk.Frame):
         for comp in form.components:
             cdef = COMPONENT_REGISTRY.get(comp.type)
             if cdef:
+                any_conn_wired = any(
+                    f"_{comp.id}{h.label}" in wired
+                    for h in cdef.handler_defs if h.has_connector
+                )
+                timer_auto = (comp.type == "Timer" and comp.props.get("enabled", True))
+                # Protected (non-connectable) callbacks first
                 for hdef in cdef.handler_defs:
+                    if hdef.has_connector:
+                        continue
+                    if any_conn_wired or timer_auto:
+                        method = f"_{comp.id}{hdef.label}"
+                        result.append((method, comp.id, False, None))
+                # Wired connectable handlers after
+                for hdef in cdef.handler_defs:
+                    if not hdef.has_connector:
+                        continue
                     method = f"_{comp.id}{hdef.label}"
                     if method in wired:
-                        comp_id, widget_id, ev_key = wired[method]
+                        _, widget_id, ev_key = wired[method]
                         result.append((method, f"{widget_id}.{ev_key}", True, wired[method]))
-                    elif not hdef.has_connector:
-                        # Non-connectable callback — only show if component emits
-                        any_conn_wired = any(
-                            f"_{comp.id}{h.label}" in wired
-                            for h in cdef.handler_defs if h.has_connector
-                        )
-                        timer_auto = (comp.type == "Timer"
-                                      and comp.props.get("enabled", True))
-                        if any_conn_wired or timer_auto:
-                            result.append((method, comp.id, False, None))
-                    # has_connector=True and unwired → omitted here; shown in _collect_form_comp_avail
         return result
 
     def _collect_form_comp_avail(self, form: FormModel) -> list[tuple[str, str, str]]:
@@ -2388,12 +2411,17 @@ class DesignerProperties(tk.Frame):
             row = self._props_rows[idx]
             iid = row["iid"]
             self._update_prop_clear_btn(idx)
-            key = iid.split("__", 1)[-1] if "__" in iid else iid
-            hint = _PROP_HINTS.get(iid) or _PROP_HINTS.get(key)
-            if hint:
-                self._show_hint(hint)
+            # Dynamic hint for Dialog Title sub-rows
+            if iid.startswith("comp__dtitle__") and iid != "comp__dtitle__header":
+                prop_key = iid[14:]   # strip "comp__dtitle__"
+                self._show_hint(self._dtitle_conn_hint(prop_key))
             else:
-                self._clear_hint()
+                key = iid.split("__", 1)[-1] if "__" in iid else iid
+                hint = _PROP_HINTS.get(iid) or _PROP_HINTS.get(key)
+                if hint:
+                    self._show_hint(hint)
+                else:
+                    self._clear_hint()
         else:
             self._prop_clear_btn.place_forget()
             self._clear_hint()

@@ -107,13 +107,6 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
         codegen_imports=["from tkinter import filedialog", "from tkinter import colorchooser", "from tkinter import simpledialog"],
         prop_defs=(
             PropDef(
-                key="title",
-                label="Dialog Title",
-                kind="str",
-                default="Open",
-                description="Text shown in the dialog title bar.",
-            ),
-            PropDef(
                 key="init_dir",
                 label="Initial Dir",
                 kind="str",
