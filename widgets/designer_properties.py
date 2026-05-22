@@ -117,6 +117,8 @@ class DesignerProperties(tk.Frame):
         self._widget_comp_avail: list[tuple[str, str, str]] = []  # (method, comp_id, handler_id)
         self._widget_comp_avail_hov_idx: int | None = None
         self._handlers_avail_comp_y0: int = 0
+        self._avail_comp_expanded: bool = False
+        self._avail_comp_hdr_canvas_y: int = -1
         # Handlers tab — Available / Connected split
         self._handlers_avail_defs: list = []          # HandlerDef objects (not wired)
         self._handlers_conn_rows:  list = []          # dicts with conn info
@@ -748,22 +750,15 @@ class DesignerProperties(tk.Frame):
         return result
 
     def _collect_form_comp_avail(self, form: FormModel) -> list[tuple[str, str, str]]:
-        """Return (method, comp_id, handler_id) for connectable handlers not yet wired."""
+        """Return (method, comp_id, handler_id) for all connectable component handlers."""
         from designer.component_registry import COMPONENT_REGISTRY
-        wired_methods = {
-            method
-            for widget in form.widgets
-            for method in widget.events.values()
-        }
         result: list[tuple[str, str, str]] = []
         for comp in form.components:
             cdef = COMPONENT_REGISTRY.get(comp.type)
             if cdef:
                 for hdef in cdef.handler_defs:
                     if hdef.has_connector:
-                        method = f"_{comp.id}{hdef.label}"
-                        if method not in wired_methods:
-                            result.append((method, comp.id, hdef.id))
+                        result.append((f"_{comp.id}{hdef.label}", comp.id, hdef.id))
         return result
 
     def load_component(self, descriptor, comp_def) -> None:
@@ -1211,6 +1206,7 @@ class DesignerProperties(tk.Frame):
             cv.configure(scrollregion=(0, 0, w, 40))
             return
 
+        scroll_top = int(cv.canvasy(0))
         y = 0
         avail = self._handlers_avail_defs
         conn  = self._handlers_conn_rows
@@ -1244,7 +1240,7 @@ class DesignerProperties(tk.Frame):
                            fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
 
             if is_hov:
-                self._handler_wire_btn.place(x=w - 2, y=y0 + 2,
+                self._handler_wire_btn.place(x=w - 2, y=y0 - scroll_top + 2,
                                              anchor="ne", height=_ORD_ROW_H - 4)
                 self._handler_wire_btn._handler_id = h.id  # type: ignore[attr-defined]
 
@@ -1287,12 +1283,12 @@ class DesignerProperties(tk.Frame):
                 btn_x = w - 2
                 btn_h = _ORD_ROW_H - 4
                 if row["removable"]:
-                    self._handler_disco_btn.place(x=btn_x, y=y0 + 2,
+                    self._handler_disco_btn.place(x=btn_x, y=y0 - scroll_top + 2,
                                                   anchor="ne", height=btn_h)
                     self._handler_disco_btn._conn_row = row  # type: ignore[attr-defined]
                     btn_x -= 20
                 if row["editable"]:
-                    self._handler_edit_btn.place(x=btn_x, y=y0 + 2,
+                    self._handler_edit_btn.place(x=btn_x, y=y0 - scroll_top + 2,
                                                  anchor="ne", height=btn_h)
                     self._handler_edit_btn._conn_row = row  # type: ignore[attr-defined]
 
@@ -1305,32 +1301,37 @@ class DesignerProperties(tk.Frame):
             cv.create_line(0, y, w, y, fill="#3a3a3a")
             y += 1
 
-        # Available Components sub-section (connectable handlers not yet wired)
+        # Available Components sub-section (foldable; collapsed by default)
         if avail_comps:
+            arrow = "▼" if self._avail_comp_expanded else "▶"
             cv.create_rectangle(0, y, w, y + _ORD_HDR_H, fill=_ORD_HDR_BG, outline="")
-            cv.create_text(8, y + _ORD_HDR_H // 2, text="Available Components",
+            cv.create_text(8, y + _ORD_HDR_H // 2,
+                           text=f"{arrow} Available Components",
                            fill=_ORD_DIM, font=(UI_FONT, 7, "bold"), anchor="w")
+            self._avail_comp_hdr_canvas_y = y
             y += _ORD_HDR_H
             self._handlers_avail_comp_y0 = y
-            for j, (method, comp_id, handler_id) in enumerate(avail_comps):
-                y0  = y + j * _ORD_ROW_H
-                y1  = y0 + _ORD_ROW_H
-                mid = (y0 + y1) // 2
-                is_hov = j == self._widget_comp_avail_hov_idx
-                bg  = _ORD_HOV if is_hov else (_ORD_EVEN if j % 2 == 0 else _ORD_ODD)
-                cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
-                cv.create_text(8, mid, text=method,
-                               fill=_ORD_FG, font=("Consolas", 9), anchor="w")
-                badge_x = w - 6 if not is_hov else w - 26
-                cv.create_text(badge_x, mid, text=comp_id,
-                               fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
-                if is_hov:
-                    self._comp_connect_btn.place(x=w - 2, y=y0 + 2,
-                                                 anchor="ne", height=_ORD_ROW_H - 4)
-                    self._comp_connect_btn._handler_id    = handler_id   # type: ignore[attr-defined]
-                    self._comp_connect_btn._comp_id_override = comp_id   # type: ignore[attr-defined]
-            y += len(avail_comps) * _ORD_ROW_H
+            if self._avail_comp_expanded:
+                for j, (method, comp_id, handler_id) in enumerate(avail_comps):
+                    y0  = y + j * _ORD_ROW_H
+                    y1  = y0 + _ORD_ROW_H
+                    mid = (y0 + y1) // 2
+                    is_hov = j == self._widget_comp_avail_hov_idx
+                    bg  = _ORD_HOV if is_hov else (_ORD_EVEN if j % 2 == 0 else _ORD_ODD)
+                    cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
+                    cv.create_text(8, mid, text=method,
+                                   fill=_ORD_FG, font=("Consolas", 9), anchor="w")
+                    badge_x = w - 6 if not is_hov else w - 26
+                    cv.create_text(badge_x, mid, text=comp_id,
+                                   fill=_ORD_DIM, font=(UI_FONT, 7), anchor="e")
+                    if is_hov:
+                        self._comp_connect_btn.place(x=w - 2, y=y0 - scroll_top + 2,
+                                                     anchor="ne", height=_ORD_ROW_H - 4)
+                        self._comp_connect_btn._handler_id    = handler_id   # type: ignore[attr-defined]
+                        self._comp_connect_btn._comp_id_override = comp_id   # type: ignore[attr-defined]
+                y += len(avail_comps) * _ORD_ROW_H
         else:
+            self._avail_comp_hdr_canvas_y = -1
             self._handlers_avail_comp_y0 = y
 
         if wch:
@@ -1359,10 +1360,10 @@ class DesignerProperties(tk.Frame):
                 if removable and is_hov:
                     btn_x = w - 2
                     btn_h = _ORD_ROW_H - 4
-                    self._comp_disconnect_btn.place(x=btn_x, y=y0 + 2,
+                    self._comp_disconnect_btn.place(x=btn_x, y=y0 - scroll_top + 2,
                                                     anchor="ne", height=btn_h)
                     self._comp_disconnect_btn._wch_removal = removal_key  # type: ignore[attr-defined]
-                    self._comp_edit_btn.place(x=btn_x - 20, y=y0 + 2,
+                    self._comp_edit_btn.place(x=btn_x - 20, y=y0 - scroll_top + 2,
                                               anchor="ne", height=btn_h)
                     self._comp_edit_btn._wch_removal = removal_key  # type: ignore[attr-defined]
             y += len(wch) * _ORD_ROW_H
@@ -1372,6 +1373,7 @@ class DesignerProperties(tk.Frame):
         cv.configure(scrollregion=(0, 0, w, max(y, 40)))
 
     def _comp_handlers_redraw(self, cv: tk.Canvas, w: int) -> None:
+        scroll_top = int(cv.canvasy(0))
         # Only connectable handlers appear in the top section; always-wired ones
         # (has_connector=False) are shown exclusively in Connected Components below.
         handler_defs = [h for h in self._comp_def.handler_defs if h.has_connector]
@@ -1390,9 +1392,8 @@ class DesignerProperties(tk.Frame):
 
             if hd.has_connector and is_hov:
                 btn_x = w - 4
-                btn_y = y0 + 2
                 btn_h = _ORD_ROW_H - 4
-                self._comp_connect_btn.place(x=btn_x, y=btn_y, anchor="ne", height=btn_h)
+                self._comp_connect_btn.place(x=btn_x, y=y0 - scroll_top + 2, anchor="ne", height=btn_h)
                 self._comp_connect_btn._handler_id = hd.id  # type: ignore[attr-defined]
 
         total_rows = len(handler_defs)
@@ -1421,10 +1422,10 @@ class DesignerProperties(tk.Frame):
                 if removable and is_hov:
                     btn_x = w - 2
                     btn_h = _ORD_ROW_H - 4
-                    self._comp_disconnect_btn.place(x=btn_x, y=y0 + 2,
+                    self._comp_disconnect_btn.place(x=btn_x, y=y0 - scroll_top + 2,
                                                     anchor="ne", height=btn_h)
                     self._comp_disconnect_btn._removal_key = removal_key  # type: ignore[attr-defined]
-                    self._comp_edit_btn.place(x=btn_x - 20, y=y0 + 2,
+                    self._comp_edit_btn.place(x=btn_x - 20, y=y0 - scroll_top + 2,
                                               anchor="ne", height=btn_h)
                     self._comp_edit_btn._removal_key = removal_key  # type: ignore[attr-defined]
             total_px = hdr_y + _ORD_HDR_H + len(cc) * _ORD_ROW_H
@@ -1467,7 +1468,7 @@ class DesignerProperties(tk.Frame):
 
     def _avail_comp_idx_at(self, y: int) -> int | None:
         """Row index in the Available Components section, or None."""
-        if self._comp_mode or not self._widget_comp_avail:
+        if self._comp_mode or not self._widget_comp_avail or not self._avail_comp_expanded:
             return None
         y0 = self._handlers_avail_comp_y0
         if y < y0:
@@ -1605,8 +1606,12 @@ class DesignerProperties(tk.Frame):
         if self._handlers_dbl_pending:
             self._handlers_dbl_pending = False
             return
-        # No single-click action in the new Available/Connected layout
-        # (⚡ button fires on_handler_connect; × fires on_handler_disconnect)
+        cy = int(self._handlers_cv.canvasy(event.y))
+        if (self._avail_comp_hdr_canvas_y >= 0
+                and self._avail_comp_hdr_canvas_y <= cy < self._avail_comp_hdr_canvas_y + _ORD_HDR_H):
+            self._avail_comp_expanded = not self._avail_comp_expanded
+            self._widget_comp_avail_hov_idx = None
+            self._handlers_redraw()
 
     def _handlers_dblclick(self, event: tk.Event) -> None:
         cy = int(self._handlers_cv.canvasy(event.y))
