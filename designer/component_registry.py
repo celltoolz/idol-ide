@@ -227,6 +227,21 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 has_connector=False,
                 default_body="pass  # TODO",
             ),
+            ComponentHandlerDef(
+                id="messagebox",
+                label="_messagebox",
+                description="Shows a question dialog (askyesno, askokcancel, etc.). Wire to a Button or Label click.",
+                has_connector=True,
+                default_body="",
+                applies_to_widgets=("Button", "Label"),
+            ),
+            ComponentHandlerDef(
+                id="on_messagebox_result",
+                label="_on_messagebox_result",
+                description="Called after the user answers the question dialog. Read self._cd1_result here.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
         ),
     ),
 

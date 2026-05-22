@@ -45,6 +45,7 @@ class ComponentConnector(tk.Toplevel):
         initial_warning: str = "",
         show_title_entry: bool = False,
         initial_title: str = "",
+        title_entry_label: str = "Title",
         wire_label: str = "Wire",
         preselect_event_key: str | None = None,
     ) -> None:
@@ -62,6 +63,7 @@ class ComponentConnector(tk.Toplevel):
         self._initial_warning     = initial_warning
         self._show_title_entry    = show_title_entry
         self._initial_title       = initial_title
+        self._title_entry_label   = title_entry_label
         self._wire_label          = wire_label
         self._preselect_event_key = preselect_event_key
         self._title_var: tk.StringVar | None = None
@@ -157,7 +159,7 @@ class ComponentConnector(tk.Toplevel):
         if self._show_title_entry:
             title_row = tk.Frame(self, bg=_BG)
             title_row.pack(fill="x", padx=10, pady=(0, 4))
-            tk.Label(title_row, text="Title:", bg=_BG, fg=_DIM,
+            tk.Label(title_row, text=f"{self._title_entry_label}:", bg=_BG, fg=_DIM,
                      font=(UI_FONT, 8), anchor="w", width=7).pack(side="left", padx=(0, 4))
             self._title_var = tk.StringVar(value=self._initial_title)
             title_entry = tk.Entry(
@@ -272,7 +274,7 @@ class ComponentConnector(tk.Toplevel):
             option_str = f"  [{option}]" if option else ""
             rhs = f"self.{self._method_display}(){option_str}"
         title = self._title_var.get().strip() if self._title_var else ""
-        title_tag = f'  title: "{title}"' if title else ""
+        title_tag = f'  {self._title_entry_label.lower()}: "{title}"' if title else ""
         self._preview.config(
             text=f"Wires:  {wid}.{ev_key}  →  {rhs}{title_tag}",
             fg="#4ec9b0",

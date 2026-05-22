@@ -629,6 +629,7 @@ class DesignerProperties(tk.Frame):
         ("ask_save_file",  "ask_save_file_title"),
         ("choose_color",   "choose_color_title"),
         ("ask_input",      "ask_input_title"),
+        ("messagebox",     "messagebox_title"),
     ]
 
     def _insert_dialog_titles_section(self, descriptor) -> None:

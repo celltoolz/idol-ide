@@ -5070,6 +5070,7 @@ class IDOL(Tk):
         _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
         _POPULATE_TYPES    = ("Entry", "Text", "Listbox")
         _INPUT_TYPES       = ("string", "integer", "float")
+        _MB_TYPES          = ("askyesno", "askokcancel", "askretrycancel", "askquestion")
         if handler_id in _FILE_OBJ_HANDLERS:
             _targets = [w.id for w in form.widgets if w.type in _POPULATE_TYPES]
             _primary_opts    = ()
@@ -5084,14 +5085,23 @@ class IDOL(Tk):
             _secondary_opts  = ()
             _secondary_label = "Mode"
             _secondary_warn  = ""
+        elif handler_id == "messagebox":
+            _primary_opts    = _MB_TYPES
+            _secondary_opts  = ()
+            _secondary_label = "Mode"
+            _secondary_warn  = ""
         else:
             _primary_opts    = ()
             _secondary_opts  = ()
             _secondary_label = "Mode"
             _secondary_warn  = ""
 
-        _show_title = (comp.type == "CommonDialog")
-        _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+        _show_title        = (comp.type == "CommonDialog")
+        _title_entry_label = "Message" if handler_id == "messagebox" else "Title"
+        if handler_id == "messagebox":
+            _init_title = comp.props.get("messagebox_message", "")
+        else:
+            _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
 
         def _on_wire(widget_id: str, event_key: str, option: str = "") -> None:
             w = form.get_widget(widget_id)
@@ -5099,12 +5109,17 @@ class IDOL(Tk):
                 return
             method = f"_{comp_id}{hdef.label}"
             w.events[event_key] = method
-            # Split title off the end of the option string (encoded as "main|title")
             if _show_title and "|" in option:
                 main_opt, title_val = option.rsplit("|", 1)
             else:
                 main_opt, title_val = option, ""
-            if _show_title:
+            if handler_id == "messagebox":
+                comp.props["messagebox_type"] = main_opt or "askyesno"
+                if title_val:
+                    comp.props["messagebox_message"] = title_val
+                elif "messagebox_message" in comp.props:
+                    del comp.props["messagebox_message"]
+            elif _show_title:
                 if title_val:
                     comp.props[f"{handler_id}_title"] = title_val
                 elif f"{handler_id}_title" in comp.props:
@@ -5130,6 +5145,7 @@ class IDOL(Tk):
             preselect_widget_id=self._design_canvas.selected_id,
             show_title_entry=_show_title,
             initial_title=_init_title,
+            title_entry_label=_title_entry_label,
         )
 
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
@@ -5171,6 +5187,7 @@ class IDOL(Tk):
         _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
         _POPULATE_TYPES    = ("Entry", "Text", "Listbox")
         _INPUT_TYPES       = ("string", "integer", "float")
+        _MB_TYPES          = ("askyesno", "askokcancel", "askretrycancel", "askquestion")
         if handler_id in _FILE_OBJ_HANDLERS:
             _targets = [wd.id for wd in form.widgets if wd.type in _POPULATE_TYPES]
             _primary_opts    = ()
@@ -5185,14 +5202,23 @@ class IDOL(Tk):
             _secondary_opts  = ()
             _secondary_label = "Mode"
             _secondary_warn  = ""
+        elif handler_id == "messagebox":
+            _primary_opts    = _MB_TYPES
+            _secondary_opts  = ()
+            _secondary_label = "Mode"
+            _secondary_warn  = ""
         else:
             _primary_opts    = ()
             _secondary_opts  = ()
             _secondary_label = "Mode"
             _secondary_warn  = ""
 
-        _show_title = (comp.type == "CommonDialog")
-        _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+        _show_title        = (comp.type == "CommonDialog")
+        _title_entry_label = "Message" if handler_id == "messagebox" else "Title"
+        if handler_id == "messagebox":
+            _init_title = comp.props.get("messagebox_message", "")
+        else:
+            _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
 
         def _on_wire(new_widget_id: str, new_event_key: str, option: str = "") -> None:
             # Remove the old binding if widget or event changed
@@ -5208,7 +5234,13 @@ class IDOL(Tk):
                 main_opt, title_val = option.rsplit("|", 1)
             else:
                 main_opt, title_val = option, ""
-            if _show_title:
+            if handler_id == "messagebox":
+                comp.props["messagebox_type"] = main_opt or "askyesno"
+                if title_val:
+                    comp.props["messagebox_message"] = title_val
+                elif "messagebox_message" in comp.props:
+                    del comp.props["messagebox_message"]
+            elif _show_title:
                 if title_val:
                     comp.props[f"{handler_id}_title"] = title_val
                 elif f"{handler_id}_title" in comp.props:
@@ -5235,6 +5267,7 @@ class IDOL(Tk):
             preselect_event_key=event_key,
             show_title_entry=_show_title,
             initial_title=_init_title,
+            title_entry_label=_title_entry_label,
             wire_label="Update",
         )
 

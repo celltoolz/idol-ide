@@ -956,6 +956,7 @@ def _collect_component_imports(form: FormModel) -> list[str]:
                 ("from tkinter import filedialog",   _FILEDIALOG_HIDS),
                 ("from tkinter import colorchooser", {"choose_color"}),
                 ("from tkinter import simpledialog", {"ask_input"}),
+                ("from tkinter import messagebox",   {"messagebox"}),
             ):
                 if wired_hids & needed and imp not in seen:
                     seen.add(imp)
@@ -1015,6 +1016,10 @@ def _comp_init_for(comp, cdef) -> list[str]:
         lines.append(f'        self._{cid}_result        = None')
         lines.append(f'        self._{cid}_color_rgb     = None')
         lines.append(f'        self._{cid}_color_hex     = ""')
+        mb_type    = str(comp.props.get("messagebox_type",    "askyesno"))
+        mb_message = str(comp.props.get("messagebox_message", ""))
+        lines.append(f"        self._{cid}_messagebox_type    = {repr(mb_type)}")
+        lines.append(f"        self._{cid}_messagebox_message = {repr(mb_message)}")
         for _hid, _prop in (
             ("show_open",      "show_open_title"),
             ("show_save",      "show_save_title"),
@@ -1023,6 +1028,7 @@ def _comp_init_for(comp, cdef) -> list[str]:
             ("ask_save_file",  "ask_save_file_title"),
             ("choose_color",   "choose_color_title"),
             ("ask_input",      "ask_input_title"),
+            ("messagebox",     "messagebox_title"),
         ):
             _val = str(comp.props.get(_prop, ""))
             lines.append(f"        self._{cid}_{_hid}_title = {repr(_val)}")
@@ -1247,6 +1253,21 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"        if result is not None:")
                 lines.append(f"            self._{cid}_result = result")
                 lines.append(f"            self._{cid}_on_input_result()")
+        elif hdef.id == "messagebox":
+            raw = bodies.get(method, "").strip()
+            if raw and raw not in (_STUB, "pass"):
+                for line in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + line) if line.strip() else "")
+            else:
+                fn = comp.props.get("messagebox_type", "askyesno")
+                if fn not in {"askyesno", "askokcancel", "askretrycancel", "askquestion"}:
+                    fn = "askyesno"
+                lines.append(f"        self._{cid}_result = messagebox.{fn}(")
+                lines.append(f"            parent=self,")
+                lines.append(f"            title=self._{cid}_messagebox_title or None,")
+                lines.append(f"            message=self._{cid}_messagebox_message,")
+                lines.append(f"        )")
+                lines.append(f"        self._{cid}_on_messagebox_result()")
         else:
             lines.extend(_body_lines(method, bodies, hdef.default_body))
 
