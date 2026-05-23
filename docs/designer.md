@@ -171,7 +171,7 @@ Handlers that are not yet wired or enabled. A **⚡** button appears on hover:
 
 **`multi_wire` handlers** (currently `open_dialog`) stay in Available even after wiring so you can wire them to additional widget events — one wire per dialog.
 
-**Available Components sub-section** — when a widget is selected, component handlers with a connector (e.g. `timer1_start`, `timer1_stop`) appear here. Clicking ⚡ opens the Connector pre-selecting the current widget.
+**Available Components sub-section** — collapsed by default (▶ header); click the header to expand. Shows **all** connectable component handlers (e.g. `timer1_start`, `cd1_show_open`) regardless of whether they are already wired — handlers are reusable and can be connected to multiple widgets or menu items. Clicking ⚡ opens the Connector pre-selecting the current widget.
 
 ### Connected Section
 
@@ -180,7 +180,7 @@ Enabled or wired handlers, each showing their target on the right (e.g. `btn1.cl
 - **×** — disconnects the wire or disables the handler
 - **…** — opens the **Options Editor** for handlers that have named mode variants (e.g. `on_close` with hide vs destroy, `open_dialog` close-mode picker)
 
-**⚡ Connected Components sub-section** (widget-selected only) — component handler methods already wired to this widget's events; × to disconnect.
+**⚡ Connected Components sub-section** (widget-selected only) — component handler methods already wired to this widget's events or menu items; **×** to disconnect, **…** to edit the wire or per-handler properties (dialog title, messagebox type and message, etc.).
 
 ### Options Editor
 
@@ -246,6 +246,47 @@ A VB6-style dialog accessible from the `menu bar` form property row.
 - Adding a menu bar shifts all top-level widgets down 20px and increases form height; removing reverses this
 - Live menu bar strip rendered on canvas below the title bar
 - Codegen emits the full `tk.Menu` hierarchy — `add_checkbutton`/`add_radiobutton` for check/radio items with `variable=`, `value=`, and `command=` kwargs; auto-stubs all leaf command handlers; emits `BooleanVar`/`StringVar` declarations for menu variables; emits `self.bind("<shortcut>", handler)` for items with both a shortcut and a handler
+
+## Non-Visual Components
+
+Non-visual components (timers, dialogs, file pickers) live in the **component tray** — a chip strip below the canvas. Click the **COMPONENTS** palette section to add one; the tray shows icon + name chips; selecting a chip reveals its properties and handlers in the Properties / Handlers panels. Codegen emits init code and all handler stubs into the generated `.py`; user bodies survive regeneration automatically.
+
+**Wiring connectable handlers** — handlers marked ⚡ can be wired to widget events or menu items via the [Connector](#handlers-tab). The Connector lists both widget events and any non-cascade command menu items so a single handler can be invoked from a button click, a keyboard shortcut, or a menu command — no extra wrapper code needed.
+
+**Menu item wiring** — wiring a component handler to a menu item stores the method reference directly on the menu item (`command_handler`); codegen emits `command=self._cd1_show_open` instead of the default `_{name}_click` wrapper.
+
+**Selective imports** — codegen only emits dialog imports your form actually uses (e.g. `from tkinter import filedialog` appears only if `_show_open` or `_show_save` is wired; `messagebox` only if `_show_message` is wired).
+
+### Timer
+
+`self.after()` periodic callback — no threading, no locks.
+
+| Property | Description |
+|---|---|
+| Interval | Milliseconds between ticks |
+| Enabled | Start timer on form load |
+
+| Handler | Description |
+|---|---|
+| `_tick` | User logic; called every interval |
+| `_start` ⚡ | Start the timer; wire to a button or menu item |
+| `_stop` ⚡ | Stop the timer |
+
+### CommonDialog
+
+A multi-mode wrapper around tkinter's built-in dialog functions. Each handler is independently wired and has its own title / message configuration.
+
+| Handler | Dialog invoked | Result |
+|---|---|---|
+| `_show_open` ⚡ | `filedialog.askopenfilename` | Path stored in `_cd1_result`; `_on_file_selected` stub called |
+| `_show_save` ⚡ | `filedialog.asksaveasfilename` | Path stored in `_cd1_result`; `_on_file_selected` stub called |
+| `_show_color` ⚡ | `colorchooser.askcolor` | Color tuple stored in `_cd1_result`; `_on_color_selected` stub called |
+| `_show_input` ⚡ | `simpledialog.askstring` | String stored in `_cd1_result`; `_on_input_received` stub called |
+| `_show_message` ⚡ | `messagebox` (ok/yesno/warning/etc.) | Button string stored in `_cd1_result`; `_on_message_result` stub called |
+
+**Per-handler configuration** — click **…** on a connected handler row to set that handler's dialog title. For `_show_message`, you also set the message body and messagebox type (ok, okcancel, yesno, warning, error, etc.). All configuration is stored in the component props and written into the generated code.
+
+**`parent=self`** — all dialog calls pass the form as parent so focus returns to the correct window after the dialog closes.
 
 ## Double-Click Navigation
 

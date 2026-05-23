@@ -259,19 +259,17 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 - **More bundled themes** — add 2–3 popular themes as `themes/*.json` entries. Candidates: `github-dark`, `one-dark`, `solarized-dark`. Not blocking — add alongside other work.
 
-### Git Workflow Note (for next big feature branch)
+### Git Workflow (established practice)
 
-Next time a large multi-session feature is started (like the canvas editor rewrite), use a feature branch:
+Multi-session features use a dedicated branch merged into master when complete:
 ```
-git checkout -b feature/my-big-thing   # create + switch to branch
-# ... do all the work, commit freely ...
-git checkout master                     # switch back to main
-git merge feature/my-big-thing         # merge when done
-git branch -d feature/my-big-thing     # delete the branch (pruning local)
-git push origin --delete feature/my-big-thing  # prune remote too
-git fetch --prune                       # clean up stale remote-tracking refs
+git checkout -b feature/my-big-thing   # create + switch
+# ... commit freely ...
+git checkout master && git merge feature/my-big-thing
+git branch -d feature/my-big-thing && git push origin --delete feature/my-big-thing
+git fetch --prune
 ```
-Benefits: master stays stable while the feature is in progress; easy to diff the whole feature (`git diff master...feature/my-big-thing`); clean history with one merge commit. We can walk through this in practice on the next big feature.
+Use a fresh name for each new feature branch (don't reuse merged names). Master stays stable; the feature diff is always visible with `git diff master...feature/my-big-thing`.
 
 ---
 
@@ -375,7 +373,7 @@ Benefits: master stays stable while the feature is in progress; easy to diff the
 
 ---
 
-## Phase 3 — IDOL Components (Timer shipped 2026-05-16)
+## Phase 3 — IDOL Components (Timer 2026-05-16 · CommonDialog 2026-05-22)
 
 VB6-style non-visual components placed in a chip tray below the canvas. Click a component in
 the palette COMPONENTS section to add it; the tray shows icon+name chips; selecting a chip
@@ -390,15 +388,29 @@ dialog). Component handlers are underscore-prefixed methods so `extract_event_bo
 Wiring a handler to a widget event stores `widget.events[event_key] = method_name` — existing
 codegen emits the `.bind()` call with no changes.
 
+**Connector enhancements (2026-05-22):**
+- Menu item wiring — the Connector lists non-cascade command menu items alongside widget events; wiring sets `MenuItemDescriptor.command_handler` so codegen emits the method reference directly instead of a `_{name}_click` wrapper
+- Stub checker — connector suppresses the "already wired" overwrite warning when the existing handler body is only `pass` (reads the generated `.py` via regex; treats missing file as stub)
+- Available Components sub-section is foldable (▶/▼ header, collapsed by default) and always shows all connectable handlers regardless of wiring state — handlers are reusable across multiple widgets and menu items
+- Scroll offset fix — floating ⚡/×/… buttons now track correctly when the Handlers canvas is scrolled
+
 **Shipped:**
 - ✅ **Timer** — `self.after()` periodic callback (no threading, no locks). Props: Interval
   (ms), Enabled. Handlers: `_tick` (user logic), `_start` (⚡ connectable), `_stop` (⚡ connectable).
+- ✅ **CommonDialog** — multi-mode wrapper around tkinter's built-in dialog functions; all five
+  handlers independently wired (⚡ connectable to any widget event or menu item); each handler
+  carries its own title; `_show_message` also carries message body and messagebox type. Handlers:
+  `_show_open` (filedialog.askopenfilename), `_show_save` (asksaveasfilename),
+  `_show_color` (colorchooser.askcolor), `_show_input` (simpledialog.askstring),
+  `_show_message` (messagebox). Result stored in `_{id}_result`; callback stubs: `_on_file_selected`,
+  `_on_color_selected`, `_on_input_received`, `_on_message_result`. Selective imports —
+  codegen only emits `from tkinter import filedialog/colorchooser/simpledialog/messagebox`
+  for handlers that are actually wired. All dialog calls pass `parent=self`.
 
 **Candidate components (next up):**
-1. **FileDialog** — `tkinter.filedialog.askopenfilename/asksaveasfilename`; props: Title, InitDir, Filter, DefaultExt; handlers: `_show_open` (⚡), `_show_save` (⚡), `_on_file_selected`
-2. **Socket** — `socket` module; props: Protocol (TCP/UDP), RemoteHost, RemotePort, LocalPort, State (readonly); handlers: `_connect` (⚡), `_listen` (⚡), `_send` (⚡), `_disconnect` (⚡), `_on_data_received`, `_on_connected`, `_on_error`
-3. **Database** — `sqlite3`; props: DatabaseFile; handlers: `_open_db` (⚡), `_close_db` (⚡), `_execute` (⚡), `_on_results`
-4. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`, `controls`, etc.)
+1. **Socket** — `socket` module; props: Protocol (TCP/UDP), RemoteHost, RemotePort, LocalPort, State (readonly); handlers: `_connect` (⚡), `_listen` (⚡), `_send` (⚡), `_disconnect` (⚡), `_on_data_received`, `_on_connected`, `_on_error`
+2. **Database** — `sqlite3`; props: DatabaseFile; handlers: `_open_db` (⚡), `_close_db` (⚡), `_execute` (⚡), `_on_results`
+3. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`, `controls`, etc.)
 
 ### Dialog Helper Injector
 
