@@ -98,8 +98,6 @@ VS Code-style inline bar with case, whole word, and regex toggles. Open with `Ct
 
 The editor's right-click menu is an IDOL-style dark overlay (not a native OS menu). It shows each action with its keyboard shortcut in a two-column layout. Available actions: Cut, Copy, Paste, Select All, Go to Definition, Find & Replace. Go to Definition is disabled if the LSP is not yet connected.
 
-Right-clicking on selected text keeps the selection intact — the context menu opens without clearing it.
-
 ## Active Line Highlight
 
 **View → Highlight Active Line** toggles a subtle background band on the line the cursor is on. **View → Active Line Color** opens a color picker to customize the highlight color. Both settings apply immediately to all open editor tabs.
