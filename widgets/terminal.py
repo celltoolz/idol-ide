@@ -2255,8 +2255,10 @@ class TerminalPanel(ttk.Frame):
             nv = _norm(cwd_venv) if cwd_venv else ""
             if nv and (na == nv or na.startswith(nv + "/")):
                 self._venv_btn_state = "active_match"
-            else:
+            elif nv:
                 self._venv_btn_state = "active_other"
+            else:
+                self._venv_btn_state = "none"
         elif venv_activate_path:
             self._venv_btn_state = "activate"
         else:
