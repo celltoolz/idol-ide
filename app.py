@@ -5597,19 +5597,32 @@ class IDOL(Tk):
     def _on_designer_form_remove(self, name: str) -> None:
         """Remove a form from the designer view without deleting files.
 
-        Removes from _designer_forms and _designer_form_names so it won't be
-        re-loaded on the next session restore.  Files on disk are untouched.
+        For main forms, also removes all of their linked dialogs.
+        Removes from _designer_forms and _designer_form_names so nothing
+        is re-loaded on the next session restore.  Files on disk are untouched.
         """
-        # Remove from explicit tracking list
-        if name in self._designer_form_names:
-            self._designer_form_names.remove(name)
+        # Collect dialogs owned by this form before we remove it
+        form_obj = self._designer_forms.get(name)
+        linked = list(form_obj.linked_dialogs) if form_obj else []
 
-        # Remove from any parent's linked_dialogs
+        def _drop(n: str) -> None:
+            self._designer_forms.pop(n, None)
+            if n in self._designer_form_names:
+                self._designer_form_names.remove(n)
+
+        # Remove the form itself and, for main forms, cascade to linked dialogs
+        _drop(name)
+        for dlg in linked:
+            # Also strip the dialog from any other parent's linked_dialogs list
+            for f in self._designer_forms.values():
+                if dlg in f.linked_dialogs:
+                    f.linked_dialogs.remove(dlg)
+            _drop(dlg)
+
+        # For dialogs being removed standalone, strip from any parent list
         for form in self._designer_forms.values():
             if name in form.linked_dialogs:
                 form.linked_dialogs.remove(name)
-
-        self._designer_forms.pop(name, None)
 
         current = self._design_canvas.form
         if current and current.name == name:

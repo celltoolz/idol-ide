@@ -331,9 +331,15 @@ class FormListPanel(tk.Frame):
             if row["kind"] == "section":
                 return
             cw = self._canvas.winfo_width()
-            if row["kind"] in ("form", "dialog", "linked") and event.x >= cw - 20:
-                if self._on_remove:
-                    self._on_remove(row["name"])
+            if event.x >= cw - 20:
+                if row["kind"] == "linked":
+                    # First click unlinks — moves to Unlinked section.
+                    # A second × click there (kind="dialog") removes from designer.
+                    if self._on_unlink:
+                        self._on_unlink(row["name"], row["parent"])
+                elif row["kind"] in ("form", "dialog"):
+                    if self._on_remove:
+                        self._on_remove(row["name"])
                 return
             if self._on_select:
                 self._on_select(row["name"])
