@@ -339,7 +339,17 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     if interp_path and os.path.isfile(interp_path) and hasattr(app, "_set_active_interpreter"):
         app._set_active_interpreter(interp_path, interp_label or "Python")
     if venv_activate and os.path.isfile(venv_activate) and hasattr(app, "_schedule_venv_activation_if_needed"):
-        app._schedule_venv_activation_if_needed(venv_activate)
+        # Only auto-activate a saved venv if it lives inside the restored project
+        # root.  A venv from a different project must not be injected into this
+        # session's terminal — the user would have to manually deactivate it.
+        _venv_under_root = bool(
+            root and
+            os.path.normcase(os.path.abspath(venv_activate)).startswith(
+                os.path.normcase(os.path.abspath(root)) + os.sep
+            )
+        )
+        if _venv_under_root:
+            app._schedule_venv_activation_if_needed(venv_activate)
 
     # ── Appearance ────────────────────────────────────────────────────────────
     appearance = data.get("appearance", {})
