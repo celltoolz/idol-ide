@@ -3100,6 +3100,13 @@ class IDOL(Tk):
         self._output.set_cwd(root)
         self._git = None
         self._start_git()
+        # If the designer is open, silently drop back to editor mode so the
+        # now-stale form state (from the old project root) doesn't persist into
+        # the session.  Without this, closing IDOL after a root change would
+        # save designer_mode_active=True with the new root, causing the new
+        # project's forms to load in the designer on next launch.
+        if getattr(self, "_designer_mode", False):
+            self._enter_editor_mode()
 
     def _on_project_created(
         self,
