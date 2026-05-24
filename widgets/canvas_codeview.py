@@ -50,6 +50,8 @@ _LANGUAGE_BY_EXT = {
     ".bat":     "batch",
     ".cmd":     "batch",
     ".ps1":     "powershell",
+    ".diff":    "diff",
+    ".patch":   "diff",
 }
 
 
@@ -2213,6 +2215,28 @@ class CanvasCodeView(tk.Frame):
             i += 1
         return None
 
+    _DIFF_META_PREFIXES = ("+++", "---", "diff ", "index ", "new file",
+                           "deleted file", "Binary", "similarity",
+                           "rename from", "rename to", "old mode", "new mode")
+
+    def _tokenize_diff(self, line: str):
+        """Whole-line tokenizer for unified diff / patch files."""
+        if line.startswith(self._DIFF_META_PREFIXES):
+            return [(line, "diff_meta")]
+        if line.startswith("+"):
+            return [(line, "diff_add")]
+        if line.startswith("-"):
+            return [(line, "diff_remove")]
+        if line.startswith("@@"):
+            m = re.match(r"(@@ [^@]+ @@)(.*)", line)
+            if m:
+                segs = [(m.group(1), "diff_hunk")]
+                if m.group(2):
+                    segs.append((m.group(2), "diff_meta"))
+                return segs
+            return [(line, "diff_hunk")]
+        return [(line, None)]
+
     def _tokenize(self, line: str):
         """Return a list of (text, category_or_None) segments.
 
@@ -2223,6 +2247,8 @@ class CanvasCodeView(tk.Frame):
         tokens inside a comment (e.g. `# print("x")`) are not coloured
         as strings — the whole tail is treated as a comment. Non-comment
         rules run only on the code portion that precedes the `#`."""
+        if self.language == "diff":
+            return self._tokenize_diff(line)
         comment_at = self._comment_start(line)
         code_part   = line[:comment_at] if comment_at is not None else line
         segments: list = [(code_part, None)] if code_part else []

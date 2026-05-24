@@ -2721,13 +2721,13 @@ class IDOL(Tk):
         from tkinter import ttk
 
         frame = ttk.Frame(self.notebook)
+        _cv = self._codeviews.get(self._current_tab_id) if self._current_tab_id else None
+        _font = (_cv._font.actual("family"), _cv._font.actual("size")) if _cv else ("Consolas", 11)
         txt = tk.Text(
             frame,
             bg="#1e1e1e",
             fg="#cccccc",
-            font=self._codeviews[self._current_tab_id].cget("font")
-            if self._current_tab_id and self._codeviews.get(self._current_tab_id)
-            else ("Consolas", 11),
+            font=_font,
             insertwidth=0,
             relief="flat",
             padx=8,

@@ -37,6 +37,10 @@
     "function":     {"color": "#dcdcaa"},
     "method":       {"color": "#dcdcaa"},
     "decorator":    {"color": "#dcdcaa"},
-    "parameter":    {"color": "#4ec9b0"}
+    "parameter":    {"color": "#4ec9b0"},
+    "diff_add":     {"color": "#4ec994"},
+    "diff_remove":  {"color": "#f14c4c"},
+    "diff_hunk":    {"color": "#569cd6"},
+    "diff_meta":    {"color": "#858585"}
   }
 }

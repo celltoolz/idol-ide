@@ -38,6 +38,10 @@
     "method":       {"color": "#a6e22e"},
     "decorator":    {"color": "#66d9ef"},
     "parameter":    {"color": "#66d9ef"},
-    "punctuation":  {"color": "#f92672"}
+    "punctuation":  {"color": "#f92672"},
+    "diff_add":     {"color": "#a6e22e"},
+    "diff_remove":  {"color": "#f92672"},
+    "diff_hunk":    {"color": "#66d9ef"},
+    "diff_meta":    {"color": "#75715e"}
   }
 }
