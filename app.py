@@ -462,6 +462,7 @@ class IDOL(Tk):
             False  # tracks prev menu_bar state for shift logic
         )
         self._designer_forms: dict = {}  # {name: FormModel} for all open forms
+        self._designer_form_names: list = []  # explicit project form list ([] = use glob)
         self._zen_pill: object = None  # floating toast Toplevel
 
         # Peek at the saved layout before building so panes can be pre-sized
@@ -990,7 +991,8 @@ class IDOL(Tk):
             on_new=self.designer_new_form,
             on_link=self._on_form_link,
             on_unlink=self._on_form_unlink,
-            on_delete=self._on_designer_form_delete,
+            on_remove=self._on_designer_form_remove,
+            on_context_menu=self._on_form_list_context_menu,
         )
         self._form_list_panel.pack(fill="x")
 
@@ -4447,17 +4449,34 @@ class IDOL(Tk):
             self._load_designer_form_from_project()
 
     def _load_designer_form_from_project(self) -> None:
-        """Find all .form.json files in the project root and load them."""
+        """Load form JSON files into the designer.
+
+        When _designer_form_names is populated (saved project), only those
+        forms are loaded.  When empty (first open, migration), all *.form.json
+        files in the root are loaded and _designer_form_names is seeded from
+        whatever is found — establishing the explicit list for future saves.
+        """
         from pathlib import Path as _Path
         from designer.persistence import load as _load
 
         root = getattr(self._sidebar.explorer, "_root", None)
         if not root:
             return
-        try:
-            json_files = sorted(_Path(root).glob("*.form.json"))
-        except Exception:
-            return
+
+        if self._designer_form_names:
+            # Explicit list — only load tracked forms
+            json_files = []
+            for name in self._designer_form_names:
+                jf = _Path(root) / f"{name}.form.json"
+                if jf.exists():
+                    json_files.append(jf)
+        else:
+            # Migration / first open — glob all and seed the explicit list
+            try:
+                json_files = sorted(_Path(root).glob("*.form.json"))
+            except Exception:
+                return
+
         if not json_files:
             return
 
@@ -4471,6 +4490,10 @@ class IDOL(Tk):
                     primary = form
             except Exception:
                 pass
+
+        # Seed explicit list from whatever was actually loaded (migration path)
+        if not self._designer_form_names:
+            self._designer_form_names = list(self._designer_forms.keys())
 
         if primary is None:
             return
@@ -5571,8 +5594,82 @@ class IDOL(Tk):
         self._set_designer_dirty()
         self._refresh_form_list()
 
+    def _on_designer_form_remove(self, name: str) -> None:
+        """Remove a form from the designer view without deleting files.
+
+        Removes from _designer_forms and _designer_form_names so it won't be
+        re-loaded on the next session restore.  Files on disk are untouched.
+        """
+        # Remove from explicit tracking list
+        if name in self._designer_form_names:
+            self._designer_form_names.remove(name)
+
+        # Remove from any parent's linked_dialogs
+        for form in self._designer_forms.values():
+            if name in form.linked_dialogs:
+                form.linked_dialogs.remove(name)
+
+        self._designer_forms.pop(name, None)
+
+        current = self._design_canvas.form
+        if current and current.name == name:
+            remaining = list(self._designer_forms.values())
+            if remaining:
+                nxt = remaining[0]
+                self._design_canvas.load_form(nxt)
+                self._props_panel.set_form(nxt)
+                self._props_panel.load_form(nxt)
+                self._comp_tray.refresh(nxt.components)
+                self._comp_tray.deselect()
+            else:
+                self._design_canvas.load_form(None)
+                self._props_panel._form = None
+                self._props_panel._current_widget = None
+                self._props_panel._clear_form_selection()
+                self._comp_tray.refresh([])
+
+        self._refresh_form_list()
+        self._set_designer_dirty()
+        self._refresh_generate_code_state()
+
+    def _on_form_list_context_menu(
+        self, name: str, kind: str, parent: str | None, x_root: int, y_root: int
+    ) -> None:
+        """Show the FORMS tree right-click context menu."""
+        menu = tk.Menu(self, tearoff=0, bg="#2d2d2d", fg="#cccccc",
+                       activebackground="#094771", activeforeground="#ffffff",
+                       relief="flat", bd=0)
+
+        menu.add_command(
+            label="Remove from Designer",
+            command=lambda: self._on_designer_form_remove(name),
+        )
+
+        # Unlink — only meaningful for linked dialogs
+        if kind == "linked" and parent:
+            menu.add_command(
+                label="Unlink",
+                command=lambda: self._on_form_unlink(name, parent),
+            )
+        else:
+            menu.add_command(label="Unlink", state="disabled")
+
+        menu.add_separator()
+
+        menu.add_command(
+            label="Delete",
+            foreground="#f14c4c",
+            activeforeground="#ff6b6b",
+            command=lambda: self._on_designer_form_delete(name),
+        )
+
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+
     def _on_designer_form_delete(self, name: str) -> None:
-        """Tree × click on form/unlinked-dialog — permanently delete it."""
+        """Permanently delete a form — removes files from disk."""
         from tkinter.messagebox import askyesno
         from pathlib import Path as _Path
 
@@ -5602,8 +5699,10 @@ class IDOL(Tk):
             if name in form.linked_dialogs:
                 form.linked_dialogs.remove(name)
 
-        # Remove from in-memory dict
+        # Remove from in-memory dict and explicit tracking list
         self._designer_forms.pop(name, None)
+        if name in self._designer_form_names:
+            self._designer_form_names.remove(name)
 
         # If this was the active canvas form, switch to the first remaining form
         current = self._design_canvas.form
@@ -5724,6 +5823,8 @@ class IDOL(Tk):
                 enabled_handlers=_def_handlers(form_type),
             )
             self._designer_forms[name] = form
+            if name not in self._designer_form_names:
+                self._designer_form_names.append(name)
             if form_type == "dialog" and link_to != "None (unlinked)":
                 parent = self._designer_forms.get(link_to)
                 if parent and name not in parent.linked_dialogs:
@@ -5822,6 +5923,8 @@ class IDOL(Tk):
         try:
             form, _ = _load(_Path(path))
             self._designer_forms[form.name] = form
+            if form.name not in self._designer_form_names:
+                self._designer_form_names.append(form.name)
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
@@ -5857,6 +5960,8 @@ class IDOL(Tk):
         try:
             form, _ = _load(_Path(path))
             self._designer_forms[form.name] = form
+            if form.name not in self._designer_form_names:
+                self._designer_form_names.append(form.name)
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)

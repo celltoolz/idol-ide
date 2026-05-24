@@ -28,29 +28,32 @@ class FormListPanel(tk.Frame):
 
     Callbacks
     ---------
-    on_select(name)              – click on any row
-    on_new()                     – + button pressed
-    on_link(dialog, form)        – drag dialog dropped onto a form row
-    on_unlink(dialog, form)      – × clicked on a linked dialog row
-    on_delete(name)              – × clicked on a form/unlinked-dialog row
+    on_select(name)                              – click on any row
+    on_new()                                     – + button pressed
+    on_link(dialog, form)                        – drag dialog dropped onto a form row
+    on_unlink(dialog, form)                      – drag relink (unlink from old parent)
+    on_remove(name)                              – × clicked (remove from designer, no file deletion)
+    on_context_menu(name, kind, parent, x, y)   – right-click on a row
     """
 
     def __init__(
         self,
         master,
-        on_select: Optional[Callable[[str], None]] = None,
-        on_new:    Optional[Callable[[], None]]    = None,
-        on_link:   Optional[Callable[[str, str], None]] = None,
-        on_unlink: Optional[Callable[[str, str], None]] = None,
-        on_delete: Optional[Callable[[str], None]] = None,
+        on_select:       Optional[Callable[[str], None]] = None,
+        on_new:          Optional[Callable[[], None]]    = None,
+        on_link:         Optional[Callable[[str, str], None]] = None,
+        on_unlink:       Optional[Callable[[str, str], None]] = None,
+        on_remove:       Optional[Callable[[str], None]] = None,
+        on_context_menu: Optional[Callable] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, **kwargs)
-        self._on_select = on_select
-        self._on_new    = on_new
-        self._on_link   = on_link
-        self._on_unlink = on_unlink
-        self._on_delete = on_delete
+        self._on_select       = on_select
+        self._on_new          = on_new
+        self._on_link         = on_link
+        self._on_unlink       = on_unlink
+        self._on_remove       = on_remove
+        self._on_context_menu = on_context_menu
 
         self._forms:  list[tuple[str, str]] = []  # [(name, form_type), ...]
         self._links:  dict[str, list[str]]  = {}  # {form_name: [dialog_names]}
@@ -95,6 +98,7 @@ class FormListPanel(tk.Frame):
         self._canvas.bind("<ButtonPress-1>",   self._drag_start)
         self._canvas.bind("<B1-Motion>",       self._drag_motion)
         self._canvas.bind("<ButtonRelease-1>", self._drag_release)
+        self._canvas.bind("<ButtonRelease-3>", self._right_click)
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
@@ -224,22 +228,14 @@ class FormListPanel(tk.Frame):
             c.create_text(label_x, (y0 + y1) // 2, text=name, fill=fg,
                           font=(UI_FONT, 9), anchor="w")
 
-            # × button on hover — unlink for linked dialogs, delete for forms/unlinked dialogs
-            if is_hov and not self._drag_name:
-                if kind == "linked":
-                    c.create_text(
-                        cw - 8, (y0 + y1) // 2,
-                        text="×", fill=_UNLINK_FG,
-                        font=(UI_FONT, 10, "bold"), anchor="e",
-                        tags=(f"unlink_{i}",),
-                    )
-                elif kind in ("form", "dialog"):
-                    c.create_text(
-                        cw - 8, (y0 + y1) // 2,
-                        text="×", fill=_UNLINK_FG,
-                        font=(UI_FONT, 10, "bold"), anchor="e",
-                        tags=(f"delete_{i}",),
-                    )
+            # × button on hover — removes form from designer (no file deletion)
+            if is_hov and not self._drag_name and kind in ("form", "dialog", "linked"):
+                c.create_text(
+                    cw - 8, (y0 + y1) // 2,
+                    text="×", fill=_UNLINK_FG,
+                    font=(UI_FONT, 10, "bold"), anchor="e",
+                    tags=(f"remove_{i}",),
+                )
 
     # ── Mouse: click ──────────────────────────────────────────────────────────
 
@@ -335,16 +331,25 @@ class FormListPanel(tk.Frame):
             if row["kind"] == "section":
                 return
             cw = self._canvas.winfo_width()
-            if row["kind"] == "linked" and event.x >= cw - 20:
-                if self._on_unlink:
-                    self._on_unlink(row["name"], row["parent"])
-                return
-            if row["kind"] in ("form", "dialog") and event.x >= cw - 20:
-                if self._on_delete:
-                    self._on_delete(row["name"])
+            if row["kind"] in ("form", "dialog", "linked") and event.x >= cw - 20:
+                if self._on_remove:
+                    self._on_remove(row["name"])
                 return
             if self._on_select:
                 self._on_select(row["name"])
+
+    def _right_click(self, event: tk.Event) -> None:
+        idx = self._idx_at(event.y)
+        if idx is None:
+            return
+        row = self._rows[idx]
+        if row["kind"] == "section":
+            return
+        if self._on_context_menu:
+            self._on_context_menu(
+                row["name"], row["kind"], row.get("parent"),
+                event.x_root, event.y_root,
+            )
 
     # ── Ghost drag preview ────────────────────────────────────────────────────
 
