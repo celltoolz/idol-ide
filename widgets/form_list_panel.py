@@ -14,6 +14,7 @@ _DROP_HL   = "#007acc"   # drop-target highlight
 _FG        = "#cccccc"
 _DIM       = "#858585"
 _UNLINK_FG = "#cc6666"
+_MISSING_FG = "#cc4444"   # dialog file not found on disk
 _ROW_H          = 26
 _ICON_X         = 10
 _LABEL_X        = 26
@@ -55,9 +56,10 @@ class FormListPanel(tk.Frame):
         self._on_remove       = on_remove
         self._on_context_menu = on_context_menu
 
-        self._forms:  list[tuple[str, str]] = []  # [(name, form_type), ...]
-        self._links:  dict[str, list[str]]  = {}  # {form_name: [dialog_names]}
-        self._active: str | None = None
+        self._forms:   list[tuple[str, str]] = []  # [(name, form_type), ...]
+        self._links:   dict[str, list[str]]  = {}  # {form_name: [dialog_names]}
+        self._missing: set[str]              = set()  # dialog names whose files are missing
+        self._active:  str | None = None
 
         # Drag state
         self._drag_name:    str | None  = None   # dialog being dragged (confirmed)
@@ -67,6 +69,7 @@ class FormListPanel(tk.Frame):
         self._hov_idx:      int | None  = None
         self._rows:         list[dict]  = []     # built by _build_rows()
         self._ghost:        tk.Toplevel | None = None  # floating drag preview
+        self._tooltip:      tk.Toplevel | None = None  # hover tooltip for missing dialogs
 
         self._build_ui()
 
@@ -106,21 +109,25 @@ class FormListPanel(tk.Frame):
 
     def set_forms(
         self,
-        forms:  list[tuple[str, str]],
-        links:  dict[str, list[str]] | None = None,
-        active: str | None = None,
+        forms:   list[tuple[str, str]],
+        links:   dict[str, list[str]] | None = None,
+        active:  str | None = None,
+        missing: set[str] | None = None,
     ) -> None:
         """Refresh the tree.
 
-        forms  – [(name, form_type), ...]
-        links  – {form_name: [dialog_name, ...]}
-        active – currently active form/dialog name
+        forms   – [(name, form_type), ...]
+        links   – {form_name: [dialog_name, ...]}
+        active  – currently active form/dialog name
+        missing – dialog names whose .form.json files were not found on disk
         """
-        self._forms  = list(forms)
-        self._links  = {k: list(v) for k, v in (links or {}).items()}
-        self._active = active
+        self._forms   = list(forms)
+        self._links   = {k: list(v) for k, v in (links or {}).items()}
+        self._missing = set(missing or [])
+        self._active  = active
         self._hov_idx  = None
         self._drop_idx = None
+        self._hide_tooltip()
         self._rows = self._build_rows()
         self._redraw()
         self._sync_height()
@@ -224,7 +231,15 @@ class FormListPanel(tk.Frame):
 
             # Name
             label_x = x + 16
-            fg = _FG if is_active else (_FG if kind == "linked" else _DIM)
+            is_missing = name in self._missing
+            if is_missing:
+                fg = _MISSING_FG
+            elif is_active:
+                fg = _FG
+            elif kind == "linked":
+                fg = _FG
+            else:
+                fg = _DIM
             c.create_text(label_x, (y0 + y1) // 2, text=name, fill=fg,
                           font=(UI_FONT, 9), anchor="w")
 
@@ -252,8 +267,14 @@ class FormListPanel(tk.Frame):
         if new_hov != self._hov_idx:
             self._hov_idx = new_hov
             self._redraw()
+        # Tooltip for missing dialogs
+        if row and row["name"] in self._missing and row["kind"] != "section":
+            self._show_tooltip(row["name"], event.x_root, event.y_root)
+        else:
+            self._hide_tooltip()
 
     def _leave(self, _event: tk.Event) -> None:
+        self._hide_tooltip()
         if self._hov_idx is not None or self._drop_idx is not None:
             self._hov_idx  = None
             self._drop_idx = None
@@ -268,6 +289,8 @@ class FormListPanel(tk.Frame):
         row = self._rows[idx]
         if row["kind"] not in ("linked", "dialog"):
             return
+        if row["name"] in self._missing:
+            return  # missing dialogs can't be dragged
         # Record the press — drag activates only after threshold movement
         self._drag_pending = {
             "name":    row["name"],
@@ -356,6 +379,51 @@ class FormListPanel(tk.Frame):
                 row["name"], row["kind"], row.get("parent"),
                 event.x_root, event.y_root,
             )
+
+    # ── Ghost drag preview ────────────────────────────────────────────────────
+
+    # ── Tooltip for missing dialogs ───────────────────────────────────────────
+
+    def _show_tooltip(self, name: str, x_root: int, y_root: int) -> None:
+        msg = f"{name}.form.json not found"
+        if self._tooltip is not None:
+            try:
+                self._tooltip.wm_geometry(f"+{x_root + 14}+{y_root + 6}")
+                # Update label text if tooltip is for a different dialog
+                for w in self._tooltip.winfo_children():
+                    if isinstance(w, tk.Label) and w.cget("text") != msg:
+                        w.config(text=msg)
+            except Exception:
+                pass
+            return
+        win = tk.Toplevel(self)
+        win.overrideredirect(True)
+        win.wm_attributes("-topmost", True)
+        try:
+            win.wm_attributes("-alpha", 0.92)
+        except Exception:
+            pass
+        win.configure(bg="#1e1e1e", relief="solid", bd=1)
+        tk.Label(
+            win,
+            text=msg,
+            bg="#1e1e1e",
+            fg=_MISSING_FG,
+            font=(UI_FONT, 8),
+            padx=6,
+            pady=3,
+        ).pack()
+        win.update_idletasks()
+        win.wm_geometry(f"+{x_root + 14}+{y_root + 6}")
+        self._tooltip = win
+
+    def _hide_tooltip(self) -> None:
+        if self._tooltip is not None:
+            try:
+                self._tooltip.destroy()
+            except Exception:
+                pass
+            self._tooltip = None
 
     # ── Ghost drag preview ────────────────────────────────────────────────────
 

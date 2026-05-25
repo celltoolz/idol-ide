@@ -464,6 +464,7 @@ class IDOL(Tk):
         )
         self._designer_forms: dict = {}  # {name: FormModel} for all open forms
         self._designer_form_names: list = []  # explicit project form list ([] = use glob)
+        self._designer_missing_dialogs: set = set()  # linked dialog names whose files were not found
         self._zen_pill: object = None  # floating toast Toplevel
 
         # Peek at the saved layout before building so panes can be pre-sized
@@ -4494,6 +4495,7 @@ class IDOL(Tk):
             return
 
         self._designer_forms.clear()
+        self._designer_missing_dialogs.clear()
         primary: object = None
         for jf in json_files:
             try:
@@ -4507,6 +4509,11 @@ class IDOL(Tk):
         # Seed explicit list from whatever was actually loaded (migration path)
         if not self._designer_form_names:
             self._designer_form_names = list(self._designer_forms.keys())
+
+        # Load linked dialogs for every main form; track any that are missing
+        for form in list(self._designer_forms.values()):
+            if form.form_type == "main":
+                self._load_linked_dialogs(form)
 
         if primary is None:
             return
@@ -5561,6 +5568,32 @@ class IDOL(Tk):
             if f.form_type == "main"
         }
 
+    def _load_linked_dialogs(self, form) -> None:
+        """Load any linked dialog .form.json files for *form* from the project root.
+
+        Updates _designer_forms, _designer_form_names, and _designer_missing_dialogs.
+        """
+        from pathlib import Path as _Path
+        from designer.persistence import load as _load
+
+        root = getattr(self._sidebar.explorer, "_root", None)
+        for dlg_name in list(getattr(form, "linked_dialogs", [])):
+            if dlg_name in self._designer_forms:
+                self._designer_missing_dialogs.discard(dlg_name)
+                continue
+            jf = _Path(root) / f"{dlg_name}.form.json" if root else None
+            if jf and jf.exists():
+                try:
+                    dlg_form, _ = _load(jf)
+                    self._designer_forms[dlg_form.name] = dlg_form
+                    if dlg_form.name not in self._designer_form_names:
+                        self._designer_form_names.append(dlg_form.name)
+                    self._designer_missing_dialogs.discard(dlg_form.name)
+                except Exception:
+                    self._designer_missing_dialogs.add(dlg_name)
+            else:
+                self._designer_missing_dialogs.add(dlg_name)
+
     def _refresh_form_list(self, active: str | None = None) -> None:
         """Re-render the FormListPanel with current state."""
         if active is None:
@@ -5570,10 +5603,14 @@ class IDOL(Tk):
             [(f.name, f.form_type) for f in self._designer_forms.values()],
             links=self._links_dict(),
             active=active,
+            missing=self._designer_missing_dialogs,
         )
 
     def _on_form_list_select(self, form_name: str) -> None:
         """FormListPanel click — switch canvas to the named form."""
+        if form_name in self._designer_missing_dialogs:
+            self.designer_open_form()
+            return
         if self._design_canvas.form and self._design_canvas.form.name == form_name:
             return
         self._designer_autosave()
@@ -5949,8 +5986,10 @@ class IDOL(Tk):
         try:
             form, _ = _load(_Path(path))
             self._designer_forms[form.name] = form
+            self._designer_missing_dialogs.discard(form.name)
             if form.name not in self._designer_form_names:
                 self._designer_form_names.append(form.name)
+            self._load_linked_dialogs(form)
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
@@ -5986,8 +6025,10 @@ class IDOL(Tk):
         try:
             form, _ = _load(_Path(path))
             self._designer_forms[form.name] = form
+            self._designer_missing_dialogs.discard(form.name)
             if form.name not in self._designer_form_names:
                 self._designer_form_names.append(form.name)
+            self._load_linked_dialogs(form)
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
