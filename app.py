@@ -4420,6 +4420,10 @@ class IDOL(Tk):
         """Switch the main content area to the designer canvas."""
         if self._designer_mode:
             return
+        if self._split_active:
+            self._close_split()
+            if self._split_active:
+                return  # user cancelled the unsaved-changes dialog
         self._designer_mode = True
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
@@ -6260,7 +6264,7 @@ class IDOL(Tk):
             left_cv = self._get_left_cv()
             right_cv = self._get_right_cv()
             if left_cv and right_cv:
-                right_cv.yview_moveto(left_cv.yview()[0])
+                right_cv.yview_moveto(left_cv.yview()[0])  # yview_moveto on CanvasCodeView
 
     def _get_left_cv(self):
         tid = self.notebook.select() if self.notebook.tabs() else None
@@ -6273,7 +6277,7 @@ class IDOL(Tk):
         return self._codeviews.get(tid)
 
     def _on_scroll_locked(self, source: str, *args) -> None:
-        """Called by the yscrollcommand of whichever pane scrolled."""
+        """Kept for compatibility; scroll sync is now handled via on_scroll hooks."""
         if not self._scroll_locked:
             return
         left_cv = self._get_left_cv()
@@ -6287,63 +6291,45 @@ class IDOL(Tk):
             left_cv.yview_moveto(fraction)
 
     def _patch_scroll_callbacks(self) -> None:
-        """Wrap the yscrollcommand on both codeviews so scroll lock can sync them.
+        """Wire on_scroll hooks on both codeviews so scroll lock can sync them.
 
         Safe to call repeatedly — skips if the same pair is already patched.
         """
-        import tkinter as tk
-
         left_cv = self._get_left_cv()
         right_cv = self._get_right_cv()
         if not left_cv or not right_cv:
             return
 
-        # Skip if this exact pair is already patched (avoid chaining wrappers)
+        # Skip if already patched with this exact pair (avoid chaining wrappers)
         if getattr(self, "_patched_scroll_pair", None) == (id(left_cv), id(right_cv)):
             return
         self._patched_scroll_pair = (id(left_cv), id(right_cv))
 
-        # Restore originals before re-patching (covers codeviews that were patched
-        # in a previous split configuration)
+        # Clear any hooks left over from a previous split pair
         for cv in (left_cv, right_cv):
-            orig = getattr(cv, "_orig_vertical_scroll", None)
-            if orig:
-                tk.Text.configure(cv, yscrollcommand=orig)
+            cv.on_scroll = None
 
-        orig_left_vs = left_cv.vertical_scroll
-        orig_right_vs = right_cv.vertical_scroll
-        # Stash originals so we can restore them if the pair changes
-        left_cv._orig_vertical_scroll = orig_left_vs
-        right_cv._orig_vertical_scroll = orig_right_vs
-
-        def left_scroll(first, last):
-            orig_left_vs(first, last)
+        def _sync_to(target_cv, first: float) -> None:
             if self._scroll_locked and not self._syncing_scroll:
                 self._syncing_scroll = True
                 try:
-                    if right_cv.winfo_exists():
-                        right_cv.yview_moveto(float(first))
+                    if target_cv.winfo_exists():
+                        target_cv.yview_moveto(float(first))
                 finally:
                     self._syncing_scroll = False
 
-        def right_scroll(first, last):
-            orig_right_vs(first, last)
-            if self._scroll_locked and not self._syncing_scroll:
-                self._syncing_scroll = True
-                try:
-                    if left_cv.winfo_exists():
-                        left_cv.yview_moveto(float(first))
-                finally:
-                    self._syncing_scroll = False
-
-        tk.Text.configure(left_cv, yscrollcommand=left_scroll)
-        tk.Text.configure(right_cv, yscrollcommand=right_scroll)
+        left_cv.on_scroll  = lambda first, last: _sync_to(right_cv, first)
+        right_cv.on_scroll = lambda first, last: _sync_to(left_cv,  first)
 
     def _close_split(self) -> None:
         """Close the right split pane after checking for unsaved changes."""
         if not self._split_active or self._notebook_r is None:
             return
         self._patched_scroll_pair = None
+        # Clear scroll-sync hooks before tearing down
+        for cv in (self._get_left_cv(), self._get_right_cv()):
+            if cv is not None:
+                cv.on_scroll = None
         # Check each right-pane tab for unsaved changes
         for tab_id in list(self._notebook_r.tabs()):
             if not self._confirm_close_tab(tab_id):

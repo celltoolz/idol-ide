@@ -596,6 +596,9 @@ class CanvasCodeView(tk.Frame):
         self.render()
         return None
 
+    def yview_moveto(self, fraction: float) -> None:
+        self.yview("moveto", fraction)
+
     def xview(self, *args) -> tuple[float, float] | None:
         if not args:
             return self._xview_fractions()
@@ -724,6 +727,8 @@ class CanvasCodeView(tk.Frame):
             self._hs.set(*self._xview_fractions())
         except Exception:
             pass
+        if self.on_scroll is not None:
+            self.on_scroll(*self._yview_fractions())
 
     def _goto_line(self, line: int) -> None:
         """Breadcrumb navigation target — center the given line in the
@@ -928,6 +933,9 @@ class CanvasCodeView(tk.Frame):
         # _completion_seq in app.py).
         self.on_completion_request = None
         self._ac_seq: int = 0
+        # Scroll hook — fired from _push_scroll_fractions after each render.
+        # Signature: callable(first: float, last: float) -> None
+        self.on_scroll = None
         # File path the buffer is backed by — passed to LSP via the host.
         # `None` means scratch buffer / unsaved.
         self.filepath: str | None = None
