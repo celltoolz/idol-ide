@@ -5741,8 +5741,9 @@ class IDOL(Tk):
             if name in form.linked_dialogs:
                 form.linked_dialogs.remove(name)
 
+        dropped_names = {name} | set(linked)
         current = self._design_canvas.form
-        if current and current.name == name:
+        if current is None or current.name in dropped_names:
             remaining = list(self._designer_forms.values())
             if remaining:
                 nxt = remaining[0]

@@ -611,6 +611,10 @@ class DesignerCanvas(tk.Canvas):
     def _reposition(self) -> None:
         """Center the form on the canvas (when it fits) and update scrollregion."""
         if self._form is None:
+            self.delete("all")
+            cw = max(self.winfo_width(), 1)
+            ch = max(self.winfo_height(), 1)
+            self.configure(scrollregion=(0, 0, cw, ch))
             return
         cw = max(self.winfo_width(),  1)
         ch = max(self.winfo_height(), 1)
