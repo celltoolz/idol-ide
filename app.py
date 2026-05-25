@@ -45,6 +45,7 @@ from utils.thread_safe_after import make_thread_safe_after
 from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
 from utils.ui_font import UI_FONT
+from utils.theme_loader import theme_kind as _theme_kind
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
@@ -1465,6 +1466,7 @@ class IDOL(Tk):
             fg=pal["fg"],
             select_bg=pal.get("select_bg", "#264f78"),
             codeview=cv,
+            kind=_theme_kind(self.theme_var.get()),
         )
 
         # Ctrl+F → IDOL's FindReplaceBar (the sandbox's own internal
@@ -3694,6 +3696,7 @@ class IDOL(Tk):
             fg=pal["fg"],
             select_bg=pal.get("select_bg", "#264f78"),
             codeview=cv,
+            kind=_theme_kind(scheme),
         )
         self._update_status_lexer(cv)
 
@@ -6399,6 +6402,7 @@ class IDOL(Tk):
             fg=pal["fg"],
             select_bg=pal.get("select_bg", "#264f78"),
             codeview=cv,
+            kind=_theme_kind(self.theme_var.get()),
         )
         if not self.minimap_visible_var.get():
             cv.hide_minimap()

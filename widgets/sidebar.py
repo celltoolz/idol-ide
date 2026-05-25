@@ -157,8 +157,8 @@ class Sidebar(ttk.Frame):
         self._sc_visible = False
         self._relayout()
 
-    def apply_theme(self, bg: str, fg: str, select_bg: str, codeview=None) -> None:
-        self.outline.apply_theme(bg, fg, select_bg)
+    def apply_theme(self, bg: str, fg: str, select_bg: str, codeview=None, kind: str = "dark") -> None:
+        self.outline.apply_theme(bg, fg, select_bg, kind=kind)
         # Pull accent + comment colors from the active theme. Both
         # editor engines are supported via duck-typing:
         #   • Canvas engine exposes `_token_style` — a dict mapping
@@ -182,15 +182,17 @@ class Sidebar(ttk.Frame):
                     comment = codeview.tag_cget("Token.Comment.Single", "foreground") or comment
                 except Exception:
                     pass
-        self.references.apply_theme(bg, fg, select_bg, accent=accent, comment=comment)
+        self.references.apply_theme(bg, fg, select_bg, accent=accent, comment=comment, kind=kind)
         self.source_control.apply_theme(bg, fg, select_bg)
-        self.explorer.apply_theme(bg, fg, select_bg)
+        self.explorer.apply_theme(bg, fg, select_bg, kind=kind)
+        _hdr_fg   = "#444444" if kind == "light" else "#cccccc"
+        _sash_col = "#cccccc" if kind == "light" else "#3c3c3c"
         for hdr in (self._outline_hdr, self._refs_hdr, self._sc_hdr, self._explorer_hdr):
             hdr.config(bg=bg)
             for child in hdr.winfo_children():
-                child.config(bg=bg, fg="#cccccc")
+                child.config(bg=bg, fg=_hdr_fg)
         for sash in (self._sash1, self._sash2, self._sash3):
-            sash.config(bg="#3c3c3c")
+            sash.config(bg=_sash_col)
         ttk.Style().configure("Sidebar.TFrame", background=bg)
 
     # ── Header / sash factories ───────────────────────────────────────────────

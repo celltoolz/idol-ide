@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tkinter import Menu
 
-from utils.theme_loader import list_themes as _canvas_theme_ids
+from utils.theme_loader import list_themes as _canvas_theme_ids, theme_name as _theme_name, theme_kind as _theme_kind
 
 
 def build_menubar(app) -> Menu:
@@ -64,21 +64,32 @@ def build_menubar(app) -> Menu:
     view_menu = Menu(menubar, tearoff=0)
 
     theme_menu = Menu(view_menu, tearoff=0)
-    # Themes are JSON files in `themes/` — drop a new file there and
-    # it appears in this menu on next launch. `monokai-bright` is the
-    # built-in default; pinning it to the top so first-time users
-    # land on it without scrolling. Everything else is alphabetical.
+    # Themes are JSON files in `themes/` — drop a new file there and it
+    # appears in this menu on next launch. `monokai-bright` is pinned
+    # first; remaining dark themes are alphabetical, then light themes.
     _DEFAULT = "monokai-bright"
     _ids = _canvas_theme_ids()
     if _DEFAULT in _ids:
         _ids = [_DEFAULT] + [t for t in _ids if t != _DEFAULT]
-    for theme in _ids:
+    _dark_ids  = [t for t in _ids if _theme_kind(t) == "dark"]
+    _light_ids = [t for t in _ids if _theme_kind(t) == "light"]
+    theme_menu.add_command(label="── Dark ──", state="disabled")
+    for _t in _dark_ids:
         theme_menu.add_radiobutton(
-            label=theme.replace("-", " ").title(),
+            label=_theme_name(_t),
             variable=app.theme_var,
-            value=theme,
+            value=_t,
             command=app.view_change_theme,
         )
+    if _light_ids:
+        theme_menu.add_command(label="── Light ──", state="disabled")
+        for _t in _light_ids:
+            theme_menu.add_radiobutton(
+                label=_theme_name(_t),
+                variable=app.theme_var,
+                value=_t,
+                command=app.view_change_theme,
+            )
     view_menu.add_cascade(label="Theme", menu=theme_menu)
     view_menu.add_command(
         label="Change Font...", command=app.view_change_font, accelerator="Ctrl+L"

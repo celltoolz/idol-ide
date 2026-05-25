@@ -90,6 +90,7 @@ def load_theme(theme_id: str) -> dict:
             tokens[cat] = (spec, False)
     theme = {
         "name":    raw.get("name") or theme_id,
+        "kind":    raw.get("kind", "dark"),
         "palette": palette,
         "tokens":  tokens,
     }
@@ -105,3 +106,11 @@ def theme_name(theme_id: str) -> str:
         return load_theme(theme_id)["name"]
     except Exception:
         return theme_id
+
+
+def theme_kind(theme_id: str) -> str:
+    """Return 'dark' or 'light' for *theme_id*. Defaults to 'dark'."""
+    try:
+        return load_theme(theme_id)["kind"]
+    except Exception:
+        return "dark"

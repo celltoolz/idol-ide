@@ -68,10 +68,12 @@ class ReferencesPanel(ttk.Frame):
         self._list.config(state="disabled")
 
     def apply_theme(self, bg: str, fg: str, select_bg: str,
-                    accent: str = "", comment: str = "") -> None:
+                    accent: str = "", comment: str = "",
+                    kind: str = "dark") -> None:
         self._bg  = bg
         self._fg  = fg
         self._sel = select_bg
+        self._preview_fg = fg
         if accent:
             self._accent = accent
         if comment:

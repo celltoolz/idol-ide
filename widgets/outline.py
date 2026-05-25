@@ -72,7 +72,7 @@ class OutlinePanel(ttk.Frame):
         self.tree.bind("<Button-1>", self._on_tree_click, add=True)
         self._last_click_region = "nothing"
 
-    def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
+    def apply_theme(self, bg: str, fg: str, select_bg: str, kind: str = "dark") -> None:
         """Update outline colours to match the active editor theme."""
         style = ttk.Style()
         style.configure("Outline.TFrame",    background=bg)
@@ -89,6 +89,22 @@ class OutlinePanel(ttk.Frame):
             foreground=[("selected", fg)],
         )
         self.configure(style="Outline.TFrame")
+        if kind == "light":
+            self.tree.tag_configure("class",    foreground="#6f42c1")  # purple
+            self.tree.tag_configure("method",   foreground="#005cc5")  # blue
+            self.tree.tag_configure("function", foreground="#6f42c1")  # purple
+            self.tree.tag_configure("param",    foreground="#c06030")  # brown-orange
+            self.tree.tag_configure("attr",     foreground="#c4136a")  # rose
+            self.tree.tag_configure("var",      foreground="#2a8040")  # dark-green
+            self.tree.tag_configure("local",    foreground="#555555")  # dark-gray
+        else:
+            self.tree.tag_configure("class",    foreground="#8be9fd")  # cyan
+            self.tree.tag_configure("method",   foreground="#50fa7b")  # green
+            self.tree.tag_configure("function", foreground="#ffb86c")  # orange
+            self.tree.tag_configure("param",    foreground="#bd93f9")  # purple
+            self.tree.tag_configure("attr",     foreground="#ff79c6")  # pink
+            self.tree.tag_configure("var",      foreground="#f1fa8c")  # yellow
+            self.tree.tag_configure("local",    foreground="#abb2bf")  # soft grey
 
     # ── Public API ────────────────────────────────────────────────────────────
 

@@ -148,7 +148,10 @@ class FileExplorer(ttk.Frame):
         for root_item in self._tree.get_children():
             _update(root_item)
 
-    def apply_theme(self, bg: str, fg: str, select_bg: str) -> None:
+    def apply_theme(self, bg: str, fg: str, select_bg: str, kind: str = "dark") -> None:
+        self._kind     = kind
+        self._theme_bg = bg
+        self._theme_fg = fg
         style = ttk.Style()
         # No global `foreground` here — item colours come from per-item tags
         # so that git status tags can override without being blocked by the style.
@@ -159,9 +162,23 @@ class FileExplorer(ttk.Frame):
                   background=[("selected", select_bg)],
                   foreground=[("selected", fg)])
         style.configure("Explorer.TFrame", background=bg)
-        # Ensure base tag colours reflect the current theme
-        self._tree.tag_configure("file",       foreground=fg)
-        self._tree.tag_configure("parent_dir", foreground="#6272a4")
+        self._tree.tag_configure("file", foreground=fg)
+        if kind == "light":
+            self._tree.tag_configure("folder",     foreground="#0070c8")  # blue
+            self._tree.tag_configure("parent_dir", foreground="#888888")  # gray
+            self._tree.tag_configure("git_M",      foreground="#b06800")  # amber
+            self._tree.tag_configure("git_A",      foreground="#2a8040")  # dark-green
+            self._tree.tag_configure("git_U",      foreground="#8b6914")  # mustard
+            self._tree.tag_configure("git_D",      foreground="#c00030")  # dark-red
+            self._drag_line.config(bg="#0070c8")
+        else:
+            self._tree.tag_configure("folder",     foreground="#8be9fd")  # cyan
+            self._tree.tag_configure("parent_dir", foreground="#6272a4")  # muted purple
+            self._tree.tag_configure("git_M",      foreground="#e2c08d")  # tan
+            self._tree.tag_configure("git_A",      foreground="#73c991")  # bright-green
+            self._tree.tag_configure("git_U",      foreground="#cccccc")  # light-grey
+            self._tree.tag_configure("git_D",      foreground="#f14c4c")  # bright-red
+            self._drag_line.config(bg="#569cd6")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -384,15 +401,19 @@ class FileExplorer(ttk.Frame):
             x, y, w, h = bbox
             entry_w = max(w, self._tree.winfo_width() - x - 4)
 
+            _is_light  = getattr(self, "_kind", "dark") == "light"
+            _entry_bg  = getattr(self, "_theme_bg", "#2d2d30") if _is_light else "#2d2d30"
+            _entry_fg  = getattr(self, "_theme_fg", "#f8f8f2")
+            _entry_bdr = "#0366d6" if _is_light else "#007acc"
             entry = tk.Entry(
                 self._tree,
-                bg="#2d2d30", fg="#f8f8f2",
-                insertbackground="#f8f8f2",
+                bg=_entry_bg, fg=_entry_fg,
+                insertbackground=_entry_fg,
                 relief="flat",
                 font=(UI_FONT, 9),
                 highlightthickness=1,
-                highlightcolor="#007acc",
-                highlightbackground="#007acc",
+                highlightcolor=_entry_bdr,
+                highlightbackground=_entry_bdr,
             )
             entry.place(x=x, y=y, width=entry_w, height=h)
             entry.focus_set()
