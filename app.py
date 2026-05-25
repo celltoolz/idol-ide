@@ -996,6 +996,7 @@ class IDOL(Tk):
             on_unlink=self._on_form_unlink,
             on_remove=self._on_designer_form_remove,
             on_context_menu=self._on_form_list_context_menu,
+            on_set_main=self._on_form_set_as_main,
         )
         self._form_list_panel.pack(fill="x")
 
@@ -6209,6 +6210,21 @@ class IDOL(Tk):
             self._refresh_generate_code_state()
             if not self._designer_mode:
                 self._enter_designer_mode()
+            # Open companion .py in the editor (prefer CWD copy)
+            root_dir = _Path(getattr(self._sidebar.explorer, "_root", None) or ".")
+            src_dir  = _Path(path).parent
+            dst_py   = root_dir / f"{form.name}.py"
+            src_py   = src_dir  / f"{form.name}.py"
+            py_to_open = dst_py if dst_py.exists() else (src_py if src_py.exists() else None)
+            if py_to_open:
+                py_str = str(py_to_open)
+                existing_tab = next(
+                    (tid for tid, fp in self._files.items() if fp == py_str), None
+                )
+                if existing_tab:
+                    self.notebook.select(existing_tab)
+                else:
+                    self._open_file(py_str, update_explorer=False)
         except Exception as exc:
             from tkinter.messagebox import showerror
             showerror("Open in Designer", f"Could not load form:\n{exc}", parent=self)

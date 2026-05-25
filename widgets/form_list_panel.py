@@ -35,6 +35,7 @@ class FormListPanel(tk.Frame):
     on_unlink(dialog, form)                      – drag relink (unlink from old parent)
     on_remove(name)                              – × clicked (remove from designer, no file deletion)
     on_context_menu(name, kind, parent, x, y)   – right-click on a row
+    on_set_main(name)                            – double-click on a main form row
     """
 
     def __init__(
@@ -46,6 +47,7 @@ class FormListPanel(tk.Frame):
         on_unlink:       Optional[Callable[[str, str], None]] = None,
         on_remove:       Optional[Callable[[str], None]] = None,
         on_context_menu: Optional[Callable] = None,
+        on_set_main:     Optional[Callable[[str], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, **kwargs)
@@ -55,6 +57,7 @@ class FormListPanel(tk.Frame):
         self._on_unlink       = on_unlink
         self._on_remove       = on_remove
         self._on_context_menu = on_context_menu
+        self._on_set_main     = on_set_main
 
         self._forms:   list[tuple[str, str]] = []  # [(name, form_type), ...]
         self._links:   dict[str, list[str]]  = {}  # {form_name: [dialog_names]}
@@ -97,12 +100,13 @@ class FormListPanel(tk.Frame):
 
         self._canvas = tk.Canvas(self, bg=_BG, highlightthickness=0, bd=0)
         self._canvas.pack(fill="both", expand=True)
-        self._canvas.bind("<Motion>",          self._motion)
-        self._canvas.bind("<Leave>",           self._leave)
-        self._canvas.bind("<ButtonPress-1>",   self._drag_start)
-        self._canvas.bind("<B1-Motion>",       self._drag_motion)
-        self._canvas.bind("<ButtonRelease-1>", self._drag_release)
-        self._canvas.bind("<ButtonRelease-3>", self._right_click)
+        self._canvas.bind("<Motion>",                self._motion)
+        self._canvas.bind("<Leave>",                 self._leave)
+        self._canvas.bind("<ButtonPress-1>",         self._drag_start)
+        self._canvas.bind("<B1-Motion>",             self._drag_motion)
+        self._canvas.bind("<ButtonRelease-1>",       self._drag_release)
+        self._canvas.bind("<Double-ButtonRelease-1>", self._double_click)
+        self._canvas.bind("<ButtonRelease-3>",       self._right_click)
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
@@ -374,6 +378,20 @@ class FormListPanel(tk.Frame):
                 return
             if self._on_select:
                 self._on_select(row["name"])
+
+    def _double_click(self, event: tk.Event) -> None:
+        if not self._on_set_main or self._drag_name:
+            return
+        idx = self._idx_at(event.y)
+        if idx is None:
+            return
+        row = self._rows[idx]
+        if row["kind"] != "form" or row["name"] in self._missing:
+            return
+        cw = self._canvas.winfo_width()
+        if event.x >= cw - 20:
+            return  # in the × zone
+        self._on_set_main(row["name"])
 
     def _right_click(self, event: tk.Event) -> None:
         idx = self._idx_at(event.y)
