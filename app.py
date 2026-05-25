@@ -4472,6 +4472,10 @@ class IDOL(Tk):
         if self._design_canvas.form is None:
             self._load_designer_form_from_project()
 
+        # Sync ▶ indicator — tab may have changed while editor had focus
+        if not self._run_entry_file:
+            self._refresh_form_list()
+
     def _load_designer_form_from_project(self) -> None:
         """Load form JSON files into the designer.
 
