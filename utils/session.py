@@ -499,7 +499,8 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
         app._designer_main_form = saved_main_form
 
     project_type = layout.get("designer_project_type", "cli")
-    if project_type == "gui" and hasattr(app, "_show_mode_bar"):
+    designer_was_active = layout.get("designer_mode_active", False)
+    if (project_type == "gui" or designer_was_active) and hasattr(app, "_show_mode_bar"):
         app._designer_project_type = "gui"
         pw = layout.get("designer_palette_width", 0)
         if pw > 50:

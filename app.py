@@ -4431,6 +4431,7 @@ class IDOL(Tk):
             if self._split_active:
                 return  # user cancelled the unsaved-changes dialog
         self._designer_mode = True
+        self._designer_project_type = "gui"
         self.notebook.pack_forget()
         self._designer_frame.pack(fill="both", expand=True)
 
