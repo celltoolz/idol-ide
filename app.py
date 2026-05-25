@@ -5723,6 +5723,7 @@ class IDOL(Tk):
 
         def _drop(n: str) -> None:
             self._designer_forms.pop(n, None)
+            self._designer_missing_dialogs.discard(n)
             if n in self._designer_form_names:
                 self._designer_form_names.remove(n)
 
@@ -5752,9 +5753,7 @@ class IDOL(Tk):
                 self._comp_tray.deselect()
             else:
                 self._design_canvas.load_form(None)
-                self._props_panel._form = None
-                self._props_panel._current_widget = None
-                self._props_panel._clear_form_selection()
+                self._props_panel.clear()
                 self._comp_tray.refresh([])
 
         self._refresh_form_list()
@@ -5846,9 +5845,7 @@ class IDOL(Tk):
                 self._comp_tray.deselect()
             else:
                 self._design_canvas.load_form(None)
-                self._props_panel._form = None
-                self._props_panel._current_widget = None
-                self._props_panel._clear_form_selection()
+                self._props_panel.clear()
                 self._comp_tray.refresh([])
 
         # Delete files from disk
