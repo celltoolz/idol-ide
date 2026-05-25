@@ -1741,6 +1741,10 @@ class IDOL(Tk):
         if self._split_active:
             self._patch_scroll_callbacks()
 
+        # Update form selector ▶ indicator when in Active Tab entry mode
+        if self._designer_mode and not self._run_entry_file:
+            self._refresh_form_list()
+
     def _reset_dirty_after_load(self, tab_id: str) -> None:
         """Clear the dirty flag after all deferred events from file load have fired.
 
@@ -5666,6 +5670,40 @@ class IDOL(Tk):
         if new_copies or overwrites:
             self._sidebar.explorer.refresh()
 
+    def _form_name_for_file(self, path: str) -> str | None:
+        """Return the designer form name whose .py file matches path, or None."""
+        from pathlib import Path as _Path
+        p = _Path(path)
+        if p.stem in self._designer_forms:
+            return p.stem
+        if p.name == "main.py":
+            try:
+                import re as _re
+                content = p.read_text(encoding="utf-8")
+                if self._is_idol_main_py(content):
+                    m = _re.search(r"^from\s+(\w+)\s+import\s+\1", content, _re.MULTILINE)
+                    if m and m.group(1) in self._designer_forms:
+                        return m.group(1)
+            except Exception:
+                pass
+        return None
+
+    def _effective_designer_main(self) -> str | None:
+        """Compute which form should show ▶ based on the current run entry."""
+        if not self._designer_forms:
+            return self._designer_main_form
+        if self._run_entry_file and os.path.isfile(self._run_entry_file):
+            name = self._form_name_for_file(self._run_entry_file)
+            if name:
+                return name
+        else:
+            candidate = self._files.get(self._current_tab_id)
+            if candidate:
+                name = self._form_name_for_file(candidate)
+                if name:
+                    return name
+        return self._designer_main_form
+
     def _refresh_form_list(self, active: str | None = None) -> None:
         """Re-render the FormListPanel with current state."""
         if active is None:
@@ -5676,7 +5714,7 @@ class IDOL(Tk):
             links=self._links_dict(),
             active=active,
             missing=self._designer_missing_dialogs,
-            main_form=self._designer_main_form,
+            main_form=self._effective_designer_main(),
         )
 
     def _on_form_list_select(self, form_name: str) -> None:
@@ -6905,6 +6943,8 @@ class IDOL(Tk):
         self._running_file = None
         label = os.path.basename(path) if path else "Active Tab"
         self._statusbar.set_run_entry(label)
+        if self._designer_mode:
+            self._refresh_form_list()
 
     def _set_running_file(self, path: str | None) -> None:
         """Temporarily show a filename in the run-entry label while a run is active."""
