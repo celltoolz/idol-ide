@@ -3140,6 +3140,9 @@ class IDOL(Tk):
             if json_files:
                 form, _ = designer_load(json_files[0])
                 self._designer_forms[form.name] = form
+                if form.name not in self._designer_form_names:
+                    self._designer_form_names.append(form.name)
+                self._designer_main_form = form.name
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
