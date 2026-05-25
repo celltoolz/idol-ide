@@ -5568,31 +5568,97 @@ class IDOL(Tk):
             if f.form_type == "main"
         }
 
-    def _load_linked_dialogs(self, form) -> None:
-        """Load any linked dialog .form.json files for *form* from the project root.
+    def _load_linked_dialogs(self, form, source_dir=None) -> None:
+        """Load linked dialog .form.json files for *form*.
 
-        Updates _designer_forms, _designer_form_names, and _designer_missing_dialogs.
+        source_dir — directory to search first (e.g. dir of the form file the
+                     user just opened via the file picker). When omitted, only
+                     the project root is searched.
+
+        Dialogs found in source_dir that are not already in the project root are
+        copied there (new files silently; overwrites with a single confirmation
+        prompt). Updates _designer_forms, _designer_form_names, and
+        _designer_missing_dialogs.
         """
+        import shutil as _shutil
         from pathlib import Path as _Path
         from designer.persistence import load as _load
 
-        root = getattr(self._sidebar.explorer, "_root", None)
+        root      = getattr(self._sidebar.explorer, "_root", None)
+        root_path = _Path(root) if root else None
+        src_path  = _Path(source_dir) if source_dir else None
+
+        # Search order: source_dir first (when it differs from root), then root
+        search_dirs: list[_Path] = []
+        if src_path and (not root_path or src_path.resolve() != root_path.resolve()):
+            search_dirs.append(src_path)
+        if root_path:
+            search_dirs.append(root_path)
+
+        # Accumulate files to copy so we can batch the overwrite prompt
+        new_copies: list[tuple[_Path, _Path]] = []   # copies that don't overwrite
+        overwrites: list[tuple[_Path, _Path]] = []   # copies that would overwrite
+
         for dlg_name in list(getattr(form, "linked_dialogs", [])):
             if dlg_name in self._designer_forms:
                 self._designer_missing_dialogs.discard(dlg_name)
                 continue
-            jf = _Path(root) / f"{dlg_name}.form.json" if root else None
-            if jf and jf.exists():
+
+            found = False
+            for sdir in search_dirs:
+                jf = sdir / f"{dlg_name}.form.json"
+                if not jf.exists():
+                    continue
                 try:
                     dlg_form, _ = _load(jf)
                     self._designer_forms[dlg_form.name] = dlg_form
                     if dlg_form.name not in self._designer_form_names:
                         self._designer_form_names.append(dlg_form.name)
                     self._designer_missing_dialogs.discard(dlg_form.name)
+                    found = True
+
+                    # Plan file copies when source dir differs from root
+                    if root_path and sdir.resolve() != root_path.resolve():
+                        for ext in (".form.json", ".py"):
+                            src_file = sdir / f"{dlg_name}{ext}"
+                            if not src_file.exists():
+                                continue
+                            dst_file = root_path / f"{dlg_name}{ext}"
+                            (overwrites if dst_file.exists() else new_copies).append(
+                                (src_file, dst_file)
+                            )
+                    break
                 except Exception:
-                    self._designer_missing_dialogs.add(dlg_name)
-            else:
+                    pass  # try next search dir
+
+            if not found:
                 self._designer_missing_dialogs.add(dlg_name)
+
+        # Copy new files silently
+        for src, dst in new_copies:
+            try:
+                _shutil.copy2(str(src), str(dst))
+            except Exception:
+                pass
+
+        # Ask once for any overwrites
+        if overwrites:
+            from tkinter.messagebox import askyesno as _ask
+            bullet = "\n  • ".join(dst.name for _, dst in overwrites)
+            if _ask(
+                "Overwrite Dialog Files",
+                f"These files already exist in the current project:\n  • {bullet}"
+                f"\n\nOverwrite them with versions from the source directory?",
+                parent=self,
+            ):
+                for src, dst in overwrites:
+                    try:
+                        _shutil.copy2(str(src), str(dst))
+                    except Exception:
+                        pass
+
+        if new_copies or overwrites:
+            self._sidebar.explorer.refresh()
 
     def _refresh_form_list(self, active: str | None = None) -> None:
         """Re-render the FormListPanel with current state."""
@@ -6008,7 +6074,7 @@ class IDOL(Tk):
             self._designer_missing_dialogs.discard(form.name)
             if form.name not in self._designer_form_names:
                 self._designer_form_names.append(form.name)
-            self._load_linked_dialogs(form)
+            self._load_linked_dialogs(form, source_dir=_Path(path).parent)
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
@@ -6072,7 +6138,7 @@ class IDOL(Tk):
             self._designer_missing_dialogs.discard(form.name)
             if form.name not in self._designer_form_names:
                 self._designer_form_names.append(form.name)
-            self._load_linked_dialogs(form)
+            self._load_linked_dialogs(form, source_dir=_Path(path).parent)
             self._design_canvas.load_form(form)
             self._props_panel.set_form(form)
             self._props_panel.load_form(form)
