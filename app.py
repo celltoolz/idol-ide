@@ -1493,6 +1493,12 @@ class IDOL(Tk):
                     if it.get("label")
                 ]
                 callback(labels)
+            # For dot triggers, flush the debounced didChange immediately so
+            # pyls sees the "." in the file before it processes the completion
+            # request (LSP messages are ordered; this guarantees correct content).
+            if trigger_char == ".":
+                for _srv in self._each_lsp():
+                    _srv.change_file(_cv.filepath, _cv.get_text())
             # For member access with a partial prefix (e.g. self._c), pyls
             # needs triggerKind=2 at the position right after "." — if we
             # send the current cursor (past the prefix) it returns empty.
