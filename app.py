@@ -6110,6 +6110,9 @@ class IDOL(Tk):
         self._design_canvas.delete("all")
         self._props_panel.clear()
         self._designer_forms.clear()
+        self._designer_form_names.clear()
+        self._designer_missing_dialogs.clear()
+        self._designer_main_form = None
         self._form_list_panel.set_forms([])
         self._refresh_generate_code_state()
 

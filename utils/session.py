@@ -490,14 +490,6 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
         app._set_run_entry(run_entry)
 
     # Designer — restore project type, sash widths, and mode bar visibility
-    saved_form_names = layout.get("designer_form_names", [])
-    if saved_form_names and hasattr(app, "_designer_form_names"):
-        app._designer_form_names = list(saved_form_names)
-
-    saved_main_form = layout.get("designer_main_form")
-    if saved_main_form and hasattr(app, "_designer_main_form"):
-        app._designer_main_form = saved_main_form
-
     project_type = layout.get("designer_project_type", "cli")
     designer_was_active = layout.get("designer_mode_active", False)
     if (project_type == "gui" or designer_was_active) and hasattr(app, "_show_mode_bar"):
@@ -517,7 +509,16 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
             except Exception:
                 pass
         app.after_idle(app._show_mode_bar)
-        if hasattr(app, "_enter_designer_mode"):
+        # Only re-enter designer and reload forms if it was actually open at close time.
+        # Restoring form names unconditionally caused stale names from old sessions to
+        # load every form in the directory on next open.
+        if designer_was_active and hasattr(app, "_enter_designer_mode"):
+            saved_form_names = layout.get("designer_form_names", [])
+            if saved_form_names and hasattr(app, "_designer_form_names"):
+                app._designer_form_names = list(saved_form_names)
+            saved_main_form = layout.get("designer_main_form")
+            if saved_main_form and hasattr(app, "_designer_main_form"):
+                app._designer_main_form = saved_main_form
             app.after(300, app._enter_designer_mode)
 
     # Restore Ollama URL if customized
