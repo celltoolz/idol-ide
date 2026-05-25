@@ -58,8 +58,9 @@ class FormListPanel(tk.Frame):
 
         self._forms:   list[tuple[str, str]] = []  # [(name, form_type), ...]
         self._links:   dict[str, list[str]]  = {}  # {form_name: [dialog_names]}
-        self._missing: set[str]              = set()  # dialog names whose files are missing
-        self._active:  str | None = None
+        self._missing:    set[str]   = set()   # dialog names whose files are missing
+        self._main_form:  str | None = None   # form set as project entry point
+        self._active:     str | None = None
 
         # Drag state
         self._drag_name:    str | None  = None   # dialog being dragged (confirmed)
@@ -109,22 +110,25 @@ class FormListPanel(tk.Frame):
 
     def set_forms(
         self,
-        forms:   list[tuple[str, str]],
-        links:   dict[str, list[str]] | None = None,
-        active:  str | None = None,
-        missing: set[str] | None = None,
+        forms:     list[tuple[str, str]],
+        links:     dict[str, list[str]] | None = None,
+        active:    str | None = None,
+        missing:   set[str] | None = None,
+        main_form: str | None = None,
     ) -> None:
         """Refresh the tree.
 
-        forms   – [(name, form_type), ...]
-        links   – {form_name: [dialog_name, ...]}
-        active  – currently active form/dialog name
-        missing – dialog names whose .form.json files were not found on disk
+        forms     – [(name, form_type), ...]
+        links     – {form_name: [dialog_name, ...]}
+        active    – currently active form/dialog name
+        missing   – dialog names whose .form.json files were not found on disk
+        main_form – form name set as the project entry point (shown with ▶)
         """
-        self._forms   = list(forms)
-        self._links   = {k: list(v) for k, v in (links or {}).items()}
-        self._missing = set(missing or [])
-        self._active  = active
+        self._forms     = list(forms)
+        self._links     = {k: list(v) for k, v in (links or {}).items()}
+        self._missing   = set(missing or [])
+        self._main_form = main_form
+        self._active    = active
         self._hov_idx  = None
         self._drop_idx = None
         self._hide_tooltip()
@@ -232,15 +236,19 @@ class FormListPanel(tk.Frame):
             # Name
             label_x = x + 16
             is_missing = name in self._missing
+            is_main    = kind == "form" and name == self._main_form
             if is_missing:
                 fg = _MISSING_FG
+            elif is_main:
+                fg = "#4ec9b0"
             elif is_active:
                 fg = _FG
             elif kind == "linked":
                 fg = _FG
             else:
                 fg = _DIM
-            c.create_text(label_x, (y0 + y1) // 2, text=name, fill=fg,
+            display = f"▶ {name}" if is_main else name
+            c.create_text(label_x, (y0 + y1) // 2, text=display, fill=fg,
                           font=(UI_FONT, 9), anchor="w")
 
             # × button on hover — removes form from designer (no file deletion)

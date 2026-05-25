@@ -168,6 +168,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     layout["designer_project_type"] = getattr(app, "_designer_project_type", "cli")
     layout["designer_mode_active"]  = getattr(app, "_designer_mode", False)
     layout["designer_form_names"]   = list(getattr(app, "_designer_form_names", []))
+    layout["designer_main_form"]    = getattr(app, "_designer_main_form", None)
     # Save live sash widths if in designer mode, otherwise use the stored values.
     if getattr(app, "_designer_mode", False):
         try:
@@ -492,6 +493,10 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
     saved_form_names = layout.get("designer_form_names", [])
     if saved_form_names and hasattr(app, "_designer_form_names"):
         app._designer_form_names = list(saved_form_names)
+
+    saved_main_form = layout.get("designer_main_form")
+    if saved_main_form and hasattr(app, "_designer_main_form"):
+        app._designer_main_form = saved_main_form
 
     project_type = layout.get("designer_project_type", "cli")
     if project_type == "gui" and hasattr(app, "_show_mode_bar"):
