@@ -5873,6 +5873,25 @@ class IDOL(Tk):
             if name in self._designer_forms:
                 name_entry.config(bg="#5a1a1a")
                 return
+            # Warn if files would be overwritten in the project root
+            _root = getattr(self._sidebar.explorer, "_root", None)
+            if _root:
+                from pathlib import Path as _Path
+                _existing = [
+                    f"{name}.form.json" for f in [_Path(_root) / f"{name}.form.json"] if f.exists()
+                ] + [
+                    f"{name}.py" for f in [_Path(_root) / f"{name}.py"] if f.exists()
+                ]
+                if _existing:
+                    from tkinter.messagebox import askyesno as _ask
+                    bullet = "\n  • ".join(_existing)
+                    if not _ask(
+                        "Existing Files",
+                        f"These files already exist in the project:\n  • {bullet}"
+                        f"\n\nCreating '{name}' will overwrite them. Continue?",
+                        parent=win,
+                    ):
+                        return
             link_to   = link_var.get()
             form_type = type_var.get()
             win.destroy()
@@ -6002,16 +6021,41 @@ class IDOL(Tk):
             self._refresh_generate_code_state()
             if not self._designer_mode:
                 self._enter_designer_mode()
-            # Open or focus the companion .py in the editor tab
-            py_path = str(_Path(path).with_suffix("").with_suffix(".py"))
-            if _Path(py_path).exists():
-                existing = next(
-                    (tid for tid, fp in self._files.items() if fp == py_path), None
-                )
-                if existing:
-                    self.notebook.select(existing)
+            # Copy the companion .py to CWD if the source is from a different dir
+            import shutil as _shutil
+            src_dir  = _Path(path).parent
+            root_dir = _Path(getattr(self._sidebar.explorer, "_root", None) or ".")
+            src_py   = src_dir  / f"{form.name}.py"
+            dst_py   = root_dir / f"{form.name}.py"
+            py_to_open = None
+            if src_py.exists():
+                if src_dir.resolve() == root_dir.resolve():
+                    py_to_open = src_py  # already in CWD, just open it
                 else:
-                    self._open_file(py_path, update_explorer=False)
+                    do_copy = True
+                    if dst_py.exists():
+                        from tkinter.messagebox import askyesno as _ask
+                        do_copy = _ask(
+                            "Copy Python File",
+                            f"'{form.name}.py' already exists in the current project.\n\n"
+                            f"Overwrite it with the version from:\n{src_dir}?",
+                            parent=self,
+                        )
+                    if do_copy:
+                        _shutil.copy2(str(src_py), str(dst_py))
+                        self._sidebar.explorer.refresh()
+                    py_to_open = dst_py if dst_py.exists() else src_py
+            elif dst_py.exists():
+                py_to_open = dst_py  # .py already in project, open it
+            if py_to_open:
+                py_str = str(py_to_open)
+                existing_tab = next(
+                    (tid for tid, fp in self._files.items() if fp == py_str), None
+                )
+                if existing_tab:
+                    self.notebook.select(existing_tab)
+                else:
+                    self._open_file(py_str, update_explorer=False)
         except Exception as exc:
             from tkinter.messagebox import showerror
 
