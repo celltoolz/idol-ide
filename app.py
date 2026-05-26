@@ -1605,6 +1605,15 @@ class IDOL(Tk):
             self._refresh_debug_breakpoints()
         cv.on_lines_changed = _canvas_lines_changed
 
+        # ── LSP hover ───────────────────────────────────────────────
+        cv.canvas.bind(
+            "<Motion>",
+            lambda e, _cv=cv, _tid=tab_id:
+                self._on_hover_motion(e, _cv, self._files.get(_tid) or ""),
+            add="+",
+        )
+        cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
+
     def _confirm_close_tab(self, tab_id: str) -> bool:
         """Return True if the tab can be closed (not dirty, or user confirmed)."""
         if not self._dirty.get(tab_id):
@@ -2114,7 +2123,7 @@ class IDOL(Tk):
 
     # ── LSP hover popup ───────────────────────────────────────────────────────
 
-    def _on_hover_motion(self, event, cv: CodeView, path: str) -> None:
+    def _on_hover_motion(self, event, cv: CanvasCodeView, path: str) -> None:
         """Debounce mouse motion; trigger hover request after 600 ms of stillness."""
         if self._completion.visible:
             return  # don't hover while the completion popup is open
@@ -2125,19 +2134,18 @@ class IDOL(Tk):
             600, lambda: self._do_hover(event.x, event.y, cv, path)
         )
 
-    def _do_hover(self, mx: int, my: int, cv: CodeView, path: str) -> None:
+    def _do_hover(self, mx: int, my: int, cv: CanvasCodeView, path: str) -> None:
         if not self._lsp or not path:
             return
-        idx = cv.index(f"@{mx},{my}")
-        line, col = idx.split(".")
+        line, col = cv._coords_from_pixel(mx, my)
         self._lsp.hover(
             path,
-            int(line) - 1,
-            int(col),
+            line,
+            col,
             lambda result: self._show_hover(result, cv, mx, my),
         )
 
-    def _show_hover(self, result, cv: CodeView, mx: int, my: int) -> None:
+    def _show_hover(self, result, cv: CanvasCodeView, mx: int, my: int) -> None:
         if not result:
             return
         # Extract plain text from hover result
@@ -2154,7 +2162,7 @@ class IDOL(Tk):
             return
         self._dismiss_hover()
         self._hover_popup = _HoverPopup(
-            self, text, cv.winfo_rootx() + mx, cv.winfo_rooty() + my
+            self, text, cv.canvas.winfo_rootx() + mx, cv.canvas.winfo_rooty() + my
         )
 
     def _cancel_hover(self) -> None:
@@ -6685,6 +6693,14 @@ class IDOL(Tk):
             if filepath:
                 for srv in self._each_lsp():
                     srv.open_file(filepath, content)
+
+        cv.canvas.bind(
+            "<Motion>",
+            lambda e, _cv=cv, _tid=tab_id:
+                self._on_hover_motion(e, _cv, self._files.get(_tid) or ""),
+            add="+",
+        )
+        cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
 
     def view_toggle_sidebar(self) -> None:
         """Show or hide the entire left sidebar (Ctrl+B)."""
