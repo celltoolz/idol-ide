@@ -3126,6 +3126,8 @@ class IDOL(Tk):
         self._output.set_cwd(root)
         self._git = None
         self._start_git()
+        if hasattr(self, "_props_panel") and self._props_panel:
+            self._props_panel.set_project_dir(root)
         # If the designer is open, silently drop back to editor mode so the
         # now-stale form state (from the old project root) doesn't persist into
         # the session.  Without this, closing IDOL after a root change would

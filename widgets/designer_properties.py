@@ -91,6 +91,7 @@ class DesignerProperties(tk.Frame):
         self._on_install_pillow           = on_install_pillow
         self._active_python: str          = __import__("sys").executable
         self._pil_available: "bool | None" = None
+        self._project_dir: str            = __import__("os").getcwd()
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -1775,6 +1776,9 @@ class DesignerProperties(tk.Frame):
         self._active_python = exe
         self._pil_available = None
 
+    def set_project_dir(self, path: str) -> None:
+        self._project_dir = path
+
     def _check_pil_async(self, on_result: "Callable[[bool], None]") -> None:
         if self._pil_available is not None:
             on_result(self._pil_available)
@@ -1808,8 +1812,8 @@ class DesignerProperties(tk.Frame):
         )
         if not picked:
             return
-        # Copy into CWD/images/ so the generated app can always find it
-        images_dir = os.path.join(os.getcwd(), "images")
+        # Copy into <project>/images/ so the generated app is self-contained
+        images_dir = os.path.join(self._project_dir, "images")
         os.makedirs(images_dir, exist_ok=True)
         basename = os.path.basename(picked)
         dest = os.path.join(images_dir, basename)
@@ -1828,7 +1832,7 @@ class DesignerProperties(tk.Frame):
         if not os.path.exists(dest):
             shutil.copy2(picked, dest)
         # Store as forward-slash relative path so codegen is cross-platform
-        rel = os.path.relpath(dest, os.getcwd()).replace("\\", "/")
+        rel = os.path.relpath(dest, self._project_dir).replace("\\", "/")
         d.props["image"] = rel
         self._props_set(row_iid, os.path.basename(rel))
         if self._on_prop_change:
