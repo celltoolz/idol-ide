@@ -133,6 +133,7 @@ class DesignerCanvas(tk.Canvas):
         self._tab_order_visible: bool = False
         self._active_nb_tabs: dict[str, str] = {}  # nb_id → active tab name
         self._img_cache: dict[str, object] = {}  # "{path}:{w}:{h}" → ImageTk.PhotoImage
+        self._project_dir: str = __import__("os").getcwd()
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -277,6 +278,11 @@ class DesignerCanvas(tk.Canvas):
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._active_nb_tabs.clear()
+        self._img_cache.clear()
+        self._reposition()
+
+    def set_project_dir(self, path: str) -> None:
+        self._project_dir = path
         self._img_cache.clear()
         self._reposition()
 
@@ -2164,13 +2170,13 @@ def _get_bd(props, default=2):
         return default
 
 
-def _resolve_image_path(rel_path: str) -> str:
-    """Resolve a relative-or-absolute image path against CWD."""
+def _resolve_image_path(rel_path: str, project_dir: str) -> str:
+    """Resolve a relative-or-absolute image path against the project directory."""
     from pathlib import Path
     p = Path(rel_path)
     if p.is_absolute():
         return str(p)
-    return str(Path.cwd() / p)
+    return str(Path(project_dir) / p)
 
 
 def _load_preview_image(canvas, rel_path: str, max_w: int, max_h: int):
@@ -2180,7 +2186,7 @@ def _load_preview_image(canvas, rel_path: str, max_w: int, max_h: int):
     except ImportError:
         return None
     try:
-        resolved = _resolve_image_path(rel_path)
+        resolved = _resolve_image_path(rel_path, canvas._project_dir)
         key = f"{resolved}:{max_w}:{max_h}"
         cached = canvas._img_cache.get(key)
         if cached is not None:
