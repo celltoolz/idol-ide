@@ -92,8 +92,9 @@ def _image_load_lines(form: "FormModel") -> list[str]:
         lines.append(
             f"        self._img_{w.id} = ImageTk.PhotoImage("
         )
+        rel_fwd = rel.replace("\\", "/")
         lines.append(
-            f"            Image.open(os.path.join(os.path.dirname(__file__), r\"{rel}\"))"
+            f"            Image.open(os.path.join(os.path.dirname(__file__), \"{rel_fwd}\"))"
         )
         lines.append(
             f"            .resize(({w.width}, {w.height}), Image.LANCZOS)"
@@ -526,7 +527,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 kw_parts.append(f"{k}=(self.register(self.{v}), {arg_str})")
             continue
         if k == "image":
-            if v:
+            # Canvas uses create_image() not a constructor kwarg
+            if v and w.type != "Canvas":
                 kw_parts.append(f"image=self._img_{w.id}")
             continue
         kw_parts.append(_prop_str(k, v))

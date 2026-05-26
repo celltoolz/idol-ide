@@ -1794,7 +1794,7 @@ class DesignerProperties(tk.Frame):
         threading.Thread(target=_run, daemon=True).start()
 
     def _open_image_picker(self, row_iid: str) -> None:
-        import os
+        import os, shutil
         from tkinter.filedialog import askopenfilename
         d = self._current_widget
         if d is None:
@@ -1808,13 +1808,29 @@ class DesignerProperties(tk.Frame):
         )
         if not picked:
             return
-        try:
-            rel = os.path.relpath(picked, os.getcwd())
-        except ValueError:
-            rel = picked  # different drive on Windows
+        # Copy into CWD/images/ so the generated app can always find it
+        images_dir = os.path.join(os.getcwd(), "images")
+        os.makedirs(images_dir, exist_ok=True)
+        basename = os.path.basename(picked)
+        dest = os.path.join(images_dir, basename)
+        # Avoid clobbering an existing file that is different from the source
+        if os.path.exists(dest):
+            try:
+                same = os.path.samefile(picked, dest)
+            except OSError:
+                same = False
+            if not same:
+                name, ext = os.path.splitext(basename)
+                counter = 1
+                while os.path.exists(dest):
+                    dest = os.path.join(images_dir, f"{name}_{counter}{ext}")
+                    counter += 1
+        if not os.path.exists(dest):
+            shutil.copy2(picked, dest)
+        # Store as forward-slash relative path so codegen is cross-platform
+        rel = os.path.relpath(dest, os.getcwd()).replace("\\", "/")
         d.props["image"] = rel
-        import os as _os
-        self._props_set(row_iid, _os.path.basename(rel))
+        self._props_set(row_iid, os.path.basename(rel))
         if self._on_prop_change:
             self._on_prop_change(d.id, "image", rel)
         self._check_pil_async(lambda ok: self._update_pil_warning_row(row_iid, ok))
