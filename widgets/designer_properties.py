@@ -70,6 +70,7 @@ class DesignerProperties(tk.Frame):
         on_component_disconnect:     Optional[Callable[[str, str, str], None]] = None,
         on_component_edit:           Optional[Callable[[str, str, str], None]] = None,
         on_select_component:         Optional[Callable[[str],           None]] = None,
+        on_install_pillow:           Optional[Callable[[],              None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
@@ -87,6 +88,9 @@ class DesignerProperties(tk.Frame):
         self._on_component_disconnect     = on_component_disconnect
         self._on_component_edit           = on_component_edit
         self._on_select_component         = on_select_component
+        self._on_install_pillow           = on_install_pillow
+        self._active_python: str          = __import__("sys").executable
+        self._pil_available: "bool | None" = None
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -399,6 +403,10 @@ class DesignerProperties(tk.Frame):
         reg = REGISTRY.get(descriptor.type, {})
         self._set_selector(descriptor.id)
         self._populate_props(descriptor, reg)
+        if descriptor.props.get("image"):
+            self._check_pil_async(
+                lambda ok: self._update_pil_warning_row("prop__image", ok)
+            )
         self._populate_events(descriptor, reg)
         self._widget_comp_handlers = self._collect_widget_comp_handlers(descriptor)
         self._widget_comp_avail    = []   # not used in widget view
@@ -1761,6 +1769,82 @@ class DesignerProperties(tk.Frame):
         if idx is not None:
             self._props_rows[idx]["link"] = link
 
+    # ── Image / PIL helpers ───────────────────────────────────────────────────
+
+    def set_active_python(self, exe: str) -> None:
+        self._active_python = exe
+        self._pil_available = None
+
+    def _check_pil_async(self, on_result: "Callable[[bool], None]") -> None:
+        if self._pil_available is not None:
+            on_result(self._pil_available)
+            return
+        import threading, subprocess
+        def _run():
+            try:
+                r = subprocess.run(
+                    [self._active_python, "-c", "import PIL"],
+                    capture_output=True, timeout=10
+                )
+                ok = (r.returncode == 0)
+            except Exception:
+                ok = False
+            self._pil_available = ok
+            self.after(0, lambda: on_result(ok))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _open_image_picker(self, row_iid: str) -> None:
+        import os
+        from tkinter.filedialog import askopenfilename
+        d = self._current_widget
+        if d is None:
+            return
+        picked = askopenfilename(
+            title="Select image",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not picked:
+            return
+        try:
+            rel = os.path.relpath(picked, os.getcwd())
+        except ValueError:
+            rel = picked  # different drive on Windows
+        d.props["image"] = rel
+        import os as _os
+        self._props_set(row_iid, _os.path.basename(rel))
+        if self._on_prop_change:
+            self._on_prop_change(d.id, "image", rel)
+        self._check_pil_async(lambda ok: self._update_pil_warning_row(row_iid, ok))
+
+    def _update_pil_warning_row(self, image_row_iid: str, pil_ok: bool) -> None:
+        if pil_ok:
+            idx = self._props_row_map.get("pil__warning")
+            if idx is not None:
+                self._props_rows.pop(idx)
+                del self._props_row_map["pil__warning"]
+                for i in range(idx, len(self._props_rows)):
+                    self._props_row_map[self._props_rows[i]["iid"]] = i
+                self._props_redraw()
+        else:
+            if "pil__warning" in self._props_row_map:
+                return
+            img_idx = self._props_row_map.get(image_row_iid)
+            if img_idx is None:
+                return
+            warn_row = {
+                "iid": "pil__warning", "label": "PIL",
+                "value": "⚠ click to install Pillow",
+                "kind": "warn_link", "swatch": None, "warn": False, "link": False,
+            }
+            insert_at = img_idx + 1
+            self._props_rows.insert(insert_at, warn_row)
+            for i in range(insert_at, len(self._props_rows)):
+                self._props_row_map[self._props_rows[i]["iid"]] = i
+            self._props_redraw()
+
     def _props_bbox(self, iid: str) -> "tuple[int,int,int,int] | None":
         """Return (x, y, w, h) in canvas widget coords for the value column."""
         idx = self._props_row_map.get(iid)
@@ -1847,6 +1931,10 @@ class DesignerProperties(tk.Frame):
                     cv.create_text(sx + 16, mid, text=val,
                                    fill=_ORD_FG, font=(UI_FONT, 9),
                                    anchor="w", tags=f"pr{i}")
+                elif row["kind"] == "warn_link":
+                    cv.create_text(split_x + 8, mid, text=val,
+                                   fill="#ff9f43", font=(UI_FONT, 9),
+                                   anchor="w", tags=f"pr{i}")
                 elif row["warn"]:
                     cv.create_text(split_x + 8, mid, text=val,
                                    fill="#ff6b6b", font=(UI_FONT, 9),
@@ -1903,6 +1991,10 @@ class DesignerProperties(tk.Frame):
                                     tags=f"pr{idx}")
                 cv.create_text(sx + 16, mid, text=val,
                                fill=_ORD_FG, font=(UI_FONT, 9),
+                               anchor="w", tags=f"pr{idx}")
+            elif row["kind"] == "warn_link":
+                cv.create_text(split_x + 8, mid, text=val,
+                               fill="#ff9f43", font=(UI_FONT, 9),
                                anchor="w", tags=f"pr{idx}")
             elif row["warn"]:
                 cv.create_text(split_x + 8, mid, text=val,
@@ -2601,6 +2693,10 @@ class DesignerProperties(tk.Frame):
         if self._comp_mode and row.startswith("comp__"):
             self._dispatch_comp_prop_click(row)
             return
+        if row == "pil__warning":
+            if self._on_install_pillow:
+                self._on_install_pillow()
+            return
         if row in ("var__section", "geo__parent", "anchor__section"):
             return
         if row == "nb__tab":
@@ -2643,6 +2739,10 @@ class DesignerProperties(tk.Frame):
             if key == "font":
                 if self._current_widget:
                     self._open_font_picker(row)
+                return
+            if key == "image":
+                if self._current_widget:
+                    self._open_image_picker(row)
                 return
             if isinstance(d_ref.props.get(key), list):
                 if self._current_widget:
@@ -3343,6 +3443,7 @@ class DesignerProperties(tk.Frame):
         "wraplength", "resolution", "tickinterval", "increment", "maximum",
         "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
         "selectmode", "wrap", "exportselection", "from_", "to",
+        "image", "compound",
     }
 
     def _is_prop_clearable(self, row_iid: str) -> bool:

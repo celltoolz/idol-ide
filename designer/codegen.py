@@ -59,6 +59,7 @@ _SKIP_IF_EMPTY = {
     "wraplength", "resolution", "tickinterval", "increment", "maximum",
     "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
     "selectmode", "wrap", "exportselection", "values", "from_", "to",
+    "compound",
 }
 
 # Props stored as "True"/"False" strings (dropdown) that must become Python booleans
@@ -78,9 +79,32 @@ _COMP_B          = "        # ── IDOL:COMPONENTS:BEGIN " + "─" * 46
 _COMP_E          = "        # ── IDOL:COMPONENTS:END "   + "─" * 48
 
 
+def _has_images(form: "FormModel") -> bool:
+    return any(w.props.get("image") for w in form.widgets)
+
+
+def _image_load_lines(form: "FormModel") -> list[str]:
+    lines: list[str] = []
+    for w in form.widgets:
+        rel = w.props.get("image", "")
+        if not rel:
+            continue
+        lines.append(
+            f"        self._img_{w.id} = ImageTk.PhotoImage("
+        )
+        lines.append(
+            f"            Image.open(os.path.join(os.path.dirname(__file__), r\"{rel}\"))"
+        )
+        lines.append(
+            f"            .resize(({w.width}, {w.height}), Image.LANCZOS)"
+        )
+        lines.append("        )")
+    return lines
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
+def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
              pre_init: str = "", post_init: str = "", helpers: str = "",
              user_imports: str = "",
              event_signatures: dict[str, tuple[str, str]] | None = None,
@@ -146,6 +170,9 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
         out.append("from tkinter import ttk")
     for _imp in _collect_component_imports(form):
         out.append(_imp)
+    if _has_images(form):
+        out.append("import os")
+        out.append("from PIL import Image, ImageTk")
     out.append(_IMPORT_B)
     if user_imports:
         for line in user_imports.splitlines():
@@ -190,6 +217,8 @@ def generate(form: FormModel, event_bodies: dict[str, str] | None = None,
     for line in _variable_decls(form):
         out.append(line)
     for line in _menu_variable_decls(form.menu_items):
+        out.append(line)
+    for line in _image_load_lines(form):
         out.append(line)
     for d in dialogs:
         if dmodes.get(d) == "destroy":
@@ -496,6 +525,10 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 arg_str = ", ".join(f"'{a.strip()}'" for a in args_raw.split(","))
                 kw_parts.append(f"{k}=(self.register(self.{v}), {arg_str})")
             continue
+        if k == "image":
+            if v:
+                kw_parts.append(f"image=self._img_{w.id}")
+            continue
         kw_parts.append(_prop_str(k, v))
 
     if w.variable:
@@ -585,6 +618,11 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
         if not w.props.get("char_height"):
             _place_parts.append(f"height={w.height}")
         lines.append(f"        self.{w.id}.place({', '.join(_place_parts)})")
+        if w.type == "Canvas" and w.props.get("image"):
+            lines.append(
+                f'        self.{w.id}.create_image(0, 0, anchor="nw",'
+                f' image=self._img_{w.id})'
+            )
 
     # list_insert_props — populate widget with insert() calls after place()/pack()
     for prop_key in reg.get("list_insert_props", []):

@@ -982,6 +982,7 @@ class IDOL(Tk):
             on_component_disconnect=self._on_comp_disconnect,
             on_component_edit=self._on_comp_edit,
             on_select_component=self._on_comp_select,
+            on_install_pillow=self._on_designer_install_pillow,
         )
         self._props_panel.configure(width=230)
 
@@ -6949,6 +6950,32 @@ class IDOL(Tk):
         _settings.set(f"interpreter:{root}", path)
         if self._pkg_panel:
             self._pkg_panel.set_python(path)
+        if hasattr(self, "_props_panel") and self._props_panel:
+            self._props_panel.set_active_python(path)
+
+    def _on_designer_install_pillow(self) -> None:
+        pip = getattr(self._pkg_panel, "_pip", None)
+        if pip is None:
+            from editor.pip_manager import PipManager
+            pip = PipManager(self._safe_after)
+        pip.set_python(self._active_python)
+        output = self._output.output
+        try:
+            self._output._set_active("output")
+        except Exception:
+            pass
+        output.write("\n$ pip install pillow\n", tag="cmd")
+        def _on_line(line):
+            output.write(line)
+        def _on_done():
+            output.write("✓ Pillow installed.\n", tag="info")
+            self._props_panel._pil_available = True
+            self._props_panel._update_pil_warning_row("prop__image", True)
+        pip.run_operation(
+            ["install", "pillow"],
+            on_line=_on_line, on_done=_on_done,
+            on_error=lambda e: output.write(e + "\n", tag="err"),
+        )
 
     # ── Run entry file ────────────────────────────────────────────────────────
 

@@ -125,6 +125,11 @@ def _draw_separator(c, x, y, w, h):
     cy2 = y + h//2
     c.create_line(x+2, cy2, x+w-2, cy2, fill="#808080", width=1)
 
+def _draw_canvas_palette(c, x, y, w, h):
+    c.create_rectangle(x+2, y+2, x+w-2, y+h-2, fill="#2a2a2a", outline="#808080")
+    c.create_text(x + w//2, y + h//2, text="Canvas", fill="#666666",
+                  font=("TkDefaultFont", 7))
+
 
 # ── Common prop choice lists ──────────────────────────────────────────────────
 
@@ -158,14 +163,15 @@ REGISTRY: dict[str, dict] = {
         "default_size": (90, 30),
         "default_props": {"text": "Button", "bg": "", "fg": "#000000",
                           "font": "", "justify": "", "relief": "", "borderwidth": "",
-                          "wraplength": ""},
+                          "wraplength": "", "image": "", "compound": ""},
         "events":       ["command"] + _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_button,
         "color_props":  ["bg", "fg"],
         "state_prop":   True,
         "state_values": ["normal", "disabled"],
         "state_color_props": {"disabled": ["disabledforeground"]},
-        "prop_choices": {"justify": _JUSTIFY, "relief": _RELIEF},
+        "prop_choices": {"justify": _JUSTIFY, "relief": _RELIEF,
+                         "compound": ["none", "left", "right", "top", "bottom", "center"]},
     },
     "Label": {
         "label":        "Label",
@@ -173,13 +179,14 @@ REGISTRY: dict[str, dict] = {
         "default_size": (80, 25),
         "default_props": {"text": "Label", "bg": "", "fg": "#000000",
                           "font": "", "justify": "", "relief": "", "borderwidth": "",
-                          "wraplength": ""},
+                          "wraplength": "", "image": "", "compound": ""},
         "events":       _SIMPLE_EVENTS,
         "draw_preview": _draw_label,
         "variable_prop":  "textvariable",
         "variable_types": ["StringVar"],
         "color_props":  ["bg", "fg"],
-        "prop_choices": {"justify": _JUSTIFY, "relief": _RELIEF},
+        "prop_choices": {"justify": _JUSTIFY, "relief": _RELIEF,
+                         "compound": ["none", "left", "right", "top", "bottom", "center"]},
     },
     "Entry": {
         "label":        "Entry",
@@ -392,6 +399,16 @@ REGISTRY: dict[str, dict] = {
         "events":       [],
         "draw_preview": _draw_separator,
         "prop_choices": {"orient": _ORIENT},
+    },
+    "Canvas": {
+        "label":        "Canvas",
+        "tk_class":     "tk.Canvas",
+        "default_size": (200, 150),
+        "default_props": {"bg": "", "image": ""},
+        "events":       ["click", "dblclick", "motion"],
+        "draw_preview": _draw_canvas_palette,
+        "color_props":  ["bg"],
+        "prop_choices": {},
     },
 }
 
