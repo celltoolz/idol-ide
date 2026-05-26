@@ -90,6 +90,15 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 > The rows are rendered as Canvas primitives (not widget trees) — hover effects are sub-millisecond
 > `itemconfigure` calls with no full redraws.
 
+## Multi-Cursor
+
+**Alt+Click** adds a secondary cursor at the clicked position. Alt+Click an existing secondary cursor removes it. A regular click clears all secondary cursors and returns to single-cursor mode.
+
+- All cursors use the same blinking `|` caret — they all blink in sync with the primary
+- Typing, Backspace, Delete, Enter, Tab, and Shift+Tab apply to every cursor simultaneously (edits are processed bottom-to-top so earlier positions are not shifted by earlier edits)
+- Secondary text selections render in the active theme's selection color
+- **Escape** clears all secondary cursors
+
 ## Find & Replace
 
 VS Code-style inline bar with case, whole word, and regex toggles. Open with `Ctrl+F`. When there is no active selection, the search field is pre-populated with the identifier under the caret (if one exists).
@@ -104,4 +113,4 @@ The editor's right-click menu is an IDOL-style dark overlay (not a native OS men
 
 ## Themes
 
-JSON files in the `themes/` directory. Change the active theme via **View → Theme**. Add a new theme by dropping a `.json` file into the `themes/` directory — it appears in the menu on next launch with no code changes needed. Two themes are bundled: `monokai-bright` and `dark-plus`.
+JSON files in the `themes/` directory. Change the active theme via **View → Theme**. Add a new theme by dropping a `.json` file into the `themes/` directory — it appears in the menu on next launch with no code changes needed. Seven themes are bundled: `monokai-bright`, `dark-plus`, `dracula`, `nord`, `github-light`, `solarized-light`, `dainty`.

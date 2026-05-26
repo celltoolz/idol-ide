@@ -62,7 +62,7 @@ The only Python IDE with a **VB6-style visual form designer** built in. Drag-and
 
 <img src="screenshots/editor-stickyscroll-tabs-syntax_highlighting-line_numbers_folding-minimap.png" width="100%">
 
-Multi-tab editing with Pygments syntax highlighting, code folding, sticky scroll, minimap, multi-cursor (`Alt+Click`), line move/duplicate, smart pairs, split editor with scroll sync, and VS Code-style find & replace.
+Multi-tab editing with canvas-native syntax highlighting (regex-rule, no Pygments), code folding, sticky scroll, minimap, multi-cursor (`Alt+Click`), line move/duplicate, smart pairs, split editor with scroll sync, and VS Code-style find & replace.
 
 → **[Full editor docs](docs/editor.md)**
 

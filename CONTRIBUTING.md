@@ -113,7 +113,7 @@ Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `clipbo
 `output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
 `sidebar.py`, `source_control.py`, `statusbar.py`, `styled_checkbox.py`, `terminal.py`
 
-`canvas_codeview.py` — IDOL's sole editor engine. Renders text directly on a `tk.Canvas` (no `tk.Text` widget, no pygments). All state lives in `self.lines: list[str]`; cursor + selection are plain `(line, col)` tuples; tokenization is a regex-rule pass driven by `_rules` in `_init_state`. Themes are loaded from `themes/*.json` via `utils/theme_loader.py` — swap by calling `set_theme(id)`. The internal layout grids in: breadcrumb (row 0), find/replace strip (row 1, reserved), main `tk.Canvas` (row 2 col 0) + `VerticalScrollbar` (row 2 col 1), `HorizontalScrollbar` (row 3 col 0). Embedded inside the canvas: line-number / fold / breakpoint gutter, sticky scope-header band (own canvas, place'd at top), minimap (embedded `tk.Text` at font size 1, place'd on the right). Public API: `get_text/set_text`, `get_line/line_count`, `get_cursor/set_cursor`, `get_selection/set_selection/clear_selection/selected_text`, `insert/delete_selection/delete_range/replace_range`, `scroll_to_line/ensure_visible/visible_range`, `set_diagnostics/set_breakpoints/set_git_hunks/set_runtime_error_line/set_debug_line/set_filepath/set_theme`. Host hooks: `on_change`, `on_cursor_move`, `on_lines_changed`, `on_copy`, `on_completion_request`, `on_breakpoint_toggle`, and the `on_request_*` family used by the right-click menu.
+`canvas_codeview.py` — IDOL's sole editor engine. Renders text directly on a `tk.Canvas` (no `tk.Text` widget, no pygments). All state lives in `self.lines: list[str]`; cursor + selection are plain `(line, col)` tuples; tokenization is a regex-rule pass driven by `_rules` in `_init_state`. Themes are loaded from `themes/*.json` via `utils/theme_loader.py` — swap by calling `set_theme(id)`. The internal layout grids in: breadcrumb (row 0), find/replace strip (row 1, reserved), main `tk.Canvas` (row 2 col 0) + `VerticalScrollbar` (row 2 col 1), `HorizontalScrollbar` (row 3 col 0). Embedded inside the canvas: line-number / fold / breakpoint gutter, sticky scope-header band (own canvas, place'd at top), minimap (embedded `tk.Text` at font size 1, place'd on the right). Public API: `get_text/set_text`, `get_line/line_count`, `get_cursor/set_cursor`, `get_selection/set_selection/clear_selection/selected_text`, `insert/delete_selection/delete_range/replace_range`, `scroll_to_line/ensure_visible/visible_range`, `set_diagnostics/set_breakpoints/set_git_hunks/set_runtime_error_line/set_debug_line/set_filepath/set_theme`. Host hooks: `on_change`, `on_cursor_move`, `on_lines_changed`, `on_copy`, `on_completion_request`, `on_breakpoint_toggle`, and the `on_request_*` family used by the right-click menu. **Multi-cursor state**: `_mc_cursors: list[tuple[int,int]]` (secondary positions) and `_mc_anchors: list[tuple[int,int]|None]` (secondary selection anchors); Alt+click in `_on_alt_click`; edits via `_mc_apply_key`; `mc_count()` public helper.
 
 `styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state, custom colors, and font sizes. Used in `project_wizard.py`.
 
@@ -217,7 +217,8 @@ size management.
 holds a `palette` block (UI colors) and a `tokens` block
 (category → `{"color": "#hex", "italic": bool}`). Drop a new file
 and it appears in the View → Theme menu on next launch — no code
-change. The two bundled themes are `monokai-bright` and `dark-plus`.
+change. Seven themes are bundled: `monokai-bright`, `dark-plus`,
+`dracula`, `nord`, `github-light`, `solarized-light`, `dainty`.
 
 ### `data/`
 Static data files. Currently contains `idol_package_categories.json` (PyPI classifier-based package groupings used by the Package Manager).
@@ -277,6 +278,8 @@ Any future static data files belong here, not inside package directories.
 Implemented and stable:
 - Multi-tab editing with session persistence (dirty tracking, restore hardening); **CRC dirty tracking** — undo/redo clears the dirty flag automatically when content returns to the last-saved state
 - Regex-rule syntax highlighting (canvas-rendered, no pygments); **fold markers** — `▼/▶` gutter glyphs; `# ── Name ───` section headers fold to the next section header at the same indent; IDOL codegen markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block regardless of indentation; Up/Down arrow skips folded blocks; Ctrl+/ comment toggle; word occurrence highlights on cursor move
+- **Multi-cursor** — Alt+Click adds/removes secondary cursors; all `|` carets blink in sync with the primary; edits applied bottom-to-top; secondary selections rendered in `select_bg`; Escape clears; `mc_count()` public helper. Implemented entirely in `canvas_codeview.py` using `_mc_cursors: list[tuple[int,int]]` and `_mc_anchors: list[tuple[int,int]|None]`
+- pylsp **hover docs re-wired** for canvas codeview — `<Motion>`/`<Leave>` bound on `cv.canvas` in `_new_tab` and `_new_tab_in`; `_do_hover` uses `cv._coords_from_pixel(mx, my)` instead of `tk.Text.index()`; popup positioned from `cv.canvas.winfo_rootx()`
 - **Smart Home key** — first press goes to first non-whitespace; second press goes to column 0 (position-based, no state needed)
 - **Center-on-navigate** — outline and references panel navigation centers the target line in the editor
 - pylsp LSP integration (hover, diagnostics, definition, completion)
@@ -314,7 +317,7 @@ Implemented and stable:
 - Nav toolbar (split run button, panel toggles: AI/Learn/Packages; view toggles: Minimap/Sidebar/Split/Zen)
 - Zen mode (F10), Toggle Sidebar (Ctrl+B)
 - **GuideWindow system** — content-agnostic paginated `Toplevel` used across all guides; see `widgets/guide_window.py`
-- **Theme system** (`themes/*.json` files loaded by `utils/theme_loader.py`; View → Theme menu; drop a new JSON to add a theme with no code change; two bundled themes: `monokai-bright`, `dark-plus`)
+- **Theme system** (`themes/*.json` files loaded by `utils/theme_loader.py`; View → Theme menu; drop a new JSON to add a theme with no code change; seven bundled themes: `monokai-bright`, `dark-plus`, `dracula`, `nord`, `github-light`, `solarized-light`, `dainty`)
 - **Clipboard History panel** (`widgets/clipboard_history.py`) — canvas-virtualized ring of the
   last 50 clipboard entries; opened via Ctrl+Shift+H as a persistent hidden `Toplevel`; canvas
   rows (rect + text) with hover via `itemconfigure`, keyboard nav, pin/unpin (right-click), and
@@ -328,7 +331,6 @@ Implemented and stable:
 ## Planned / In Progress
 
 - **GUI Designer — remaining roadmap:** grid layout mode; live preview (run form in subprocess).
-- **Multi-cursor editing** — Alt+Click to add/remove cursors; deferred to canvas editor model rewrite (not in current canvas engine).
 
 ## Designer — Shipped (Phase 2)
 
@@ -475,6 +477,17 @@ Implemented and stable:
 - **Single source of truth** — `HandlerDef` fields drive all behavior; `connector_options_source`, `edit_bodies`, and `wire_side_effects` eliminate all handler-specific `if handler_id ==` branches from `app.py`; adding a new handler requires only a `HandlerDef` entry in `handlers.py`
 
 ---
+
+### Designer — Session, Set as Main & FORMS Improvements — SHIPPED (2026-05-25)
+
+- **Set as Main** — right-click or double-click a main form row in the FORMS panel to designate it as the entry point; writes `main.py` with a `# Generated by IDOL Designer` marker, pins the file as the ▶ run entry in the statusbar, and shows **▶ FormName** in teal in the FORMS panel header; `_designer_main_form` persisted in session
+- **▶ indicator sync** — `_effective_designer_main()` in `app.py` computes the display form from the active run entry (detected via IDOL marker + `from X import X` regex, or direct stem match), active tab in Active Tab mode, and `_designer_main_form` as fallback; `_set_run_entry` and `_on_tab_changed` both trigger a form list refresh; designer re-entry also refreshes when no entry is pinned
+- **Session persistence** — designer state saved/restored across restarts: `designer_was_active`, `designer_form_names`, `designer_main_form` in `session.json`; `_enter_designer_mode` always sets `_designer_project_type = "gui"`; `designer_close_form` clears `_designer_form_names`, `_designer_missing_dialogs`, `_designer_main_form` on teardown; session restore gates form-name restore + `_enter_designer_mode` call behind `designer_was_active = True`
+- **Auto-load linked dialogs** — `_open_form_json_in_designer` and the Explorer "Open in Designer" path both scan the source directory for linked dialog `.form.json` files and copy + load them alongside the parent form; overwrite prompt when a file already exists in CWD
+- **Open .py on form load** — switching to a form in the designer opens the companion `.py` as an editor tab; prefers the CWD copy over the source directory
+- **Missing forms shown in red** — session-restored form names that can no longer be found on disk render red in the FORMS tree with a tooltip; tracked in `_designer_missing_dialogs`; removable via right-click
+- **FORMS tree X behavior** — X on a main form row removes it (and linked dialogs) from the designer with a confirmation prompt; X on a linked dialog row unlinks it first; canvas clears (`delete("all")`) when the last form is removed
+- **Wizard creates GUI project → ▶ indicator** — `_on_project_created` sets `_designer_main_form` so the ▶ indicator appears immediately after wizard completion; project_wizard.py adds the `# Generated by IDOL Designer` marker to the generated `main.py`
 
 ### Designer Phase 3 — SHIPPED (2026-05-08 / 2026-05-09)
 

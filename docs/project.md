@@ -58,6 +58,7 @@ On exit, IDOL auto-saves:
 - Appearance settings
 - Breakpoints
 - Active interpreter and venv (venv is re-activated in the terminal on next launch)
+- **Designer state** — open forms, active canvas, and the Set as Main selection; if the designer was active, it re-opens automatically on the next launch with the same forms loaded
 
 Session data is written to `~/.idol/session.json`. Named project saves write to `<name>.idol-project` in the project root.
 
@@ -69,7 +70,7 @@ The status bar (bottom of the window) shows:
 - **Cursor count** — shown when multiple cursors are active
 - **Lexer name** — active syntax highlighter
 - **Active interpreter** — Python version or venv name; click to open the interpreter picker
-- **Run entry selector** — shows which file the ▶ run button targets (`Active Tab` or a pinned filename); click to change; persists with the project
+- **Run entry selector** — shows which file the ▶ run button targets (`Active Tab` or a pinned filename); click to change; persists with the project. In the Designer, **Set as Main** (right-click a form row) writes `main.py` and pins it automatically
 - **Running filename** — while a script is running or being debugged, the current filename appears as a transient badge in the run-entry slot; it clears automatically when the command finishes (driven by the terminal's OSC 133 shell-integration event) or when you switch to a different editor tab
 - **Indent mode** — spaces ↔ tabs cycle on click
 - **Git branch** — current branch with live polling
