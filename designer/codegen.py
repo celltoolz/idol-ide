@@ -652,6 +652,32 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 f'        self.{w.id}.bind("{binding}", self.{method_name})'
             )
 
+    # Image resize binding — only when the widget has an image and a size-changing anchor
+    if w.props.get("image") and w.anchor in _SIZE_ANCHORS \
+            and w.type in ("Label", "Button", "Canvas"):
+        rel_fwd = w.props["image"].replace("\\", "/")
+        a = w.anchor
+        if a == "all":
+            new_w, new_h = "e.width", "e.height"
+        elif a in ("top", "bottom"):
+            new_w, new_h = "e.width", str(w.height)
+        else:  # left, right
+            new_w, new_h = str(w.width), "e.height"
+        fn = f"_img_resize_{w.id}"
+        lines.append(f"        def {fn}(e):")
+        lines.append(f"            if e.width < 4 or e.height < 4:")
+        lines.append(f"                return")
+        lines.append(f"            self._img_{w.id} = ImageTk.PhotoImage(")
+        lines.append(f'                Image.open(os.path.join(os.path.dirname(__file__), "{rel_fwd}"))')
+        lines.append(f"                .resize(({new_w}, {new_h}), Image.LANCZOS)")
+        lines.append(f"            )")
+        if w.type == "Canvas":
+            lines.append(f'            self.{w.id}.delete("all")')
+            lines.append(f'            self.{w.id}.create_image(0, 0, anchor="nw", image=self._img_{w.id})')
+        else:
+            lines.append(f"            self.{w.id}.configure(image=self._img_{w.id})")
+        lines.append(f'        self.{w.id}.bind("<Configure>", {fn}, add="+")')
+
     return lines
 
 
