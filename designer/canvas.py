@@ -2217,7 +2217,9 @@ def _draw_button(c, x, y, x2, y2, text, props):
         else:
             c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
                           fill="#ce9178", font=("TkDefaultFont", 6))
-    _text(c, x, y, x2, y2, text or "Button", color=fg)
+            _text(c, x, y, x2, y2, text or "Button", color=fg)
+    else:
+        _text(c, x, y, x2, y2, text or "Button", color=fg)
 
 
 @_tag
@@ -2237,7 +2239,9 @@ def _draw_label(c, x, y, x2, y2, text, props):
         else:
             c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
                           fill="#ce9178", font=("TkDefaultFont", 6))
-    _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
+            _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
+    else:
+        _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
 
 
 @_tag
