@@ -2211,9 +2211,9 @@ def _draw_button(c, x, y, x2, y2, text, props):
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     img_path = props.get("image", "")
     if img_path:
-        photo = _load_preview_image(c, img_path, x2 - x, y2 - y)
+        photo = _load_preview_image(c, img_path, x2 - x - 4, y2 - y - 4)
         if photo:
-            c.create_image(x, y, anchor="nw", image=photo)
+            c.create_image(x + 2, y + 2, anchor="nw", image=photo)
         else:
             c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
                           fill="#ce9178", font=("TkDefaultFont", 6))
