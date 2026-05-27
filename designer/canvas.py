@@ -2191,8 +2191,7 @@ def _load_preview_image(canvas, rel_path: str, max_w: int, max_h: int):
         cached = canvas._img_cache.get(key)
         if cached is not None:
             return cached
-        img = Image.open(resolved)
-        img.thumbnail((max_w, max_h), Image.LANCZOS)
+        img = Image.open(resolved).resize((max_w, max_h), Image.LANCZOS)
         photo = ImageTk.PhotoImage(img)
         canvas._img_cache[key] = photo
         return photo
