@@ -54,7 +54,7 @@ For Git features: install [Git](https://git-scm.com)
   <img src="screenshots/designer-calculator-running.png" width="41%">
 </p>
 
-The only Python IDE with a **VB6-style visual form designer** built in. Drag-and-drop canvas, 15 widget types, live property editing, variable binding, menu builder, and clean class-based code generation — all in a Tkinter project.
+The only Python IDE with a **VB6-style visual form designer** built in. Drag-and-drop canvas, 16 widget types, live property editing, variable binding, menu builder, and clean class-based code generation — all in a Tkinter project.
 
 → **[Full designer docs](docs/designer.md)**
 
@@ -100,7 +100,7 @@ Full VT100 PTY terminal (PowerShell/bash/zsh), venv detection toolbar, Run/Outpu
 
 ### Debugger
 
-<img src="screenshots/debugger-step_controls-breakpoints-locals-current_line.png" width="100%">
+<img src="screenshots/debugger-step_controls-breakpoints-locals-current_line.gif" width="100%">
 
 debugpy over DAP — breakpoints with VS Code-style gutter, step controls (F5/F10/F11), LOCALS + BREAKPOINTS panel, floating debug panel, two debug targets (Output or Terminal). No per-project install needed.
 
@@ -108,7 +108,7 @@ debugpy over DAP — breakpoints with VS Code-style gutter, step controls (F5/F1
 
 ### AI Chat (F2)
 
-<img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="50%">
+<img src="screenshots/ai_chat-send-selection-tokens-chat_panel.png" width="100%">
 
 Local Ollama LLM — fully offline, no API key. Send File, Send Selection, streaming responses, syntax-highlighted code blocks, token counter, conversation save/load, and remote host support.
 
@@ -116,7 +116,7 @@ Local Ollama LLM — fully offline, no API key. Send File, Send Selection, strea
 
 ### Package Manager (F3)
 
-<img src="screenshots/package_manager-topics-details-install-uninstall.png" width="100%">
+<img src="screenshots/package_manager-topics-details-install-uninstall.gif" width="100%">
 
 Installed packages grouped by topic, live filter, PyPI search, install/uninstall with live output, and AI examples — all tied to the active interpreter.
 
