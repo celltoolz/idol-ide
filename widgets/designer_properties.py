@@ -551,8 +551,12 @@ class DesignerProperties(tk.Frame):
             hdef = next((h for h in all_defs if h.id == wire.handler_id), None)
             if hdef and hdef.connectable:
                 connected_ids.add(hdef.id)
-                target = (f"{wire.widget_id}.{wire.event_key}"
-                          if wire.widget_id else wire.event_key)
+                if wire.widget_id == "__form__":
+                    target = f"form.{wire.event_key}"
+                elif wire.widget_id:
+                    target = f"{wire.widget_id}.{wire.event_key}"
+                else:
+                    target = wire.event_key
                 # multi_wire handlers: show the resolved action as the row name
                 name = (_parse_multi_wire_name(wire.option) if hdef.multi_wire and wire.option
                         else hdef.id)

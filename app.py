@@ -4840,10 +4840,18 @@ class IDOL(Tk):
 
             # Open connector so the user picks a widget + event + option
             def _on_wire(widget_id: str, event_key: str, option: str) -> None:
-                # Auto-create a named event stub on the widget if none exists
-                widget = form.get_widget(widget_id)
-                if widget is not None and not widget.events.get(event_key):
-                    widget.events[event_key] = f"_{widget_id}_{event_key}"
+                if widget_id == "__form__":
+                    # Wire body goes into a form-event stub (_on_load, _on_activate, …)
+                    # Reuse existing method name if the event is already wired, else default.
+                    method_name = form.form_events.get(event_key) or f"_on_{event_key}"
+                    form.form_events[event_key] = method_name
+                    # Don't add to enabled_handlers — the wire body is injected
+                    # directly into the form event stub via _wire_default_bodies in codegen.
+                else:
+                    # Auto-create a named event stub on the widget if none exists
+                    widget = form.get_widget(widget_id)
+                    if widget is not None and not widget.events.get(event_key):
+                        widget.events[event_key] = f"_{widget_id}_{event_key}"
 
                 self._apply_wire_side_effects(form, hdef, option)
 
@@ -4852,9 +4860,12 @@ class IDOL(Tk):
                                    event_key=event_key,
                                    option=option)
                 form.handler_wires.append(wire)
-                # generates_stub=False handlers don't need an enabled_handlers entry
+                # generates_stub=False handlers (e.g. _open_dialog) don't emit a stub.
                 if hdef.generates_stub and handler_id not in form.enabled_handlers:
                     form.enabled_handlers.append(handler_id)
+                # Store chosen option so the handler stub body reflects selection.
+                if option and hdef.stub_option_bodies:
+                    form.handler_options[handler_id] = option
                 self._set_designer_dirty()
                 self._props_panel.load_handlers(form)
 
@@ -4874,6 +4885,7 @@ class IDOL(Tk):
                 preselect_widget_id=preselect_widget_id,
                 wire_body_resolver=resolver,
                 secondary_options=hdef.secondary_options,
+                form_event_keys=("load", "activate", "deactivate", "unload", "resize"),
             )
         else:
             # Non-connectable handler — just enable it
@@ -4894,6 +4906,18 @@ class IDOL(Tk):
                                   if not (w.handler_id == wire.handler_id
                                           and w.widget_id == wire.widget_id
                                           and w.event_key == wire.event_key)]
+            # Clear the event binding on the widget or form
+            if wire.widget_id == "__form__":
+                form.form_events.pop(wire.event_key, None)
+            else:
+                widget = form.get_widget(wire.widget_id)
+                if widget is not None:
+                    widget.events.pop(wire.event_key, None)
+            # If no wires remain for this handler, clean up enabled_handlers + options
+            still_wired = any(w.handler_id == handler_id for w in form.handler_wires)
+            if not still_wired:
+                form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+                form.handler_options.pop(handler_id, None)
         else:
             # Remove from enabled_handlers (built-in wired handler)
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
@@ -4961,6 +4985,9 @@ class IDOL(Tk):
                     )
                     for w in form.handler_wires
                 ]
+                # Sync handler_options so stub body reflects the new option
+                if option and hdef.stub_option_bodies:
+                    form.handler_options[handler_id] = option
             else:
                 if option:
                     form.handler_options[handler_id] = option

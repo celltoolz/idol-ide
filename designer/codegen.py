@@ -155,7 +155,10 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
     from designer.handlers import handlers_for, HANDLER_CATALOG
     _all_handler_ids = {h.id for h in HANDLER_CATALOG}
     _enabled = set(form.enabled_handlers) & _all_handler_ids
-    _wired_ids = {w.handler_id for w in getattr(form, "handler_wires", [])}
+    # Form-event wires (widget_id=="__form__") inject the body into the form
+    # event stub (_on_load etc.) — they must not pull the handler into active_handlers.
+    _wired_ids = {w.handler_id for w in getattr(form, "handler_wires", [])
+                  if w.widget_id != "__form__"}
     _catalog  = {h.id: h for h in handlers_for(form.form_type)}
     _active_ids = _enabled | (_wired_ids & _all_handler_ids)
     # Exclude generates_stub=False handlers (e.g. _open_dialog) from method generation.
@@ -351,13 +354,17 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
         out.append("")
 
     # ── event methods ─────────────────────────────────────────────────────────
-    # Build map: widget-event method name → wire default body (for connectable wires)
+    # Build map: event-method name → wire default body (for connectable wires).
+    # Covers both widget-event wires (btn.command) and form-event wires (form.load).
     _wire_default_bodies: dict[str, str] = {}
     for _wire in getattr(form, "handler_wires", []):
-        _wgt = form.get_widget(_wire.widget_id)
-        if _wgt is None:
-            continue
-        _mname = _wgt.events.get(_wire.event_key)
+        if _wire.widget_id == "__form__":
+            _mname = form.form_events.get(_wire.event_key)
+        else:
+            _wgt = form.get_widget(_wire.widget_id)
+            if _wgt is None:
+                continue
+            _mname = _wgt.events.get(_wire.event_key)
         if not _mname:
             continue
         _hdef = _catalog.get(_wire.handler_id)
@@ -750,7 +757,7 @@ def _collect_methods(form: FormModel) -> list[str]:
             seen.add(method_name)
             methods.append(method_name)
     for method_name in form.form_events.values():
-        if method_name and method_name not in seen:
+        if method_name and method_name not in seen and method_name not in handler_ids:
             seen.add(method_name)
             methods.append(method_name)
     return methods

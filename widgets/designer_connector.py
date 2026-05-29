@@ -53,6 +53,7 @@ class ComponentConnector(tk.Toplevel):
         preselect_event_key: str | None = None,
         menu_items: "tuple | list" = (),
         stub_checker: "Callable[[str], bool] | None" = None,
+        form_event_keys: "tuple[str, ...]" = (),
     ) -> None:
         super().__init__(parent)
         self._form              = form
@@ -76,6 +77,7 @@ class ComponentConnector(tk.Toplevel):
         self._preselect_event_key = preselect_event_key
         self._menu_items          = list(menu_items)
         self._stub_checker        = stub_checker
+        self._form_event_keys     = form_event_keys
         self._menu_item_names:    set[str] = set()
         self._title_var: tk.StringVar | None = None
         self._extra_var: tk.StringVar | None = None
@@ -243,6 +245,14 @@ class ComponentConnector(tk.Toplevel):
         # Populate widget list; track preselect index
         self._widget_ids: list[str] = []
         preselect_idx: int | None = None
+
+        # Form itself as a wirable target (form-event wiring)
+        if self._form_event_keys:
+            if self._preselect_widget_id == "__form__":
+                preselect_idx = 0
+            self._wid_lb.insert("end", f"{self._form.name}  (Form)")
+            self._widget_ids.append("__form__")
+
         for w in self._form.widgets:
             reg = REGISTRY.get(w.type, {})
             if reg.get("events"):
@@ -285,6 +295,22 @@ class ComponentConnector(tk.Toplevel):
         if not sel:
             return
         wid = self._widget_ids[sel[0]]
+
+        if wid == "__form__":
+            used = {ev for ev, m in self._form.form_events.items() if m}
+            self._ev_keys  = list(self._form_event_keys)
+            self._used_evs = used
+            self._ev_lb.delete(0, "end")
+            for ev in self._form_event_keys:
+                label = f"◆ {ev}" if ev in used else ev
+                self._ev_lb.insert("end", label)
+            self._warn_lbl.config(text="")
+            if self._preselect_event_key and self._preselect_event_key in self._ev_keys:
+                ev_idx = self._ev_keys.index(self._preselect_event_key)
+                self._ev_lb.selection_set(ev_idx)
+                self._ev_lb.see(ev_idx)
+            self._update_preview()
+            return
 
         if wid in self._menu_item_names:
             mi = next((m for m in self._menu_items if m.name == wid), None)
@@ -342,14 +368,17 @@ class ComponentConnector(tk.Toplevel):
         title_tag = f'  {self._title_entry_label.lower()}: "{title}"' if title else ""
         extra = self._extra_var.get().strip() if self._extra_var else ""
         extra_tag = f'  {self._extra_entry_label.lower()}: "{extra}"' if extra else ""
+        display_wid = "form" if wid == "__form__" else wid
         self._preview.config(
-            text=f"Wires:  {wid}.{ev_key}  →  {rhs}{title_tag}{extra_tag}",
+            text=f"Wires:  {display_wid}.{ev_key}  →  {rhs}{title_tag}{extra_tag}",
             fg="#4ec9b0",
         )
         if (ev_key in self._used_evs
                 and not (wid == self._preselect_widget_id
                          and ev_key == self._preselect_event_key)):
-            if wid in self._menu_item_names:
+            if wid == "__form__":
+                existing_handler = self._form.form_events.get(ev_key, "")
+            elif wid in self._menu_item_names:
                 mi = next((m for m in self._menu_items if m.name == wid), None)
                 raw = mi.command_handler if mi else ""
                 existing_handler = raw
