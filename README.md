@@ -94,7 +94,7 @@ Staging/unstaging, commit, push/pull, gutter diff strips, Git Health panel with 
 
 <img src="screenshots/terminal-powershell-activate_venv-colors-tui.gif" width="100%">
 
-Full VT100 PTY terminal (PowerShell/bash/zsh), venv detection toolbar, Run/Output panel with inline stdin bar, Run Line, Run Selection, and runtime error indicators.
+Full VT100 PTY terminal (PowerShell/bash/zsh/Python REPL), venv detection toolbar, Run/Output panel with inline stdin bar, Run Line, Run Selection, and runtime error indicators. An interactive Python REPL is included out of the box — no configuration required.
 
 → **[Full terminal docs](docs/terminal.md)**
 
