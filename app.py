@@ -1614,6 +1614,7 @@ class IDOL(Tk):
             add="+",
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
+        cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("left"), add="+")
 
     def _confirm_close_tab(self, tab_id: str) -> bool:
         """Return True if the tab can be closed (not dirty, or user confirmed)."""
@@ -6706,6 +6707,7 @@ class IDOL(Tk):
             add="+",
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
+        cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("right"), add="+")
 
     def view_toggle_sidebar(self) -> None:
         """Show or hide the entire left sidebar (Ctrl+B)."""
