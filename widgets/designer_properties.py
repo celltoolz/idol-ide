@@ -618,11 +618,15 @@ class DesignerProperties(tk.Frame):
         timer_auto = (comp_obj is not None
                       and comp_obj.type == "Timer"
                       and comp_obj.props.get("enabled", True))
+        connectable = self._comp_connectable_handlers()
         any_wired = any(
             any(f"_{comp_id}{hdef.label}" in w.events.values() for w in self._form.widgets)
-            for hdef in self._comp_def.handler_defs if hdef.has_connector
+            for hdef in connectable
         )
+        mode = str(comp_obj.props.get("socket_type", "")) if comp_obj and comp_obj.type == "Socket" else ""
         for hdef in self._comp_def.handler_defs:
+            if hdef.applies_to_modes and mode not in hdef.applies_to_modes:
+                continue
             if not hdef.has_connector and (any_wired or timer_auto):
                 result.append((f"_{comp_id}{hdef.label}", f"{form_name}.init", False, None))
 
@@ -711,16 +715,26 @@ class DesignerProperties(tk.Frame):
                     return f"Connected to {w.id}.{ev_key}"
         return ""
 
+    def _insert_comp_prop_rows(self, descriptor, comp_def) -> None:
+        """Insert prop rows, skipping Socket mode-specific props that don't apply."""
+        mode = str(descriptor.props.get("socket_type", "")) if descriptor.type == "Socket" else ""
+        for pd in comp_def.prop_defs:
+            if descriptor.type == "Socket":
+                if pd.key in self._SOCKET_SERVER_ONLY and mode != "server":
+                    continue
+                if pd.key in self._SOCKET_CLIENT_ONLY and mode != "client":
+                    continue
+            val = descriptor.props.get(pd.key, pd.default)
+            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
+                               kind="readonly" if pd.kind == "readonly" else "normal")
+
     def _rebuild_comp_props(self, descriptor) -> None:
         """Rebuild just the Properties tab rows for the selected component."""
         if self._comp_def is None:
             return
         self._props_clear()
         self._props_insert("comp____name__", "name", descriptor.id)
-        for pd in self._comp_def.prop_defs:
-            val = descriptor.props.get(pd.key, pd.default)
-            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
-                               kind="readonly" if pd.kind == "readonly" else "normal")
+        self._insert_comp_prop_rows(descriptor, self._comp_def)
         if descriptor.type == "CommonDialog":
             self._insert_dialog_titles_section(descriptor)
         self._props_redraw()
@@ -808,10 +822,7 @@ class DesignerProperties(tk.Frame):
         # Populate Properties tab with PropDef rows
         self._props_clear()
         self._props_insert("comp____name__", "name", descriptor.id)
-        for pd in comp_def.prop_defs:
-            val = descriptor.props.get(pd.key, pd.default)
-            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
-                               kind="readonly" if pd.kind == "readonly" else "normal")
+        self._insert_comp_prop_rows(descriptor, comp_def)
         if descriptor.type == "CommonDialog":
             self._insert_dialog_titles_section(descriptor)
         self._props_redraw()
@@ -856,6 +867,31 @@ class DesignerProperties(tk.Frame):
         self._comp_connections       = []
         self._comp_conn_hov_idx      = None
         self._comp_dtitles_expanded  = False
+
+    # ── Socket-aware handler helpers ──────────────────────────────────────────
+
+    _SOCKET_SERVER_ONLY = {"max_clients", "bind_address"}
+    _SOCKET_CLIENT_ONLY = {"retry_on_fail", "retry_interval"}
+
+    def _socket_mode(self) -> str:
+        """Return 'server', 'client', or '' for the currently selected Socket component."""
+        if not self._comp_mode or not self._form or not self._comp_id:
+            return ""
+        comp = self._form.get_component(self._comp_id)
+        if comp and comp.type == "Socket":
+            return str(comp.props.get("socket_type", ""))
+        return ""
+
+    def _comp_connectable_handlers(self) -> list:
+        """Connectable handler defs for the active component, filtered by socket mode."""
+        if not self._comp_def:
+            return []
+        mode = self._socket_mode()
+        return [
+            h for h in self._comp_def.handler_defs
+            if h.has_connector
+            and (not h.applies_to_modes or mode in h.applies_to_modes)
+        ]
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
         """Show shared properties panel for a multi-widget selection."""
@@ -1408,7 +1444,7 @@ class DesignerProperties(tk.Frame):
         scroll_top = int(cv.canvasy(0))
         # Only connectable handlers appear in the top section; always-wired ones
         # (has_connector=False) are shown exclusively in Connected Components below.
-        handler_defs = [h for h in self._comp_def.handler_defs if h.has_connector]
+        handler_defs = self._comp_connectable_handlers()
         for i, hd in enumerate(handler_defs):
             y0  = i * _ORD_ROW_H
             y1  = y0 + _ORD_ROW_H
@@ -1469,7 +1505,7 @@ class DesignerProperties(tk.Frame):
         """Return index into _comp_connections for y in the Connected Components section, or None."""
         if not self._comp_mode or not self._comp_connections or not self._comp_def:
             return None
-        n_connectable = sum(1 for h in self._comp_def.handler_defs if h.has_connector)
+        n_connectable = len(self._comp_connectable_handlers())
         section_start = n_connectable * _ORD_ROW_H + 1 + _ORD_HDR_H
         if y < section_start:
             return None
@@ -1480,7 +1516,7 @@ class DesignerProperties(tk.Frame):
         """Available-section row index at canvas y, or None."""
         if self._comp_mode and self._comp_def:
             i = int(y) // _ORD_ROW_H
-            n = sum(1 for h in self._comp_def.handler_defs if h.has_connector)
+            n = len(self._comp_connectable_handlers())
             return i if 0 <= i < n else None
         y0 = self._handlers_avail_y0
         if y < y0:

@@ -1078,6 +1078,43 @@ def _comp_init_for(comp, cdef) -> list[str]:
                 f"self._{cid}_interval, self._{cid}_tick)"
             )
 
+    elif comp.type == "Socket":
+        stype       = comp.props.get("socket_type", "server")
+        host        = str(comp.props.get("host",        "localhost"))
+        port        = int(comp.props.get("port",        8080))
+        encoding    = str(comp.props.get("encoding",    "utf-8"))
+        timeout     = float(comp.props.get("timeout",   5.0))
+        buf         = int(comp.props.get("buffer_size", 4096))
+        auto        = comp.props.get("auto_connect",    False)
+        if stype == "server":
+            bind_addr   = str(comp.props.get("bind_address", "0.0.0.0"))
+            max_clients = int(comp.props.get("max_clients",  5))
+            lines.append(f"        self._{cid}_host        = {repr(bind_addr)}")
+            lines.append(f"        self._{cid}_port        = {port}")
+            lines.append(f"        self._{cid}_encoding    = {repr(encoding)}")
+            lines.append(f"        self._{cid}_timeout     = {timeout}")
+            lines.append(f"        self._{cid}_max_clients = {max_clients}")
+            lines.append(f"        self._{cid}_buffer_size = {buf}")
+            lines.append(f"        self._{cid}_server      = None")
+            lines.append(f"        self._{cid}_clients     = []")
+            lines.append(f"        self._{cid}_running     = False")
+            if auto:
+                lines.append(f"        self.after(0, self._{cid}_start)")
+        else:
+            retry       = comp.props.get("retry_on_fail",    False)
+            retry_iv    = float(comp.props.get("retry_interval", 3.0))
+            lines.append(f"        self._{cid}_host           = {repr(host)}")
+            lines.append(f"        self._{cid}_port           = {port}")
+            lines.append(f"        self._{cid}_encoding       = {repr(encoding)}")
+            lines.append(f"        self._{cid}_timeout        = {timeout}")
+            lines.append(f"        self._{cid}_buffer_size    = {buf}")
+            lines.append(f"        self._{cid}_retry_on_fail  = {'True' if retry else 'False'}")
+            lines.append(f"        self._{cid}_retry_interval = {retry_iv}")
+            lines.append(f"        self._{cid}_conn           = None")
+            lines.append(f"        self._{cid}_running        = False")
+            if auto:
+                lines.append(f"        self.after(0, self._{cid}_connect)")
+
     elif comp.type == "CommonDialog":
         init_dir      = str(comp.props.get("init_dir",      ""))
         filter_str    = str(comp.props.get("filter",        "All Files (*.*)|*.*"))
@@ -1128,10 +1165,13 @@ def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[st
         cdef = COMPONENT_REGISTRY.get(comp.type)
         if cdef is None or not _comp_should_emit(comp, cdef, wired):
             continue
+        mode = comp.props.get("socket_type", "") if comp.type == "Socket" else ""
         for hdef in cdef.handler_defs:
             method = f"_{comp.id}{hdef.label}"
             if hdef.has_connector and method not in wired:
                 continue  # connectable but not wired — skip
+            if hdef.applies_to_modes and mode not in hdef.applies_to_modes:
+                continue  # wrong socket mode — skip
             lines.extend(_comp_handler_method(comp, hdef, method, bodies, form))
             lines.append("")
     return lines
@@ -1190,6 +1230,168 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"        if self._{cid}_after_id:")
                 lines.append(f"            self.after_cancel(self._{cid}_after_id)")
                 lines.append(f"            self._{cid}_after_id = None")
+
+    elif comp.type == "Socket":
+        stype = comp.props.get("socket_type", "server")
+        raw   = bodies.get(method, "").strip()
+
+        # Override method signature for handlers that take arguments
+        if hdef.id in ("send_text", "on_receive_text", "on_send_text"):
+            lines[0] = f"    def {method}(self, text):"
+        elif hdef.id in ("send_file", "on_receive_file", "on_send_file"):
+            lines[0] = f"    def {method}(self, data):"
+        elif hdef.id == "on_connect" and stype == "server":
+            lines[0] = f"    def {method}(self, conn, addr):"
+        elif hdef.id == "on_error":
+            lines[0] = f"    def {method}(self, error):"
+
+        def _recv_loop_lines(conn_ref: str, is_server: bool) -> list[str]:
+            ls: list[str] = []
+            ls.append(f"    def _{cid}_recv_loop(self, conn):")
+            ls.append(f"        while self._{cid}_running:")
+            ls.append(f"            try:")
+            ls.append(f"                data = conn.recv(self._{cid}_buffer_size)")
+            ls.append(f"                if not data:")
+            ls.append(f"                    break")
+            ls.append(f"                try:")
+            ls.append(f"                    text = data.decode(self._{cid}_encoding)")
+            ls.append(f"                    self.after(0, lambda t=text: self._{cid}_on_receive_text(t))")
+            ls.append(f"                except UnicodeDecodeError:")
+            ls.append(f"                    self.after(0, lambda d=data: self._{cid}_on_receive_file(d))")
+            ls.append(f"            except socket.timeout:")
+            ls.append(f"                self.after(0, self._{cid}_on_timeout)")
+            ls.append(f"                break")
+            ls.append(f"            except Exception as e:")
+            ls.append(f"                self.after(0, lambda err=e: self._{cid}_on_error(err))")
+            ls.append(f"                break")
+            if is_server:
+                ls.append(f"        if conn in self._{cid}_clients:")
+                ls.append(f"            self._{cid}_clients.remove(conn)")
+            else:
+                ls.append(f"        self._{cid}_conn = None")
+                ls.append(f"        self._{cid}_running = False")
+            ls.append(f"        self.after(0, self._{cid}_on_disconnect)")
+            return ls
+
+        if hdef.id == "start":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            else:
+                lines.append(f"        self._{cid}_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
+                lines.append(f"        self._{cid}_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)")
+                lines.append(f"        self._{cid}_server.bind((self._{cid}_host, self._{cid}_port))")
+                lines.append(f"        self._{cid}_server.listen(self._{cid}_max_clients)")
+                lines.append(f"        self._{cid}_running = True")
+                lines.append(f"        threading.Thread(target=self._{cid}_accept_loop, daemon=True).start()")
+            # emit accept_loop and recv_loop as companion methods
+            lines.append("")
+            lines.append(f"    def _{cid}_accept_loop(self):")
+            lines.append(f"        while self._{cid}_running:")
+            lines.append(f"            try:")
+            lines.append(f"                self._{cid}_server.settimeout(1.0)")
+            lines.append(f"                conn, addr = self._{cid}_server.accept()")
+            lines.append(f"                self._{cid}_clients.append(conn)")
+            lines.append(f"                self.after(0, lambda c=conn, a=addr: self._{cid}_on_connect(c, a))")
+            lines.append(f"                threading.Thread(target=self._{cid}_recv_loop,")
+            lines.append(f"                                 args=(conn,), daemon=True).start()")
+            lines.append(f"            except socket.timeout:")
+            lines.append(f"                continue")
+            lines.append(f"            except Exception:")
+            lines.append(f"                break")
+            lines.append("")
+            lines.extend(_recv_loop_lines(f"self._{cid}_conn", is_server=True))
+
+        elif hdef.id == "connect":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            else:
+                lines.append(f"        def _run():")
+                lines.append(f"            try:")
+                lines.append(f"                conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
+                lines.append(f"                conn.settimeout(self._{cid}_timeout)")
+                lines.append(f"                conn.connect((self._{cid}_host, self._{cid}_port))")
+                lines.append(f"                self._{cid}_conn = conn")
+                lines.append(f"                self._{cid}_running = True")
+                lines.append(f"                self.after(0, self._{cid}_on_connect)")
+                lines.append(f"                threading.Thread(target=self._{cid}_recv_loop,")
+                lines.append(f"                                 args=(conn,), daemon=True).start()")
+                lines.append(f"            except socket.timeout:")
+                lines.append(f"                self.after(0, self._{cid}_on_timeout)")
+                lines.append(f"            except Exception as e:")
+                lines.append(f"                self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                lines.append(f"                if self._{cid}_retry_on_fail:")
+                lines.append(f"                    self.after(int(self._{cid}_retry_interval * 1000), self._{cid}_connect)")
+                lines.append(f"        threading.Thread(target=_run, daemon=True).start()")
+            lines.append("")
+            lines.extend(_recv_loop_lines(f"self._{cid}_conn", is_server=False))
+
+        elif hdef.id == "disconnect":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif stype == "server":
+                lines.append(f"        self._{cid}_running = False")
+                lines.append(f"        for conn in list(self._{cid}_clients):")
+                lines.append(f"            try: conn.close()")
+                lines.append(f"            except: pass")
+                lines.append(f"        self._{cid}_clients.clear()")
+                lines.append(f"        if self._{cid}_server:")
+                lines.append(f"            try: self._{cid}_server.close()")
+                lines.append(f"            except: pass")
+                lines.append(f"            self._{cid}_server = None")
+            else:
+                lines.append(f"        self._{cid}_running = False")
+                lines.append(f"        if self._{cid}_conn:")
+                lines.append(f"            try: self._{cid}_conn.close()")
+                lines.append(f"            except: pass")
+                lines.append(f"            self._{cid}_conn = None")
+
+        elif hdef.id == "send_text":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif stype == "server":
+                lines.append(f"        data = text.encode(self._{cid}_encoding)")
+                lines.append(f"        for conn in list(self._{cid}_clients):")
+                lines.append(f"            try:")
+                lines.append(f"                conn.sendall(data)")
+                lines.append(f"            except Exception:")
+                lines.append(f"                self._{cid}_clients.remove(conn)")
+                lines.append(f"        self.after(0, lambda: self._{cid}_on_send_text(text))")
+            else:
+                lines.append(f"        if not self._{cid}_conn:")
+                lines.append(f"            return")
+                lines.append(f"        try:")
+                lines.append(f"            self._{cid}_conn.sendall(text.encode(self._{cid}_encoding))")
+                lines.append(f"            self.after(0, lambda: self._{cid}_on_send_text(text))")
+                lines.append(f"        except Exception as e:")
+                lines.append(f"            self.after(0, lambda err=e: self._{cid}_on_error(err))")
+
+        elif hdef.id == "send_file":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif stype == "server":
+                lines.append(f"        for conn in list(self._{cid}_clients):")
+                lines.append(f"            try:")
+                lines.append(f"                conn.sendall(data)")
+                lines.append(f"            except Exception:")
+                lines.append(f"                self._{cid}_clients.remove(conn)")
+                lines.append(f"        self.after(0, lambda: self._{cid}_on_send_file(data))")
+            else:
+                lines.append(f"        if not self._{cid}_conn:")
+                lines.append(f"            return")
+                lines.append(f"        try:")
+                lines.append(f"            self._{cid}_conn.sendall(data)")
+                lines.append(f"            self.after(0, lambda: self._{cid}_on_send_file(data))")
+                lines.append(f"        except Exception as e:")
+                lines.append(f"            self.after(0, lambda err=e: self._{cid}_on_error(err))")
+
+        else:
+            # callback stubs (on_connect, on_disconnect, on_receive_*, on_send_*, on_error, on_timeout)
+            lines.extend(_body_lines(method, bodies, hdef.default_body))
 
     elif comp.type == "CommonDialog":
         if hdef.id in ("show_open", "show_save"):
