@@ -4426,11 +4426,17 @@ class IDOL(Tk):
         before = self._designer_frame if self._designer_mode else self.notebook
         self._mode_bar.pack(fill="x", side="top", before=before)
         self._refresh_mode_bar()
+        if self._split_active and hasattr(self, "_split_mode_bar_spacer"):
+            self._split_mode_bar_spacer.pack(
+                fill="x", before=self._notebook_r
+            )
 
     def _hide_mode_bar(self) -> None:
         """Remove the mode bar and force editor mode."""
         self._enter_editor_mode()
         self._mode_bar.pack_forget()
+        if hasattr(self, "_split_mode_bar_spacer"):
+            self._split_mode_bar_spacer.pack_forget()
 
     def _refresh_mode_bar(self) -> None:
         """Sync button colours to the active mode."""
@@ -6717,6 +6723,7 @@ class IDOL(Tk):
         self._set_active_pane("right")
         # Patch scroll callbacks on all codeviews now that split is live
         self._patch_scroll_callbacks()
+        self._refresh_nav_bar()
 
     def _build_right_pane(self) -> None:
         """Create the right notebook frame and wire it up."""
@@ -6793,6 +6800,15 @@ class IDOL(Tk):
                 fg="#007acc" if self._scroll_locked else "#555555"
             ),
         )
+
+        # Blank spacer matching the [Editor|Designer] mode bar height.
+        # Shown when the mode bar is visible so both panes align.
+        self._split_mode_bar_spacer = tk.Frame(
+            self._nb_frame_r, bg="#1e1e1e", height=28
+        )
+        self._split_mode_bar_spacer.pack_propagate(False)
+        if self._mode_bar.winfo_ismapped():
+            self._split_mode_bar_spacer.pack(fill="x")
 
         self._notebook_r = CustomNotebook(
             self._nb_frame_r,
