@@ -1320,61 +1320,62 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
 
         # ── connectable handlers ──────────────────────────────────────────────
 
-        if hdef.id == "start":
+        if hdef.id == "toggle_connect":
+            # The toggle wrapper calls _sock1_start (server) or _sock1_connect (client)
+            # internally, so we generate the full implementation alongside it.
             if raw and raw not in (_STUB, "pass"):
                 for ln in textwrap.dedent(raw).splitlines():
                     lines.append(("        " + ln) if ln.strip() else "")
+            elif stype == "server":
+                lines.append(f"        if self._{cid}_running:")
+                if btn_conn:
+                    lines.append(f"            self.{btn_conn}.configure(state='disabled')")
+                lines.append(f"            self._{cid}_disconnect()")
+                lines.append(f"        else:")
+                if btn_conn:
+                    lines.append(f"            self.{btn_conn}.configure(text='Starting...', state='disabled')")
+                if lbl_status:
+                    lines.append(f"            self.{lbl_status}.configure(text='Starting server...', fg='#cccccc')")
+                lines.append(f"            self._{cid}_start()")
             else:
+                lines.append(f"        if self._{cid}_running:")
+                if btn_conn:
+                    lines.append(f"            self.{btn_conn}.configure(state='disabled')")
+                if lbl_status:
+                    lines.append(f"            self.{lbl_status}.configure(text='Disconnecting...', fg='#cccccc')")
+                lines.append(f"            self._{cid}_disconnect()")
+                lines.append(f"        else:")
+                if btn_conn:
+                    lines.append(f"            self.{btn_conn}.configure(text='Connecting...', state='disabled')")
+                if lbl_status:
+                    lines.append(f"            self.{lbl_status}.configure(text='Connecting...', fg='#cccccc')")
+                lines.append(f"            self._{cid}_connect()")
+            # Companion: the actual socket implementation
+            lines.append("")
+            if stype == "server":
+                lines.append(f"    def _{cid}_start(self):")
                 lines.append(f"        self._{cid}_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
                 lines.append(f"        self._{cid}_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)")
                 lines.append(f"        self._{cid}_server.bind((self._{cid}_host, self._{cid}_port))")
                 lines.append(f"        self._{cid}_server.listen(self._{cid}_max_clients)")
                 lines.append(f"        self._{cid}_running = True")
-                if btn_conn:
-                    lines.append(f"        self.{btn_conn}.configure(text='Stop', state='disabled')")
-                if lbl_status:
-                    lines.append(f"        self.{lbl_status}.configure(text='Listening...', fg='#cccccc')")
                 lines.append(f"        threading.Thread(target=self._{cid}_accept_loop, daemon=True).start()")
-                if btn_conn:
-                    lines.append(f"        self.{btn_conn}.configure(state='normal')")
-            # companion internal methods
-            lines.append("")
-            lines.append(f"    def _{cid}_accept_loop(self):")
-            lines.append(f"        while self._{cid}_running:")
-            lines.append(f"            try:")
-            lines.append(f"                self._{cid}_server.settimeout(1.0)")
-            lines.append(f"                conn, addr = self._{cid}_server.accept()")
-            lines.append(f"                self._{cid}_clients.append(conn)")
-            lines.append(f"                self.after(0, lambda c=conn, a=addr: self._{cid}_on_connect(c, a))")
-            lines.append(f"                threading.Thread(target=self._{cid}_recv_loop,")
-            lines.append(f"                                 args=(conn,), daemon=True).start()")
-            lines.append(f"            except socket.timeout:")
-            lines.append(f"                continue")
-            lines.append(f"            except Exception:")
-            lines.append(f"                break")
-            lines.append("")
-            if has_framing:
-                lines.extend(_recvall_lines())
                 lines.append("")
-            lines.extend(_recv_loop_lines(is_server=True))
-            # toggle_connect wrapper when scaffold active
-            if btn_conn:
-                lines.append("")
-                lines.append(f"    def _{cid}_toggle_connect(self):")
-                lines.append(f"        if self._{cid}_running:")
-                lines.append(f"            self.{btn_conn}.configure(state='disabled')")
-                lines.append(f"            self._{cid}_disconnect()")
-                lines.append(f"        else:")
-                lines.append(f"            self.{btn_conn}.configure(text='Starting...', state='disabled')")
-                if lbl_status:
-                    lines.append(f"            self.{lbl_status}.configure(text='Starting server...', fg='#cccccc')")
-                lines.append(f"            self._{cid}_start()")
-
-        elif hdef.id == "connect":
-            if raw and raw not in (_STUB, "pass"):
-                for ln in textwrap.dedent(raw).splitlines():
-                    lines.append(("        " + ln) if ln.strip() else "")
+                lines.append(f"    def _{cid}_accept_loop(self):")
+                lines.append(f"        while self._{cid}_running:")
+                lines.append(f"            try:")
+                lines.append(f"                self._{cid}_server.settimeout(1.0)")
+                lines.append(f"                conn, addr = self._{cid}_server.accept()")
+                lines.append(f"                self._{cid}_clients.append(conn)")
+                lines.append(f"                self.after(0, lambda c=conn, a=addr: self._{cid}_on_connect(c, a))")
+                lines.append(f"                threading.Thread(target=self._{cid}_recv_loop,")
+                lines.append(f"                                 args=(conn,), daemon=True).start()")
+                lines.append(f"            except socket.timeout:")
+                lines.append(f"                continue")
+                lines.append(f"            except Exception:")
+                lines.append(f"                break")
             else:
+                lines.append(f"    def _{cid}_connect(self):")
                 lines.append(f"        def _run():")
                 lines.append(f"            try:")
                 lines.append(f"                conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
@@ -1400,20 +1401,68 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
             if has_framing:
                 lines.extend(_recvall_lines())
                 lines.append("")
-            lines.extend(_recv_loop_lines(is_server=False))
-            if btn_conn:
+            lines.extend(_recv_loop_lines(is_server=(stype == "server")))
+
+        elif hdef.id == "start":
+            # Direct wire (user chose separate Listen / Stop buttons)
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            else:
+                lines.append(f"        self._{cid}_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
+                lines.append(f"        self._{cid}_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)")
+                lines.append(f"        self._{cid}_server.bind((self._{cid}_host, self._{cid}_port))")
+                lines.append(f"        self._{cid}_server.listen(self._{cid}_max_clients)")
+                lines.append(f"        self._{cid}_running = True")
+                lines.append(f"        threading.Thread(target=self._{cid}_accept_loop, daemon=True).start()")
+            lines.append("")
+            lines.append(f"    def _{cid}_accept_loop(self):")
+            lines.append(f"        while self._{cid}_running:")
+            lines.append(f"            try:")
+            lines.append(f"                self._{cid}_server.settimeout(1.0)")
+            lines.append(f"                conn, addr = self._{cid}_server.accept()")
+            lines.append(f"                self._{cid}_clients.append(conn)")
+            lines.append(f"                self.after(0, lambda c=conn, a=addr: self._{cid}_on_connect(c, a))")
+            lines.append(f"                threading.Thread(target=self._{cid}_recv_loop,")
+            lines.append(f"                                 args=(conn,), daemon=True).start()")
+            lines.append(f"            except socket.timeout:")
+            lines.append(f"                continue")
+            lines.append(f"            except Exception:")
+            lines.append(f"                break")
+            lines.append("")
+            if has_framing:
+                lines.extend(_recvall_lines())
                 lines.append("")
-                lines.append(f"    def _{cid}_toggle_connect(self):")
-                lines.append(f"        if self._{cid}_running:")
-                lines.append(f"            self.{btn_conn}.configure(state='disabled')")
-                if lbl_status:
-                    lines.append(f"            self.{lbl_status}.configure(text='Disconnecting...', fg='#cccccc')")
-                lines.append(f"            self._{cid}_disconnect()")
-                lines.append(f"        else:")
-                lines.append(f"            self.{btn_conn}.configure(text='Connecting...', state='disabled')")
-                if lbl_status:
-                    lines.append(f"            self.{lbl_status}.configure(text='Connecting...', fg='#cccccc')")
-                lines.append(f"            self._{cid}_connect()")
+            lines.extend(_recv_loop_lines(is_server=True))
+
+        elif hdef.id == "connect":
+            # Direct wire (user chose separate Connect / Disconnect buttons)
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            else:
+                lines.append(f"        def _run():")
+                lines.append(f"            try:")
+                lines.append(f"                conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
+                lines.append(f"                conn.settimeout(self._{cid}_timeout)")
+                lines.append(f"                conn.connect((self._{cid}_host, self._{cid}_port))")
+                lines.append(f"                self._{cid}_conn = conn")
+                lines.append(f"                self._{cid}_running = True")
+                lines.append(f"                self.after(0, self._{cid}_on_connect)")
+                lines.append(f"                threading.Thread(target=self._{cid}_recv_loop,")
+                lines.append(f"                                 args=(conn,), daemon=True).start()")
+                lines.append(f"            except socket.timeout:")
+                lines.append(f"                self.after(0, self._{cid}_on_timeout)")
+                lines.append(f"            except Exception as e:")
+                lines.append(f"                self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                lines.append(f"                if self._{cid}_retry_on_fail:")
+                lines.append(f"                    self.after(int(self._{cid}_retry_interval * 1000), self._{cid}_connect)")
+                lines.append(f"        threading.Thread(target=_run, daemon=True).start()")
+            lines.append("")
+            if has_framing:
+                lines.extend(_recvall_lines())
+                lines.append("")
+            lines.extend(_recv_loop_lines(is_server=False))
 
         elif hdef.id == "disconnect":
             if raw and raw not in (_STUB, "pass"):
@@ -1568,20 +1617,6 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"        self.{txt_chat}.configure(state='disabled')")
             else:
                 lines.extend(_body_lines(method, bodies, hdef.default_body))
-            # emit _quick_send alongside on_receive_text (chat scaffold)
-            if ent_msg:
-                lines.append("")
-                lines.append(f"    def _{cid}_quick_send(self):")
-                lines.append(f"        text = self.{ent_msg}.get().strip()")
-                lines.append(f"        if not text:")
-                lines.append(f"            return")
-                lines.append(f"        self._{cid}_send_text(text)")
-                lines.append(f"        self.{ent_msg}.delete(0, 'end')")
-                if txt_chat:
-                    lines.append(f"        self.{txt_chat}.configure(state='normal')")
-                    lines.append(f"        self.{txt_chat}.insert('end', '[You] ' + text + '\\n')")
-                    lines.append(f"        self.{txt_chat}.see('end')")
-                    lines.append(f"        self.{txt_chat}.configure(state='disabled')")
 
         elif hdef.id == "on_receive_file":
             if raw and raw not in (_STUB, "pass"):
@@ -1601,10 +1636,30 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(f"        self.{pb_xfer}.configure(value=0)")
             else:
                 lines.extend(_body_lines(method, bodies, hdef.default_body))
-            # emit _pick_and_send_file alongside on_receive_file (file scaffold)
-            if pb_xfer:
-                lines.append("")
-                lines.append(f"    def _{cid}_pick_and_send_file(self):")
+
+        elif hdef.id == "quick_send":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif ent_msg:
+                lines.append(f"        text = self.{ent_msg}.get().strip()")
+                lines.append(f"        if not text:")
+                lines.append(f"            return")
+                lines.append(f"        self._{cid}_send_text(text)")
+                lines.append(f"        self.{ent_msg}.delete(0, 'end')")
+                if txt_chat:
+                    lines.append(f"        self.{txt_chat}.configure(state='normal')")
+                    lines.append(f"        self.{txt_chat}.insert('end', '[You] ' + text + '\\n')")
+                    lines.append(f"        self.{txt_chat}.see('end')")
+                    lines.append(f"        self.{txt_chat}.configure(state='disabled')")
+            else:
+                lines.append(f"        pass  # call self._{cid}_send_text(your_text)")
+
+        elif hdef.id == "pick_and_send_file":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif pb_xfer or lbl_file:
                 lines.append(f"        from tkinter.filedialog import askopenfilename")
                 lines.append(f"        import os as _os")
                 lines.append(f"        path = askopenfilename(parent=self, title='Select file to send')")
@@ -1622,6 +1677,8 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"            except Exception as e:")
                 lines.append(f"                self.after(0, lambda err=e: self._{cid}_on_error(err))")
                 lines.append(f"        threading.Thread(target=_do_send, daemon=True).start()")
+            else:
+                lines.append(f"        pass  # read file and call self._{cid}_send_file(data)")
 
         elif hdef.id == "on_send_file":
             if raw and raw not in (_STUB, "pass"):
