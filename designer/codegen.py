@@ -1400,6 +1400,25 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.extend(_recvall_lines())
                 lines.append("")
             lines.extend(_recv_loop_lines(is_server=(stype == "server")))
+            # disconnect is always needed when toggle_connect is used
+            lines.append("")
+            lines.append(f"    def _{cid}_disconnect(self):")
+            if stype == "server":
+                lines.append(f"        self._{cid}_running = False")
+                lines.append(f"        for conn in list(self._{cid}_clients):")
+                lines.append(f"            try: conn.close()")
+                lines.append(f"            except: pass")
+                lines.append(f"        self._{cid}_clients.clear()")
+                lines.append(f"        if self._{cid}_server:")
+                lines.append(f"            try: self._{cid}_server.close()")
+                lines.append(f"            except: pass")
+                lines.append(f"            self._{cid}_server = None")
+            else:
+                lines.append(f"        self._{cid}_running = False")
+                lines.append(f"        if self._{cid}_conn:")
+                lines.append(f"            try: self._{cid}_conn.close()")
+                lines.append(f"            except: pass")
+                lines.append(f"            self._{cid}_conn = None")
 
         elif hdef.id == "start":
             # Direct wire (user chose separate Listen / Stop buttons)
