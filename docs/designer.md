@@ -40,9 +40,9 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 
 ## Widget Palette
 
-15 widget types in a scrollable toolbox with canvas-drawn mini-previews:
+16 widget types in a scrollable toolbox with canvas-drawn mini-previews:
 
-Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, **Notebook**, Scale, Spinbox, Progressbar, Separator
+Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, **Notebook**, Scale, Spinbox, Progressbar, Separator, **Canvas**
 
 **Placement modes:**
 - **Click** — arms the crosshair tool; click anywhere on the canvas to drop at default size
@@ -127,6 +127,14 @@ Codegen emits a `_apply_anchor_layout()` method that is called in `__init__` aft
 ### Multi-Select Properties
 
 When multiple widgets are selected, the Properties panel shows the **intersection** of all their shared property names. Values that differ across the selection are shown blank; typing a new value applies it to all selected widgets at once. Color pickers, enum dropdowns, and text fields all work in multi-select. The font picker and list editor are single-select only.
+
+### Image Properties
+
+Label, Button, and Canvas widgets support an `image` property. Click the row to open a file picker — the selected file is automatically copied into `<project>/images/` so the generated app is self-contained. A live thumbnail scaled to the widget bounds appears on the canvas immediately.
+
+- **Compound** (Label and Button only) — positions the image relative to any text: `left`, `right`, `top`, `bottom`, `center`, `none`; when an image is set the canvas hides the text label to match runtime behaviour
+- **PIL warning row** — if Pillow is not installed in the active project interpreter, an amber **⚠ click to install Pillow** row appears below the `image` row; clicking it streams `pip install pillow` into the Output panel and removes the warning on success
+- **Anchor-aware resize** — when the widget has a size-changing anchor (`all`, `top`, `bottom`, `left`, `right`), codegen emits a `<Configure>` binding that reloads the `PhotoImage` at the new widget dimensions so the image scales live with the window
 
 ### Form Properties
 Click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), maximize box, and **always on top** (pins the window above all other windows). Border style and maximize box stay in sync automatically.
@@ -271,6 +279,53 @@ Non-visual components (timers, dialogs, file pickers) live in the **component tr
 | `_tick` | User logic; called every interval |
 | `_start` ⚡ | Start the timer; wire to a button or menu item |
 | `_stop` ⚡ | Stop the timer |
+
+### Socket
+
+TCP socket component — **Server** listens for incoming connections; **Client** connects to a remote host. All network I/O runs on daemon threads; callbacks dispatch back to the main thread via `self.after(0, ...)` so tkinter widgets are always updated safely.
+
+**Setup dialog** — dropping a Socket from the palette immediately shows a setup dialog:
+- **Type** — Server or Client
+- **Host / Port** — remote host (client) or bind address (server) and TCP port
+- **Scaffold starter widgets** (optional) — three pre-wired kits:
+  - **Connect / Disconnect** — a `btn_connect` toggle button (Listen→Stop or Connect→Disconnect) and a `lbl_status` label that updates colour and text automatically through `on_connect` / `on_disconnect`
+  - **Chat** — a read-only `txt_chat` (Text + scrollbar), a `ent_message` Entry, and a `btn_send` button; sending a message appends `[You] text` to the log; received text appears directly in the log
+  - **File Transfer** — a `pb_transfer` Progressbar (updates chunk-by-chunk on both send and receive), a `lbl_file` status label, and a `btn_send_file` button that opens a file picker and sends immediately on a daemon thread
+
+When the **File Transfer** scaffold is active all communication uses a **length-prefix framing protocol** — `struct.pack('>Q', payload_size)` prepended to every message so the receiver knows the exact payload length before reading. Text and binary data share the same wire format; the receiver distinguishes them by attempting UTF-8 decode.
+
+| Property | Applies to | Description |
+|---|---|---|
+| socket type | Both | "server" or "client" — set by dialog, read-only |
+| host | Both | Remote host (client) / bind address (server) |
+| port | Both | TCP port (default 8080) |
+| encoding | Both | Text encoding for send/receive text (default utf-8) |
+| timeout | Both | Connect timeout in seconds (default 5.0) |
+| buffer size | Both | recv() chunk size in bytes (default 4096) |
+| auto connect | Both | Start listening / connect automatically on form load |
+| max clients | Server | Maximum simultaneous client connections (default 5) |
+| bind address | Server | Network interface to bind (default 0.0.0.0) |
+| retry on fail | Client | Retry automatically after a failed connect |
+| retry interval | Client | Seconds between retries (default 3.0) |
+
+| Handler | Description |
+|---|---|
+| `_toggle_connect` ⚡ | One-button toggle — used by the Connect/Disconnect scaffold |
+| `_start` ⚡ | [Server] Begin listening — for separate Listen/Stop buttons |
+| `_connect` ⚡ | [Client] Connect to server — for separate Connect/Disconnect buttons |
+| `_disconnect` ⚡ | Close all connections |
+| `_send_text(text)` | Send a UTF-8 string to connected peer(s) |
+| `_send_file(data)` | Send raw bytes (framed when File Transfer scaffold active) |
+| `_quick_send` | [Chat scaffold] Read Entry and send; echoes in chat log |
+| `_pick_and_send_file` | [File Transfer scaffold] Open file picker and send |
+| `_on_connect` | Fired when a connection is established |
+| `_on_disconnect` | Fired when a connection is closed |
+| `_on_receive_text(text)` | Fired with decoded string data |
+| `_on_receive_file(data)` | Fired with raw bytes (saved to disk by scaffold) |
+| `_on_send_text(text)` | Fired after a text send completes |
+| `_on_send_file(data)` | Fired after a file send completes |
+| `_on_error(error)` | Any socket exception |
+| `_on_timeout` | Connect or recv timeout |
 
 ### CommonDialog
 

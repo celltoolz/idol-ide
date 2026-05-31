@@ -31,6 +31,7 @@ class ComponentHandlerDef:
     has_connector:      bool           # True → show ⚡ connector button (can wire to a widget event)
     default_body:       str            # body used on first codegen; "" = use fixed template
     applies_to_widgets: tuple[str, ...] = ()  # empty = all widget types; non-empty = allowlist
+    applies_to_modes:   tuple[str, ...] = ()  # empty = all socket modes; ("server",)/("client",) = restricted
 
 
 @dataclass(frozen=True)
@@ -239,6 +240,214 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 id="on_messagebox_result",
                 label="_on_messagebox_result",
                 description="Called after the user answers the question dialog. Read self._cd1_result here.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+        ),
+    ),
+
+    "Socket": ComponentDef(
+        type_key="Socket",
+        label="Socket",
+        icon="⬡",
+        description="TCP socket — Server listens for connections, Client connects to a server. Runs on daemon threads, callbacks fire on the main thread.",
+        default_name="sock",
+        codegen_imports=["import socket", "import threading"],
+        prop_defs=(
+            PropDef(
+                key="socket_type",
+                label="socket type",
+                kind="readonly",
+                default="",
+                description="'server' or 'client' — set when the component is added and cannot be changed.",
+            ),
+            PropDef(
+                key="host",
+                label="host",
+                kind="str",
+                default="localhost",
+                description="Server: address to bind (use 0.0.0.0 for all interfaces). Client: remote host to connect to.",
+            ),
+            PropDef(
+                key="port",
+                label="port",
+                kind="int",
+                default=8080,
+                description="TCP port number (1–65535).",
+            ),
+            PropDef(
+                key="encoding",
+                label="encoding",
+                kind="str",
+                default="utf-8",
+                description="Text encoding for send_text/on_receive_text. Raw bytes bypass this.",
+            ),
+            PropDef(
+                key="timeout",
+                label="timeout (s)",
+                kind="float",
+                default=5.0,
+                description="Seconds before a connect or recv raises a timeout error.",
+            ),
+            PropDef(
+                key="buffer_size",
+                label="buffer size",
+                kind="int",
+                default=4096,
+                description="recv() chunk size in bytes. Increase for large file transfers.",
+            ),
+            PropDef(
+                key="auto_connect",
+                label="auto connect",
+                kind="bool",
+                default=False,
+                description="If True, start listening / connect automatically when the form loads.",
+            ),
+            # server-only — rendered conditionally in the Properties panel
+            PropDef(
+                key="max_clients",
+                label="max clients",
+                kind="int",
+                default=5,
+                description="[Server] Maximum number of simultaneous client connections.",
+            ),
+            PropDef(
+                key="bind_address",
+                label="bind address",
+                kind="str",
+                default="0.0.0.0",
+                description="[Server] Network interface to bind to. 0.0.0.0 = all interfaces.",
+            ),
+            # client-only — rendered conditionally in the Properties panel
+            PropDef(
+                key="retry_on_fail",
+                label="retry on fail",
+                kind="bool",
+                default=False,
+                description="[Client] If True, automatically retry the connection after a failure.",
+            ),
+            PropDef(
+                key="retry_interval",
+                label="retry interval (s)",
+                kind="float",
+                default=3.0,
+                description="[Client] Seconds to wait before retrying after a failed connection.",
+            ),
+        ),
+        handler_defs=(
+            # ── connectable — wire to widget events ──────────────────────────
+            ComponentHandlerDef(
+                id="toggle_connect",
+                label="_toggle_connect",
+                description="One-button toggle: starts/listens on first click, disconnects on second. Generates all socket setup code. Used by the scaffold.",
+                has_connector=True,
+                default_body="",
+            ),
+            ComponentHandlerDef(
+                id="start",
+                label="_start",
+                description="[Server] Begin listening. Use instead of toggle_connect when you want separate Listen / Stop buttons.",
+                has_connector=True,
+                default_body="",
+                applies_to_modes=("server",),
+            ),
+            ComponentHandlerDef(
+                id="connect",
+                label="_connect",
+                description="[Client] Connect to the server. Use instead of toggle_connect when you want separate Connect / Disconnect buttons.",
+                has_connector=True,
+                default_body="",
+                applies_to_modes=("client",),
+            ),
+            ComponentHandlerDef(
+                id="disconnect",
+                label="_disconnect",
+                description="Close all connections and stop the socket. Wire to a button.",
+                has_connector=True,
+                default_body="",
+            ),
+            ComponentHandlerDef(
+                id="send_text",
+                label="_send_text",
+                description="Send a UTF-8 string to connected peer(s). Call self._{id}_send_text(text) from your code.",
+                has_connector=False,
+                default_body="",
+            ),
+            ComponentHandlerDef(
+                id="send_file",
+                label="_send_file",
+                description="Send raw bytes to connected peer(s). Call self._{id}_send_file(data) from your code.",
+                has_connector=False,
+                default_body="",
+            ),
+            ComponentHandlerDef(
+                id="quick_send",
+                label="_quick_send",
+                description="Read text from the message Entry and send it. Generated by the Chat scaffold.",
+                has_connector=False,
+                default_body="",
+            ),
+            ComponentHandlerDef(
+                id="pick_and_send_file",
+                label="_pick_and_send_file",
+                description="Open file picker and send the selected file. Generated by the File Transfer scaffold.",
+                has_connector=False,
+                default_body="",
+            ),
+            # ── callbacks — always generated as stubs ────────────────────────
+            ComponentHandlerDef(
+                id="on_connect",
+                label="_on_connect",
+                description="Fired when a connection is established. Server: receives (conn, addr). Client: no args.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_disconnect",
+                label="_on_disconnect",
+                description="Fired when a connection is closed.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_receive_text",
+                label="_on_receive_text",
+                description="Fired with decoded string data when text is received.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_receive_file",
+                label="_on_receive_file",
+                description="Fired with raw bytes when binary data is received (UnicodeDecodeError on text decode).",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_send_text",
+                label="_on_send_text",
+                description="Fired after a text send completes.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_send_file",
+                label="_on_send_file",
+                description="Fired after a file/bytes send completes.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_error",
+                label="_on_error",
+                description="Fired when any socket exception occurs. Receives the exception object.",
+                has_connector=False,
+                default_body="pass  # TODO",
+            ),
+            ComponentHandlerDef(
+                id="on_timeout",
+                label="_on_timeout",
+                description="Fired when a connect or recv times out.",
                 has_connector=False,
                 default_body="pass  # TODO",
             ),

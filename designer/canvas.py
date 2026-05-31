@@ -132,6 +132,8 @@ class DesignerCanvas(tk.Canvas):
         self._redo_stack: list[dict] = []
         self._tab_order_visible: bool = False
         self._active_nb_tabs: dict[str, str] = {}  # nb_id → active tab name
+        self._img_cache: dict[str, object] = {}  # "{path}:{w}:{h}" → ImageTk.PhotoImage
+        self._project_dir: str = __import__("os").getcwd()
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -276,6 +278,12 @@ class DesignerCanvas(tk.Canvas):
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._active_nb_tabs.clear()
+        self._img_cache.clear()
+        self._reposition()
+
+    def set_project_dir(self, path: str) -> None:
+        self._project_dir = path
+        self._img_cache.clear()
         self._reposition()
 
     # ── Undo / Redo ───────────────────────────────────────────────────────────
@@ -2162,6 +2170,35 @@ def _get_bd(props, default=2):
         return default
 
 
+def _resolve_image_path(rel_path: str, project_dir: str) -> str:
+    """Resolve a relative-or-absolute image path against the project directory."""
+    from pathlib import Path
+    p = Path(rel_path)
+    if p.is_absolute():
+        return str(p)
+    return str(Path(project_dir) / p)
+
+
+def _load_preview_image(canvas, rel_path: str, max_w: int, max_h: int):
+    """Return a cached ImageTk.PhotoImage thumbnail, or None on any failure."""
+    try:
+        from PIL import Image, ImageTk
+    except ImportError:
+        return None
+    try:
+        resolved = _resolve_image_path(rel_path, canvas._project_dir)
+        key = f"{resolved}:{max_w}:{max_h}"
+        cached = canvas._img_cache.get(key)
+        if cached is not None:
+            return cached
+        img = Image.open(resolved).resize((max_w, max_h), Image.LANCZOS)
+        photo = ImageTk.PhotoImage(img)
+        canvas._img_cache[key] = photo
+        return photo
+    except Exception:
+        return None
+
+
 @_tag
 def _draw_button(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#e1e1e1") or "#e1e1e1"
@@ -2172,7 +2209,17 @@ def _draw_button(c, x, y, x2, y2, text, props):
     relief = props.get("relief", "") or "raised"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
-    _text(c, x, y, x2, y2, text or "Button", color=fg)
+    img_path = props.get("image", "")
+    if img_path:
+        photo = _load_preview_image(c, img_path, x2 - x - 4, y2 - y - 4)
+        if photo:
+            c.create_image(x + 2, y + 2, anchor="nw", image=photo)
+        else:
+            c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
+                          fill="#ce9178", font=("TkDefaultFont", 6))
+            _text(c, x, y, x2, y2, text or "Button", color=fg)
+    else:
+        _text(c, x, y, x2, y2, text or "Button", color=fg)
 
 
 @_tag
@@ -2184,7 +2231,17 @@ def _draw_label(c, x, y, x2, y2, text, props):
     relief = props.get("relief", "") or "flat"
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
-    _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
+    img_path = props.get("image", "")
+    if img_path:
+        photo = _load_preview_image(c, img_path, x2 - x, y2 - y)
+        if photo:
+            c.create_image(x, y, anchor="nw", image=photo)
+        else:
+            c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
+                          fill="#ce9178", font=("TkDefaultFont", 6))
+            _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
+    else:
+        _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
 
 
 @_tag
@@ -2504,6 +2561,23 @@ def _draw_generic(c, x, y, x2, y2, text, props, tag):
         c.addtag_withtag("widget", item)
 
 
+@_tag
+def _draw_canvas_widget(c, x, y, x2, y2, text, props):
+    bg = props.get("bg", "#e8e8e8") or "#e8e8e8"
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#808080")
+    img_path = props.get("image", "")
+    if img_path:
+        photo = _load_preview_image(c, img_path, x2 - x, y2 - y)
+        if photo:
+            c.create_image(x, y, anchor="nw", image=photo)
+        else:
+            c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
+                          fill="#ce9178", font=("TkDefaultFont", 6))
+            _text(c, x, y, x2, y2, "Canvas", color="#666666")
+    else:
+        _text(c, x, y, x2, y2, "Canvas", color="#666666")
+
+
 # ── Registry map ──────────────────────────────────────────────────────────────
 
 _DRAW: dict = {
@@ -2521,6 +2595,7 @@ _DRAW: dict = {
     "Spinbox":     _draw_spinbox,
     "Progressbar": _draw_progressbar,
     "Separator":   _draw_separator,
+    "Canvas":      _draw_canvas_widget,
 }
 
 

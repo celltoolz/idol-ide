@@ -982,6 +982,7 @@ class IDOL(Tk):
             on_component_disconnect=self._on_comp_disconnect,
             on_component_edit=self._on_comp_edit,
             on_select_component=self._on_comp_select,
+            on_install_pillow=self._on_designer_install_pillow,
         )
         self._props_panel.configure(width=230)
 
@@ -1613,6 +1614,7 @@ class IDOL(Tk):
             add="+",
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
+        cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("left"), add="+")
 
     def _confirm_close_tab(self, tab_id: str) -> bool:
         """Return True if the tab can be closed (not dirty, or user confirmed)."""
@@ -3125,6 +3127,10 @@ class IDOL(Tk):
         self._output.set_cwd(root)
         self._git = None
         self._start_git()
+        if hasattr(self, "_props_panel") and self._props_panel:
+            self._props_panel.set_project_dir(root)
+        if hasattr(self, "_design_canvas") and self._design_canvas:
+            self._design_canvas.set_project_dir(root)
         # If the designer is open, silently drop back to editor mode so the
         # now-stale form state (from the old project root) doesn't persist into
         # the session.  Without this, closing IDOL after a root change would
@@ -4834,10 +4840,18 @@ class IDOL(Tk):
 
             # Open connector so the user picks a widget + event + option
             def _on_wire(widget_id: str, event_key: str, option: str) -> None:
-                # Auto-create a named event stub on the widget if none exists
-                widget = form.get_widget(widget_id)
-                if widget is not None and not widget.events.get(event_key):
-                    widget.events[event_key] = f"_{widget_id}_{event_key}"
+                if widget_id == "__form__":
+                    # Wire body goes into a form-event stub (_on_load, _on_activate, …)
+                    # Reuse existing method name if the event is already wired, else default.
+                    method_name = form.form_events.get(event_key) or f"_on_{event_key}"
+                    form.form_events[event_key] = method_name
+                    # Don't add to enabled_handlers — the wire body is injected
+                    # directly into the form event stub via _wire_default_bodies in codegen.
+                else:
+                    # Auto-create a named event stub on the widget if none exists
+                    widget = form.get_widget(widget_id)
+                    if widget is not None and not widget.events.get(event_key):
+                        widget.events[event_key] = f"_{widget_id}_{event_key}"
 
                 self._apply_wire_side_effects(form, hdef, option)
 
@@ -4846,9 +4860,12 @@ class IDOL(Tk):
                                    event_key=event_key,
                                    option=option)
                 form.handler_wires.append(wire)
-                # generates_stub=False handlers don't need an enabled_handlers entry
+                # generates_stub=False handlers (e.g. _open_dialog) don't emit a stub.
                 if hdef.generates_stub and handler_id not in form.enabled_handlers:
                     form.enabled_handlers.append(handler_id)
+                # Store chosen option so the handler stub body reflects selection.
+                if option and hdef.stub_option_bodies:
+                    form.handler_options[handler_id] = option
                 self._set_designer_dirty()
                 self._props_panel.load_handlers(form)
 
@@ -4868,6 +4885,7 @@ class IDOL(Tk):
                 preselect_widget_id=preselect_widget_id,
                 wire_body_resolver=resolver,
                 secondary_options=hdef.secondary_options,
+                form_event_keys=("load", "activate", "deactivate", "unload", "resize"),
             )
         else:
             # Non-connectable handler — just enable it
@@ -4888,6 +4906,18 @@ class IDOL(Tk):
                                   if not (w.handler_id == wire.handler_id
                                           and w.widget_id == wire.widget_id
                                           and w.event_key == wire.event_key)]
+            # Clear the event binding on the widget or form
+            if wire.widget_id == "__form__":
+                form.form_events.pop(wire.event_key, None)
+            else:
+                widget = form.get_widget(wire.widget_id)
+                if widget is not None:
+                    widget.events.pop(wire.event_key, None)
+            # If no wires remain for this handler, clean up enabled_handlers + options
+            still_wired = any(w.handler_id == handler_id for w in form.handler_wires)
+            if not still_wired:
+                form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+                form.handler_options.pop(handler_id, None)
         else:
             # Remove from enabled_handlers (built-in wired handler)
             form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
@@ -4955,6 +4985,9 @@ class IDOL(Tk):
                     )
                     for w in form.handler_wires
                 ]
+                # Sync handler_options so stub body reflects the new option
+                if option and hdef.stub_option_bodies:
+                    form.handler_options[handler_id] = option
             else:
                 if option:
                     form.handler_options[handler_id] = option
@@ -5025,6 +5058,9 @@ class IDOL(Tk):
         cdef = get_component_def(type_key)
         if cdef is None:
             return
+        if type_key == "Socket":
+            self._open_socket_setup_dialog(form, cdef)
+            return
         comp_id = form.next_component_id(cdef.default_name)
         comp = ComponentDescriptor(id=comp_id, type=type_key,
                                    props=default_props(type_key))
@@ -5038,6 +5074,271 @@ class IDOL(Tk):
             self._comp_selecting = False
         self._props_panel.load_component(comp, cdef)
         self._set_designer_dirty()
+
+    def _open_socket_setup_dialog(self, form, cdef) -> None:
+        from designer.model import WidgetDescriptor
+        from designer.component_registry import default_props as comp_default_props
+
+        win = tk.Toplevel(self)
+        win.withdraw()
+        win.title("New Socket Component")
+        win.resizable(False, False)
+        win.configure(bg="#2d2d2d")
+        win.transient(self)
+
+        _BG   = "#2d2d2d"
+        _FG   = "#cccccc"
+        _FG2  = "#888888"
+        _ENT  = "#3c3c3c"
+        _SEP  = "#3a3a3a"
+        _FONT = (UI_FONT, 9)
+
+        # ── Type row ──────────────────────────────────────────────────────────
+        type_var = tk.StringVar(value="server")
+        tk.Label(win, text="Type:", bg=_BG, fg=_FG, font=_FONT
+                 ).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
+        type_frame = tk.Frame(win, bg=_BG)
+        type_frame.grid(row=0, column=1, columnspan=3, padx=(0, 12), pady=(14, 4), sticky="w")
+        for lbl, val in [("Server  (listen)", "server"), ("Client  (connect)", "client")]:
+            tk.Radiobutton(type_frame, text=lbl, variable=type_var, value=val,
+                           bg=_BG, fg=_FG, selectcolor="#094771",
+                           activebackground=_BG, font=_FONT,
+                           highlightthickness=0, relief="flat",
+                           ).pack(side="left", padx=(0, 12))
+
+        # ── Host / Port row ───────────────────────────────────────────────────
+        tk.Label(win, text="Host:", bg=_BG, fg=_FG, font=_FONT
+                 ).grid(row=1, column=0, padx=12, pady=4, sticky="w")
+        host_var = tk.StringVar(value="localhost")
+        tk.Entry(win, textvariable=host_var, bg=_ENT, fg=_FG,
+                 insertbackground=_FG, relief="flat", font=_FONT, width=16
+                 ).grid(row=1, column=1, padx=(0, 8), pady=4, sticky="w")
+        tk.Label(win, text="Port:", bg=_BG, fg=_FG, font=_FONT
+                 ).grid(row=1, column=2, pady=4, sticky="w")
+        port_var = tk.StringVar(value="8080")
+        tk.Entry(win, textvariable=port_var, bg=_ENT, fg=_FG,
+                 insertbackground=_FG, relief="flat", font=_FONT, width=6
+                 ).grid(row=1, column=3, padx=(4, 12), pady=4, sticky="w")
+
+        # ── Separator + scaffold section ──────────────────────────────────────
+        tk.Frame(win, bg=_SEP, height=1).grid(
+            row=2, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 2))
+        tk.Label(win, text="Scaffold starter widgets (optional):",
+                 bg=_BG, fg=_FG2, font=_FONT
+                 ).grid(row=3, column=0, columnspan=4, padx=12, pady=(4, 2), sticky="w")
+
+        # ── 3 grouped checkboxes ──────────────────────────────────────────────
+        chk_connect = tk.BooleanVar(value=False)
+        chk_chat    = tk.BooleanVar(value=False)
+        chk_file    = tk.BooleanVar(value=False)
+
+        def _chk(row_i, var, title, detail):
+            f = tk.Frame(win, bg=_BG)
+            f.grid(row=row_i, column=0, columnspan=4, padx=16, pady=(3, 0), sticky="w")
+            tk.Checkbutton(f, text=title, variable=var,
+                           bg=_BG, fg=_FG, selectcolor="#094771",
+                           activebackground=_BG, font=_FONT,
+                           highlightthickness=0, relief="flat",
+                           ).pack(side="left")
+            tk.Label(f, text=detail, bg=_BG, fg=_FG2, font=(UI_FONT, 8)
+                     ).pack(side="left", padx=(4, 0))
+
+        _chk(4, chk_connect,
+             "Connect / Disconnect",
+             "— toggle button + status label, auto-wired")
+        _chk(5, chk_chat,
+             "Chat",
+             "— text log, message entry + Send button, auto-wired")
+        _chk(6, chk_file,
+             "File Transfer",
+             "— progressbar, file label + Send File button, framed protocol")
+
+        # ── Button row ────────────────────────────────────────────────────────
+        tk.Frame(win, bg=_SEP, height=1).grid(
+            row=7, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 0))
+        btn_frame = tk.Frame(win, bg=_BG)
+        btn_frame.grid(row=8, column=0, columnspan=4, padx=12, pady=(6, 12), sticky="e")
+
+        def _make_btn(parent, text, cmd):
+            b = tk.Label(parent, text=text, bg="#3c3c3c", fg=_FG,
+                         font=_FONT, padx=10, pady=4, cursor="hand2", relief="flat")
+            b.pack(side="left", padx=(6, 0))
+            b.bind("<ButtonRelease-1>", lambda _: cmd())
+            b.bind("<Enter>", lambda _: b.configure(bg="#505050"))
+            b.bind("<Leave>", lambda _: b.configure(bg="#3c3c3c"))
+            return b
+
+        def _on_confirm():
+            stype = type_var.get()
+            host  = host_var.get().strip() or "localhost"
+            try:
+                port = int(port_var.get())
+            except ValueError:
+                port = 8080
+
+            # ── Create component ──────────────────────────────────────────────
+            comp_id = form.next_component_id(cdef.default_name)
+            props   = comp_default_props("Socket")
+            props["socket_type"] = stype
+            props["host"]        = host
+            props["port"]        = port
+            if stype == "server":
+                props["bind_address"] = "0.0.0.0"
+
+            # ── Scaffold ──────────────────────────────────────────────────────
+            fw       = form.width
+            mx       = 16          # margin x
+            inner_w  = fw - mx * 2
+            cur_y    = 16
+            gap      = 8
+
+            existing_ids = {wd.id for wd in form.widgets}
+
+            def _named_id(base):
+                if base not in existing_ids:
+                    existing_ids.add(base)
+                    return base
+                n = 2
+                while f"{base}_{n}" in existing_ids:
+                    n += 1
+                nid = f"{base}_{n}"
+                existing_ids.add(nid)
+                return nid
+
+            def _btn_props(text):
+                return {"text": text, "bg": "", "fg": "#000000",
+                        "font": "", "justify": "", "relief": "", "borderwidth": "",
+                        "wraplength": "", "image": "", "compound": ""}
+
+            def _lbl_props(text, fg="#cccccc"):
+                return {"text": text, "bg": "", "fg": fg,
+                        "font": "", "justify": "left", "relief": "", "borderwidth": "",
+                        "wraplength": "", "image": "", "compound": ""}
+
+            def _add(w):
+                form.widgets.append(w)
+
+            # ── Group 1: Connect / Disconnect ─────────────────────────────────
+            if chk_connect.get():
+                btn_lbl  = "Listen" if stype == "server" else "Connect"
+                btn_id   = _named_id("btn_connect")
+                lbl_id   = _named_id("lbl_status")
+                _add(WidgetDescriptor(
+                    id=btn_id, type="Button", x=mx, y=cur_y,
+                    width=130, height=28,
+                    props=_btn_props(btn_lbl),
+                    events={"command": f"_{comp_id}_toggle_connect"},
+                ))
+                _add(WidgetDescriptor(
+                    id=lbl_id, type="Label", x=mx + 138, y=cur_y + 4,
+                    width=inner_w - 138, height=20,
+                    props=_lbl_props("Disconnected", "#888888"),
+                    events={},
+                ))
+                props["_scaffold_btn_connect"] = btn_id
+                props["_scaffold_lbl_status"]  = lbl_id
+                cur_y += 28 + gap
+
+            # ── Group 2: Chat ─────────────────────────────────────────────────
+            if chk_chat.get():
+                txt_id   = _named_id("txt_chat")
+                ent_id   = _named_id("ent_message")
+                send_id  = _named_id("btn_send")
+                send_w   = 70
+                ent_w    = inner_w - send_w - gap
+                _add(WidgetDescriptor(
+                    id=txt_id, type="Text", x=mx, y=cur_y,
+                    width=inner_w, height=200,
+                    props={"wrap": "word", "bg": "#1e1e1e", "fg": "#cccccc",
+                           "font": "", "relief": "flat", "insertbackground": "",
+                           "borderwidth": "0", "scrollbar": "Vertical",
+                           "selectbackground": "", "selectforeground": "",
+                           "exportselection": "", "char_width": "", "char_height": ""},
+                    events={},
+                ))
+                cur_y += 200 + gap
+                _add(WidgetDescriptor(
+                    id=ent_id, type="Entry", x=mx, y=cur_y,
+                    width=ent_w, height=28,
+                    props={"text": "", "bg": "#3c3c3c", "fg": "#cccccc",
+                           "show": "", "font": "", "justify": "", "relief": "flat",
+                           "insertbackground": "#cccccc", "borderwidth": "0",
+                           "selectbackground": "", "selectforeground": "",
+                           "exportselection": "", "char_width": ""},
+                    events={},
+                ))
+                _add(WidgetDescriptor(
+                    id=send_id, type="Button", x=mx + ent_w + gap, y=cur_y,
+                    width=send_w, height=28,
+                    props=_btn_props("Send"),
+                    events={"command": f"_{comp_id}_quick_send"},
+                ))
+                props["_scaffold_txt_chat"]    = txt_id
+                props["_scaffold_ent_message"] = ent_id
+                cur_y += 28 + gap
+
+            # ── Group 3: File Transfer ────────────────────────────────────────
+            if chk_file.get():
+                pb_id    = _named_id("pb_transfer")
+                lbl_id   = _named_id("lbl_file")
+                file_id  = _named_id("btn_send_file")
+                file_w   = 100
+                lbl_w    = inner_w - file_w - gap
+                _add(WidgetDescriptor(
+                    id=pb_id, type="Progressbar", x=mx, y=cur_y,
+                    width=inner_w, height=18,
+                    props={"orient": "horizontal", "mode": "determinate", "maximum": ""},
+                    events={},
+                ))
+                cur_y += 18 + gap
+                _add(WidgetDescriptor(
+                    id=lbl_id, type="Label", x=mx, y=cur_y,
+                    width=lbl_w, height=24,
+                    props=_lbl_props("No file selected", "#888888"),
+                    events={},
+                ))
+                _add(WidgetDescriptor(
+                    id=file_id, type="Button", x=mx + lbl_w + gap, y=cur_y - 2,
+                    width=file_w, height=28,
+                    props=_btn_props("Send File…"),
+                    events={"command": f"_{comp_id}_pick_and_send_file"},
+                ))
+                props["_scaffold_pb_transfer"] = pb_id
+                props["_scaffold_lbl_file"]    = lbl_id
+                cur_y += 28 + gap
+
+            # ── Finalise ──────────────────────────────────────────────────────
+            comp = ComponentDescriptor(id=comp_id, type="Socket", props=props)
+            form.components.append(comp)
+            win.destroy()
+
+            self._design_canvas.load_form(form)
+            self._comp_tray.refresh(form.components)
+            self._comp_tray.select(comp_id)
+            self._comp_selecting = True
+            try:
+                self._design_canvas.deselect()
+            finally:
+                self._comp_selecting = False
+            self._props_panel.load_component(comp, cdef)
+            self._set_designer_dirty()
+
+        def _on_cancel():
+            win.destroy()
+
+        _make_btn(btn_frame, "Cancel", _on_cancel)
+        _make_btn(btn_frame, "Add Socket", _on_confirm)
+
+        win.bind("<Return>", lambda _: _on_confirm())
+        win.bind("<Escape>", lambda _: _on_cancel())
+
+        self.update_idletasks()
+        pw = self.winfo_rootx() + self.winfo_width()  // 2
+        ph = self.winfo_rooty() + self.winfo_height() // 2
+        win.update_idletasks()
+        win.geometry(f"+{pw - win.winfo_width() // 2}+{ph - win.winfo_height() // 2}")
+        win.deiconify()
+        win.grab_set()
 
     def _on_comp_select(self, comp_id: str) -> None:
         form = self._design_canvas.form
@@ -6701,6 +7002,7 @@ class IDOL(Tk):
             add="+",
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
+        cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("right"), add="+")
 
     def view_toggle_sidebar(self) -> None:
         """Show or hide the entire left sidebar (Ctrl+B)."""
@@ -6949,6 +7251,32 @@ class IDOL(Tk):
         _settings.set(f"interpreter:{root}", path)
         if self._pkg_panel:
             self._pkg_panel.set_python(path)
+        if hasattr(self, "_props_panel") and self._props_panel:
+            self._props_panel.set_active_python(path)
+
+    def _on_designer_install_pillow(self) -> None:
+        pip = getattr(self._pkg_panel, "_pip", None)
+        if pip is None:
+            from editor.pip_manager import PipManager
+            pip = PipManager(self._safe_after)
+        pip.set_python(self._active_python)
+        output = self._output.output
+        try:
+            self._output._set_active("output")
+        except Exception:
+            pass
+        output.write("\n$ pip install pillow\n", tag="cmd")
+        def _on_line(line):
+            output.write(line)
+        def _on_done():
+            output.write("✓ Pillow installed.\n", tag="info")
+            self._props_panel._pil_available = True
+            self._props_panel._update_pil_warning_row("prop__image", True)
+        pip.run_operation(
+            ["install", "pillow"],
+            on_line=_on_line, on_done=_on_done,
+            on_error=lambda e: output.write(e + "\n", tag="err"),
+        )
 
     # ── Run entry file ────────────────────────────────────────────────────────
 

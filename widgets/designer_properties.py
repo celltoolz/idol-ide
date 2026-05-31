@@ -70,6 +70,7 @@ class DesignerProperties(tk.Frame):
         on_component_disconnect:     Optional[Callable[[str, str, str], None]] = None,
         on_component_edit:           Optional[Callable[[str, str, str], None]] = None,
         on_select_component:         Optional[Callable[[str],           None]] = None,
+        on_install_pillow:           Optional[Callable[[],              None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
@@ -87,6 +88,10 @@ class DesignerProperties(tk.Frame):
         self._on_component_disconnect     = on_component_disconnect
         self._on_component_edit           = on_component_edit
         self._on_select_component         = on_select_component
+        self._on_install_pillow           = on_install_pillow
+        self._active_python: str          = __import__("sys").executable
+        self._pil_available: "bool | None" = None
+        self._project_dir: str            = __import__("os").getcwd()
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
         self._entry_editor:   tk.Widget | None          = None
@@ -399,6 +404,10 @@ class DesignerProperties(tk.Frame):
         reg = REGISTRY.get(descriptor.type, {})
         self._set_selector(descriptor.id)
         self._populate_props(descriptor, reg)
+        if descriptor.props.get("image"):
+            self._check_pil_async(
+                lambda ok: self._update_pil_warning_row("prop__image", ok)
+            )
         self._populate_events(descriptor, reg)
         self._widget_comp_handlers = self._collect_widget_comp_handlers(descriptor)
         self._widget_comp_avail    = []   # not used in widget view
@@ -542,8 +551,12 @@ class DesignerProperties(tk.Frame):
             hdef = next((h for h in all_defs if h.id == wire.handler_id), None)
             if hdef and hdef.connectable:
                 connected_ids.add(hdef.id)
-                target = (f"{wire.widget_id}.{wire.event_key}"
-                          if wire.widget_id else wire.event_key)
+                if wire.widget_id == "__form__":
+                    target = f"form.{wire.event_key}"
+                elif wire.widget_id:
+                    target = f"{wire.widget_id}.{wire.event_key}"
+                else:
+                    target = wire.event_key
                 # multi_wire handlers: show the resolved action as the row name
                 name = (_parse_multi_wire_name(wire.option) if hdef.multi_wire and wire.option
                         else hdef.id)
@@ -605,11 +618,15 @@ class DesignerProperties(tk.Frame):
         timer_auto = (comp_obj is not None
                       and comp_obj.type == "Timer"
                       and comp_obj.props.get("enabled", True))
+        connectable = self._comp_connectable_handlers()
         any_wired = any(
             any(f"_{comp_id}{hdef.label}" in w.events.values() for w in self._form.widgets)
-            for hdef in self._comp_def.handler_defs if hdef.has_connector
+            for hdef in connectable
         )
+        mode = str(comp_obj.props.get("socket_type", "")) if comp_obj and comp_obj.type == "Socket" else ""
         for hdef in self._comp_def.handler_defs:
+            if hdef.applies_to_modes and mode not in hdef.applies_to_modes:
+                continue
             if not hdef.has_connector and (any_wired or timer_auto):
                 result.append((f"_{comp_id}{hdef.label}", f"{form_name}.init", False, None))
 
@@ -698,16 +715,26 @@ class DesignerProperties(tk.Frame):
                     return f"Connected to {w.id}.{ev_key}"
         return ""
 
+    def _insert_comp_prop_rows(self, descriptor, comp_def) -> None:
+        """Insert prop rows, skipping Socket mode-specific props that don't apply."""
+        mode = str(descriptor.props.get("socket_type", "")) if descriptor.type == "Socket" else ""
+        for pd in comp_def.prop_defs:
+            if descriptor.type == "Socket":
+                if pd.key in self._SOCKET_SERVER_ONLY and mode != "server":
+                    continue
+                if pd.key in self._SOCKET_CLIENT_ONLY and mode != "client":
+                    continue
+            val = descriptor.props.get(pd.key, pd.default)
+            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
+                               kind="readonly" if pd.kind == "readonly" else "normal")
+
     def _rebuild_comp_props(self, descriptor) -> None:
         """Rebuild just the Properties tab rows for the selected component."""
         if self._comp_def is None:
             return
         self._props_clear()
         self._props_insert("comp____name__", "name", descriptor.id)
-        for pd in self._comp_def.prop_defs:
-            val = descriptor.props.get(pd.key, pd.default)
-            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
-                               kind="readonly" if pd.kind == "readonly" else "normal")
+        self._insert_comp_prop_rows(descriptor, self._comp_def)
         if descriptor.type == "CommonDialog":
             self._insert_dialog_titles_section(descriptor)
         self._props_redraw()
@@ -795,10 +822,7 @@ class DesignerProperties(tk.Frame):
         # Populate Properties tab with PropDef rows
         self._props_clear()
         self._props_insert("comp____name__", "name", descriptor.id)
-        for pd in comp_def.prop_defs:
-            val = descriptor.props.get(pd.key, pd.default)
-            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
-                               kind="readonly" if pd.kind == "readonly" else "normal")
+        self._insert_comp_prop_rows(descriptor, comp_def)
         if descriptor.type == "CommonDialog":
             self._insert_dialog_titles_section(descriptor)
         self._props_redraw()
@@ -843,6 +867,31 @@ class DesignerProperties(tk.Frame):
         self._comp_connections       = []
         self._comp_conn_hov_idx      = None
         self._comp_dtitles_expanded  = False
+
+    # ── Socket-aware handler helpers ──────────────────────────────────────────
+
+    _SOCKET_SERVER_ONLY = {"max_clients", "bind_address"}
+    _SOCKET_CLIENT_ONLY = {"retry_on_fail", "retry_interval"}
+
+    def _socket_mode(self) -> str:
+        """Return 'server', 'client', or '' for the currently selected Socket component."""
+        if not self._comp_mode or not self._form or not self._comp_id:
+            return ""
+        comp = self._form.get_component(self._comp_id)
+        if comp and comp.type == "Socket":
+            return str(comp.props.get("socket_type", ""))
+        return ""
+
+    def _comp_connectable_handlers(self) -> list:
+        """Connectable handler defs for the active component, filtered by socket mode."""
+        if not self._comp_def:
+            return []
+        mode = self._socket_mode()
+        return [
+            h for h in self._comp_def.handler_defs
+            if h.has_connector
+            and (not h.applies_to_modes or mode in h.applies_to_modes)
+        ]
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
         """Show shared properties panel for a multi-widget selection."""
@@ -1395,7 +1444,7 @@ class DesignerProperties(tk.Frame):
         scroll_top = int(cv.canvasy(0))
         # Only connectable handlers appear in the top section; always-wired ones
         # (has_connector=False) are shown exclusively in Connected Components below.
-        handler_defs = [h for h in self._comp_def.handler_defs if h.has_connector]
+        handler_defs = self._comp_connectable_handlers()
         for i, hd in enumerate(handler_defs):
             y0  = i * _ORD_ROW_H
             y1  = y0 + _ORD_ROW_H
@@ -1456,7 +1505,7 @@ class DesignerProperties(tk.Frame):
         """Return index into _comp_connections for y in the Connected Components section, or None."""
         if not self._comp_mode or not self._comp_connections or not self._comp_def:
             return None
-        n_connectable = sum(1 for h in self._comp_def.handler_defs if h.has_connector)
+        n_connectable = len(self._comp_connectable_handlers())
         section_start = n_connectable * _ORD_ROW_H + 1 + _ORD_HDR_H
         if y < section_start:
             return None
@@ -1467,7 +1516,7 @@ class DesignerProperties(tk.Frame):
         """Available-section row index at canvas y, or None."""
         if self._comp_mode and self._comp_def:
             i = int(y) // _ORD_ROW_H
-            n = sum(1 for h in self._comp_def.handler_defs if h.has_connector)
+            n = len(self._comp_connectable_handlers())
             return i if 0 <= i < n else None
         y0 = self._handlers_avail_y0
         if y < y0:
@@ -1761,6 +1810,101 @@ class DesignerProperties(tk.Frame):
         if idx is not None:
             self._props_rows[idx]["link"] = link
 
+    # ── Image / PIL helpers ───────────────────────────────────────────────────
+
+    def set_active_python(self, exe: str) -> None:
+        self._active_python = exe
+        self._pil_available = None
+
+    def set_project_dir(self, path: str) -> None:
+        self._project_dir = path
+
+    def _check_pil_async(self, on_result: "Callable[[bool], None]") -> None:
+        if self._pil_available is not None:
+            on_result(self._pil_available)
+            return
+        import threading, subprocess
+        def _run():
+            try:
+                r = subprocess.run(
+                    [self._active_python, "-c", "import PIL"],
+                    capture_output=True, timeout=10
+                )
+                ok = (r.returncode == 0)
+            except Exception:
+                ok = False
+            self._pil_available = ok
+            self.after(0, lambda: on_result(ok))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _open_image_picker(self, row_iid: str) -> None:
+        import os, shutil
+        from tkinter.filedialog import askopenfilename
+        d = self._current_widget
+        if d is None:
+            return
+        picked = askopenfilename(
+            title="Select image",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not picked:
+            return
+        # Copy into <project>/images/ so the generated app is self-contained
+        images_dir = os.path.join(self._project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        basename = os.path.basename(picked)
+        dest = os.path.join(images_dir, basename)
+        # Avoid clobbering an existing file that is different from the source
+        if os.path.exists(dest):
+            try:
+                same = os.path.samefile(picked, dest)
+            except OSError:
+                same = False
+            if not same:
+                name, ext = os.path.splitext(basename)
+                counter = 1
+                while os.path.exists(dest):
+                    dest = os.path.join(images_dir, f"{name}_{counter}{ext}")
+                    counter += 1
+        if not os.path.exists(dest):
+            shutil.copy2(picked, dest)
+        # Store as forward-slash relative path so codegen is cross-platform
+        rel = os.path.relpath(dest, self._project_dir).replace("\\", "/")
+        d.props["image"] = rel
+        self._props_set(row_iid, os.path.basename(rel))
+        if self._on_prop_change:
+            self._on_prop_change(d.id, "image", rel)
+        self._check_pil_async(lambda ok: self._update_pil_warning_row(row_iid, ok))
+
+    def _update_pil_warning_row(self, image_row_iid: str, pil_ok: bool) -> None:
+        if pil_ok:
+            idx = self._props_row_map.get("pil__warning")
+            if idx is not None:
+                self._props_rows.pop(idx)
+                del self._props_row_map["pil__warning"]
+                for i in range(idx, len(self._props_rows)):
+                    self._props_row_map[self._props_rows[i]["iid"]] = i
+                self._props_redraw()
+        else:
+            if "pil__warning" in self._props_row_map:
+                return
+            img_idx = self._props_row_map.get(image_row_iid)
+            if img_idx is None:
+                return
+            warn_row = {
+                "iid": "pil__warning", "label": "PIL",
+                "value": "⚠ click to install Pillow",
+                "kind": "warn_link", "swatch": None, "warn": False, "link": False,
+            }
+            insert_at = img_idx + 1
+            self._props_rows.insert(insert_at, warn_row)
+            for i in range(insert_at, len(self._props_rows)):
+                self._props_row_map[self._props_rows[i]["iid"]] = i
+            self._props_redraw()
+
     def _props_bbox(self, iid: str) -> "tuple[int,int,int,int] | None":
         """Return (x, y, w, h) in canvas widget coords for the value column."""
         idx = self._props_row_map.get(iid)
@@ -1847,6 +1991,10 @@ class DesignerProperties(tk.Frame):
                     cv.create_text(sx + 16, mid, text=val,
                                    fill=_ORD_FG, font=(UI_FONT, 9),
                                    anchor="w", tags=f"pr{i}")
+                elif row["kind"] == "warn_link":
+                    cv.create_text(split_x + 8, mid, text=val,
+                                   fill="#ff9f43", font=(UI_FONT, 9),
+                                   anchor="w", tags=f"pr{i}")
                 elif row["warn"]:
                     cv.create_text(split_x + 8, mid, text=val,
                                    fill="#ff6b6b", font=(UI_FONT, 9),
@@ -1903,6 +2051,10 @@ class DesignerProperties(tk.Frame):
                                     tags=f"pr{idx}")
                 cv.create_text(sx + 16, mid, text=val,
                                fill=_ORD_FG, font=(UI_FONT, 9),
+                               anchor="w", tags=f"pr{idx}")
+            elif row["kind"] == "warn_link":
+                cv.create_text(split_x + 8, mid, text=val,
+                               fill="#ff9f43", font=(UI_FONT, 9),
                                anchor="w", tags=f"pr{idx}")
             elif row["warn"]:
                 cv.create_text(split_x + 8, mid, text=val,
@@ -2601,6 +2753,10 @@ class DesignerProperties(tk.Frame):
         if self._comp_mode and row.startswith("comp__"):
             self._dispatch_comp_prop_click(row)
             return
+        if row == "pil__warning":
+            if self._on_install_pillow:
+                self._on_install_pillow()
+            return
         if row in ("var__section", "geo__parent", "anchor__section"):
             return
         if row == "nb__tab":
@@ -2643,6 +2799,10 @@ class DesignerProperties(tk.Frame):
             if key == "font":
                 if self._current_widget:
                     self._open_font_picker(row)
+                return
+            if key == "image":
+                if self._current_widget:
+                    self._open_image_picker(row)
                 return
             if isinstance(d_ref.props.get(key), list):
                 if self._current_widget:
@@ -3343,6 +3503,7 @@ class DesignerProperties(tk.Frame):
         "wraplength", "resolution", "tickinterval", "increment", "maximum",
         "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
         "selectmode", "wrap", "exportselection", "from_", "to",
+        "image", "compound",
     }
 
     def _is_prop_clearable(self, row_iid: str) -> bool:

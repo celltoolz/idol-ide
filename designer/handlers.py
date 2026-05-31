@@ -192,10 +192,15 @@ HANDLER_CATALOG: list[HandlerDef] = [
         connectable=True,
         applies_to_widgets=("Button", "Label", "Checkbutton", "Radiobutton"),
         options=("toggle", "enable", "disable"),
-        wire_option_bodies=(
+        stub_option_bodies=(
             'self.attributes("-topmost", not self.attributes("-topmost"))',
             'self.attributes("-topmost", True)',
             'self.attributes("-topmost", False)',
+        ),
+        wire_option_bodies=(
+            'self._set_always_on_top()',
+            'self._set_always_on_top()',
+            'self._set_always_on_top()',
         ),
     ),
     HandlerDef(
