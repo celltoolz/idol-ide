@@ -1608,9 +1608,9 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(("        " + ln) if ln.strip() else "")
             elif btn_conn or lbl_status:
                 if stype == "server":
-                    lines.append(f"        if not self._{cid}_running:")
                     if btn_conn:
-                        lines.append(f"            self.{btn_conn}.configure(text='Listen', state='normal')")
+                        lines.append(f"        self.{btn_conn}.configure(text='Listen', state='normal')")
+                    lines.append(f"        if not self._{cid}_running:")
                     if lbl_status:
                         lines.append(f"            self.{lbl_status}.configure(text='Disconnected', fg='#888888')")
                     lines.append(f"        else:")
