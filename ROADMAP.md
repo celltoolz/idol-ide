@@ -206,6 +206,31 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ---
 
+## Designer — Image Support & Socket Component — SHIPPED (2026-05-26)
+
+### Image support (Label, Button, Canvas widget)
+
+- **Canvas widget** — 16th palette type (`tk.Canvas`, 200×150 default, `bg` + `image` props, click/dblclick/motion events)
+- **`image` prop** on Label, Button, and Canvas — click the property row to open a file picker; file copied into `<project>/images/` automatically (conflict-safe `_1/_2` suffix naming); path stored as a forward-slash relative string
+- **Live thumbnail on canvas** — PIL-backed `_img_cache` keyed by `"{path}:{w}:{h}"`; `Image.resize((w,h), LANCZOS)` fills widget bounds exactly (matching runtime); Button images inset 2px to match the native raised border; text hidden when an image is set (WYSIWYG)
+- **`_project_dir`** on both `DesignerCanvas` and `DesignerProperties` — `set_project_dir(path)` called from `_on_explorer_root_change` so image paths resolve against the open project, not IDOL's own CWD
+- **PIL warning row** — if Pillow is absent from the active interpreter, an amber row appears below the `image` property; one click installs Pillow via `PipManager` with streaming output in the Output panel
+- **`compound` prop** for Label/Button — positions image relative to text (left/right/top/bottom/center/none)
+- **Anchor-aware resize codegen** — widgets with `image` and a size-changing anchor get a `<Configure>` binding that reloads the `PhotoImage` at the new widget dimensions
+
+### Socket non-visual component
+
+- **Setup dialog** — Server/Client type, Host/Port, and three scaffold kit checkboxes; shown immediately when Socket is dropped from the palette
+- **Scaffold kits** (fully pre-wired, out of the box):
+  - *Connect/Disconnect* — `btn_connect` toggle + `lbl_status`; status turns green on connect, resets on disconnect; button text flips and re-enables only after `on_disconnect` fires
+  - *Chat* — `txt_chat` (Text+scrollbar), `ent_message`, `btn_send`; received text appended to log; sent text echoed as `[You] message`
+  - *File Transfer* — `pb_transfer` (updates chunk-by-chunk on send and receive), `lbl_file` (shows filename + byte count), `btn_send_file` (file picker → daemon-thread send)
+- **Length-prefix framing** — when File Transfer scaffold active, all messages use `struct.pack('>Q', size)` header so the receiver knows the exact payload size; `import struct` added automatically
+- **All I/O on daemon threads** — `self.after(0, ...)` used for all tkinter updates from recv threads; `conn.settimeout(None)` set after connect so recv blocks indefinitely
+- **Server/client mode filtering** — `applies_to_modes` field on `ComponentHandlerDef` gates handlers to the right mode in both the Properties panel Handlers tab and codegen; server-only props (`max_clients`, `bind_address`) hidden when client mode is active and vice versa
+
+---
+
 ## Next Up — Priority Bug & Feature Queue
 
 > Start here when picking up the next session. Items are roughly in order of priority.
@@ -426,10 +451,11 @@ codegen emits the `.bind()` call with no changes.
   codegen only emits `from tkinter import filedialog/colorchooser/simpledialog/messagebox`
   for handlers that are actually wired. All dialog calls pass `parent=self`.
 
+- ✅ **Socket** — see *Designer — Image Support & Socket Component — SHIPPED (2026-05-26)* below.
+
 **Candidate components (next up):**
-1. **Socket** — `socket` module; props: Protocol (TCP/UDP), RemoteHost, RemotePort, LocalPort, State (readonly); handlers: `_connect` (⚡), `_listen` (⚡), `_send` (⚡), `_disconnect` (⚡), `_on_data_received`, `_on_connected`, `_on_error`
-2. **Database** — `sqlite3`; props: DatabaseFile; handlers: `_open_db` (⚡), `_close_db` (⚡), `_execute` (⚡), `_on_results`
-3. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`, `controls`, etc.)
+1. **Database** — `sqlite3`; props: DatabaseFile; handlers: `_open_db` (⚡), `_close_db` (⚡), `_execute` (⚡), `_on_results`
+2. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`, `controls`, etc.)
 
 ### Dialog Helper Injector
 
@@ -503,7 +529,7 @@ as first-class entries in the Designer palette alongside the standard Tk widgets
 - **Code peek on canvas hover** — 2s hover shows handler code preview popup
 - **Multi-framework support** — PySide6 / PyQt6 backend alongside Tkinter
 - **Bidirectional designer ↔ code sync** — very long term
-- **Canvas, Treeview, Notebook** widget types
+- **Treeview** widget type (Canvas and Notebook already shipped)
 - **Learning Mode in Designer** — hover-driven explanations when F1 is active
 - **Floating sticky-note mini editor** — mini panel that grabs current selection, stays on top
 - **Rename project to "IDOL"** — at feature-complete milestone
