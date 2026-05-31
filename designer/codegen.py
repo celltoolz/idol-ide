@@ -1044,6 +1044,12 @@ def _collect_component_imports(form: FormModel) -> list[str]:
                 if imp not in seen:
                     seen.add(imp)
                     result.append(imp)
+            # struct needed for length-prefixed framing when file scaffold is active
+            if comp.type == "Socket" and comp.props.get("_scaffold_pb_transfer"):
+                imp = "import struct"
+                if imp not in seen:
+                    seen.add(imp)
+                    result.append(imp)
     return result
 
 
@@ -1232,8 +1238,15 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"            self._{cid}_after_id = None")
 
     elif comp.type == "Socket":
-        stype = comp.props.get("socket_type", "server")
-        raw   = bodies.get(method, "").strip()
+        stype      = comp.props.get("socket_type", "server")
+        raw        = bodies.get(method, "").strip()
+        has_framing = bool(comp.props.get("_scaffold_pb_transfer"))
+        btn_conn   = comp.props.get("_scaffold_btn_connect", "")
+        lbl_status = comp.props.get("_scaffold_lbl_status", "")
+        txt_chat   = comp.props.get("_scaffold_txt_chat", "")
+        ent_msg    = comp.props.get("_scaffold_ent_message", "")
+        pb_xfer    = comp.props.get("_scaffold_pb_transfer", "")
+        lbl_file   = comp.props.get("_scaffold_lbl_file", "")
 
         # Override method signature for handlers that take arguments
         if hdef.id in ("send_text", "on_receive_text", "on_send_text"):
@@ -1245,14 +1258,46 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
         elif hdef.id == "on_error":
             lines[0] = f"    def {method}(self, error):"
 
-        def _recv_loop_lines(conn_ref: str, is_server: bool) -> list[str]:
-            ls: list[str] = []
-            ls.append(f"    def _{cid}_recv_loop(self, conn):")
+        # ── helpers emitted alongside start / connect ─────────────────────────
+
+        def _recvall_lines() -> list[str]:
+            ls = [f"    def _{cid}_recvall(self, conn, n):"]
+            ls.append(f"        buf = bytearray()")
+            ls.append(f"        while len(buf) < n:")
+            ls.append(f"            chunk = conn.recv(min(n - len(buf), self._{cid}_buffer_size))")
+            ls.append(f"            if not chunk:")
+            ls.append(f"                return None")
+            ls.append(f"            buf.extend(chunk)")
+            ls.append(f"        return bytes(buf)")
+            return ls
+
+        def _recv_loop_lines(is_server: bool) -> list[str]:
+            ls = [f"    def _{cid}_recv_loop(self, conn):"]
             ls.append(f"        while self._{cid}_running:")
             ls.append(f"            try:")
-            ls.append(f"                data = conn.recv(self._{cid}_buffer_size)")
-            ls.append(f"                if not data:")
-            ls.append(f"                    break")
+            if has_framing:
+                ls.append(f"                header = self._{cid}_recvall(conn, 8)")
+                ls.append(f"                if header is None:")
+                ls.append(f"                    break")
+                ls.append(f"                total = struct.unpack('>Q', header)[0]")
+                if pb_xfer:
+                    ls.append(f"                self.after(0, lambda s=total: self.{pb_xfer}.configure(maximum=s, value=0))")
+                    ls.append(f"                buf = bytearray()")
+                    ls.append(f"                while len(buf) < total:")
+                    ls.append(f"                    chunk = conn.recv(min(total - len(buf), self._{cid}_buffer_size))")
+                    ls.append(f"                    if not chunk: break")
+                    ls.append(f"                    buf.extend(chunk)")
+                    ls.append(f"                    rcvd = len(buf)")
+                    ls.append(f"                    self.after(0, lambda v=rcvd: self.{pb_xfer}.configure(value=v))")
+                    ls.append(f"                data = bytes(buf) if len(buf) == total else None")
+                    ls.append(f"                self.after(0, lambda: self.{pb_xfer}.configure(value=0))")
+                else:
+                    ls.append(f"                data = self._{cid}_recvall(conn, total)")
+                ls.append(f"                if not data: break")
+            else:
+                ls.append(f"                data = conn.recv(self._{cid}_buffer_size)")
+                ls.append(f"                if not data:")
+                ls.append(f"                    break")
             ls.append(f"                try:")
             ls.append(f"                    text = data.decode(self._{cid}_encoding)")
             ls.append(f"                    self.after(0, lambda t=text: self._{cid}_on_receive_text(t))")
@@ -1273,6 +1318,8 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
             ls.append(f"        self.after(0, self._{cid}_on_disconnect)")
             return ls
 
+        # ── connectable handlers ──────────────────────────────────────────────
+
         if hdef.id == "start":
             if raw and raw not in (_STUB, "pass"):
                 for ln in textwrap.dedent(raw).splitlines():
@@ -1283,8 +1330,14 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"        self._{cid}_server.bind((self._{cid}_host, self._{cid}_port))")
                 lines.append(f"        self._{cid}_server.listen(self._{cid}_max_clients)")
                 lines.append(f"        self._{cid}_running = True")
+                if btn_conn:
+                    lines.append(f"        self.{btn_conn}.configure(text='Stop', state='disabled')")
+                if lbl_status:
+                    lines.append(f"        self.{lbl_status}.configure(text='Listening...', fg='#cccccc')")
                 lines.append(f"        threading.Thread(target=self._{cid}_accept_loop, daemon=True).start()")
-            # emit accept_loop and recv_loop as companion methods
+                if btn_conn:
+                    lines.append(f"        self.{btn_conn}.configure(state='normal')")
+            # companion internal methods
             lines.append("")
             lines.append(f"    def _{cid}_accept_loop(self):")
             lines.append(f"        while self._{cid}_running:")
@@ -1300,7 +1353,22 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
             lines.append(f"            except Exception:")
             lines.append(f"                break")
             lines.append("")
-            lines.extend(_recv_loop_lines(f"self._{cid}_conn", is_server=True))
+            if has_framing:
+                lines.extend(_recvall_lines())
+                lines.append("")
+            lines.extend(_recv_loop_lines(is_server=True))
+            # toggle_connect wrapper when scaffold active
+            if btn_conn:
+                lines.append("")
+                lines.append(f"    def _{cid}_toggle_connect(self):")
+                lines.append(f"        if self._{cid}_running:")
+                lines.append(f"            self.{btn_conn}.configure(state='disabled')")
+                lines.append(f"            self._{cid}_disconnect()")
+                lines.append(f"        else:")
+                lines.append(f"            self.{btn_conn}.configure(text='Starting...', state='disabled')")
+                if lbl_status:
+                    lines.append(f"            self.{lbl_status}.configure(text='Starting server...', fg='#cccccc')")
+                lines.append(f"            self._{cid}_start()")
 
         elif hdef.id == "connect":
             if raw and raw not in (_STUB, "pass"):
@@ -1319,13 +1387,33 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"                                 args=(conn,), daemon=True).start()")
                 lines.append(f"            except socket.timeout:")
                 lines.append(f"                self.after(0, self._{cid}_on_timeout)")
+                if btn_conn:
+                    lines.append(f"                self.after(0, lambda: self.{btn_conn}.configure(text='Connect', state='normal'))")
                 lines.append(f"            except Exception as e:")
                 lines.append(f"                self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                if btn_conn:
+                    lines.append(f"                self.after(0, lambda: self.{btn_conn}.configure(text='Connect', state='normal'))")
                 lines.append(f"                if self._{cid}_retry_on_fail:")
                 lines.append(f"                    self.after(int(self._{cid}_retry_interval * 1000), self._{cid}_connect)")
                 lines.append(f"        threading.Thread(target=_run, daemon=True).start()")
             lines.append("")
-            lines.extend(_recv_loop_lines(f"self._{cid}_conn", is_server=False))
+            if has_framing:
+                lines.extend(_recvall_lines())
+                lines.append("")
+            lines.extend(_recv_loop_lines(is_server=False))
+            if btn_conn:
+                lines.append("")
+                lines.append(f"    def _{cid}_toggle_connect(self):")
+                lines.append(f"        if self._{cid}_running:")
+                lines.append(f"            self.{btn_conn}.configure(state='disabled')")
+                if lbl_status:
+                    lines.append(f"            self.{lbl_status}.configure(text='Disconnecting...', fg='#cccccc')")
+                lines.append(f"            self._{cid}_disconnect()")
+                lines.append(f"        else:")
+                lines.append(f"            self.{btn_conn}.configure(text='Connecting...', state='disabled')")
+                if lbl_status:
+                    lines.append(f"            self.{lbl_status}.configure(text='Connecting...', fg='#cccccc')")
+                lines.append(f"            self._{cid}_connect()")
 
         elif hdef.id == "disconnect":
             if raw and raw not in (_STUB, "pass"):
@@ -1352,45 +1440,223 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
             if raw and raw not in (_STUB, "pass"):
                 for ln in textwrap.dedent(raw).splitlines():
                     lines.append(("        " + ln) if ln.strip() else "")
-            elif stype == "server":
-                lines.append(f"        data = text.encode(self._{cid}_encoding)")
-                lines.append(f"        for conn in list(self._{cid}_clients):")
-                lines.append(f"            try:")
-                lines.append(f"                conn.sendall(data)")
-                lines.append(f"            except Exception:")
-                lines.append(f"                self._{cid}_clients.remove(conn)")
-                lines.append(f"        self.after(0, lambda: self._{cid}_on_send_text(text))")
             else:
-                lines.append(f"        if not self._{cid}_conn:")
-                lines.append(f"            return")
-                lines.append(f"        try:")
-                lines.append(f"            self._{cid}_conn.sendall(text.encode(self._{cid}_encoding))")
-                lines.append(f"            self.after(0, lambda: self._{cid}_on_send_text(text))")
-                lines.append(f"        except Exception as e:")
-                lines.append(f"            self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                if has_framing:
+                    lines.append(f"        data = text.encode(self._{cid}_encoding)")
+                    lines.append(f"        framed = struct.pack('>Q', len(data)) + data")
+                    send_expr = "framed"
+                else:
+                    lines.append(f"        data = text.encode(self._{cid}_encoding)")
+                    send_expr = "data"
+                if stype == "server":
+                    lines.append(f"        for conn in list(self._{cid}_clients):")
+                    lines.append(f"            try:")
+                    lines.append(f"                conn.sendall({send_expr})")
+                    lines.append(f"            except Exception:")
+                    lines.append(f"                self._{cid}_clients.remove(conn)")
+                else:
+                    lines.append(f"        if not self._{cid}_conn:")
+                    lines.append(f"            return")
+                    lines.append(f"        try:")
+                    lines.append(f"            self._{cid}_conn.sendall({send_expr})")
+                    lines.append(f"        except Exception as e:")
+                    lines.append(f"            self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                    lines.append(f"            return")
+                lines.append(f"        self.after(0, lambda: self._{cid}_on_send_text(text))")
 
         elif hdef.id == "send_file":
             if raw and raw not in (_STUB, "pass"):
                 for ln in textwrap.dedent(raw).splitlines():
                     lines.append(("        " + ln) if ln.strip() else "")
-            elif stype == "server":
-                lines.append(f"        for conn in list(self._{cid}_clients):")
-                lines.append(f"            try:")
-                lines.append(f"                conn.sendall(data)")
-                lines.append(f"            except Exception:")
-                lines.append(f"                self._{cid}_clients.remove(conn)")
-                lines.append(f"        self.after(0, lambda: self._{cid}_on_send_file(data))")
             else:
-                lines.append(f"        if not self._{cid}_conn:")
+                lines.append(f"        total = len(data)")
+                if has_framing:
+                    lines.append(f"        header = struct.pack('>Q', total)")
+                if pb_xfer:
+                    lines.append(f"        self.{pb_xfer}.configure(maximum=total, value=0)")
+                chunk_sz = f"self._{cid}_buffer_size"
+                if stype == "server":
+                    lines.append(f"        for conn in list(self._{cid}_clients):")
+                    lines.append(f"            try:")
+                    if has_framing:
+                        lines.append(f"                conn.sendall(header)")
+                    lines.append(f"                offset = 0")
+                    lines.append(f"                while offset < total:")
+                    lines.append(f"                    chunk = data[offset:offset + {chunk_sz}]")
+                    lines.append(f"                    conn.sendall(chunk)")
+                    lines.append(f"                    offset += len(chunk)")
+                    if pb_xfer:
+                        lines.append(f"                    pv = offset")
+                        lines.append(f"                    self.after(0, lambda v=pv: self.{pb_xfer}.configure(value=v))")
+                    lines.append(f"            except Exception:")
+                    lines.append(f"                if conn in self._{cid}_clients:")
+                    lines.append(f"                    self._{cid}_clients.remove(conn)")
+                else:
+                    lines.append(f"        if not self._{cid}_conn:")
+                    lines.append(f"            return")
+                    lines.append(f"        try:")
+                    if has_framing:
+                        lines.append(f"            self._{cid}_conn.sendall(header)")
+                    lines.append(f"            offset = 0")
+                    lines.append(f"            while offset < total:")
+                    lines.append(f"                chunk = data[offset:offset + {chunk_sz}]")
+                    lines.append(f"                self._{cid}_conn.sendall(chunk)")
+                    lines.append(f"                offset += len(chunk)")
+                    if pb_xfer:
+                        lines.append(f"                pv = offset")
+                        lines.append(f"                self.after(0, lambda v=pv: self.{pb_xfer}.configure(value=v))")
+                    lines.append(f"        except Exception as e:")
+                    lines.append(f"            self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                    lines.append(f"            return")
+                if pb_xfer:
+                    lines.append(f"        self.after(0, lambda: self.{pb_xfer}.configure(value=0))")
+                lines.append(f"        self.after(0, lambda: self._{cid}_on_send_file(data))")
+
+        # ── callback stubs — pre-filled when scaffold is active ───────────────
+
+        elif hdef.id == "on_connect":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif btn_conn or lbl_status:
+                if stype == "server":
+                    if lbl_status:
+                        lines.append(f"        self.{lbl_status}.configure(")
+                        lines.append(f"            text=f'Client connected: {{addr[0]}}:{{addr[1]}}', fg='#4ec9b0')")
+                    if btn_conn:
+                        lines.append(f"        self.{btn_conn}.configure(text='Stop', state='normal')")
+                else:
+                    if lbl_status:
+                        lines.append(f"        self.{lbl_status}.configure(")
+                        lines.append(f"            text=f'Connected to {{self._{cid}_host}}:{{self._{cid}_port}}',")
+                        lines.append(f"            fg='#4ec9b0')")
+                    if btn_conn:
+                        lines.append(f"        self.{btn_conn}.configure(text='Disconnect', state='normal')")
+            else:
+                lines.extend(_body_lines(method, bodies, hdef.default_body))
+
+        elif hdef.id == "on_disconnect":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif btn_conn or lbl_status:
+                if stype == "server":
+                    lines.append(f"        if not self._{cid}_running:")
+                    if btn_conn:
+                        lines.append(f"            self.{btn_conn}.configure(text='Listen', state='normal')")
+                    if lbl_status:
+                        lines.append(f"            self.{lbl_status}.configure(text='Disconnected', fg='#888888')")
+                    lines.append(f"        else:")
+                    if lbl_status:
+                        lines.append(f"            self.{lbl_status}.configure(text='Listening...', fg='#cccccc')")
+                else:
+                    if btn_conn:
+                        lines.append(f"        self.{btn_conn}.configure(text='Connect', state='normal')")
+                    if lbl_status:
+                        lines.append(f"        self.{lbl_status}.configure(text='Disconnected', fg='#888888')")
+            else:
+                lines.extend(_body_lines(method, bodies, hdef.default_body))
+
+        elif hdef.id == "on_receive_text":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif txt_chat:
+                lines.append(f"        self.{txt_chat}.configure(state='normal')")
+                lines.append(f"        self.{txt_chat}.insert('end', text + '\\n')")
+                lines.append(f"        self.{txt_chat}.see('end')")
+                lines.append(f"        self.{txt_chat}.configure(state='disabled')")
+            else:
+                lines.extend(_body_lines(method, bodies, hdef.default_body))
+            # emit _quick_send alongside on_receive_text (chat scaffold)
+            if ent_msg:
+                lines.append("")
+                lines.append(f"    def _{cid}_quick_send(self):")
+                lines.append(f"        text = self.{ent_msg}.get().strip()")
+                lines.append(f"        if not text:")
                 lines.append(f"            return")
-                lines.append(f"        try:")
-                lines.append(f"            self._{cid}_conn.sendall(data)")
-                lines.append(f"            self.after(0, lambda: self._{cid}_on_send_file(data))")
-                lines.append(f"        except Exception as e:")
-                lines.append(f"            self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                lines.append(f"        self._{cid}_send_text(text)")
+                lines.append(f"        self.{ent_msg}.delete(0, 'end')")
+                if txt_chat:
+                    lines.append(f"        self.{txt_chat}.configure(state='normal')")
+                    lines.append(f"        self.{txt_chat}.insert('end', '[You] ' + text + '\\n')")
+                    lines.append(f"        self.{txt_chat}.see('end')")
+                    lines.append(f"        self.{txt_chat}.configure(state='disabled')")
+
+        elif hdef.id == "on_receive_file":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif pb_xfer or lbl_file:
+                lines.append(f"        import os as _os")
+                lines.append(f"        save_dir = _os.path.dirname(_os.path.abspath(__file__))")
+                lines.append(f"        filename = f'received_{{len(data)}}.bin'")
+                lines.append(f"        save_path = _os.path.join(save_dir, filename)")
+                lines.append(f"        with open(save_path, 'wb') as _f:")
+                lines.append(f"            _f.write(data)")
+                if lbl_file:
+                    lines.append(f"        self.{lbl_file}.configure(")
+                    lines.append(f"            text=f'Received: {{filename}} ({{len(data):,}} bytes))')")
+                if pb_xfer:
+                    lines.append(f"        self.{pb_xfer}.configure(value=0)")
+            else:
+                lines.extend(_body_lines(method, bodies, hdef.default_body))
+            # emit _pick_and_send_file alongside on_receive_file (file scaffold)
+            if pb_xfer:
+                lines.append("")
+                lines.append(f"    def _{cid}_pick_and_send_file(self):")
+                lines.append(f"        from tkinter.filedialog import askopenfilename")
+                lines.append(f"        import os as _os")
+                lines.append(f"        path = askopenfilename(parent=self, title='Select file to send')")
+                lines.append(f"        if not path:")
+                lines.append(f"            return")
+                if lbl_file:
+                    lines.append(f"        self.{lbl_file}.configure(text=f'Sending: {{_os.path.basename(path)}}...')")
+                if pb_xfer:
+                    lines.append(f"        self.{pb_xfer}.configure(value=0)")
+                lines.append(f"        def _do_send():")
+                lines.append(f"            try:")
+                lines.append(f"                with open(path, 'rb') as _f:")
+                lines.append(f"                    data = _f.read()")
+                lines.append(f"                self._{cid}_send_file(data)")
+                lines.append(f"            except Exception as e:")
+                lines.append(f"                self.after(0, lambda err=e: self._{cid}_on_error(err))")
+                lines.append(f"        threading.Thread(target=_do_send, daemon=True).start()")
+
+        elif hdef.id == "on_send_file":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif pb_xfer or lbl_file:
+                if pb_xfer:
+                    lines.append(f"        self.{pb_xfer}.configure(value=0)")
+                if lbl_file:
+                    lines.append(f"        self.{lbl_file}.configure(")
+                    lines.append(f"            text=f'Sent {{len(data):,}} bytes')")
+            else:
+                lines.extend(_body_lines(method, bodies, hdef.default_body))
+
+        elif hdef.id == "on_timeout":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif lbl_status:
+                lines.append(f"        self.{lbl_status}.configure(text='Connection timed out', fg='#f44747')")
+                if btn_conn:
+                    lines.append(f"        self.{btn_conn}.configure(text='{'Listen' if stype == 'server' else 'Connect'}', state='normal')")
+            else:
+                lines.extend(_body_lines(method, bodies, hdef.default_body))
+
+        elif hdef.id == "on_error":
+            if raw and raw not in (_STUB, "pass"):
+                for ln in textwrap.dedent(raw).splitlines():
+                    lines.append(("        " + ln) if ln.strip() else "")
+            elif lbl_status:
+                lines.append(f"        self.{lbl_status}.configure(text=f'Error: {{error}}', fg='#f44747')")
+            else:
+                lines.extend(_body_lines(method, bodies, hdef.default_body))
 
         else:
-            # callback stubs (on_connect, on_disconnect, on_receive_*, on_send_*, on_error, on_timeout)
             lines.extend(_body_lines(method, bodies, hdef.default_body))
 
     elif comp.type == "CommonDialog":

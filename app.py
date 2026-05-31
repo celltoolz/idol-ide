@@ -5120,42 +5120,44 @@ class IDOL(Tk):
                  insertbackground=_FG, relief="flat", font=_FONT, width=6
                  ).grid(row=1, column=3, padx=(4, 12), pady=4, sticky="w")
 
-        # ── Separator ─────────────────────────────────────────────────────────
-        sep = tk.Frame(win, bg=_SEP, height=1)
-        sep.grid(row=2, column=0, columnspan=4, sticky="ew", padx=8, pady=(8, 2))
+        # ── Separator + scaffold section ──────────────────────────────────────
+        tk.Frame(win, bg=_SEP, height=1).grid(
+            row=2, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 2))
         tk.Label(win, text="Scaffold starter widgets (optional):",
                  bg=_BG, fg=_FG2, font=_FONT
                  ).grid(row=3, column=0, columnspan=4, padx=12, pady=(4, 2), sticky="w")
 
-        # ── Scaffold checkboxes ───────────────────────────────────────────────
-        chk_chat    = tk.BooleanVar(value=False)
-        chk_input   = tk.BooleanVar(value=False)
+        # ── 3 grouped checkboxes ──────────────────────────────────────────────
         chk_connect = tk.BooleanVar(value=False)
-        chk_status  = tk.BooleanVar(value=False)
+        chk_chat    = tk.BooleanVar(value=False)
         chk_file    = tk.BooleanVar(value=False)
 
-        chk_opts = [
-            (chk_connect, "Connect / Start button"),
-            (chk_chat,    "Chat log  (Text + scrollbar)"),
-            (chk_input,   "Message input  (Entry + Send button)"),
-            (chk_file,    "File transfer  (Progressbar + status Label)"),
-            (chk_status,  "Status label  (Connected / Disconnected)"),
-        ]
-        for row_i, (var, lbl) in enumerate(chk_opts, start=4):
-            tk.Checkbutton(win, text=lbl, variable=var,
+        def _chk(row_i, var, title, detail):
+            f = tk.Frame(win, bg=_BG)
+            f.grid(row=row_i, column=0, columnspan=4, padx=16, pady=(3, 0), sticky="w")
+            tk.Checkbutton(f, text=title, variable=var,
                            bg=_BG, fg=_FG, selectcolor="#094771",
                            activebackground=_BG, font=_FONT,
                            highlightthickness=0, relief="flat",
-                           ).grid(row=row_i, column=0, columnspan=4,
-                                  padx=24, pady=1, sticky="w")
+                           ).pack(side="left")
+            tk.Label(f, text=detail, bg=_BG, fg=_FG2, font=(UI_FONT, 8)
+                     ).pack(side="left", padx=(4, 0))
+
+        _chk(4, chk_connect,
+             "Connect / Disconnect",
+             "— toggle button + status label, auto-wired")
+        _chk(5, chk_chat,
+             "Chat",
+             "— text log, message entry + Send button, auto-wired")
+        _chk(6, chk_file,
+             "File Transfer",
+             "— progressbar, file label + Send File button, framed protocol")
 
         # ── Button row ────────────────────────────────────────────────────────
-        btn_row = 4 + len(chk_opts)
-        sep2 = tk.Frame(win, bg=_SEP, height=1)
-        sep2.grid(row=btn_row, column=0, columnspan=4, sticky="ew", padx=8, pady=(8, 0))
+        tk.Frame(win, bg=_SEP, height=1).grid(
+            row=7, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 0))
         btn_frame = tk.Frame(win, bg=_BG)
-        btn_frame.grid(row=btn_row + 1, column=0, columnspan=4,
-                       padx=12, pady=(6, 12), sticky="e")
+        btn_frame.grid(row=8, column=0, columnspan=4, padx=12, pady=(6, 12), sticky="e")
 
         def _make_btn(parent, text, cmd):
             b = tk.Label(parent, text=text, bg="#3c3c3c", fg=_FG,
@@ -5174,66 +5176,79 @@ class IDOL(Tk):
             except ValueError:
                 port = 8080
 
-            # Create component
+            # ── Create component ──────────────────────────────────────────────
             comp_id = form.next_component_id(cdef.default_name)
             props   = comp_default_props("Socket")
-            props["socket_type"]  = stype
-            props["host"]         = host
-            props["port"]         = port
+            props["socket_type"] = stype
+            props["host"]        = host
+            props["port"]        = port
             if stype == "server":
-                props["bind_address"] = host if host != "localhost" else "0.0.0.0"
-            comp = ComponentDescriptor(id=comp_id, type="Socket", props=props)
-            form.components.append(comp)
+                props["bind_address"] = "0.0.0.0"
 
-            # ── Scaffold widgets ──────────────────────────────────────────────
-            fw = form.width
-            margin_x = 16
+            # ── Scaffold ──────────────────────────────────────────────────────
+            fw       = form.width
+            mx       = 16          # margin x
+            inner_w  = fw - mx * 2
             cur_y    = 16
             gap      = 8
+
+            existing_ids = {wd.id for wd in form.widgets}
+
+            def _named_id(base):
+                if base not in existing_ids:
+                    existing_ids.add(base)
+                    return base
+                n = 2
+                while f"{base}_{n}" in existing_ids:
+                    n += 1
+                nid = f"{base}_{n}"
+                existing_ids.add(nid)
+                return nid
+
+            def _btn_props(text):
+                return {"text": text, "bg": "", "fg": "#000000",
+                        "font": "", "justify": "", "relief": "", "borderwidth": "",
+                        "wraplength": "", "image": "", "compound": ""}
+
+            def _lbl_props(text, fg="#cccccc"):
+                return {"text": text, "bg": "", "fg": fg,
+                        "font": "", "justify": "left", "relief": "", "borderwidth": "",
+                        "wraplength": "", "image": "", "compound": ""}
 
             def _add(w):
                 form.widgets.append(w)
 
-            def _next_id(prefix):
-                existing = {wd.id for wd in form.widgets}
-                n = 1
-                while f"{prefix}{n}" in existing:
-                    n += 1
-                return f"{prefix}{n}"
-
-            connect_btn_id = None
-
+            # ── Group 1: Connect / Disconnect ─────────────────────────────────
             if chk_connect.get():
-                btn_lbl  = "Start Listening" if stype == "server" else "Connect"
-                btn_id   = _next_id("btn")
+                btn_lbl  = "Listen" if stype == "server" else "Connect"
+                btn_id   = _named_id("btn_connect")
+                lbl_id   = _named_id("lbl_status")
                 _add(WidgetDescriptor(
-                    id=btn_id, type="Button", x=margin_x, y=cur_y,
-                    width=140, height=28,
-                    props={"text": btn_lbl, "bg": "", "fg": "#000000",
-                           "font": "", "justify": "", "relief": "", "borderwidth": "",
-                           "wraplength": "", "image": "", "compound": ""},
-                    events={"command": f"_{comp_id}_{'start' if stype == 'server' else 'connect'}"},
+                    id=btn_id, type="Button", x=mx, y=cur_y,
+                    width=130, height=28,
+                    props=_btn_props(btn_lbl),
+                    events={"command": f"_{comp_id}_toggle_connect"},
                 ))
-                connect_btn_id = btn_id
-                cur_y += 28 + gap
-
-            if chk_status.get():
-                lbl_id = _next_id("lbl")
                 _add(WidgetDescriptor(
-                    id=lbl_id, type="Label", x=margin_x, y=cur_y,
-                    width=fw - margin_x * 2, height=22,
-                    props={"text": "Disconnected", "bg": "", "fg": "#888888",
-                           "font": "", "justify": "left", "relief": "", "borderwidth": "",
-                           "wraplength": "", "image": "", "compound": ""},
+                    id=lbl_id, type="Label", x=mx + 138, y=cur_y + 4,
+                    width=inner_w - 138, height=20,
+                    props=_lbl_props("Disconnected", "#888888"),
                     events={},
                 ))
-                cur_y += 22 + gap
+                props["_scaffold_btn_connect"] = btn_id
+                props["_scaffold_lbl_status"]  = lbl_id
+                cur_y += 28 + gap
 
+            # ── Group 2: Chat ─────────────────────────────────────────────────
             if chk_chat.get():
-                txt_id = _next_id("txt")
+                txt_id   = _named_id("txt_chat")
+                ent_id   = _named_id("ent_message")
+                send_id  = _named_id("btn_send")
+                send_w   = 70
+                ent_w    = inner_w - send_w - gap
                 _add(WidgetDescriptor(
-                    id=txt_id, type="Text", x=margin_x, y=cur_y,
-                    width=fw - margin_x * 2, height=200,
+                    id=txt_id, type="Text", x=mx, y=cur_y,
+                    width=inner_w, height=200,
                     props={"wrap": "word", "bg": "#1e1e1e", "fg": "#cccccc",
                            "font": "", "relief": "flat", "insertbackground": "",
                            "borderwidth": "0", "scrollbar": "Vertical",
@@ -5242,15 +5257,9 @@ class IDOL(Tk):
                     events={},
                 ))
                 cur_y += 200 + gap
-
-            if chk_input.get():
-                entry_id = _next_id("ent")
-                send_id  = _next_id("btn")
-                btn_w    = 70
-                entry_w  = fw - margin_x * 2 - btn_w - gap
                 _add(WidgetDescriptor(
-                    id=entry_id, type="Entry", x=margin_x, y=cur_y,
-                    width=entry_w, height=28,
+                    id=ent_id, type="Entry", x=mx, y=cur_y,
+                    width=ent_w, height=28,
                     props={"text": "", "bg": "#3c3c3c", "fg": "#cccccc",
                            "show": "", "font": "", "justify": "", "relief": "flat",
                            "insertbackground": "#cccccc", "borderwidth": "0",
@@ -5258,40 +5267,51 @@ class IDOL(Tk):
                            "exportselection": "", "char_width": ""},
                     events={},
                 ))
-                quick_send = f"_{comp_id}_quick_send"
                 _add(WidgetDescriptor(
-                    id=send_id, type="Button", x=margin_x + entry_w + gap, y=cur_y,
-                    width=btn_w, height=28,
-                    props={"text": "Send", "bg": "", "fg": "#000000",
-                           "font": "", "justify": "", "relief": "", "borderwidth": "",
-                           "wraplength": "", "image": "", "compound": ""},
-                    events={"command": quick_send},
+                    id=send_id, type="Button", x=mx + ent_w + gap, y=cur_y,
+                    width=send_w, height=28,
+                    props=_btn_props("Send"),
+                    events={"command": f"_{comp_id}_quick_send"},
                 ))
+                props["_scaffold_txt_chat"]    = txt_id
+                props["_scaffold_ent_message"] = ent_id
                 cur_y += 28 + gap
 
+            # ── Group 3: File Transfer ────────────────────────────────────────
             if chk_file.get():
-                pb_id  = _next_id("pb")
-                lbl_id = _next_id("lbl")
+                pb_id    = _named_id("pb_transfer")
+                lbl_id   = _named_id("lbl_file")
+                file_id  = _named_id("btn_send_file")
+                file_w   = 100
+                lbl_w    = inner_w - file_w - gap
                 _add(WidgetDescriptor(
-                    id=pb_id, type="Progressbar", x=margin_x, y=cur_y,
-                    width=fw - margin_x * 2 - 100 - gap, height=18,
+                    id=pb_id, type="Progressbar", x=mx, y=cur_y,
+                    width=inner_w, height=18,
                     props={"orient": "horizontal", "mode": "determinate", "maximum": ""},
                     events={},
                 ))
+                cur_y += 18 + gap
                 _add(WidgetDescriptor(
-                    id=lbl_id, type="Label",
-                    x=fw - margin_x - 96, y=cur_y,
-                    width=96, height=18,
-                    props={"text": "", "bg": "", "fg": "#888888",
-                           "font": "", "justify": "left", "relief": "", "borderwidth": "",
-                           "wraplength": "", "image": "", "compound": ""},
+                    id=lbl_id, type="Label", x=mx, y=cur_y,
+                    width=lbl_w, height=24,
+                    props=_lbl_props("No file selected", "#888888"),
                     events={},
                 ))
-                cur_y += 18 + gap
+                _add(WidgetDescriptor(
+                    id=file_id, type="Button", x=mx + lbl_w + gap, y=cur_y - 2,
+                    width=file_w, height=28,
+                    props=_btn_props("Send File…"),
+                    events={"command": f"_{comp_id}_pick_and_send_file"},
+                ))
+                props["_scaffold_pb_transfer"] = pb_id
+                props["_scaffold_lbl_file"]    = lbl_id
+                cur_y += 28 + gap
 
+            # ── Finalise ──────────────────────────────────────────────────────
+            comp = ComponentDescriptor(id=comp_id, type="Socket", props=props)
+            form.components.append(comp)
             win.destroy()
 
-            # Refresh canvas + tray + props
             self._design_canvas.load_form(form)
             self._comp_tray.refresh(form.components)
             self._comp_tray.select(comp_id)
@@ -5309,8 +5329,8 @@ class IDOL(Tk):
         _make_btn(btn_frame, "Cancel", _on_cancel)
         _make_btn(btn_frame, "Add Socket", _on_confirm)
 
-        win.bind("<Return>",  lambda _: _on_confirm())
-        win.bind("<Escape>",  lambda _: _on_cancel())
+        win.bind("<Return>", lambda _: _on_confirm())
+        win.bind("<Escape>", lambda _: _on_cancel())
 
         self.update_idletasks()
         pw = self.winfo_rootx() + self.winfo_width()  // 2
