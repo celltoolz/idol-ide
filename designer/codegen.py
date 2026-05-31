@@ -1413,12 +1413,14 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 lines.append(f"            try: self._{cid}_server.close()")
                 lines.append(f"            except: pass")
                 lines.append(f"            self._{cid}_server = None")
+                lines.append(f"        self.after(0, self._{cid}_on_disconnect)")
             else:
                 lines.append(f"        self._{cid}_running = False")
                 lines.append(f"        if self._{cid}_conn:")
                 lines.append(f"            try: self._{cid}_conn.close()")
                 lines.append(f"            except: pass")
                 lines.append(f"            self._{cid}_conn = None")
+                lines.append(f"        self.after(0, self._{cid}_on_disconnect)")
 
         elif hdef.id == "start":
             # Direct wire (user chose separate Listen / Stop buttons)
@@ -1608,12 +1610,14 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                     lines.append(("        " + ln) if ln.strip() else "")
             elif btn_conn or lbl_status:
                 if stype == "server":
-                    if btn_conn:
-                        lines.append(f"        self.{btn_conn}.configure(text='Listen', state='normal')")
                     lines.append(f"        if not self._{cid}_running:")
+                    if btn_conn:
+                        lines.append(f"            self.{btn_conn}.configure(text='Listen', state='normal')")
                     if lbl_status:
                         lines.append(f"            self.{lbl_status}.configure(text='Disconnected', fg='#888888')")
                     lines.append(f"        else:")
+                    if btn_conn:
+                        lines.append(f"            self.{btn_conn}.configure(text='Stop', state='normal')")
                     if lbl_status:
                         lines.append(f"            self.{lbl_status}.configure(text='Listening...', fg='#cccccc')")
                 else:
