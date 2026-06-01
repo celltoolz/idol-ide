@@ -303,6 +303,52 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 - **More bundled themes** — add 2–3 popular themes as `themes/*.json` entries. Candidates: `github-dark`, `one-dark`, `solarized-dark`. Not blocking — add alongside other work.
 
+- **Internationalization (i18n) — UI localization** — IDOL has an active Czech user base; this
+  tracks the plan to make the UI translatable without touching the code editing experience.
+
+  **What gets translated:** all user-facing UI strings — menu labels, button text, dialog
+  messages, status bar strings, tooltips, panel headers, Welcome tab content, error dialogs,
+  Learning Mode descriptions.
+
+  **What stays English forever:** Python keywords, error messages from the interpreter/LSP/ruff,
+  the code editor content, terminal output, debugger variable names. Code is code. A Czech user
+  getting a `SyntaxError` needs to see it in English so they can Google it.
+
+  **Technical approach — Python `gettext` (stdlib, no extra deps):**
+  - All translatable strings wrapped in `_("…")` calls throughout the codebase
+  - `locale/` directory at the project root: `locale/<lang_code>/LC_MESSAGES/idol.po` + compiled `idol.mo`
+  - `utils/i18n.py` — thin wrapper that initializes `gettext.translation()` at startup, exposes
+    `_()` as a module-level function imported wherever needed; `fallback=True` ensures English
+    on missing translations
+  - Language setting stored in `~/.idol/settings.json`; readable in Settings panel
+  - **Auto-detect**: if no language is set, read the OS locale via `locale.getdefaultlocale()`
+    and use it if a matching `.mo` file exists; otherwise fall back to English
+  - **Hot-swap**: `retranslate_ui()` method on panels that rebuilds visible labels when language
+    changes in Settings; requires a restart for some deep widgets (acceptable trade-off)
+
+  **Czech-specific notes:**
+  - Pluralization rules differ from English: 1 soubor / 2–4 soubory / 5+ souborů — use
+    `ngettext()` for any count-based strings (e.g. "3 files open")
+  - All source files already use `encoding="utf-8"` so diacritics (č š ž ř á etc.) are safe
+  - Font: UI_FONT (`Segoe UI` / `Helvetica Neue` / `DejaVu Sans`) covers Latin Extended
+
+  **Phase plan:**
+  1. **Infrastructure** — add `utils/i18n.py`, `_()` import in every module, `locale/` tree,
+     language setting in `~/.idol/settings.json`, basic Settings panel language picker
+  2. **String audit** — run `pygettext` to extract all strings; review output for missing wraps;
+     generate `locale/messages.pot` template
+  3. **Czech translation** — create `locale/cs/LC_MESSAGES/idol.po`; translate ~1,500 strings
+     (can be done with community help or AI-assisted first pass + human review)
+  4. **Compile + ship** — `msgfmt` → `idol.mo`; test every panel; fix any layout clipping
+     (Czech phrases run ~20–30% longer than English equivalents)
+  5. **Community translations** — publish the `.pot` template; accept `.po` contributions for
+     other languages via PR; add them to the installer/release as optional language packs
+
+  **Layout implications:** some buttons/labels will need `wraplength` or minimum widths adjusted
+  when phrases expand. The Designer properties panel and status bar are the tightest areas.
+  Use a separate branch (`feature/i18n`) — this touches every file and should not land on
+  master until fully tested.
+
 ### Git Workflow (established practice)
 
 Multi-session features use a dedicated branch merged into master when complete:
