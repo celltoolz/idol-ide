@@ -533,7 +533,7 @@ class IDOL(Tk):
                 self.after_idle(self.view_welcome)
             else:
                 self._new_tab("Untitled", "")
-            self._set_explorer_root(os.getcwd())
+            self._set_explorer_root(str(Path.home()))
             # No session file — trigger sidebar relayout once the window has
             # real pixel dimensions (250 ms is enough for all platforms).
             self.after(250, self._sidebar._relayout)
