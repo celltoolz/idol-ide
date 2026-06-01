@@ -426,9 +426,15 @@ class CustomNotebook(ttk.Notebook):
     # ── Tab changed / scroll ──────────────────────────────────────────────────
 
     def _on_tab_changed(self, *_) -> None:
-        selected = self.index(self.select())
+        try:
+            selected = self.index(self.select())
+        except Exception:
+            return
         for i, tab_id in enumerate(self.tabs()):
-            self.tab(tab_id, underline=0 if i == selected else -1)
+            try:
+                self.tab(tab_id, underline=0 if i == selected else -1)
+            except Exception:
+                pass
         # Hide hover X on tab change — mouse position unknown here
         self._hovered_tab = None
         self._hide_hover_btn()

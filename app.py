@@ -3251,12 +3251,14 @@ class IDOL(Tk):
         # If the current tab is an empty unmodified Untitled, remember it so we
         # can close it after the new tab is open (closing first would trigger the
         # "no tabs left" fallback and spawn another Untitled).
+        # Only replace if prev_tab_id is actually in the main notebook (not split).
         replace = (
-            select  # only replace Untitled when opening as the active tab
+            select
             and prev_tab_id is not None
+            and prev_tab_id in self.notebook.tabs()
             and self._titles.get(prev_tab_id) == "Untitled"
             and not self._dirty.get(prev_tab_id)
-            and self._codeviews[prev_tab_id] is not None
+            and self._codeviews.get(prev_tab_id) is not None
             and not _cv_text(self._codeviews[prev_tab_id]).strip()
         )
 
@@ -3267,8 +3269,9 @@ class IDOL(Tk):
             self._set_explorer_root(path)
 
         if replace:
-            old_index = self.notebook.tabs().index(prev_tab_id)
-            self._close_tab(old_index)
+            tabs = self.notebook.tabs()
+            if prev_tab_id in tabs:
+                self._close_tab(tabs.index(prev_tab_id))
         elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
             self.notebook.select(prev_tab_id)
 
@@ -3821,7 +3824,7 @@ class IDOL(Tk):
     def _refresh_nav_bar(self) -> None:
         """Sync nav bar toggle button colors with current view state."""
         pairs = [
-            (getattr(self, "_nav_split_btn", None), lambda: self._split_active),
+            (getattr(self, "_nav_split_btn", None), lambda: self._split_active and self._split_shown),
             (
                 getattr(self, "_nav_map_btn", None),
                 lambda: self.minimap_visible_var.get(),
@@ -6746,9 +6749,16 @@ class IDOL(Tk):
         if not self._split_active or self._split_shown:
             return
         self._split_pane.add(self._nb_frame_r, weight=1)
-        if self._split_sash_pos:
+        if self._split_sash_pos and self._split_sash_pos > 10:
             pos = self._split_sash_pos
             self.after(10, lambda: self._split_pane.sashpos(0, pos))
+        else:
+            # No saved position — default to midpoint
+            def _set_mid():
+                w = self._split_pane.winfo_width()
+                if w > 10:
+                    self._split_pane.sashpos(0, w // 2)
+            self.after(50, _set_mid)
         self._split_shown = True
         self._set_active_pane("right")
         self._patch_scroll_callbacks()
