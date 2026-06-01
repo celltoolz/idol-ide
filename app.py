@@ -602,7 +602,7 @@ class IDOL(Tk):
 
         # Horizontal split pane — holds left notebook (always) + right notebook (when split)
         self._split_pane = ttk.PanedWindow(self._v_pane, orient="horizontal")
-        self._v_pane.add(self._split_pane, weight=3, minsize=120)
+        self._v_pane.add(self._split_pane, weight=3)
 
         # Left notebook frame (primary)
         nb_frame = ttk.Frame(self._split_pane)
@@ -1112,7 +1112,7 @@ class IDOL(Tk):
         self._output.output.on_runtime_error = self._on_runtime_error
         self._output.on_ask_ai_problems = self._ask_ai_about_problems
         self._output.problems.on_ask_ai_entry = self._ask_ai_about_entry
-        self._v_pane.add(self._output, weight=1, minsize=80)
+        self._v_pane.add(self._output, weight=1)
 
         # AI Chat right panel — created here but not added to _h_pane until F2
         self._ai_panel_frame = tk.Frame(self._h_pane, bg="#1e1e1e")
@@ -1133,12 +1133,9 @@ class IDOL(Tk):
         self.bind("<Configure>", self._on_window_configure)
 
         # Ghost-sash: show drag line during drag, resize only on mouse-up
-        for _pane, _orient in [
-            (self._h_pane, "horizontal"),
-            (self._v_pane, "vertical"),
-            (self._split_pane, "horizontal"),
-        ]:
-            self._install_ghost_sash(_pane, _orient)
+        self._install_ghost_sash(self._h_pane,     "horizontal")
+        self._install_ghost_sash(self._v_pane,     "vertical",   min_second=80)
+        self._install_ghost_sash(self._split_pane, "horizontal")
 
     def _init_sash_pos(self, _=None) -> None:
         """Set default sash positions once the window has real pixel dimensions."""
@@ -1162,15 +1159,23 @@ class IDOL(Tk):
             )
             self._v_pane.sashpos(0, v_target)
 
-    def _install_ghost_sash(self, pane: tk.Widget, orient: str) -> None:
+    def _install_ghost_sash(self, pane: tk.Widget, orient: str,
+                            min_second: int = 0) -> None:
         """Replace live sash drag with a ghost line + deferred resize.
 
         A 2px #007acc line tracks the mouse during the drag; the panes only
         resize on mouse-up — eliminates continuous redraws while dragging.
+        min_second: minimum pixels the second (bottom/right) pane must keep.
         """
         is_ttk = isinstance(pane, ttk.PanedWindow)
         ghost = tk.Frame(self, bg="#007acc")
         _drag: dict = {"active": False, "sash": 0}
+
+        def _clamp(pos: int) -> int:
+            if min_second <= 0:
+                return max(0, pos)
+            total = pane.winfo_height() if orient == "vertical" else pane.winfo_width()
+            return max(0, min(pos, total - min_second))
 
         def _sash_hit(x: int, y: int) -> tuple[bool, int]:
             try:
@@ -1198,7 +1203,7 @@ class IDOL(Tk):
             by = pane.winfo_rooty() - self.winfo_rooty()
             pw, ph = pane.winfo_width(), pane.winfo_height()
             if orient == "vertical":
-                ghost.place(x=bx, y=by + ey - 1, width=pw, height=2)
+                ghost.place(x=bx, y=by + _clamp(ey) - 1, width=pw, height=2)
             else:
                 ghost.place(x=bx + ex - 1, y=by, width=2, height=ph)
             ghost.lift()
@@ -1214,7 +1219,7 @@ class IDOL(Tk):
                 else (event.x_root - pane.winfo_rootx())
             )
             try:
-                _sash_set(pane, _drag["sash"], max(0, pos))
+                _sash_set(pane, _drag["sash"], _clamp(pos))
             except Exception:
                 pass
             if pane is self._h_pane and self._ai_panel_visible and self._ai_chat_panel:
@@ -3895,7 +3900,7 @@ class IDOL(Tk):
 
     def view_toggle_output(self) -> None:
         if self.output_visible_var.get():
-            self._v_pane.add(self._output, weight=1, minsize=80)
+            self._v_pane.add(self._output, weight=1)
         else:
             self._v_pane.forget(self._output)
 
@@ -4574,7 +4579,7 @@ class IDOL(Tk):
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self.after(100, self._apply_ai_panel_sash)
         if self.output_visible_var.get():
-            self._v_pane.add(self._output, weight=1, minsize=80)
+            self._v_pane.add(self._output, weight=1)
         self.title("IDOL")
         self._refresh_nav_bar()
         self._dismiss_zen_pill()
