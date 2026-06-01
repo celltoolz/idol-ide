@@ -1731,6 +1731,10 @@ class IDOL(Tk):
         ovr = handler.overwrite if handler else False
         self._statusbar.set_overwrite(ovr)
         cv = self._codeviews.get(tab_id)
+        if cv is None:
+            # Non-editor tab (Welcome, Package Manager, etc.) — theme sidebar from loader
+            self._apply_theme_to_sidebar_no_cv()
+            self._outline.clear()
         if cv:
             self._update_status_lexer(cv)
             if _cv_is_python(cv):
@@ -3749,6 +3753,7 @@ class IDOL(Tk):
                 cv.set_theme(scheme)
         cv = self._current_codeview
         if cv is None:
+            self._apply_theme_to_sidebar_no_cv()
             return
         pal = cv._palette
         self._active_line_color = pal.get("current_line_bg")
@@ -3760,6 +3765,22 @@ class IDOL(Tk):
             kind=_theme_kind(scheme),
         )
         self._update_status_lexer(cv)
+
+    def _apply_theme_to_sidebar_no_cv(self) -> None:
+        """Apply theme palette to the sidebar when no codeview is active (e.g. Welcome tab)."""
+        from utils.theme_loader import load_theme
+        try:
+            theme = load_theme(self.theme_var.get())
+            pal = theme["palette"]
+            self._sidebar.apply_theme(
+                bg=pal.get("bg", "#1e1e1e"),
+                fg=pal.get("fg", "#cccccc"),
+                select_bg=pal.get("select_bg", "#264f78"),
+                codeview=None,
+                kind=_theme_kind(self.theme_var.get()),
+            )
+        except Exception:
+            pass
 
     def view_change_font(self, *_) -> None:
         font = askfont(self)
@@ -3905,6 +3926,7 @@ class IDOL(Tk):
         self.notebook.select(frame)
         self._welcome_tab = self.notebook.select()
         self._welcome_panel = panel
+        self._apply_theme_to_sidebar_no_cv()
 
     def _welcome_open_file(self, path: str | None = None) -> None:
         if path:
