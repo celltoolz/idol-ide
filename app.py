@@ -1035,6 +1035,7 @@ class IDOL(Tk):
         )
         self.notebook._split_open_ref = lambda: self._split_active and self._split_shown
         self.notebook._get_tab_path = lambda tab_id: self._files.get(tab_id)
+        self.notebook._can_drag_out = lambda tab_id: tab_id != self._welcome_tab
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add=True)
         self.notebook.bind(
@@ -6897,7 +6898,7 @@ class IDOL(Tk):
 
     def _move_to_split(self, tab_id: str | None) -> None:
         """Drag main→split: move the tab (remove from main, open in split)."""
-        if not tab_id:
+        if not tab_id or tab_id == self._welcome_tab:
             return
         path  = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
@@ -6915,6 +6916,9 @@ class IDOL(Tk):
             if tmp:
                 self._temp_files[new_tid] = tmp
         self._remove_tab_silent(tab_id, self.notebook)
+        # If main notebook is now empty, show Welcome so it's never blank
+        if not self.notebook.tabs():
+            self.view_welcome()
         self._set_active_pane("right")
         self._patch_scroll_callbacks()
 

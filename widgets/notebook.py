@@ -38,6 +38,7 @@ class CustomNotebook(ttk.Notebook):
         self._on_drag_main  = on_drag_main   # drag left:  move tab to main
         self._split_open_ref = None  # callable → bool, set by app to check split state
         self._left_pane_ref: Optional[Callable] = None  # callable → Frame for left drop zone
+        self._can_drag_out: Optional[Callable] = None   # callable(tab_id) → bool; None = allow all
         self._get_tab_path: Callable[[str], str | None] | None = None  # set by app
         self._hovered_tab: int | None = None
         self._tooltip_win: Toplevel | None = None
@@ -113,13 +114,16 @@ class CustomNotebook(ttk.Notebook):
         tab_bar_bottom = self.winfo_rooty() + self._tab_bar_height() + 60
         below_tab_bar  = event.y_root > tab_bar_bottom
 
+        # Check whether this tab is allowed to be dragged out
+        _drag_ok = not self._can_drag_out or self._can_drag_out(self._drag_tab_id or "")
+
         # Left-drag drop zone: cursor has left the notebook's left edge → drop to main
-        if self._on_drag_main and below_tab_bar and event.x_root < self.winfo_rootx():
+        if _drag_ok and self._on_drag_main and below_tab_bar and event.x_root < self.winfo_rootx():
             self._show_drop_zone_left()
             return
 
         # Right-drag drop zone: cursor past right threshold → drop to split
-        if self._on_drag_split:
+        if _drag_ok and self._on_drag_split:
             nb_right = self.winfo_rootx() + self.winfo_width()
             if self._split_open_ref and self._split_open_ref():
                 threshold = nb_right - 8   # near the right edge of the left pane
@@ -149,15 +153,16 @@ class CustomNotebook(ttk.Notebook):
         self._hide_drop_zone()
 
         tab_bar_bottom = self.winfo_rooty() + self._tab_bar_height() + 60
+        _drag_ok = not self._can_drag_out or self._can_drag_out(tab_id or "")
 
         # Left-drop: drag from split back to main
-        if tab_id and self._on_drag_main:
+        if tab_id and _drag_ok and self._on_drag_main:
             if event.y_root > tab_bar_bottom and event.x_root < self.winfo_rootx():
                 self._on_drag_main(tab_id)
                 return
 
         # Right-drop: drag from main to split
-        if tab_id and self._on_drag_split:
+        if tab_id and _drag_ok and self._on_drag_split:
             nb_right = self.winfo_rootx() + self.winfo_width()
             if self._split_open_ref and self._split_open_ref():
                 threshold = nb_right - 8
