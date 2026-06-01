@@ -186,7 +186,9 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         pass
     try:
         v = app._v_pane.sashpos(0)
-        if v > 0:  # skip if widget is being torn down
+        total = app._v_pane.winfo_height()
+        # Only save if the bottom panel would still have at least 80px
+        if v > 0 and (total <= 0 or (total - v) >= 80):
             layout["v_sash"] = v
     except Exception:
         pass
@@ -571,6 +573,10 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
     v = layout.get("v_sash")
     if v is not None and v > 0:
         try:
+            # Clamp so the bottom panel is always at least 80px tall
+            total = app._v_pane.winfo_height()
+            if total > 160:
+                v = min(v, total - 80)
             app._v_pane.sashpos(0, v)
         except Exception:
             pass

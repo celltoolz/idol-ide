@@ -602,7 +602,7 @@ class IDOL(Tk):
 
         # Horizontal split pane — holds left notebook (always) + right notebook (when split)
         self._split_pane = ttk.PanedWindow(self._v_pane, orient="horizontal")
-        self._v_pane.add(self._split_pane, weight=3)
+        self._v_pane.add(self._split_pane, weight=3, minsize=120)
 
         # Left notebook frame (primary)
         nb_frame = ttk.Frame(self._split_pane)
@@ -1112,7 +1112,7 @@ class IDOL(Tk):
         self._output.output.on_runtime_error = self._on_runtime_error
         self._output.on_ask_ai_problems = self._ask_ai_about_problems
         self._output.problems.on_ask_ai_entry = self._ask_ai_about_entry
-        self._v_pane.add(self._output, weight=1)
+        self._v_pane.add(self._output, weight=1, minsize=80)
 
         # AI Chat right panel — created here but not added to _h_pane until F2
         self._ai_panel_frame = tk.Frame(self._h_pane, bg="#1e1e1e")
@@ -3895,7 +3895,7 @@ class IDOL(Tk):
 
     def view_toggle_output(self) -> None:
         if self.output_visible_var.get():
-            self._v_pane.add(self._output, weight=1)
+            self._v_pane.add(self._output, weight=1, minsize=80)
         else:
             self._v_pane.forget(self._output)
 
@@ -4574,7 +4574,7 @@ class IDOL(Tk):
             self._h_pane.add(self._ai_panel_frame, minsize=280, stretch="never")
             self.after(100, self._apply_ai_panel_sash)
         if self.output_visible_var.get():
-            self._v_pane.add(self._output, weight=1)
+            self._v_pane.add(self._output, weight=1, minsize=80)
         self.title("IDOL")
         self._refresh_nav_bar()
         self._dismiss_zen_pill()
