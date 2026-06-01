@@ -1713,8 +1713,8 @@ class IDOL(Tk):
                 self._statusbar.set_diagnostics(errors, warnings)
         nb.forget(index)
         if nb is self._notebook_r and not nb.tabs():
-            # Last split tab closed via individual X — hide pane, keep it alive
-            self._hide_split()
+            # Last split tab gone — nothing to preserve, fully close the pane
+            self._close_split()
         elif nb is self.notebook and not nb.tabs():
             self.view_welcome()
 
@@ -3851,8 +3851,19 @@ class IDOL(Tk):
                 self._hide_split()
             else:
                 self._show_split()
+            return
+
+        # First open: move current tab if there are multiple, otherwise open fresh Untitled
+        tab_id = self._current_tab_id
+        if (
+            tab_id
+            and tab_id != self._welcome_tab
+            and len(self.notebook.tabs()) > 1
+        ):
+            self._move_to_split(tab_id)
         else:
-            self._ensure_split_shown(self._current_tab_id)
+            self._ensure_split_shown()
+            self._new_tab_in(self._notebook_r, "Untitled", "")
 
     def view_fold_all(self) -> None:
         cv = self._current_codeview
@@ -6870,6 +6881,10 @@ class IDOL(Tk):
     def _show_split(self) -> None:
         """Re-show a hidden split pane, restoring the sash position."""
         if not self._split_active or self._split_shown:
+            return
+        # Guard: tabs were all closed somehow — destroy cleanly instead of showing empty pane
+        if not self._notebook_r or not self._notebook_r.tabs():
+            self._close_split()
             return
         self._split_pane.add(self._nb_frame_r, weight=1)
         if self._split_sash_pos and self._split_sash_pos > 10:
