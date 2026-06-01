@@ -761,7 +761,7 @@ class IDOL(Tk):
         self._nav_run_btn.pack(side="right")
 
         def _run_btn_enter(_):
-            if not self._is_anything_running():
+            if not self._is_anything_running() and self._has_runnable_target():
                 is_dbg = self._run_action_var.get() == "debug"
                 self._nav_run_btn.config(fg="#f0d880" if is_dbg else "#6fe06f")
 
@@ -1736,6 +1736,7 @@ class IDOL(Tk):
             # Non-editor tab (Welcome, Package Manager, etc.) — theme sidebar from loader
             self._apply_theme_to_sidebar_no_cv()
             self._outline.clear()
+            self._refresh_run_buttons()
         if cv:
             self._update_status_lexer(cv)
             if _cv_is_python(cv):
@@ -1753,6 +1754,10 @@ class IDOL(Tk):
             cv.set_breakpoints({
                 ln - 1 for ln in self._breakpoints.get(fp, set())
             })
+
+        # Sync run button — may need to go green when switching from a non-editor tab
+        if cv is not None:
+            self._refresh_run_buttons()
 
         # Track last real editor tab (used by AI Send File / Selection)
         if tab_id and tab_id in self._codeviews:
@@ -7351,9 +7356,14 @@ class IDOL(Tk):
             or bool(self._running_file)
         )
 
-    def _refresh_run_buttons(self) -> None:
+    def _has_runnable_target(self) -> bool:
+        """True when there is something the run button can actually execute."""
+        return bool(self._run_entry_file) or (self._current_codeview is not None)
+
+        def _refresh_run_buttons(self) -> None:
         """Sync ▶/⬡ action button icon+colour and ■ stop button with run state."""
-        running = self._is_anything_running()
+        running  = self._is_anything_running()
+        no_target = not self._has_runnable_target()
         is_debug = (
             getattr(self, "_run_action_var", None)
             and self._run_action_var.get() == "debug"
@@ -7366,7 +7376,7 @@ class IDOL(Tk):
         if run_btn:
             try:
                 icon = " \u2b21 " if is_debug else " \u25b6 "
-                color = "#555555" if running else ("#e5c07b" if is_debug else "#4ec94e")
+                color = "#555555" if (running or no_target) else ("#e5c07b" if is_debug else "#4ec94e")
                 run_btn.config(text=icon, fg=color)
             except Exception:
                 pass
@@ -7392,6 +7402,8 @@ class IDOL(Tk):
 
     def _nav_execute(self) -> None:
         """One-click execute using the mode selected in the run menu."""
+        if not self._has_runnable_target():
+            return
         if self._designer_mode and self._designer_dirty:
             self.designer_generate_code()
 
