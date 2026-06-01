@@ -115,9 +115,11 @@ class WelcomePanel(tk.Frame):
 
         self._inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>", self._on_canvas_configure)
-        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
-        self._canvas.bind("<Button-4>",   self._on_mousewheel)
-        self._canvas.bind("<Button-5>",   self._on_mousewheel)
+
+        # Activate/deactivate global scroll when cursor enters/leaves the panel.
+        # bind_all fires for every widget; _cl_text blocks it with "break".
+        self.bind("<Enter>", self._on_scroll_enter, add=True)
+        self.bind("<Leave>", self._on_scroll_leave, add=True)
 
         self._build()
         self._start_tip_rotation()
@@ -135,6 +137,27 @@ class WelcomePanel(tk.Frame):
             self._canvas.yview_scroll(-1, "units")
         else:
             self._canvas.yview_scroll(1, "units")
+
+    def _on_scroll_enter(self, _event=None) -> None:
+        """Cursor entered the panel — activate global wheel binding."""
+        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind_all("<Button-4>",   self._on_mousewheel)
+        self._canvas.bind_all("<Button-5>",   self._on_mousewheel)
+
+    def _on_scroll_leave(self, event) -> None:
+        """Cursor left the panel — deactivate, but only if truly outside."""
+        try:
+            w = self.winfo_containing(event.x_root, event.y_root)
+            p = w
+            while p is not None:
+                if p is self:
+                    return  # still inside — just moved to a child widget
+                p = getattr(p, "master", None)
+        except Exception:
+            pass
+        self._canvas.unbind_all("<MouseWheel>")
+        self._canvas.unbind_all("<Button-4>")
+        self._canvas.unbind_all("<Button-5>")
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
@@ -545,6 +568,12 @@ class WelcomePanel(tk.Frame):
                 self.after_cancel(self._tip_after_id)
             except Exception:
                 pass
+        try:
+            self._canvas.unbind_all("<MouseWheel>")
+            self._canvas.unbind_all("<Button-4>")
+            self._canvas.unbind_all("<Button-5>")
+        except Exception:
+            pass
         super().destroy()
 
     # ── Public ────────────────────────────────────────────────────────────────
