@@ -196,6 +196,11 @@ def build_menubar(app) -> Menu:
     # ── Help ─────────────────────────────────────────────────────────────────
     help_menu = Menu(menubar, tearoff=0)
     help_menu.add_command(
+        label="Welcome",
+        command=app.view_welcome,
+    )
+    help_menu.add_separator()
+    help_menu.add_command(
         label="Learning Mode",
         command=app.view_learning_mode,
         accelerator="F1",

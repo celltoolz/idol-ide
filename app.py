@@ -41,6 +41,7 @@ from editor.debug_manager import DebugManager
 from editor.git_manager import GitManager, get_global_identity
 from menus.menubar import build_menubar
 from utils import session as session_utils
+from utils import recent as recent_utils
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
@@ -49,6 +50,7 @@ from utils.theme_loader import theme_kind as _theme_kind
 from widgets.learning_panel import LearningPanel
 from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
+from widgets.welcome import WelcomePanel
 from widgets.clipboard_history import ClipboardHistoryPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
@@ -402,6 +404,10 @@ class IDOL(Tk):
         self._ai_chat_panel: AiChatPanel | None = None  # set in _build_layout
         self._last_editor_tab: str | None = None  # last tab with a real codeview
 
+        # Welcome tab
+        self._welcome_tab: str | None = None
+        self._welcome_panel: WelcomePanel | None = None
+
         # Package Manager
         self._pkg_tab: str | None = None
         self._pkg_panel: PackageManagerPanel | None = None
@@ -502,7 +508,10 @@ class IDOL(Tk):
         if initial_file and os.path.isfile(initial_file):
             self._open_file(initial_file)
         elif not session_utils.restore(self):
-            self._new_tab("Untitled", "")
+            if recent_utils.get_show_on_startup():
+                self.after_idle(self.view_welcome)
+            else:
+                self._new_tab("Untitled", "")
             self._set_explorer_root(os.getcwd())
             # No session file — trigger sidebar relayout once the window has
             # real pixel dimensions (250 ms is enough for all platforms).
@@ -1652,6 +1661,15 @@ class IDOL(Tk):
         if index >= len(tabs):
             return
         tab_id = tabs[index]
+        closing_welcome = (tab_id == self._welcome_tab)
+        if closing_welcome:
+            # Welcome tab has no dirty state — just close it
+            nb.forget(index)
+            self._welcome_tab = None
+            self._welcome_panel = None
+            if nb is self.notebook and not nb.tabs():
+                self._new_tab("Untitled", "")
+            return
         if not self._confirm_close_tab(tab_id):
             return
         closed_path = self._files.pop(tab_id, None)
@@ -1697,7 +1715,7 @@ class IDOL(Tk):
             # Last split tab closed via individual X — hide pane, keep it alive
             self._hide_split()
         elif nb is self.notebook and not nb.tabs():
-            self._new_tab("Untitled", "")
+            self.view_welcome()
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
@@ -3220,6 +3238,7 @@ class IDOL(Tk):
                 if os.path.isfile(_form_py):
                     self._open_file(_form_py, update_explorer=False)
             self._enter_designer_mode()
+        recent_utils.add_project(project_path)
         # Auto-create the project file so "Open Project" works immediately
         self.after(500, self.workspace_save)
 
@@ -3263,6 +3282,9 @@ class IDOL(Tk):
         )
 
         self._new_tab(os.path.basename(path), content, filepath=path)
+        recent_utils.add_file(path)
+        if self._welcome_panel:
+            self._welcome_panel.refresh()
         # Only update the explorer root when opening externally (File > Open),
         # not when clicking a file inside the tree (would reset root unexpectedly)
         if update_explorer:
@@ -3543,8 +3565,10 @@ class IDOL(Tk):
         self._output.update_problems([])
         self._breakpoints.clear()
         self._refresh_debug_breakpoints()
+        self._welcome_tab = None
+        self._welcome_panel = None
         if add_untitled:
-            self._new_tab("Untitled", "")
+            self.view_welcome()
         if "(.venv)" in getattr(self, "_active_python_label", ""):
             term = self._output.terminal
             if term._running and term._venv_active:
@@ -3610,8 +3634,11 @@ class IDOL(Tk):
                 self.workspace_save()
         # Full teardown of the current project (designer, LSP diags, tabs, etc.)
         self._teardown_project(add_untitled=False)
-        if not session_utils.restore(self, path):
-            self._new_tab("Untitled", "")
+        if session_utils.restore(self, path):
+            project_dir = os.path.dirname(path)
+            recent_utils.add_project(project_dir)
+        else:
+            self.view_welcome()
 
     # ── Edit operations ───────────────────────────────────────────────────────
 
@@ -3841,6 +3868,79 @@ class IDOL(Tk):
                     btn.config(fg="#007acc" if active_fn() else "#858585")
                 except Exception:
                     pass
+
+    # ── Welcome tab ───────────────────────────────────────────────────────────
+
+    def view_welcome(self) -> None:
+        """Open (or focus) the Welcome tab."""
+        if self._welcome_tab:
+            try:
+                if self._welcome_tab not in self.notebook.tabs():
+                    raise ValueError
+                if self.notebook.select() == self._welcome_tab:
+                    # Already focused — do nothing (don't close on second press)
+                    return
+                self.notebook.select(self._welcome_tab)
+                if self._welcome_panel:
+                    self._welcome_panel.refresh()
+                return
+            except Exception:
+                self._welcome_tab = None
+                self._welcome_panel = None
+
+        frame = ttk.Frame(self.notebook)
+        panel = WelcomePanel(
+            frame,
+            on_new_file=self.file_new,
+            on_open_file=self._welcome_open_file,
+            on_open_folder=self.workspace_open,
+            on_new_project=self.file_new_project,
+            on_open_project=self._welcome_open_project,
+            on_learning=self.view_learning_mode,
+            on_designer=self._enter_designer_mode,
+            on_packages=self.view_package_manager,
+        )
+        panel.pack(fill="both", expand=True)
+        self.notebook.add(frame, text="  Welcome  ")
+        self.notebook.select(frame)
+        self._welcome_tab = self.notebook.select()
+        self._welcome_panel = panel
+
+    def _welcome_open_file(self, path: str | None = None) -> None:
+        if path:
+            self._open_file(path)
+        else:
+            self.file_open()
+
+    def _welcome_open_project(self, path: str | None = None) -> None:
+        """Open a project — from a direct path (recent) or via dialog."""
+        if not path:
+            self.workspace_open()
+            return
+        # Find the .idol-project file inside the project directory
+        from pathlib import Path as _P
+        proj_dir = _P(path)
+        candidate = proj_dir / f"{proj_dir.name}.idol-project"
+        if not candidate.is_file():
+            candidates = list(proj_dir.glob("*.idol-project"))
+            candidate = candidates[0] if candidates else None
+        if candidate and candidate.is_file():
+            # Reuse workspace_open flow without the file dialog
+            if self._has_dirty_tabs():
+                from tkinter.messagebox import askyesnocancel as _aync
+                answer = _aync("Open Project", "You have unsaved changes.\n\nSave before opening?")
+                if answer is None:
+                    return
+                if answer:
+                    self.workspace_save()
+            self._teardown_project(add_untitled=False)
+            if not session_utils.restore(self, str(candidate)):
+                self.view_welcome()
+        else:
+            showerror("Open Project", f"Could not find a project file in:\n{path}")
+            recent_utils.remove_project(path)
+            if self._welcome_panel:
+                self._welcome_panel.refresh()
 
     # ── Package Manager ───────────────────────────────────────────────────────
 
