@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
@@ -33,6 +34,44 @@ _TIPS = [
     "Reopen this tab anytime via Help → Welcome",
     "Ctrl+Shift+G generates Python code from the GUI Designer form",
 ]
+
+
+def _parse_changelog(cl_path: Path) -> list[dict]:
+    """Return list of {title, lines} dicts from CHANGELOG.md, newest first."""
+    try:
+        raw_lines = cl_path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return []
+    sections: list[dict] = []
+    cur_title: str | None = None
+    cur_lines: list[str] = []
+    for line in raw_lines:
+        if line.startswith("## "):
+            if cur_title is not None:
+                sections.append({"title": cur_title, "lines": _trim_lines(cur_lines)})
+            raw = line[3:].strip()
+            # "[2026-06-01] — Foo Bar"  →  "2026-06-01 — Foo Bar"
+            # "[Unreleased]"            →  "Unreleased"
+            cur_title = raw.lstrip("[").replace("] —", " —").rstrip("]").strip()
+            cur_lines = []
+        elif cur_title is not None:
+            if re.match(r"^-{3,}$", line.strip()):
+                continue
+            if re.match(r"^\*.+\*$", line.strip()):
+                continue  # italic footer lines
+            cur_lines.append(line)
+    if cur_title is not None:
+        sections.append({"title": cur_title, "lines": _trim_lines(cur_lines)})
+    return sections
+
+
+def _trim_lines(lines: list[str]) -> list[str]:
+    ls = list(lines)
+    while ls and not ls[0].strip():
+        ls.pop(0)
+    while ls and not ls[-1].strip():
+        ls.pop()
+    return ls
 
 
 class WelcomePanel(tk.Frame):
@@ -253,14 +292,129 @@ class WelcomePanel(tk.Frame):
         lbl.bind("<ButtonRelease-1>", lambda _: cmd())
 
     def _whats_new(self, parent: tk.Frame) -> None:
-        box = tk.Frame(parent, bg=_BG3, padx=10, pady=8)
-        box.pack(fill="x")
-        tk.Label(
-            box,
-            text="Changelog coming soon.\nCheck back after the next update.",
-            bg=_BG3, fg=_DIM, font=(UI_FONT, 9),
-            justify="left", anchor="w",
-        ).pack(anchor="w")
+        cl_path = Path(__file__).parent.parent / "CHANGELOG.md"
+        self._cl_sections = _parse_changelog(cl_path)
+        self._cl_idx = 0
+
+        container = tk.Frame(parent, bg=_BG3)
+        container.pack(fill="x")
+
+        if not self._cl_sections:
+            tk.Label(container, text="No changelog found.", bg=_BG3, fg=_DIM,
+                     font=(UI_FONT, 9), padx=10, pady=8).pack(anchor="w")
+            return
+
+        # ── Navigation bar ────────────────────────────────────────────────────
+        nav = tk.Frame(container, bg=_BG3)
+        nav.pack(fill="x", padx=8, pady=(6, 2))
+
+        self._cl_prev_btn = tk.Label(
+            nav, text="‹", bg=_BG3, fg=_DIM,
+            font=(UI_FONT, 13, "bold"), cursor="hand2", padx=2,
+        )
+        self._cl_prev_btn.pack(side="left")
+
+        self._cl_title_lbl = tk.Label(
+            nav, text="", bg=_BG3, fg=_FG,
+            font=(UI_FONT, 8, "bold"), anchor="w",
+        )
+        self._cl_title_lbl.pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+        self._cl_counter_lbl = tk.Label(
+            nav, text="", bg=_BG3, fg=_DIM, font=(UI_FONT, 8),
+        )
+        self._cl_counter_lbl.pack(side="right", padx=(0, 2))
+
+        self._cl_next_btn = tk.Label(
+            nav, text="›", bg=_BG3, fg=_DIM,
+            font=(UI_FONT, 13, "bold"), cursor="hand2", padx=2,
+        )
+        self._cl_next_btn.pack(side="right")
+
+        tk.Frame(container, bg=_SEP, height=1).pack(fill="x", padx=8)
+
+        # ── Content text area ─────────────────────────────────────────────────
+        txt_row = tk.Frame(container, bg=_BG3)
+        txt_row.pack(fill="x", padx=(8, 4), pady=(4, 6))
+
+        self._cl_text = tk.Text(
+            txt_row,
+            height=9, bg=_BG3, fg=_FG,
+            font=(UI_FONT, 9),
+            relief="flat", bd=0,
+            wrap="word",
+            state="disabled",
+            cursor="arrow",
+            selectbackground=_BG3,
+        )
+        vsb = ttk.Scrollbar(txt_row, orient="vertical", command=self._cl_text.yview)
+        self._cl_text.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        self._cl_text.pack(side="left", fill="both", expand=True)
+
+        # Syntax-style tags
+        self._cl_text.tag_configure("h3",     foreground=_GREEN, font=(UI_FONT, 9, "bold"))
+        self._cl_text.tag_configure("bullet", foreground=_FG)
+        self._cl_text.tag_configure("dim",    foreground=_DIM)
+
+        # Wheel events stay inside the text widget (don't propagate to canvas)
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self._cl_text.bind(seq, self._on_cl_scroll)
+
+        # Nav bindings
+        self._cl_prev_btn.bind("<ButtonRelease-1>", lambda _: self._cl_go(-1))
+        self._cl_next_btn.bind("<ButtonRelease-1>", lambda _: self._cl_go(+1))
+        self._cl_prev_btn.bind("<Enter>", lambda _: self._cl_prev_btn.config(fg=_FG))
+        self._cl_prev_btn.bind("<Leave>", lambda _: self._cl_prev_btn.config(fg=_DIM))
+        self._cl_next_btn.bind("<Enter>", lambda _: self._cl_next_btn.config(fg=_FG))
+        self._cl_next_btn.bind("<Leave>", lambda _: self._cl_next_btn.config(fg=_DIM))
+
+        self._cl_render()
+
+    # ── Changelog navigation ──────────────────────────────────────────────────
+
+    def _cl_go(self, direction: int) -> None:
+        """direction: -1 = newer, +1 = older."""
+        if not self._cl_sections:
+            return
+        self._cl_idx = (self._cl_idx + direction) % len(self._cl_sections)
+        self._cl_render()
+
+    def _cl_render(self) -> None:
+        if not self._cl_sections:
+            return
+        sec   = self._cl_sections[self._cl_idx]
+        total = len(self._cl_sections)
+
+        self._cl_title_lbl.config(text=sec["title"])
+        self._cl_counter_lbl.config(text=f"{self._cl_idx + 1}/{total}")
+
+        # Dim arrows at boundaries
+        self._cl_prev_btn.config(fg=_DIM if self._cl_idx == total - 1 else _FG)
+        self._cl_next_btn.config(fg=_DIM if self._cl_idx == 0 else _FG)
+
+        self._cl_text.config(state="normal")
+        self._cl_text.delete("1.0", "end")
+        for line in sec["lines"]:
+            stripped = line.strip()
+            if stripped.startswith("### "):
+                heading = stripped[4:]
+                self._cl_text.insert("end", f"\n{heading}\n", "h3")
+            elif stripped.startswith("- ") or stripped.startswith("* "):
+                self._cl_text.insert("end", f"  {stripped}\n", "bullet")
+            elif stripped == "":
+                pass  # collapse blank lines — already handled by the \n above headings
+            else:
+                self._cl_text.insert("end", stripped + "\n", "dim")
+        self._cl_text.config(state="disabled")
+        self._cl_text.yview_moveto(0.0)
+
+    def _on_cl_scroll(self, event) -> str:
+        if event.num == 4 or (hasattr(event, "delta") and event.delta > 0):
+            self._cl_text.yview_scroll(-1, "units")
+        else:
+            self._cl_text.yview_scroll(1, "units")
+        return "break"  # don't propagate to the outer canvas
 
     # ── Recent lists ──────────────────────────────────────────────────────────
 
