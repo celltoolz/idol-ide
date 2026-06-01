@@ -59,7 +59,9 @@ from widgets.designer_connector import ComponentConnector
 from widgets.form_list_panel import FormListPanel
 from designer.canvas import DesignerCanvas
 from designer.component_registry import (
-    COMPONENT_REGISTRY, get_component_def, default_props,
+    COMPONENT_REGISTRY,
+    get_component_def,
+    default_props,
 )
 from designer.model import ComponentDescriptor
 from designer.registry import REGISTRY as _DESIGNER_REGISTRY
@@ -227,19 +229,24 @@ class _HoverPopup:
 # as named helpers because the call sites read more clearly with
 # `_cv_text(cv)` than with the bare `.get_text()`.
 
+
 def _cv_language(cv) -> str:
     """Return the canonical language id for *cv* ("python", "text", ...)."""
     return (cv.language or "text") if cv is not None else "text"
 
+
 def _cv_is_python(cv) -> bool:
     return _cv_language(cv) == "python"
+
 
 def _cv_is_code(cv) -> bool:
     return _cv_language(cv) != "text"
 
+
 def _cv_text(cv) -> str:
     """Return the full buffer text."""
     return cv.get_text() if cv is not None else ""
+
 
 def _cv_cursor_word(cv) -> str:
     """Return the identifier under the cursor (or empty string)."""
@@ -247,13 +254,16 @@ def _cv_cursor_word(cv) -> str:
         return ""
     return cv._cursor_word() or ""
 
+
 def _cv_cursor_line_text(cv) -> str:
     """Return the text of the line the cursor is on (no trailing newline)."""
     return cv.get_line(cv.cur_line) if cv is not None else ""
 
+
 def _cv_selected_text(cv) -> str:
     """Return the currently-selected text (empty if no selection)."""
     return cv.selected_text() if cv is not None else ""
+
 
 def _cv_cursor_lc(cv) -> tuple[int, int]:
     """Return the cursor position as (line_0_indexed, col)."""
@@ -338,9 +348,10 @@ class IDOL(Tk):
         # IDOL widgets (designer properties, etc.) build dark-themed
         # entries without explicit bg.
         import platform as _pl_init
+
         if _pl_init.system() == "Linux":
-            self.option_add("*Listbox.background",       "#ffffff")
-            self.option_add("*Listbox.foreground",       "#000000")
+            self.option_add("*Listbox.background", "#ffffff")
+            self.option_add("*Listbox.foreground", "#000000")
             self.option_add("*Listbox.selectBackground", "#0078d4")
             self.option_add("*Listbox.selectForeground", "#ffffff")
 
@@ -419,14 +430,14 @@ class IDOL(Tk):
         self._learning_reg_map: dict = {}  # widget → lid, built on activate
 
         # Clipboard History
-        self._clip_top:   tk.Toplevel | None          = None
+        self._clip_top: tk.Toplevel | None = None
         self._clip_panel: ClipboardHistoryPanel | None = None
 
         # Canvas Editor sandbox — preview of the canvas-rendered editor
 
         # Split editor
-        self._split_active: bool = False   # right pane has been built and has tabs
-        self._split_shown: bool = False    # right pane is currently visible
+        self._split_active: bool = False  # right pane has been built and has tabs
+        self._split_shown: bool = False  # right pane is currently visible
         self._split_was_shown: bool = False  # was visible before designer hid it
         self._split_sash_pos: int | None = None
         self._active_pane: str = "left"  # "left" | "right"
@@ -465,28 +476,35 @@ class IDOL(Tk):
             False  # True when model changed since last Generate Code
         )
         self._designer_forms_dirty: bool = False  # True when JSON not yet saved
-        self._autogen_after_id: str | None = None   # pending debounced auto-gen timer
-        self._pending_body_resets: set[str] = set()  # method names to drop before next gen
+        self._autogen_after_id: str | None = None  # pending debounced auto-gen timer
+        self._pending_body_resets: set[str] = (
+            set()
+        )  # method names to drop before next gen
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
         )
         self._designer_forms: dict = {}  # {name: FormModel} for all open forms
         self._designer_form_names: list = []  # explicit project form list ([] = use glob)
-        self._designer_missing_dialogs: set = set()  # linked dialog names whose files were not found
-        self._designer_main_form: str | None = None  # form set as the project entry point
+        self._designer_missing_dialogs: set = (
+            set()
+        )  # linked dialog names whose files were not found
+        self._designer_main_form: str | None = (
+            None  # form set as the project entry point
+        )
         self._zen_pill: object = None  # floating toast Toplevel
 
         # Peek at the saved layout before building so panes can be pre-sized
         # to their saved dimensions — eliminates the visible sash jump on startup.
         _saved = session_utils.peek_layout()
-        self._startup_h_sash: int   = int(_saved.get("h_sash") or 0) or 220
-        self._startup_v_sash: int   = int(_saved.get("v_sash") or 0)
+        self._startup_h_sash: int = int(_saved.get("h_sash") or 0) or 220
+        self._startup_v_sash: int = int(_saved.get("v_sash") or 0)
 
         # On Linux, wm_attributes("-zoomed") may not reflect the true state at
         # close time due to X11 event queuing.  Track it continuously instead.
         self._window_maximized: bool = False
         if sys.platform.startswith("linux"):
+
             def _track_maximize(event):
                 if event.widget is not self:
                     return
@@ -494,10 +512,13 @@ class IDOL(Tk):
                     raw = self.attributes("-zoomed")
                     zoomed = bool(int(raw))
                     if zoomed != self._window_maximized:
-                        print(f"[maximize] <Configure> zoomed changed: {self._window_maximized} → {zoomed}  (raw={raw!r})")
+                        print(
+                            f"[maximize] <Configure> zoomed changed: {self._window_maximized} → {zoomed}  (raw={raw!r})"
+                        )
                     self._window_maximized = zoomed
                 except Exception as e:
                     print(f"[maximize] <Configure> attributes('-zoomed') error: {e}")
+
             self.bind("<Configure>", _track_maximize, add=True)
 
         self._build_layout()
@@ -650,13 +671,22 @@ class IDOL(Tk):
 
         # Encoding fix pill — hidden until a bad paste is detected
         self._encoding_pill = Label(
-            _nav_bar, text=" ⚠ Fix Encoding ",
-            bg=_NAV_BG, fg="#e8a844",
-            font=(UI_FONT, 9), cursor="hand2", padx=2, pady=0,
+            _nav_bar,
+            text=" ⚠ Fix Encoding ",
+            bg=_NAV_BG,
+            fg="#e8a844",
+            font=(UI_FONT, 9),
+            cursor="hand2",
+            padx=2,
+            pady=0,
         )
         self._encoding_pill.bind("<Button-1>", lambda _: self._fix_encoding())
-        self._encoding_pill.bind("<Enter>", lambda _: self._encoding_pill.config(fg="#ffd080"))
-        self._encoding_pill.bind("<Leave>", lambda _: self._encoding_pill.config(fg="#e8a844"))
+        self._encoding_pill.bind(
+            "<Enter>", lambda _: self._encoding_pill.config(fg="#ffd080")
+        )
+        self._encoding_pill.bind(
+            "<Leave>", lambda _: self._encoding_pill.config(fg="#e8a844")
+        )
 
         # Debug controls — hidden until a session is active
         self._debug_bar = tk.Frame(_nav_bar, bg="#1e1e1e")
@@ -959,7 +989,9 @@ class IDOL(Tk):
         _vbar.config(command=self._design_canvas.yview)
         _hbar.config(command=self._design_canvas.xview)
 
-        self._designer_toolbar = DesignerToolbar(self._designer_frame, self._design_canvas)
+        self._designer_toolbar = DesignerToolbar(
+            self._designer_frame, self._design_canvas
+        )
         self._designer_toolbar.pack(fill="x", side="top")
 
         _vbar.pack(side="right", fill="y")
@@ -1055,10 +1087,12 @@ class IDOL(Tk):
         )
         # Wrap on_run_done to also restore the status-bar run-entry label
         _orig_run_done = self._output.output._on_run_done
+
         def _run_done_hook(_orig=_orig_run_done):
             self._set_running_file(None)
             if _orig:
                 _orig()
+
         self._output.output._on_run_done = _run_done_hook
 
         # Terminal shell integration: OSC 133;D fires when the prompt appears
@@ -1100,8 +1134,8 @@ class IDOL(Tk):
 
         # Ghost-sash: show drag line during drag, resize only on mouse-up
         for _pane, _orient in [
-            (self._h_pane,     "horizontal"),
-            (self._v_pane,     "vertical"),
+            (self._h_pane, "horizontal"),
+            (self._v_pane, "vertical"),
             (self._split_pane, "horizontal"),
         ]:
             self._install_ghost_sash(_pane, _orient)
@@ -1123,7 +1157,9 @@ class IDOL(Tk):
 
         total = self._v_pane.winfo_height()
         if total > 200:
-            v_target = self._startup_v_sash if self._startup_v_sash > 0 else (total - 160)
+            v_target = (
+                self._startup_v_sash if self._startup_v_sash > 0 else (total - 160)
+            )
             self._v_pane.sashpos(0, v_target)
 
     def _install_ghost_sash(self, pane: tk.Widget, orient: str) -> None:
@@ -1172,8 +1208,11 @@ class IDOL(Tk):
                 return
             _drag["active"] = False
             ghost.place_forget()
-            pos = (event.y_root - pane.winfo_rooty()) if orient == "vertical" \
-                  else (event.x_root - pane.winfo_rootx())
+            pos = (
+                (event.y_root - pane.winfo_rooty())
+                if orient == "vertical"
+                else (event.x_root - pane.winfo_rootx())
+            )
             try:
                 _sash_set(pane, _drag["sash"], max(0, pos))
             except Exception:
@@ -1186,7 +1225,7 @@ class IDOL(Tk):
             if not hit:
                 return
             _drag["active"] = True
-            _drag["sash"]   = idx
+            _drag["sash"] = idx
             _show_ghost(event.x, event.y)
             return "break"
 
@@ -1195,8 +1234,8 @@ class IDOL(Tk):
                 return
             _show_ghost(event.x, event.y)
 
-        pane.bind("<ButtonPress-1>",   _on_press)
-        pane.bind("<B1-Motion>",       _on_motion)
+        pane.bind("<ButtonPress-1>", _on_press)
+        pane.bind("<B1-Motion>", _on_motion)
         # Pane-instance binding fires before class handlers (covers SetCapture case).
         # Toplevel binding fires when mouse is released over a child widget.
         # Both are idempotent — the second caller hits `if not _drag["active"]: return`.
@@ -1220,9 +1259,11 @@ class IDOL(Tk):
         if pending and os.path.isfile(pending):
             self._pending_venv_activate = None
             term = self._output.terminal
+
             def _activate_if_needed(p=pending, t=term):
                 if not getattr(t, "_venv_auto_activated", False):
                     self._auto_activate_venv(p)
+
             self.after(1500, _activate_if_needed)
 
     def _on_venv_deactivated(self) -> None:
@@ -1342,7 +1383,9 @@ class IDOL(Tk):
         self.bind("<F1>", lambda _: self.view_learning_mode())
         self.bind("<F2>", lambda _: self.view_ai_chat())
         self.bind("<F3>", lambda _: self.view_package_manager())
-        self.bind("<Control-H>", lambda _: self.view_clipboard_history())   # Ctrl+Shift+H
+        self.bind(
+            "<Control-H>", lambda _: self.view_clipboard_history()
+        )  # Ctrl+Shift+H
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -1381,7 +1424,12 @@ class IDOL(Tk):
 
     @property
     def _active_notebook(self) -> CustomNotebook:
-        if self._split_active and self._split_shown and self._active_pane == "right" and self._notebook_r:
+        if (
+            self._split_active
+            and self._split_shown
+            and self._active_pane == "right"
+            and self._notebook_r
+        ):
             return self._notebook_r
         return self.notebook
 
@@ -1406,8 +1454,7 @@ class IDOL(Tk):
         tab_id = self._current_tab_id
         return self._codeviews.get(tab_id) if tab_id else None
 
-    def _new_tab(self, title: str, content: str,
-                 filepath: str | None = None) -> None:
+    def _new_tab(self, title: str, content: str, filepath: str | None = None) -> None:
         """Build a new editor tab.
 
         Adds the tab to the notebook, seeds the standard bookkeeping
@@ -1443,6 +1490,7 @@ class IDOL(Tk):
             if self._clip_panel is None:
                 self._ensure_clip_panel()
             self._clip_panel.push(text, source=source)
+
         cv.on_copy = _on_cv_copy
         if content:
             cv.set_text(content)
@@ -1508,13 +1556,13 @@ class IDOL(Tk):
             if not (self._lsp and self._lsp.ready and _cv.filepath):
                 callback([])
                 return
+
             def _items_cb(items):
                 labels = [
-                    it.get("label", "")
-                    for it in (items or [])
-                    if it.get("label")
+                    it.get("label", "") for it in (items or []) if it.get("label")
                 ]
                 callback(labels)
+
             # For dot triggers, flush the debounced didChange immediately so
             # pyls sees the "." in the file before it processes the completion
             # request (LSP messages are ordered; this guarantees correct content).
@@ -1525,7 +1573,11 @@ class IDOL(Tk):
             # needs triggerKind=2 at the position right after "." — if we
             # send the current cursor (past the prefix) it returns empty.
             # Walk the column back by len(prefix) so pyls sees the dot trigger.
-            lsp_col = _cv.cur_col - len(prefix) if trigger_char == "." and prefix else _cv.cur_col
+            lsp_col = (
+                _cv.cur_col - len(prefix)
+                if trigger_char == "." and prefix
+                else _cv.cur_col
+            )
             self._lsp.completion(
                 _cv.filepath,
                 _cv.cur_line,
@@ -1533,6 +1585,7 @@ class IDOL(Tk):
                 _items_cb,
                 trigger_char=trigger_char,
             )
+
         cv.on_completion_request = _on_completion
 
         # ── Debug breakpoint gutter ─────────────────────────────────
@@ -1551,6 +1604,7 @@ class IDOL(Tk):
                 # `_make_bp_toggle` does for tk.Text-backed tabs.
                 import uuid
                 from utils.session import TMP_DIR
+
                 tmp = self._temp_files.get(_tid)
                 if not tmp:
                     TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -1565,18 +1619,17 @@ class IDOL(Tk):
             self._on_breakpoint_toggle(fp, lineno_1)
             # Convert host's 1-indexed set back to 0-indexed for the
             # engine.
-            _cv.set_breakpoints({
-                ln - 1 for ln in self._breakpoints.get(fp, set())
-            })
+            _cv.set_breakpoints({ln - 1 for ln in self._breakpoints.get(fp, set())})
+
         cv.on_breakpoint_toggle = _canvas_bp_toggle
 
         # Apply any existing breakpoints for this file (session
         # restore, debugger attach) — convert host's 1-indexed set
         # to the engine's 0-indexed convention.
         if filepath:
-            cv.set_breakpoints({
-                ln - 1 for ln in self._breakpoints.get(filepath, set())
-            })
+            cv.set_breakpoints(
+                {ln - 1 for ln in self._breakpoints.get(filepath, set())}
+            )
 
         # ── Right-click menu IDE actions ────────────────────────────
         # Mirror the legacy `_on_editor_right_click` (app.py:2234).
@@ -1585,11 +1638,11 @@ class IDOL(Tk):
         # decides when to include them based on selection + cursor
         # word state.
         cv.on_request_goto_definition = self._goto_definition
-        cv.on_can_goto_definition     = lambda: bool(self._lsp and self._lsp.ready)
+        cv.on_can_goto_definition = lambda: bool(self._lsp and self._lsp.ready)
         cv.on_request_find_references = self._find_references
-        cv.on_request_find_replace    = self.edit_find_replace
-        cv.on_request_run_line        = self._run_current_line
-        cv.on_request_run_selection   = self._run_selection
+        cv.on_request_find_replace = self.edit_find_replace
+        cv.on_request_run_line = self._run_current_line
+        cv.on_request_run_selection = self._run_selection
 
         # Line-shift handler for breakpoints — DORMANT for now. The
         # callback (same shift math as the legacy `_make_lines_changed`
@@ -1599,8 +1652,7 @@ class IDOL(Tk):
         # lines are inserted/deleted above them — set them again
         # after big edits. Tracked as a follow-up to the breakpoint
         # wiring above.
-        def _canvas_lines_changed(from_line_1: int, delta: int,
-                                  _tid=tab_id, _cv=cv):
+        def _canvas_lines_changed(from_line_1: int, delta: int, _tid=tab_id, _cv=cv):
             fp = self._files.get(_tid)
             if not fp or fp not in self._breakpoints:
                 return
@@ -1620,13 +1672,15 @@ class IDOL(Tk):
             self._breakpoints[fp] = new_bp
             _cv.set_breakpoints({ln - 1 for ln in new_bp})
             self._refresh_debug_breakpoints()
+
         cv.on_lines_changed = _canvas_lines_changed
 
         # ── LSP hover ───────────────────────────────────────────────
         cv.canvas.bind(
             "<Motion>",
-            lambda e, _cv=cv, _tid=tab_id:
-                self._on_hover_motion(e, _cv, self._files.get(_tid) or ""),
+            lambda e, _cv=cv, _tid=tab_id: self._on_hover_motion(
+                e, _cv, self._files.get(_tid) or ""
+            ),
             add="+",
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
@@ -1662,7 +1716,7 @@ class IDOL(Tk):
         if index >= len(tabs):
             return
         tab_id = tabs[index]
-        closing_welcome = (tab_id == self._welcome_tab)
+        closing_welcome = tab_id == self._welcome_tab
         if closing_welcome:
             # Welcome tab has no dirty state — just close it
             nb.forget(index)
@@ -1751,9 +1805,7 @@ class IDOL(Tk):
             cv.set_git_hunks(self._git_hunks.get(tab_id, []))
             self._refresh_git_hunks()
             fp = self._files.get(tab_id) or ""
-            cv.set_breakpoints({
-                ln - 1 for ln in self._breakpoints.get(fp, set())
-            })
+            cv.set_breakpoints({ln - 1 for ln in self._breakpoints.get(fp, set())})
 
         # Sync run button — may need to go green when switching from a non-editor tab
         if cv is not None:
@@ -2127,9 +2179,7 @@ class IDOL(Tk):
     def _apply_diagnostics(self, codeview, diags: list) -> None:
         """Push LSP diagnostics to the editor. Canvas engine renders
         squigglies from its own diagnostic list using palette colors."""
-        codeview.set_diagnostics([
-            self._lsp_diag_to_sandbox(d) for d in diags
-        ])
+        codeview.set_diagnostics([self._lsp_diag_to_sandbox(d) for d in diags])
 
     # ── Runtime error indicator ───────────────────────────────────────────────
 
@@ -2378,7 +2428,9 @@ class IDOL(Tk):
         # Non-ASCII whitespace chars that look like spaces but silently
         # break Python source. Inlined from the old `widgets.codeview`.
         _BAD_PASTE_CHARS = frozenset("\xa0​      ")
-        _REMOVE = frozenset([0x200b])  # zero-width — removing is safer than replacing with space
+        _REMOVE = frozenset(
+            [0x200B]
+        )  # zero-width — removing is safer than replacing with space
         cv = self._current_codeview
         if cv is None:
             return
@@ -2430,7 +2482,7 @@ class IDOL(Tk):
         panel = ClipboardHistoryPanel(top, on_paste=_paste)
         panel.set_window(top)
         panel.pack(fill="both", expand=True)
-        self._clip_top   = top
+        self._clip_top = top
         self._clip_panel = panel
 
     def view_clipboard_history(self) -> None:
@@ -2457,24 +2509,26 @@ class IDOL(Tk):
     def _lsp_diag_to_sandbox(d: dict) -> dict:
         sev_int = d.get("severity", SEV_WARNING)
         sev = (
-            "error"   if sev_int == SEV_ERROR
-            else "warning" if sev_int == SEV_WARNING
+            "error"
+            if sev_int == SEV_ERROR
+            else "warning"
+            if sev_int == SEV_WARNING
             else "info"
         )
         rng = d.get("range") or {}
         s = rng.get("start") or {}
-        e = rng.get("end")   or {}
+        e = rng.get("end") or {}
         s_line = s.get("line", 0)
-        s_col  = s.get("character", 0)
+        s_col = s.get("character", 0)
         e_line = e.get("line", s_line)
-        e_col  = e.get("character", s_col + 1)
+        e_col = e.get("character", s_col + 1)
         # Sandbox paints one line at a time — clamp to start-line range
         return {
-            "line":      s_line,
+            "line": s_line,
             "col_start": s_col,
-            "col_end":   e_col if e_line == s_line else max(s_col + 1, 9999),
-            "severity":  sev,
-            "message":   d.get("message", ""),
+            "col_end": e_col if e_line == s_line else max(s_col + 1, 9999),
+            "severity": sev,
+            "message": d.get("message", ""),
         }
 
     def _sc_open_diff(self, path: str) -> None:
@@ -2531,7 +2585,8 @@ class IDOL(Tk):
             50,
             lambda commits: (
                 self._sidebar.source_control.refresh_history(commits)
-                if self._git is git_snap else None
+                if self._git is git_snap
+                else None
             ),
         )
 
@@ -2783,8 +2838,14 @@ class IDOL(Tk):
         from tkinter import ttk
 
         frame = ttk.Frame(self.notebook)
-        _cv = self._codeviews.get(self._current_tab_id) if self._current_tab_id else None
-        _font = (_cv._font.actual("family"), _cv._font.actual("size")) if _cv else ("Consolas", 11)
+        _cv = (
+            self._codeviews.get(self._current_tab_id) if self._current_tab_id else None
+        )
+        _font = (
+            (_cv._font.actual("family"), _cv._font.actual("size"))
+            if _cv
+            else ("Consolas", 11)
+        )
         txt = tk.Text(
             frame,
             bg="#1e1e1e",
@@ -3006,10 +3067,14 @@ class IDOL(Tk):
         line_text = cv.get_line(cv.cur_line)
         col = cv.cur_col
         start = col
-        while start > 0 and (line_text[start - 1].isalnum() or line_text[start - 1] == "_"):
+        while start > 0 and (
+            line_text[start - 1].isalnum() or line_text[start - 1] == "_"
+        ):
             start -= 1
         end = col
-        while end < len(line_text) and (line_text[end].isalnum() or line_text[end] == "_"):
+        while end < len(line_text) and (
+            line_text[end].isalnum() or line_text[end] == "_"
+        ):
             end += 1
         return line_text[start:end]
 
@@ -3020,6 +3085,7 @@ class IDOL(Tk):
         the caller can fall back to the LSP.
         """
         import re
+
         pat = re.compile(r"^\s*(def|class)\s+" + re.escape(word) + r"\b")
         for i, line in enumerate(cv.lines):
             if pat.match(line):
@@ -3047,14 +3113,19 @@ class IDOL(Tk):
         path = path.replace("/", os.sep)
         if os.name == "nt" and path.startswith("\\"):
             path = path[1:]
-        rng = loc.get("targetSelectionRange") or loc.get("targetRange") or loc.get("range", {})
+        rng = (
+            loc.get("targetSelectionRange")
+            or loc.get("targetRange")
+            or loc.get("range", {})
+        )
         start = rng.get("start", {})
         line = start.get("line", 0) + 1
-        col  = start.get("character", 0)
+        col = start.get("character", 0)
         self._open_file_at(path, line, col)
 
     def _open_file_at(self, path: str, line: int, col: int) -> None:
         """Open *path* and position cursor at *line*:*col*."""
+
         def _seek(cv) -> None:
             if cv is None:
                 return
@@ -3117,7 +3188,12 @@ class IDOL(Tk):
     # ── File operations ───────────────────────────────────────────────────────
 
     def file_new(self) -> None:
-        if self._split_active and self._split_shown and self._active_pane == "right" and self._notebook_r:
+        if (
+            self._split_active
+            and self._split_shown
+            and self._active_pane == "right"
+            and self._notebook_r
+        ):
             self._new_tab_in(self._notebook_r, "Untitled", "")
         else:
             self._new_tab("Untitled", "")
@@ -3130,10 +3206,7 @@ class IDOL(Tk):
         has_project = any(
             self._titles.get(t) != "Untitled"
             or self._dirty.get(t)
-            or bool(
-                self._codeviews.get(t)
-                and self._codeviews[t].get_text().strip()
-            )
+            or bool(self._codeviews.get(t) and self._codeviews[t].get_text().strip())
             for t in self.notebook.tabs()
         )
         if has_project:
@@ -3260,13 +3333,14 @@ class IDOL(Tk):
                 ("Python Scripts", "*.py"),
                 ("Text Documents", "*.txt"),
                 ("All Files", "*.*"),
-            ]
+            ],
         )
         if path:
             self._open_file(path)
 
-    def _open_file(self, path: str, update_explorer: bool = True,
-                   select: bool = True) -> None:
+    def _open_file(
+        self, path: str, update_explorer: bool = True, select: bool = True
+    ) -> None:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -3426,10 +3500,9 @@ class IDOL(Tk):
                     self._refresh_debug_breakpoints()
                     cv = self._codeviews.get(tab_id)
                     if cv:
-                        cv.set_breakpoints({
-                            ln - 1
-                            for ln in self._breakpoints.get(filepath, set())
-                        })
+                        cv.set_breakpoints(
+                            {ln - 1 for ln in self._breakpoints.get(filepath, set())}
+                        )
                 # If the run entry was pinned to the temp file, redirect it to the real path
                 if self._run_entry_file == _tmp:
                     self._set_run_entry(filepath)
@@ -3512,6 +3585,7 @@ class IDOL(Tk):
             return
         if self._designer_forms_dirty and self._designer_forms:
             from tkinter.messagebox import askyesnocancel
+
             result = askyesnocancel(
                 "Unsaved Designer Changes",
                 "Designer forms have unsaved changes. Save before exiting?",
@@ -3519,7 +3593,7 @@ class IDOL(Tk):
             )
             if result is None:  # Cancel
                 return
-            if result:          # Yes
+            if result:  # Yes
                 self._designer_autosave()
         self._exiting = True
         session_utils.save(self)
@@ -3657,17 +3731,17 @@ class IDOL(Tk):
         m = self._edit_menu
         if self._designer_mode:
             canvas = self._design_canvas
-            has_sel   = bool(canvas.selected_ids)
-            has_clip  = canvas._clipboard is not None
-            can_undo  = canvas.can_undo
-            can_redo  = canvas.can_redo
-            has_form  = canvas.form is not None
-            m.entryconfigure("Undo",            state="normal" if can_undo else "disabled")
-            m.entryconfigure("Redo",            state="normal" if can_redo else "disabled")
-            m.entryconfigure("Cut",             state="normal" if has_sel  else "disabled")
-            m.entryconfigure("Copy",            state="normal" if has_sel  else "disabled")
-            m.entryconfigure("Paste",           state="normal" if has_clip else "disabled")
-            m.entryconfigure("Select All",      state="normal" if has_form else "disabled")
+            has_sel = bool(canvas.selected_ids)
+            has_clip = canvas._clipboard is not None
+            can_undo = canvas.can_undo
+            can_redo = canvas.can_redo
+            has_form = canvas.form is not None
+            m.entryconfigure("Undo", state="normal" if can_undo else "disabled")
+            m.entryconfigure("Redo", state="normal" if can_redo else "disabled")
+            m.entryconfigure("Cut", state="normal" if has_sel else "disabled")
+            m.entryconfigure("Copy", state="normal" if has_sel else "disabled")
+            m.entryconfigure("Paste", state="normal" if has_clip else "disabled")
+            m.entryconfigure("Select All", state="normal" if has_form else "disabled")
             m.entryconfigure("Find & Replace...", state="disabled")
         else:
             cv = self._current_codeview
@@ -3684,13 +3758,13 @@ class IDOL(Tk):
                     pass
             can_undo = bool(cv and getattr(cv, "can_undo", True))
             can_redo = bool(cv and getattr(cv, "can_redo", True))
-            m.entryconfigure("Undo",              state="normal" if can_undo else "disabled")
-            m.entryconfigure("Redo",              state="normal" if can_redo else "disabled")
-            m.entryconfigure("Cut",               state="normal" if has_sel  else "disabled")
-            m.entryconfigure("Copy",              state="normal" if has_sel  else "disabled")
-            m.entryconfigure("Paste",             state="normal" if has_clip else "disabled")
-            m.entryconfigure("Select All",        state="normal" if cv       else "disabled")
-            m.entryconfigure("Find & Replace...", state="normal" if cv       else "disabled")
+            m.entryconfigure("Undo", state="normal" if can_undo else "disabled")
+            m.entryconfigure("Redo", state="normal" if can_redo else "disabled")
+            m.entryconfigure("Cut", state="normal" if has_sel else "disabled")
+            m.entryconfigure("Copy", state="normal" if has_sel else "disabled")
+            m.entryconfigure("Paste", state="normal" if has_clip else "disabled")
+            m.entryconfigure("Select All", state="normal" if cv else "disabled")
+            m.entryconfigure("Find & Replace...", state="normal" if cv else "disabled")
 
     def edit_undo(self) -> None:
         if self._designer_mode:
@@ -3775,6 +3849,7 @@ class IDOL(Tk):
     def _apply_theme_to_sidebar_no_cv(self) -> None:
         """Apply theme palette to the sidebar when no codeview is active (e.g. Welcome tab)."""
         from utils.theme_loader import load_theme
+
         try:
             theme = load_theme(self.theme_var.get())
             pal = theme["palette"]
@@ -3793,9 +3868,9 @@ class IDOL(Tk):
         if not font:
             return
         family = font["family"]
-        size   = int(font["size"])
+        size = int(font["size"])
         weight = font.get("weight", "normal") or "normal"
-        slant  = font.get("slant",  "roman")  or "roman"
+        slant = font.get("slant", "roman") or "roman"
         self._editor_font = (family, size, weight, slant)
         for cv in self._codeviews.values():
             if cv is not None:
@@ -3860,11 +3935,7 @@ class IDOL(Tk):
 
         # First open: move current tab if there are multiple, otherwise open fresh Untitled
         tab_id = self._current_tab_id
-        if (
-            tab_id
-            and tab_id != self._welcome_tab
-            and len(self.notebook.tabs()) > 1
-        ):
+        if tab_id and tab_id != self._welcome_tab and len(self.notebook.tabs()) > 1:
             self._move_to_split(tab_id)
         else:
             self._ensure_split_shown()
@@ -3889,7 +3960,10 @@ class IDOL(Tk):
     def _refresh_nav_bar(self) -> None:
         """Sync nav bar toggle button colors with current view state."""
         pairs = [
-            (getattr(self, "_nav_split_btn", None), lambda: self._split_active and self._split_shown),
+            (
+                getattr(self, "_nav_split_btn", None),
+                lambda: self._split_active and self._split_shown,
+            ),
             (
                 getattr(self, "_nav_map_btn", None),
                 lambda: self.minimap_visible_var.get(),
@@ -3958,6 +4032,7 @@ class IDOL(Tk):
             return
         # Find the .idol-project file inside the project directory
         from pathlib import Path as _P
+
         proj_dir = _P(path)
         candidate = proj_dir / f"{proj_dir.name}.idol-project"
         if not candidate.is_file():
@@ -3967,7 +4042,10 @@ class IDOL(Tk):
             # Reuse workspace_open flow without the file dialog
             if self._has_dirty_tabs():
                 from tkinter.messagebox import askyesnocancel as _aync
-                answer = _aync("Open Project", "You have unsaved changes.\n\nSave before opening?")
+
+                answer = _aync(
+                    "Open Project", "You have unsaved changes.\n\nSave before opening?"
+                )
                 if answer is None:
                     return
                 if answer:
@@ -4571,7 +4649,7 @@ class IDOL(Tk):
         form_loaded = getattr(self._design_canvas, "_form", None) is not None
         state = "normal" if form_loaded else "disabled"
         menu.entryconfigure("Generate Code", state=state)
-        menu.entryconfigure("Save Form",     state=state)
+        menu.entryconfigure("Save Form", state=state)
 
     def _show_mode_bar(self) -> None:
         """Pack the [Editor] | [Designer] strip above the notebook."""
@@ -4579,9 +4657,7 @@ class IDOL(Tk):
         self._mode_bar.pack(fill="x", side="top", before=before)
         self._refresh_mode_bar()
         if self._split_active and hasattr(self, "_split_mode_bar_spacer"):
-            self._split_mode_bar_spacer.pack(
-                fill="x", before=self._notebook_r
-            )
+            self._split_mode_bar_spacer.pack(fill="x", before=self._notebook_r)
 
     def _hide_mode_bar(self) -> None:
         """Remove the mode bar and force editor mode."""
@@ -4768,6 +4844,7 @@ class IDOL(Tk):
                 inner = getattr(cv, "canvas", cv)
                 inner.focus_set()
                 cv.scroll_to_line(cv.get_cursor()[0])
+
         self.after_idle(_restore_editor_focus)
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
@@ -4973,15 +5050,19 @@ class IDOL(Tk):
         if enabled and handler_id not in form.enabled_handlers:
             form.enabled_handlers.append(handler_id)
         elif not enabled:
-            form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+            form.enabled_handlers = [
+                h for h in form.enabled_handlers if h != handler_id
+            ]
         self._set_designer_dirty()
 
-    def _on_designer_handler_connect(self, handler_id: str,
-                                        preselect_widget_id: str | None = None) -> None:
+    def _on_designer_handler_connect(
+        self, handler_id: str, preselect_widget_id: str | None = None
+    ) -> None:
         """⚡ button on an Available handler row — enable or wire the handler."""
         from designer.handlers import HANDLER_CATALOG
         from designer.model import HandlerWire
         from widgets.designer_connector import ComponentConnector
+
         form = self._design_canvas.form
         if form is None:
             return
@@ -5019,10 +5100,12 @@ class IDOL(Tk):
 
                 self._apply_wire_side_effects(form, hdef, option)
 
-                wire = HandlerWire(handler_id=handler_id,
-                                   widget_id=widget_id,
-                                   event_key=event_key,
-                                   option=option)
+                wire = HandlerWire(
+                    handler_id=handler_id,
+                    widget_id=widget_id,
+                    event_key=event_key,
+                    option=option,
+                )
                 form.handler_wires.append(wire)
                 # generates_stub=False handlers (e.g. _open_dialog) don't emit a stub.
                 if hdef.generates_stub and handler_id not in form.enabled_handlers:
@@ -5040,7 +5123,8 @@ class IDOL(Tk):
                 else None
             )
             ComponentConnector(
-                self, form,
+                self,
+                form,
                 component_id="",
                 handler_id=handler_id,
                 handler_label="",
@@ -5061,15 +5145,21 @@ class IDOL(Tk):
     def _on_designer_handler_disconnect(self, handler_id: str, wire) -> None:
         """× button on a Connected handler row — disable the handler or remove a wire."""
         from designer.model import HandlerWire
+
         form = self._design_canvas.form
         if form is None:
             return
         if wire is not None and isinstance(wire, HandlerWire):
             # Remove specific widget-event wire for connectable handlers
-            form.handler_wires = [w for w in form.handler_wires
-                                  if not (w.handler_id == wire.handler_id
-                                          and w.widget_id == wire.widget_id
-                                          and w.event_key == wire.event_key)]
+            form.handler_wires = [
+                w
+                for w in form.handler_wires
+                if not (
+                    w.handler_id == wire.handler_id
+                    and w.widget_id == wire.widget_id
+                    and w.event_key == wire.event_key
+                )
+            ]
             # Clear the event binding on the widget or form
             if wire.widget_id == "__form__":
                 form.form_events.pop(wire.event_key, None)
@@ -5080,11 +5170,15 @@ class IDOL(Tk):
             # If no wires remain for this handler, clean up enabled_handlers + options
             still_wired = any(w.handler_id == handler_id for w in form.handler_wires)
             if not still_wired:
-                form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+                form.enabled_handlers = [
+                    h for h in form.enabled_handlers if h != handler_id
+                ]
                 form.handler_options.pop(handler_id, None)
         else:
             # Remove from enabled_handlers (built-in wired handler)
-            form.enabled_handlers = [h for h in form.enabled_handlers if h != handler_id]
+            form.enabled_handlers = [
+                h for h in form.enabled_handlers if h != handler_id
+            ]
             form.handler_options.pop(handler_id, None)
         self._set_designer_dirty()
         self._props_panel.load_handlers(form)
@@ -5094,6 +5188,7 @@ class IDOL(Tk):
         from designer.handlers import HANDLER_CATALOG
         from designer.model import HandlerWire
         from widgets.handler_options_editor import HandlerOptionsEditor
+
         form = self._design_canvas.form
         if form is None:
             return
@@ -5104,7 +5199,7 @@ class IDOL(Tk):
 
         # Multi-wire handlers: edit the secondary option (mode)
         if is_wire and hdef.multi_wire and hdef.secondary_options:
-            opt_parts    = wire.option.partition(":")
+            opt_parts = wire.option.partition(":")
             primary_part = opt_parts[0]
             current_mode = opt_parts[2] if opt_parts[1] else hdef.secondary_options[0]
 
@@ -5112,10 +5207,15 @@ class IDOL(Tk):
                 new_combined = f"{primary_part}:{new_mode}"
                 form.handler_wires = [
                     HandlerWire(
-                        w.handler_id, w.widget_id, w.event_key,
-                        new_combined if (w.handler_id == wire.handler_id
-                                         and w.widget_id == wire.widget_id
-                                         and w.event_key == wire.event_key)
+                        w.handler_id,
+                        w.widget_id,
+                        w.event_key,
+                        new_combined
+                        if (
+                            w.handler_id == wire.handler_id
+                            and w.widget_id == wire.widget_id
+                            and w.event_key == wire.event_key
+                        )
                         else w.option,
                     )
                     for w in form.handler_wires
@@ -5125,7 +5225,10 @@ class IDOL(Tk):
                 self._props_panel.load_handlers(form)
 
             HandlerOptionsEditor(
-                self, handler_id, hdef, is_wire=True,
+                self,
+                handler_id,
+                hdef,
+                is_wire=True,
                 current_option=current_mode,
                 on_apply=on_mode_apply,
                 override_options=list(hdef.secondary_options),
@@ -5141,10 +5244,15 @@ class IDOL(Tk):
                 self._reset_wire_stub_if_auto(form, wire, hdef, option)
                 form.handler_wires = [
                     HandlerWire(
-                        w.handler_id, w.widget_id, w.event_key,
-                        option if (w.handler_id == wire.handler_id
-                                   and w.widget_id == wire.widget_id
-                                   and w.event_key == wire.event_key)
+                        w.handler_id,
+                        w.widget_id,
+                        w.event_key,
+                        option
+                        if (
+                            w.handler_id == wire.handler_id
+                            and w.widget_id == wire.widget_id
+                            and w.event_key == wire.event_key
+                        )
                         else w.option,
                     )
                     for w in form.handler_wires
@@ -5226,8 +5334,9 @@ class IDOL(Tk):
             self._open_socket_setup_dialog(form, cdef)
             return
         comp_id = form.next_component_id(cdef.default_name)
-        comp = ComponentDescriptor(id=comp_id, type=type_key,
-                                   props=default_props(type_key))
+        comp = ComponentDescriptor(
+            id=comp_id, type=type_key, props=default_props(type_key)
+        )
         form.components.append(comp)
         self._comp_tray.refresh(form.components)
         self._comp_tray.select(comp_id)
@@ -5250,82 +5359,139 @@ class IDOL(Tk):
         win.configure(bg="#2d2d2d")
         win.transient(self)
 
-        _BG   = "#2d2d2d"
-        _FG   = "#cccccc"
-        _FG2  = "#888888"
-        _ENT  = "#3c3c3c"
-        _SEP  = "#3a3a3a"
+        _BG = "#2d2d2d"
+        _FG = "#cccccc"
+        _FG2 = "#888888"
+        _ENT = "#3c3c3c"
+        _SEP = "#3a3a3a"
         _FONT = (UI_FONT, 9)
 
         # ── Type row ──────────────────────────────────────────────────────────
         type_var = tk.StringVar(value="server")
-        tk.Label(win, text="Type:", bg=_BG, fg=_FG, font=_FONT
-                 ).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
+        tk.Label(win, text="Type:", bg=_BG, fg=_FG, font=_FONT).grid(
+            row=0, column=0, padx=12, pady=(14, 4), sticky="w"
+        )
         type_frame = tk.Frame(win, bg=_BG)
-        type_frame.grid(row=0, column=1, columnspan=3, padx=(0, 12), pady=(14, 4), sticky="w")
-        for lbl, val in [("Server  (listen)", "server"), ("Client  (connect)", "client")]:
-            tk.Radiobutton(type_frame, text=lbl, variable=type_var, value=val,
-                           bg=_BG, fg=_FG, selectcolor="#094771",
-                           activebackground=_BG, font=_FONT,
-                           highlightthickness=0, relief="flat",
-                           ).pack(side="left", padx=(0, 12))
+        type_frame.grid(
+            row=0, column=1, columnspan=3, padx=(0, 12), pady=(14, 4), sticky="w"
+        )
+        for lbl, val in [
+            ("Server  (listen)", "server"),
+            ("Client  (connect)", "client"),
+        ]:
+            tk.Radiobutton(
+                type_frame,
+                text=lbl,
+                variable=type_var,
+                value=val,
+                bg=_BG,
+                fg=_FG,
+                selectcolor="#094771",
+                activebackground=_BG,
+                font=_FONT,
+                highlightthickness=0,
+                relief="flat",
+            ).pack(side="left", padx=(0, 12))
 
         # ── Host / Port row ───────────────────────────────────────────────────
-        tk.Label(win, text="Host:", bg=_BG, fg=_FG, font=_FONT
-                 ).grid(row=1, column=0, padx=12, pady=4, sticky="w")
+        tk.Label(win, text="Host:", bg=_BG, fg=_FG, font=_FONT).grid(
+            row=1, column=0, padx=12, pady=4, sticky="w"
+        )
         host_var = tk.StringVar(value="localhost")
-        tk.Entry(win, textvariable=host_var, bg=_ENT, fg=_FG,
-                 insertbackground=_FG, relief="flat", font=_FONT, width=16
-                 ).grid(row=1, column=1, padx=(0, 8), pady=4, sticky="w")
-        tk.Label(win, text="Port:", bg=_BG, fg=_FG, font=_FONT
-                 ).grid(row=1, column=2, pady=4, sticky="w")
+        tk.Entry(
+            win,
+            textvariable=host_var,
+            bg=_ENT,
+            fg=_FG,
+            insertbackground=_FG,
+            relief="flat",
+            font=_FONT,
+            width=16,
+        ).grid(row=1, column=1, padx=(0, 8), pady=4, sticky="w")
+        tk.Label(win, text="Port:", bg=_BG, fg=_FG, font=_FONT).grid(
+            row=1, column=2, pady=4, sticky="w"
+        )
         port_var = tk.StringVar(value="8080")
-        tk.Entry(win, textvariable=port_var, bg=_ENT, fg=_FG,
-                 insertbackground=_FG, relief="flat", font=_FONT, width=6
-                 ).grid(row=1, column=3, padx=(4, 12), pady=4, sticky="w")
+        tk.Entry(
+            win,
+            textvariable=port_var,
+            bg=_ENT,
+            fg=_FG,
+            insertbackground=_FG,
+            relief="flat",
+            font=_FONT,
+            width=6,
+        ).grid(row=1, column=3, padx=(4, 12), pady=4, sticky="w")
 
         # ── Separator + scaffold section ──────────────────────────────────────
         tk.Frame(win, bg=_SEP, height=1).grid(
-            row=2, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 2))
-        tk.Label(win, text="Scaffold starter widgets (optional):",
-                 bg=_BG, fg=_FG2, font=_FONT
-                 ).grid(row=3, column=0, columnspan=4, padx=12, pady=(4, 2), sticky="w")
+            row=2, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 2)
+        )
+        tk.Label(
+            win,
+            text="Scaffold starter widgets (optional):",
+            bg=_BG,
+            fg=_FG2,
+            font=_FONT,
+        ).grid(row=3, column=0, columnspan=4, padx=12, pady=(4, 2), sticky="w")
 
         # ── 3 grouped checkboxes ──────────────────────────────────────────────
         chk_connect = tk.BooleanVar(value=False)
-        chk_chat    = tk.BooleanVar(value=False)
-        chk_file    = tk.BooleanVar(value=False)
+        chk_chat = tk.BooleanVar(value=False)
+        chk_file = tk.BooleanVar(value=False)
 
         def _chk(row_i, var, title, detail):
             f = tk.Frame(win, bg=_BG)
             f.grid(row=row_i, column=0, columnspan=4, padx=16, pady=(3, 0), sticky="w")
-            tk.Checkbutton(f, text=title, variable=var,
-                           bg=_BG, fg=_FG, selectcolor="#094771",
-                           activebackground=_BG, font=_FONT,
-                           highlightthickness=0, relief="flat",
-                           ).pack(side="left")
-            tk.Label(f, text=detail, bg=_BG, fg=_FG2, font=(UI_FONT, 8)
-                     ).pack(side="left", padx=(4, 0))
+            tk.Checkbutton(
+                f,
+                text=title,
+                variable=var,
+                bg=_BG,
+                fg=_FG,
+                selectcolor="#094771",
+                activebackground=_BG,
+                font=_FONT,
+                highlightthickness=0,
+                relief="flat",
+            ).pack(side="left")
+            tk.Label(f, text=detail, bg=_BG, fg=_FG2, font=(UI_FONT, 8)).pack(
+                side="left", padx=(4, 0)
+            )
 
-        _chk(4, chk_connect,
-             "Connect / Disconnect",
-             "— toggle button + status label, auto-wired")
-        _chk(5, chk_chat,
-             "Chat",
-             "— text log, message entry + Send button, auto-wired")
-        _chk(6, chk_file,
-             "File Transfer",
-             "— progressbar, file label + Send File button, framed protocol")
+        _chk(
+            4,
+            chk_connect,
+            "Connect / Disconnect",
+            "— toggle button + status label, auto-wired",
+        )
+        _chk(5, chk_chat, "Chat", "— text log, message entry + Send button, auto-wired")
+        _chk(
+            6,
+            chk_file,
+            "File Transfer",
+            "— progressbar, file label + Send File button, framed protocol",
+        )
 
         # ── Button row ────────────────────────────────────────────────────────
         tk.Frame(win, bg=_SEP, height=1).grid(
-            row=7, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 0))
+            row=7, column=0, columnspan=4, sticky="ew", padx=8, pady=(10, 0)
+        )
         btn_frame = tk.Frame(win, bg=_BG)
         btn_frame.grid(row=8, column=0, columnspan=4, padx=12, pady=(6, 12), sticky="e")
 
         def _make_btn(parent, text, cmd):
-            b = tk.Label(parent, text=text, bg="#3c3c3c", fg=_FG,
-                         font=_FONT, padx=10, pady=4, cursor="hand2", relief="flat")
+            b = tk.Label(
+                parent,
+                text=text,
+                bg="#3c3c3c",
+                fg=_FG,
+                font=_FONT,
+                padx=10,
+                pady=4,
+                cursor="hand2",
+                relief="flat",
+            )
             b.pack(side="left", padx=(6, 0))
             b.bind("<ButtonRelease-1>", lambda _: cmd())
             b.bind("<Enter>", lambda _: b.configure(bg="#505050"))
@@ -5334,7 +5500,7 @@ class IDOL(Tk):
 
         def _on_confirm():
             stype = type_var.get()
-            host  = host_var.get().strip() or "localhost"
+            host = host_var.get().strip() or "localhost"
             try:
                 port = int(port_var.get())
             except ValueError:
@@ -5342,19 +5508,19 @@ class IDOL(Tk):
 
             # ── Create component ──────────────────────────────────────────────
             comp_id = form.next_component_id(cdef.default_name)
-            props   = comp_default_props("Socket")
+            props = comp_default_props("Socket")
             props["socket_type"] = stype
-            props["host"]        = host
-            props["port"]        = port
+            props["host"] = host
+            props["port"] = port
             if stype == "server":
                 props["bind_address"] = "0.0.0.0"
 
             # ── Scaffold ──────────────────────────────────────────────────────
-            fw       = form.width
-            mx       = 16          # margin x
-            inner_w  = fw - mx * 2
-            cur_y    = 16
-            gap      = 8
+            fw = form.width
+            mx = 16  # margin x
+            inner_w = fw - mx * 2
+            cur_y = 16
+            gap = 8
 
             existing_ids = {wd.id for wd in form.widgets}
 
@@ -5370,105 +5536,195 @@ class IDOL(Tk):
                 return nid
 
             def _btn_props(text):
-                return {"text": text, "bg": "", "fg": "#000000",
-                        "font": "", "justify": "", "relief": "", "borderwidth": "",
-                        "wraplength": "", "image": "", "compound": ""}
+                return {
+                    "text": text,
+                    "bg": "",
+                    "fg": "#000000",
+                    "font": "",
+                    "justify": "",
+                    "relief": "",
+                    "borderwidth": "",
+                    "wraplength": "",
+                    "image": "",
+                    "compound": "",
+                }
 
             def _lbl_props(text, fg="#cccccc"):
-                return {"text": text, "bg": "", "fg": fg,
-                        "font": "", "justify": "left", "relief": "", "borderwidth": "",
-                        "wraplength": "", "image": "", "compound": ""}
+                return {
+                    "text": text,
+                    "bg": "",
+                    "fg": fg,
+                    "font": "",
+                    "justify": "left",
+                    "relief": "",
+                    "borderwidth": "",
+                    "wraplength": "",
+                    "image": "",
+                    "compound": "",
+                }
 
             def _add(w):
                 form.widgets.append(w)
 
             # ── Group 1: Connect / Disconnect ─────────────────────────────────
             if chk_connect.get():
-                btn_lbl  = "Listen" if stype == "server" else "Connect"
-                btn_id   = _named_id("btn_connect")
-                lbl_id   = _named_id("lbl_status")
-                _add(WidgetDescriptor(
-                    id=btn_id, type="Button", x=mx, y=cur_y,
-                    width=130, height=28,
-                    props=_btn_props(btn_lbl),
-                    events={"command": f"_{comp_id}_toggle_connect"},
-                ))
-                _add(WidgetDescriptor(
-                    id=lbl_id, type="Label", x=mx + 138, y=cur_y + 4,
-                    width=inner_w - 138, height=20,
-                    props=_lbl_props("Disconnected", "#888888"),
-                    events={},
-                ))
+                btn_lbl = "Listen" if stype == "server" else "Connect"
+                btn_id = _named_id("btn_connect")
+                lbl_id = _named_id("lbl_status")
+                _add(
+                    WidgetDescriptor(
+                        id=btn_id,
+                        type="Button",
+                        x=mx,
+                        y=cur_y,
+                        width=130,
+                        height=28,
+                        props=_btn_props(btn_lbl),
+                        events={"command": f"_{comp_id}_toggle_connect"},
+                    )
+                )
+                _add(
+                    WidgetDescriptor(
+                        id=lbl_id,
+                        type="Label",
+                        x=mx + 138,
+                        y=cur_y + 4,
+                        width=inner_w - 138,
+                        height=20,
+                        props=_lbl_props("Disconnected", "#888888"),
+                        events={},
+                    )
+                )
                 props["_scaffold_btn_connect"] = btn_id
-                props["_scaffold_lbl_status"]  = lbl_id
+                props["_scaffold_lbl_status"] = lbl_id
                 cur_y += 28 + gap
 
             # ── Group 2: Chat ─────────────────────────────────────────────────
             if chk_chat.get():
-                txt_id   = _named_id("txt_chat")
-                ent_id   = _named_id("ent_message")
-                send_id  = _named_id("btn_send")
-                send_w   = 70
-                ent_w    = inner_w - send_w - gap
-                _add(WidgetDescriptor(
-                    id=txt_id, type="Text", x=mx, y=cur_y,
-                    width=inner_w, height=200,
-                    props={"wrap": "word", "bg": "#1e1e1e", "fg": "#cccccc",
-                           "font": "", "relief": "flat", "insertbackground": "",
-                           "borderwidth": "0", "scrollbar": "Vertical",
-                           "selectbackground": "", "selectforeground": "",
-                           "exportselection": "", "char_width": "", "char_height": ""},
-                    events={},
-                ))
+                txt_id = _named_id("txt_chat")
+                ent_id = _named_id("ent_message")
+                send_id = _named_id("btn_send")
+                send_w = 70
+                ent_w = inner_w - send_w - gap
+                _add(
+                    WidgetDescriptor(
+                        id=txt_id,
+                        type="Text",
+                        x=mx,
+                        y=cur_y,
+                        width=inner_w,
+                        height=200,
+                        props={
+                            "wrap": "word",
+                            "bg": "#1e1e1e",
+                            "fg": "#cccccc",
+                            "font": "",
+                            "relief": "flat",
+                            "insertbackground": "",
+                            "borderwidth": "0",
+                            "scrollbar": "Vertical",
+                            "selectbackground": "",
+                            "selectforeground": "",
+                            "exportselection": "",
+                            "char_width": "",
+                            "char_height": "",
+                        },
+                        events={},
+                    )
+                )
                 cur_y += 200 + gap
-                _add(WidgetDescriptor(
-                    id=ent_id, type="Entry", x=mx, y=cur_y,
-                    width=ent_w, height=28,
-                    props={"text": "", "bg": "#3c3c3c", "fg": "#cccccc",
-                           "show": "", "font": "", "justify": "", "relief": "flat",
-                           "insertbackground": "#cccccc", "borderwidth": "0",
-                           "selectbackground": "", "selectforeground": "",
-                           "exportselection": "", "char_width": ""},
-                    events={},
-                ))
-                _add(WidgetDescriptor(
-                    id=send_id, type="Button", x=mx + ent_w + gap, y=cur_y,
-                    width=send_w, height=28,
-                    props=_btn_props("Send"),
-                    events={"command": f"_{comp_id}_quick_send"},
-                ))
-                props["_scaffold_txt_chat"]    = txt_id
+                _add(
+                    WidgetDescriptor(
+                        id=ent_id,
+                        type="Entry",
+                        x=mx,
+                        y=cur_y,
+                        width=ent_w,
+                        height=28,
+                        props={
+                            "text": "",
+                            "bg": "#3c3c3c",
+                            "fg": "#cccccc",
+                            "show": "",
+                            "font": "",
+                            "justify": "",
+                            "relief": "flat",
+                            "insertbackground": "#cccccc",
+                            "borderwidth": "0",
+                            "selectbackground": "",
+                            "selectforeground": "",
+                            "exportselection": "",
+                            "char_width": "",
+                        },
+                        events={},
+                    )
+                )
+                _add(
+                    WidgetDescriptor(
+                        id=send_id,
+                        type="Button",
+                        x=mx + ent_w + gap,
+                        y=cur_y,
+                        width=send_w,
+                        height=28,
+                        props=_btn_props("Send"),
+                        events={"command": f"_{comp_id}_quick_send"},
+                    )
+                )
+                props["_scaffold_txt_chat"] = txt_id
                 props["_scaffold_ent_message"] = ent_id
                 cur_y += 28 + gap
 
             # ── Group 3: File Transfer ────────────────────────────────────────
             if chk_file.get():
-                pb_id    = _named_id("pb_transfer")
-                lbl_id   = _named_id("lbl_file")
-                file_id  = _named_id("btn_send_file")
-                file_w   = 100
-                lbl_w    = inner_w - file_w - gap
-                _add(WidgetDescriptor(
-                    id=pb_id, type="Progressbar", x=mx, y=cur_y,
-                    width=inner_w, height=18,
-                    props={"orient": "horizontal", "mode": "determinate", "maximum": ""},
-                    events={},
-                ))
+                pb_id = _named_id("pb_transfer")
+                lbl_id = _named_id("lbl_file")
+                file_id = _named_id("btn_send_file")
+                file_w = 100
+                lbl_w = inner_w - file_w - gap
+                _add(
+                    WidgetDescriptor(
+                        id=pb_id,
+                        type="Progressbar",
+                        x=mx,
+                        y=cur_y,
+                        width=inner_w,
+                        height=18,
+                        props={
+                            "orient": "horizontal",
+                            "mode": "determinate",
+                            "maximum": "",
+                        },
+                        events={},
+                    )
+                )
                 cur_y += 18 + gap
-                _add(WidgetDescriptor(
-                    id=lbl_id, type="Label", x=mx, y=cur_y,
-                    width=lbl_w, height=24,
-                    props=_lbl_props("No file selected", "#888888"),
-                    events={},
-                ))
-                _add(WidgetDescriptor(
-                    id=file_id, type="Button", x=mx + lbl_w + gap, y=cur_y - 2,
-                    width=file_w, height=28,
-                    props=_btn_props("Send File…"),
-                    events={"command": f"_{comp_id}_pick_and_send_file"},
-                ))
+                _add(
+                    WidgetDescriptor(
+                        id=lbl_id,
+                        type="Label",
+                        x=mx,
+                        y=cur_y,
+                        width=lbl_w,
+                        height=24,
+                        props=_lbl_props("No file selected", "#888888"),
+                        events={},
+                    )
+                )
+                _add(
+                    WidgetDescriptor(
+                        id=file_id,
+                        type="Button",
+                        x=mx + lbl_w + gap,
+                        y=cur_y - 2,
+                        width=file_w,
+                        height=28,
+                        props=_btn_props("Send File…"),
+                        events={"command": f"_{comp_id}_pick_and_send_file"},
+                    )
+                )
                 props["_scaffold_pb_transfer"] = pb_id
-                props["_scaffold_lbl_file"]    = lbl_id
+                props["_scaffold_lbl_file"] = lbl_id
                 cur_y += 28 + gap
 
             # ── Finalise ──────────────────────────────────────────────────────
@@ -5497,7 +5753,7 @@ class IDOL(Tk):
         win.bind("<Escape>", lambda _: _on_cancel())
 
         self.update_idletasks()
-        pw = self.winfo_rootx() + self.winfo_width()  // 2
+        pw = self.winfo_rootx() + self.winfo_width() // 2
         ph = self.winfo_rooty() + self.winfo_height() // 2
         win.update_idletasks()
         win.geometry(f"+{pw - win.winfo_width() // 2}+{ph - win.winfo_height() // 2}")
@@ -5538,6 +5794,7 @@ class IDOL(Tk):
 
     def _on_comp_rename(self, comp_id: str, new_name: str) -> None:
         from pathlib import Path as _Path
+
         form = self._design_canvas.form
         if form is None:
             return
@@ -5555,7 +5812,11 @@ class IDOL(Tk):
         # Update widget.events values that reference old handler names
         for widget in form.widgets:
             widget.events = {
-                ev: (v.replace(old_prefix, new_prefix, 1) if v.startswith(old_prefix) else v)
+                ev: (
+                    v.replace(old_prefix, new_prefix, 1)
+                    if v.startswith(old_prefix)
+                    else v
+                )
                 for ev, v in widget.events.items()
             }
 
@@ -5565,7 +5826,9 @@ class IDOL(Tk):
             py_path = _Path(root) / f"{form.name}.py"
             if py_path.exists():
                 src = py_path.read_text(encoding="utf-8")
-                py_path.write_text(src.replace(old_prefix, new_prefix), encoding="utf-8")
+                py_path.write_text(
+                    src.replace(old_prefix, new_prefix), encoding="utf-8"
+                )
 
         comp.id = new_name
         self._comp_tray.refresh(form.components)
@@ -5605,49 +5868,55 @@ class IDOL(Tk):
 
         # For file-object handlers, build a dynamic "Populate" widget list
         _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
-        _POPULATE_TYPES    = ("Entry", "Text", "Listbox")
-        _INPUT_TYPES       = ("string", "integer", "float")
-        _MB_TYPES          = ("askyesno", "askokcancel", "askretrycancel", "askquestion")
+        _POPULATE_TYPES = ("Entry", "Text", "Listbox")
+        _INPUT_TYPES = ("string", "integer", "float")
+        _MB_TYPES = ("askyesno", "askokcancel", "askretrycancel", "askquestion")
         if handler_id in _FILE_OBJ_HANDLERS:
             _targets = [w.id for w in form.widgets if w.type in _POPULATE_TYPES]
-            _primary_opts    = ()
-            _secondary_opts  = tuple(_targets) + ("(none)",)
+            _primary_opts = ()
+            _secondary_opts = tuple(_targets) + ("(none)",)
             _secondary_label = "Populate"
-            _secondary_warn  = (
-                "" if _targets else
-                "⚠  No Entry, Text, or Listbox on form — add one or choose (none)"
+            _secondary_warn = (
+                ""
+                if _targets
+                else "⚠  No Entry, Text, or Listbox on form — add one or choose (none)"
             )
         elif handler_id == "ask_input":
-            _primary_opts    = _INPUT_TYPES
-            _secondary_opts  = ()
+            _primary_opts = _INPUT_TYPES
+            _secondary_opts = ()
             _secondary_label = "Mode"
-            _secondary_warn  = ""
+            _secondary_warn = ""
         elif handler_id == "messagebox":
-            _primary_opts    = _MB_TYPES
-            _secondary_opts  = ()
+            _primary_opts = _MB_TYPES
+            _secondary_opts = ()
             _secondary_label = "Mode"
-            _secondary_warn  = ""
+            _secondary_warn = ""
         else:
-            _primary_opts    = ()
-            _secondary_opts  = ()
+            _primary_opts = ()
+            _secondary_opts = ()
             _secondary_label = "Mode"
-            _secondary_warn  = ""
+            _secondary_warn = ""
 
-        _show_title        = (comp.type == "CommonDialog")
+        _show_title = comp.type == "CommonDialog"
         _title_entry_label = "Message" if handler_id == "messagebox" else "Title"
-        _show_extra        = (handler_id == "messagebox")
+        _show_extra = handler_id == "messagebox"
         if handler_id == "messagebox":
             _init_title = comp.props.get("messagebox_message", "")
             _init_extra = comp.props.get("messagebox_title", "")
         else:
-            _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+            _init_title = (
+                comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+            )
             _init_extra = ""
 
         # Connectable menu items (non-cascade command items at indent > 0)
         _all_mi = form.menu_items
         _conn_mi = [
-            mi for i, mi in enumerate(_all_mi)
-            if mi.indent > 0 and mi.caption != "-" and mi.name
+            mi
+            for i, mi in enumerate(_all_mi)
+            if mi.indent > 0
+            and mi.caption != "-"
+            and mi.name
             and mi.kind not in ("checkbutton", "radiobutton")
             and not any(
                 _all_mi[j].indent == mi.indent + 1
@@ -5658,10 +5927,12 @@ class IDOL(Tk):
 
         def _is_stub(method_name: str) -> bool:
             import re as _re
+
             root = getattr(self._sidebar.explorer, "_root", None)
             if not root:
                 return True
             from pathlib import Path as _Path
+
             py_path = _Path(root) / f"{form.name}.py"
             if not py_path.exists():
                 return True
@@ -5671,7 +5942,8 @@ class IDOL(Tk):
                 return False
             m = _re.search(
                 rf"def {_re.escape(method_name)}\(self[^)]*\):\s*\n[ \t]+(pass\b)",
-                src, _re.MULTILINE,
+                src,
+                _re.MULTILINE,
             )
             return bool(m)
 
@@ -5689,7 +5961,7 @@ class IDOL(Tk):
                 return
             w.events[event_key] = method
             if handler_id == "messagebox":
-                _parts   = option.split("|", 2)
+                _parts = option.split("|", 2)
                 main_opt = _parts[0]
                 msg_text = _parts[1] if len(_parts) > 1 else ""
                 dlg_title = _parts[2] if len(_parts) > 2 else ""
@@ -5780,8 +6052,7 @@ class IDOL(Tk):
                 return
             method = w.events.get(event_key, "")
         hdef = next(
-            (h for h in cdef.handler_defs
-             if f"_{comp_id}{h.label}" == method),
+            (h for h in cdef.handler_defs if f"_{comp_id}{h.label}" == method),
             None,
         )
         if hdef is None:
@@ -5789,49 +6060,55 @@ class IDOL(Tk):
         handler_id = hdef.id
 
         _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
-        _POPULATE_TYPES    = ("Entry", "Text", "Listbox")
-        _INPUT_TYPES       = ("string", "integer", "float")
-        _MB_TYPES          = ("askyesno", "askokcancel", "askretrycancel", "askquestion")
+        _POPULATE_TYPES = ("Entry", "Text", "Listbox")
+        _INPUT_TYPES = ("string", "integer", "float")
+        _MB_TYPES = ("askyesno", "askokcancel", "askretrycancel", "askquestion")
         if handler_id in _FILE_OBJ_HANDLERS:
             _targets = [wd.id for wd in form.widgets if wd.type in _POPULATE_TYPES]
-            _primary_opts    = ()
-            _secondary_opts  = tuple(_targets) + ("(none)",)
+            _primary_opts = ()
+            _secondary_opts = tuple(_targets) + ("(none)",)
             _secondary_label = "Populate"
-            _secondary_warn  = (
-                "" if _targets else
-                "⚠  No Entry, Text, or Listbox on form — add one or choose (none)"
+            _secondary_warn = (
+                ""
+                if _targets
+                else "⚠  No Entry, Text, or Listbox on form — add one or choose (none)"
             )
         elif handler_id == "ask_input":
-            _primary_opts    = _INPUT_TYPES
-            _secondary_opts  = ()
+            _primary_opts = _INPUT_TYPES
+            _secondary_opts = ()
             _secondary_label = "Mode"
-            _secondary_warn  = ""
+            _secondary_warn = ""
         elif handler_id == "messagebox":
-            _primary_opts    = _MB_TYPES
-            _secondary_opts  = ()
+            _primary_opts = _MB_TYPES
+            _secondary_opts = ()
             _secondary_label = "Mode"
-            _secondary_warn  = ""
+            _secondary_warn = ""
         else:
-            _primary_opts    = ()
-            _secondary_opts  = ()
+            _primary_opts = ()
+            _secondary_opts = ()
             _secondary_label = "Mode"
-            _secondary_warn  = ""
+            _secondary_warn = ""
 
-        _show_title        = (comp.type == "CommonDialog")
+        _show_title = comp.type == "CommonDialog"
         _title_entry_label = "Message" if handler_id == "messagebox" else "Title"
-        _show_extra        = (handler_id == "messagebox")
+        _show_extra = handler_id == "messagebox"
         if handler_id == "messagebox":
             _init_title = comp.props.get("messagebox_message", "")
             _init_extra = comp.props.get("messagebox_title", "")
         else:
-            _init_title = comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+            _init_title = (
+                comp.props.get(f"{handler_id}_title", "") if _show_title else ""
+            )
             _init_extra = ""
 
         # Connectable menu items (non-cascade command items at indent > 0)
         _all_mi = form.menu_items
         _conn_mi = [
-            mi for i, mi in enumerate(_all_mi)
-            if mi.indent > 0 and mi.caption != "-" and mi.name
+            mi
+            for i, mi in enumerate(_all_mi)
+            if mi.indent > 0
+            and mi.caption != "-"
+            and mi.name
             and mi.kind not in ("checkbutton", "radiobutton")
             and not any(
                 _all_mi[j].indent == mi.indent + 1
@@ -5845,10 +6122,12 @@ class IDOL(Tk):
 
         def _is_stub(method_name: str) -> bool:
             import re as _re
+
             root = getattr(self._sidebar.explorer, "_root", None)
             if not root:
                 return True
             from pathlib import Path as _Path
+
             py_path = _Path(root) / f"{form.name}.py"
             if not py_path.exists():
                 return True
@@ -5858,7 +6137,8 @@ class IDOL(Tk):
                 return False
             m = _re.search(
                 rf"def {_re.escape(method_name)}\(self[^)]*\):\s*\n[ \t]+(pass\b)",
-                src, _re.MULTILINE,
+                src,
+                _re.MULTILINE,
             )
             return bool(m)
 
@@ -5885,9 +6165,9 @@ class IDOL(Tk):
                 return
             new_w.events[new_event_key] = method
             if handler_id == "messagebox":
-                _parts    = option.split("|", 2)
-                main_opt  = _parts[0]
-                msg_text  = _parts[1] if len(_parts) > 1 else ""
+                _parts = option.split("|", 2)
+                main_opt = _parts[0]
+                msg_text = _parts[1] if len(_parts) > 1 else ""
                 dlg_title = _parts[2] if len(_parts) > 2 else ""
                 comp.props["messagebox_type"] = main_opt or "askyesno"
                 if msg_text:
@@ -6071,9 +6351,9 @@ class IDOL(Tk):
         from pathlib import Path as _Path
         from designer.persistence import load as _load
 
-        root      = getattr(self._sidebar.explorer, "_root", None)
+        root = getattr(self._sidebar.explorer, "_root", None)
         root_path = _Path(root) if root else None
-        src_path  = _Path(source_dir) if source_dir else None
+        src_path = _Path(source_dir) if source_dir else None
 
         # Search order: source_dir first (when it differs from root), then root
         search_dirs: list[_Path] = []
@@ -6083,8 +6363,8 @@ class IDOL(Tk):
             search_dirs.append(root_path)
 
         # Accumulate files to copy so we can batch the overwrite prompt
-        new_copies: list[tuple[_Path, _Path]] = []   # copies that don't overwrite
-        overwrites: list[tuple[_Path, _Path]] = []   # copies that would overwrite
+        new_copies: list[tuple[_Path, _Path]] = []  # copies that don't overwrite
+        overwrites: list[tuple[_Path, _Path]] = []  # copies that would overwrite
 
         for dlg_name in list(getattr(form, "linked_dialogs", [])):
             if dlg_name in self._designer_forms:
@@ -6131,6 +6411,7 @@ class IDOL(Tk):
         # Ask once for any overwrites
         if overwrites:
             from tkinter.messagebox import askyesno as _ask
+
             bullet = "\n  • ".join(dst.name for _, dst in overwrites)
             if _ask(
                 "Overwrite Dialog Files",
@@ -6150,15 +6431,19 @@ class IDOL(Tk):
     def _form_name_for_file(self, path: str) -> str | None:
         """Return the designer form name whose .py file matches path, or None."""
         from pathlib import Path as _Path
+
         p = _Path(path)
         if p.stem in self._designer_forms:
             return p.stem
         if p.name == "main.py":
             try:
                 import re as _re
+
                 content = p.read_text(encoding="utf-8")
                 if self._is_idol_main_py(content):
-                    m = _re.search(r"^from\s+(\w+)\s+import\s+\1", content, _re.MULTILINE)
+                    m = _re.search(
+                        r"^from\s+(\w+)\s+import\s+\1", content, _re.MULTILINE
+                    )
                     if m and m.group(1) in self._designer_forms:
                         return m.group(1)
             except Exception:
@@ -6300,6 +6585,7 @@ class IDOL(Tk):
 
     def _on_form_set_as_main(self, name: str) -> None:
         from pathlib import Path as _Path
+
         root = getattr(self._sidebar.explorer, "_root", None)
         if not root:
             return
@@ -6311,6 +6597,7 @@ class IDOL(Tk):
                 existing = ""
             if not self._is_idol_main_py(existing):
                 from tkinter.messagebox import askyesno as _ask
+
                 if not _ask(
                     "Overwrite main.py",
                     f"main.py already exists and was not generated by IDOL Designer.\n\n"
@@ -6322,6 +6609,7 @@ class IDOL(Tk):
             main_path.write_text(self._idol_main_py_content(name), encoding="utf-8")
         except Exception as exc:
             from tkinter.messagebox import showerror
+
             showerror("Error", f"Could not write main.py:\n{exc}", parent=self)
             return
         self._designer_main_form = name
@@ -6333,9 +6621,16 @@ class IDOL(Tk):
         self, name: str, kind: str, parent: str | None, x_root: int, y_root: int
     ) -> None:
         """Show the FORMS tree right-click context menu."""
-        menu = tk.Menu(self, tearoff=0, bg="#2d2d2d", fg="#cccccc",
-                       activebackground="#094771", activeforeground="#ffffff",
-                       relief="flat", bd=0)
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg="#2d2d2d",
+            fg="#cccccc",
+            activebackground="#094771",
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+        )
 
         if kind == "form":
             already_main = name == self._designer_main_form
@@ -6454,42 +6749,67 @@ class IDOL(Tk):
         win.configure(bg="#2d2d2d")
         win.transient(self)
 
-        tk.Label(win, text="Form Name:", bg="#2d2d2d", fg="#cccccc",
-                 font=(UI_FONT, 9)).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
+        tk.Label(
+            win, text="Form Name:", bg="#2d2d2d", fg="#cccccc", font=(UI_FONT, 9)
+        ).grid(row=0, column=0, padx=12, pady=(14, 4), sticky="w")
 
         default_type = "dialog" if self._designer_forms else "main"
         type_var = tk.StringVar(value=default_type)
 
         name_var = tk.StringVar(value=self._next_form_name(default_type))
-        name_entry = tk.Entry(win, textvariable=name_var, bg="#3c3c3c", fg="#cccccc",
-                              insertbackground="#cccccc", relief="flat",
-                              font=(UI_FONT, 9), width=22)
+        name_entry = tk.Entry(
+            win,
+            textvariable=name_var,
+            bg="#3c3c3c",
+            fg="#cccccc",
+            insertbackground="#cccccc",
+            relief="flat",
+            font=(UI_FONT, 9),
+            width=22,
+        )
         name_entry.grid(row=0, column=1, padx=(0, 12), pady=(14, 4))
         name_entry.select_range(0, "end")
         name_entry.focus_set()
 
-        tk.Label(win, text="Type:", bg="#2d2d2d", fg="#cccccc",
-                 font=(UI_FONT, 9)).grid(row=1, column=0, padx=12, pady=4, sticky="w")
+        tk.Label(win, text="Type:", bg="#2d2d2d", fg="#cccccc", font=(UI_FONT, 9)).grid(
+            row=1, column=0, padx=12, pady=4, sticky="w"
+        )
 
         type_frame = tk.Frame(win, bg="#2d2d2d")
         type_frame.grid(row=1, column=1, padx=(0, 12), pady=4, sticky="w")
         for lbl, val in [("Main Window", "main"), ("Dialog Window", "dialog")]:
             tk.Radiobutton(
-                type_frame, text=lbl, variable=type_var, value=val,
-                bg="#2d2d2d", fg="#cccccc", selectcolor="#094771",
-                activebackground="#2d2d2d", font=(UI_FONT, 9),
-                highlightthickness=0, relief="flat",
+                type_frame,
+                text=lbl,
+                variable=type_var,
+                value=val,
+                bg="#2d2d2d",
+                fg="#cccccc",
+                selectcolor="#094771",
+                activebackground="#2d2d2d",
+                font=(UI_FONT, 9),
+                highlightthickness=0,
+                relief="flat",
             ).pack(side="left", padx=(0, 8))
 
-        tk.Label(win, text="Link to:", bg="#2d2d2d", fg="#cccccc",
-                 font=(UI_FONT, 9)).grid(row=2, column=0, padx=12, pady=4, sticky="w")
+        tk.Label(
+            win, text="Link to:", bg="#2d2d2d", fg="#cccccc", font=(UI_FONT, 9)
+        ).grid(row=2, column=0, padx=12, pady=4, sticky="w")
 
-        main_forms = [f.name for f in self._designer_forms.values() if f.form_type == "main"]
+        main_forms = [
+            f.name for f in self._designer_forms.values() if f.form_type == "main"
+        ]
         link_options = ["None (unlinked)"] + main_forms
-        link_var = tk.StringVar(value=main_forms[0] if main_forms else "None (unlinked)")
+        link_var = tk.StringVar(
+            value=main_forms[0] if main_forms else "None (unlinked)"
+        )
         link_cb = ttk.Combobox(
-            win, textvariable=link_var, values=link_options,
-            state="readonly", font=(UI_FONT, 9), width=20,
+            win,
+            textvariable=link_var,
+            values=link_options,
+            state="readonly",
+            font=(UI_FONT, 9),
+            width=20,
         )
         link_cb.grid(row=2, column=1, padx=(0, 12), pady=4, sticky="w")
 
@@ -6504,6 +6824,7 @@ class IDOL(Tk):
                 link_var.set("None (unlinked)")
             else:
                 link_cb.config(state="readonly")
+
         type_var.trace_add("write", _on_type_change)
 
         btn_frame = tk.Frame(win, bg="#2d2d2d")
@@ -6521,13 +6842,15 @@ class IDOL(Tk):
             _root = getattr(self._sidebar.explorer, "_root", None)
             if _root:
                 from pathlib import Path as _Path
+
                 _existing = [
-                    f"{name}.form.json" for f in [_Path(_root) / f"{name}.form.json"] if f.exists()
-                ] + [
-                    f"{name}.py" for f in [_Path(_root) / f"{name}.py"] if f.exists()
-                ]
+                    f"{name}.form.json"
+                    for f in [_Path(_root) / f"{name}.form.json"]
+                    if f.exists()
+                ] + [f"{name}.py" for f in [_Path(_root) / f"{name}.py"] if f.exists()]
                 if _existing:
                     from tkinter.messagebox import askyesno as _ask
+
                     bullet = "\n  • ".join(_existing)
                     if not _ask(
                         "Existing Files",
@@ -6536,10 +6859,11 @@ class IDOL(Tk):
                         parent=win,
                     ):
                         return
-            link_to   = link_var.get()
+            link_to = link_var.get()
             form_type = type_var.get()
             win.destroy()
             from designer.handlers import default_enabled_for as _def_handlers
+
             form = _FormModel(
                 name=name,
                 title=name,
@@ -6576,6 +6900,7 @@ class IDOL(Tk):
                     self._autogen_after_id = None
                 self.designer_generate_code()
                 from pathlib import Path as _Path
+
                 py_path = str(_Path(root) / f"{name}.py")
                 if _Path(py_path).exists():
                     self._open_file(py_path, update_explorer=False, select=False)
@@ -6584,19 +6909,38 @@ class IDOL(Tk):
 
         def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
             font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
-            b = tk.Label(parent, text=text, bg=bg, fg=fg,
-                         font=font, cursor="hand2", padx=14, pady=4)
+            b = tk.Label(
+                parent,
+                text=text,
+                bg=bg,
+                fg=fg,
+                font=font,
+                cursor="hand2",
+                padx=14,
+                pady=4,
+            )
             b.bind("<Button-1>", lambda _: cmd())
-            b.bind("<Enter>",    lambda _: b.config(bg=hover))
-            b.bind("<Leave>",    lambda _: b.config(bg=bg))
+            b.bind("<Enter>", lambda _: b.config(bg=hover))
+            b.bind("<Leave>", lambda _: b.config(bg=bg))
             return b
 
-        _lbtn(btn_frame, "Create", _create,
-              bg="#0e639c", fg="#ffffff", hover="#1177bb", bold=True
-              ).pack(side="left", padx=(0, 4))
-        _lbtn(btn_frame, "Cancel", win.destroy,
-              bg="#3c3c3c", fg="#cccccc", hover="#4a4a4a"
-              ).pack(side="left", padx=(0, 4))
+        _lbtn(
+            btn_frame,
+            "Create",
+            _create,
+            bg="#0e639c",
+            fg="#ffffff",
+            hover="#1177bb",
+            bold=True,
+        ).pack(side="left", padx=(0, 4))
+        _lbtn(
+            btn_frame,
+            "Cancel",
+            win.destroy,
+            bg="#3c3c3c",
+            fg="#cccccc",
+            hover="#4a4a4a",
+        ).pack(side="left", padx=(0, 4))
 
         win.bind("<Return>", lambda _: _create())
         win.bind("<Escape>", lambda _: win.destroy())
@@ -6670,10 +7014,11 @@ class IDOL(Tk):
                 self._enter_designer_mode()
             # Copy the companion .py to CWD if the source is from a different dir
             import shutil as _shutil
-            src_dir  = _Path(path).parent
+
+            src_dir = _Path(path).parent
             root_dir = _Path(getattr(self._sidebar.explorer, "_root", None) or ".")
-            src_py   = src_dir  / f"{form.name}.py"
-            dst_py   = root_dir / f"{form.name}.py"
+            src_py = src_dir / f"{form.name}.py"
+            dst_py = root_dir / f"{form.name}.py"
             py_to_open = None
             if src_py.exists():
                 if src_dir.resolve() == root_dir.resolve():
@@ -6682,6 +7027,7 @@ class IDOL(Tk):
                     do_copy = True
                     if dst_py.exists():
                         from tkinter.messagebox import askyesno as _ask
+
                         do_copy = _ask(
                             "Copy Python File",
                             f"'{form.name}.py' already exists in the current project.\n\n"
@@ -6734,10 +7080,12 @@ class IDOL(Tk):
                 self._enter_designer_mode()
             # Open companion .py in the editor (prefer CWD copy)
             root_dir = _Path(getattr(self._sidebar.explorer, "_root", None) or ".")
-            src_dir  = _Path(path).parent
-            dst_py   = root_dir / f"{form.name}.py"
-            src_py   = src_dir  / f"{form.name}.py"
-            py_to_open = dst_py if dst_py.exists() else (src_py if src_py.exists() else None)
+            src_dir = _Path(path).parent
+            dst_py = root_dir / f"{form.name}.py"
+            src_py = src_dir / f"{form.name}.py"
+            py_to_open = (
+                dst_py if dst_py.exists() else (src_py if src_py.exists() else None)
+            )
             if py_to_open:
                 py_str = str(py_to_open)
                 existing_tab = next(
@@ -6749,6 +7097,7 @@ class IDOL(Tk):
                     self._open_file(py_str, update_explorer=False)
         except Exception as exc:
             from tkinter.messagebox import showerror
+
             showerror("Open in Designer", f"Could not load form:\n{exc}", parent=self)
 
     def designer_generate_code(self) -> None:
@@ -6789,16 +7138,16 @@ class IDOL(Tk):
         )
 
         json_path = _Path(root) / f"{form.name}.form.json"
-        py_path   = _Path(root) / f"{form.name}.py"
+        py_path = _Path(root) / f"{form.name}.py"
 
         # Manual edits are always preserved (event bodies, helpers, init zones)
         # so no confirmation is needed before regenerating.
 
         if py_path.exists():
             event_bodies = _bodies(py_path)
-            event_sigs   = _sigs(py_path)
+            event_sigs = _sigs(py_path)
             pre_init, post_init = _init_zones(py_path)
-            helpers      = _helpers(py_path)
+            helpers = _helpers(py_path)
             user_imports = _user_imports(py_path)
             # Drop stale auto-bodies so the new wire body becomes the default
             for _m in self._pending_body_resets:
@@ -6806,7 +7155,12 @@ class IDOL(Tk):
             self._pending_body_resets.clear()
         else:
             event_bodies, event_sigs, pre_init, post_init, helpers, user_imports = (
-                {}, {}, "", "", "", "",
+                {},
+                {},
+                "",
+                "",
+                "",
+                "",
             )
 
         # Determine each linked dialog's close mode for opener body generation.
@@ -6818,8 +7172,9 @@ class IDOL(Tk):
                 dlg_mem = self._designer_forms.get(dlg_name)
                 if dlg_mem is not None:
                     opts = dlg_mem.handler_options
-                    is_destroy = (opts.get("_on_close", "").startswith("destroy")
-                                  or opts.get("_on_escape", "").startswith("destroy"))
+                    is_destroy = opts.get("_on_close", "").startswith(
+                        "destroy"
+                    ) or opts.get("_on_escape", "").startswith("destroy")
                     dialog_modes[dlg_name] = "destroy" if is_destroy else "hide"
 
         code = _gen(
@@ -6830,7 +7185,9 @@ class IDOL(Tk):
             post_init=post_init,
             helpers=helpers,
             user_imports=user_imports,
-            linked_dialogs=list(form.linked_dialogs) if form.form_type == "main" else None,
+            linked_dialogs=list(form.linked_dialogs)
+            if form.form_type == "main"
+            else None,
             dialog_modes=dialog_modes or None,
         )
         py_path.write_text(code, encoding="utf-8")
@@ -6901,6 +7258,7 @@ class IDOL(Tk):
                 w = self._split_pane.winfo_width()
                 if w > 10:
                     self._split_pane.sashpos(0, w // 2)
+
             self.after(50, _set_mid)
         self._split_shown = True
         self._set_active_pane("right")
@@ -6920,12 +7278,12 @@ class IDOL(Tk):
         """Drag main→split: move the tab (remove from main, open in split)."""
         if not tab_id or tab_id == self._welcome_tab:
             return
-        path  = self._files.get(tab_id)
+        path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
-        cv    = self._codeviews.get(tab_id)
+        cv = self._codeviews.get(tab_id)
         content = _cv_text(cv) if cv else ""
-        dirty   = self._dirty.get(tab_id, False)
-        tmp     = self._temp_files.pop(tab_id, None)
+        dirty = self._dirty.get(tab_id, False)
+        tmp = self._temp_files.pop(tab_id, None)
 
         self._ensure_split_shown()
         self._new_tab_in(self._notebook_r, title, content, filepath=path)
@@ -6946,9 +7304,9 @@ class IDOL(Tk):
         """Right-click on split tab: open a copy in main, keep it in split too."""
         if not tab_id:
             return
-        path    = self._files.get(tab_id)
-        title   = self._titles.get(tab_id, "Untitled")
-        cv      = self._codeviews.get(tab_id)
+        path = self._files.get(tab_id)
+        title = self._titles.get(tab_id, "Untitled")
+        cv = self._codeviews.get(tab_id)
         content = _cv_text(cv) if cv else ""
         self._new_tab(title, content, filepath=path)
         self._set_active_pane("left")
@@ -6957,12 +7315,12 @@ class IDOL(Tk):
         """Drag split→main: move the tab (remove from split, open in main)."""
         if not tab_id:
             return
-        path    = self._files.get(tab_id)
-        title   = self._titles.get(tab_id, "Untitled")
-        cv      = self._codeviews.get(tab_id)
+        path = self._files.get(tab_id)
+        title = self._titles.get(tab_id, "Untitled")
+        cv = self._codeviews.get(tab_id)
         content = _cv_text(cv) if cv else ""
-        dirty   = self._dirty.get(tab_id, False)
-        tmp     = self._temp_files.pop(tab_id, None)
+        dirty = self._dirty.get(tab_id, False)
+        tmp = self._temp_files.pop(tab_id, None)
 
         self._new_tab(title, content, filepath=path)
         new_tid = self.notebook.tabs()[-1]
@@ -6979,9 +7337,9 @@ class IDOL(Tk):
 
     def _add_tab_to_split(self, tab_id: str) -> None:
         """Open a copy of main-pane tab_id in the split notebook."""
-        path  = self._files.get(tab_id)
+        path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
-        cv    = self._codeviews.get(tab_id)
+        cv = self._codeviews.get(tab_id)
         content = _cv_text(cv) if cv else ""
         self._new_tab_in(self._notebook_r, title, content, filepath=path)
 
@@ -7148,7 +7506,9 @@ class IDOL(Tk):
             left_cv = self._get_left_cv()
             right_cv = self._get_right_cv()
             if left_cv and right_cv:
-                right_cv.yview_moveto(left_cv.yview()[0])  # yview_moveto on CanvasCodeView
+                right_cv.yview_moveto(
+                    left_cv.yview()[0]
+                )  # yview_moveto on CanvasCodeView
 
     def _get_left_cv(self):
         tid = self.notebook.select() if self.notebook.tabs() else None
@@ -7202,8 +7562,8 @@ class IDOL(Tk):
                 finally:
                     self._syncing_scroll = False
 
-        left_cv.on_scroll  = lambda first, last: _sync_to(right_cv, first)
-        right_cv.on_scroll = lambda first, last: _sync_to(left_cv,  first)
+        left_cv.on_scroll = lambda first, last: _sync_to(right_cv, first)
+        right_cv.on_scroll = lambda first, last: _sync_to(left_cv, first)
 
     def _close_split(self) -> None:
         """X button: close all split tabs (with unsaved-changes prompts) and destroy pane."""
@@ -7307,8 +7667,9 @@ class IDOL(Tk):
 
         cv.canvas.bind(
             "<Motion>",
-            lambda e, _cv=cv, _tid=tab_id:
-                self._on_hover_motion(e, _cv, self._files.get(_tid) or ""),
+            lambda e, _cv=cv, _tid=tab_id: self._on_hover_motion(
+                e, _cv, self._files.get(_tid) or ""
+            ),
             add="+",
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
@@ -7360,9 +7721,9 @@ class IDOL(Tk):
         """True when there is something the run button can actually execute."""
         return bool(self._run_entry_file) or (self._current_codeview is not None)
 
-        def _refresh_run_buttons(self) -> None:
+    def _refresh_run_buttons(self) -> None:
         """Sync ▶/⬡ action button icon+colour and ■ stop button with run state."""
-        running  = self._is_anything_running()
+        running = self._is_anything_running()
         no_target = not self._has_runnable_target()
         is_debug = (
             getattr(self, "_run_action_var", None)
@@ -7376,7 +7737,11 @@ class IDOL(Tk):
         if run_btn:
             try:
                 icon = " \u2b21 " if is_debug else " \u25b6 "
-                color = "#555555" if (running or no_target) else ("#e5c07b" if is_debug else "#4ec94e")
+                color = (
+                    "#555555"
+                    if (running or no_target)
+                    else ("#e5c07b" if is_debug else "#4ec94e")
+                )
                 run_btn.config(text=icon, fg=color)
             except Exception:
                 pass
@@ -7426,7 +7791,7 @@ class IDOL(Tk):
         if self._debugger:
             self._debug_stop()
         elif self._running_file:
-            self._output.terminal.send_to_run_session("\x03")   # Ctrl+C
+            self._output.terminal.send_to_run_session("\x03")  # Ctrl+C
             self._set_running_file(None)
         else:
             self._output.terminate()
@@ -7463,7 +7828,9 @@ class IDOL(Tk):
             self.view_toggle_output()
         self._output._set_active("terminal")
         if not self._output.terminal._running:
-            self._output.terminal._new_session(cwd=os.path.dirname(filepath) or os.getcwd())
+            self._output.terminal._new_session(
+                cwd=os.path.dirname(filepath) or os.getcwd()
+            )
         self._set_running_file(filepath)
         term = self._output.terminal
         import platform as _pl
@@ -7575,6 +7942,7 @@ class IDOL(Tk):
         pip = getattr(self._pkg_panel, "_pip", None)
         if pip is None:
             from editor.pip_manager import PipManager
+
             pip = PipManager(self._safe_after)
         pip.set_python(self._active_python)
         output = self._output.output
@@ -7583,15 +7951,19 @@ class IDOL(Tk):
         except Exception:
             pass
         output.write("\n$ pip install pillow\n", tag="cmd")
+
         def _on_line(line):
             output.write(line)
+
         def _on_done():
             output.write("✓ Pillow installed.\n", tag="info")
             self._props_panel._pil_available = True
             self._props_panel._update_pil_warning_row("prop__image", True)
+
         pip.run_operation(
             ["install", "pillow"],
-            on_line=_on_line, on_done=_on_done,
+            on_line=_on_line,
+            on_done=_on_done,
             on_error=lambda e: output.write(e + "\n", tag="err"),
         )
 
@@ -7617,7 +7989,11 @@ class IDOL(Tk):
         if path:
             self._statusbar.set_run_entry(os.path.basename(path))
         else:
-            label = os.path.basename(self._run_entry_file) if self._run_entry_file else "Active Tab"
+            label = (
+                os.path.basename(self._run_entry_file)
+                if self._run_entry_file
+                else "Active Tab"
+            )
             self._statusbar.set_run_entry(label)
         self._refresh_run_buttons()
 
@@ -7687,8 +8063,10 @@ class IDOL(Tk):
         # (e.g. files saved outside the project root)
         _py_norm = {os.path.normcase(os.path.normpath(f)) for f in py_files}
         open_py = [
-            fp for fp in self._files.values()
-            if fp and fp.endswith(".py")
+            fp
+            for fp in self._files.values()
+            if fp
+            and fp.endswith(".py")
             and os.path.normcase(os.path.normpath(fp)) not in _py_norm
         ]
         py_files.extend(sorted(open_py, key=lambda f: os.path.basename(f).lower()))
@@ -7938,7 +8316,9 @@ class IDOL(Tk):
 
         self._output._set_active("terminal")
         if not self._output.terminal._running:
-            self._output.terminal._new_session(cwd=os.path.dirname(filepath) or os.getcwd())
+            self._output.terminal._new_session(
+                cwd=os.path.dirname(filepath) or os.getcwd()
+            )
 
         import platform as _pl
 
@@ -8290,8 +8670,10 @@ class IDOL(Tk):
         tk.Frame(dlg, bg="#2a2a2a", height=1).pack(fill="x", padx=32)
 
         import platform as _platform
+
         try:
             from importlib.metadata import version as _pkg_ver
+
             pip_ver = _pkg_ver("pip")
         except Exception:
             pip_ver = "unknown"
