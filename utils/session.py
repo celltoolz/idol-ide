@@ -97,6 +97,53 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     except (ValueError, Exception):
         pass
 
+    # ── Split tabs ────────────────────────────────────────────────────────────
+    split_tabs_data = []
+    split_active_index = 0
+    if getattr(app, "_split_active", False) and getattr(app, "_notebook_r", None):
+        for tab_id in app._notebook_r.tabs():
+            cv = app._codeviews.get(tab_id)
+            if cv is None:
+                continue
+            fp    = app._files.get(tab_id)
+            title = app._titles.get(tab_id, "Untitled")
+            dirty = app._dirty.get(tab_id, False)
+            entry: dict = {"title": title, "filepath": fp}
+            if dirty and fp and Path(fp).is_file():
+                try:
+                    cur = (cv.get_text() if hasattr(cv, "get_text")
+                           else cv.get("1.0", "end-1c"))
+                    if cur == Path(fp).read_text(encoding="utf-8"):
+                        dirty = False
+                except Exception:
+                    pass
+            if dirty:
+                content = (cv.get_text() if hasattr(cv, "get_text")
+                           else cv.get("1.0", "end-1c"))
+                existing = app._temp_files.get(tab_id)
+                if existing:
+                    tmp_path = Path(existing)
+                else:
+                    ext = Path(fp).suffix if fp else ".py"
+                    TMP_DIR.mkdir(parents=True, exist_ok=True)
+                    tmp_path = TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}{ext}"
+                    app._temp_files[tab_id] = str(tmp_path)
+                try:
+                    tmp_path.write_text(content, encoding="utf-8")
+                    entry["temp_file"] = str(tmp_path)
+                except Exception:
+                    entry["content"] = content
+            elif fp is None:
+                entry["content"] = (cv.get_text() if hasattr(cv, "get_text")
+                                    else cv.get("1.0", "end-1c"))
+            split_tabs_data.append(entry)
+        try:
+            split_active_index = list(app._notebook_r.tabs()).index(
+                app._notebook_r.select()
+            )
+        except Exception:
+            pass
+
     # ── Appearance ────────────────────────────────────────────────────────────
     appearance: dict = {
         "theme":            app.theme_var.get(),
@@ -163,6 +210,11 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     layout["run_target"] = app._run_target_var.get()
     layout["run_action"] = app._run_action_var.get()
     layout["run_entry"] = getattr(app, "_run_entry_file", "") or ""
+
+    # Split editor
+    layout["split_active"] = getattr(app, "_split_active", False)
+    layout["split_shown"]  = getattr(app, "_split_shown", False)
+    layout["split_active_index"] = split_active_index
 
     # Designer
     layout["designer_project_type"] = getattr(app, "_designer_project_type", "cli")
@@ -245,6 +297,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
                 {
                     "tabs":          tabs_data,
                     "active_index":  active_index,
+                    "split_tabs":    split_tabs_data,
                     "explorer_root": explorer_root,
                     "layout":        layout,
                     "appearance":    appearance,
@@ -325,6 +378,51 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     active = data.get("active_index", 0)
     if 0 <= active < len(tabs_list):
         app.notebook.select(tabs_list[active])
+
+    # ── Split tabs ────────────────────────────────────────────────────────────
+    split_tabs = data.get("split_tabs", [])
+    layout_data = data.get("layout", {})
+    split_was_active = layout_data.get("split_active", False)
+    split_was_shown  = layout_data.get("split_shown", False)
+    split_active_idx = layout_data.get("split_active_index", 0)
+    if split_tabs and split_was_active and hasattr(app, "_build_right_pane"):
+        app._build_right_pane()
+        for entry in split_tabs:
+            fp       = entry.get("filepath")
+            title    = entry.get("title", "Untitled")
+            content  = entry.get("content")
+            tmp_file = entry.get("temp_file")
+            if tmp_file and os.path.isfile(tmp_file):
+                try:
+                    tmp_content = Path(tmp_file).read_text(encoding="utf-8")
+                    app._new_tab_in(app._notebook_r, title, tmp_content, filepath=fp)
+                    tab_id = app._notebook_r.tabs()[-1]
+                    app._temp_files[tab_id] = tmp_file
+                    def _mark_split_dirty(tid=tab_id):
+                        app._dirty[tid] = True
+                        app._refresh_tab_title(tid)
+                    app.after_idle(_mark_split_dirty)
+                except Exception:
+                    continue
+            elif fp and os.path.isfile(fp):
+                try:
+                    app._new_tab_in(app._notebook_r, title,
+                                    Path(fp).read_text(encoding="utf-8"), filepath=fp)
+                except Exception:
+                    continue
+            elif content is not None:
+                app._new_tab_in(app._notebook_r, title, content, filepath=fp)
+        split_list = app._notebook_r.tabs()
+        if 0 <= split_active_idx < len(split_list):
+            app._notebook_r.select(split_list[split_active_idx])
+        app._split_active = True
+        if split_was_shown:
+            app._split_shown = True
+            app._patch_scroll_callbacks()
+        else:
+            # Built but hidden — remove from paned window until user shows it
+            app._split_pane.forget(app._nb_frame_r)
+            app._split_shown = False
 
     # ── Explorer root ─────────────────────────────────────────────────────────
     root = data.get("explorer_root")
@@ -476,6 +574,10 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
             app._v_pane.sashpos(0, v)
         except Exception:
             pass
+
+    # Refresh nav bar so SPLIT button reflects restored split state
+    if layout.get("split_active") and hasattr(app, "_refresh_nav_bar"):
+        app.after_idle(app._refresh_nav_bar)
 
     # Restore run preferences
     run_target = layout.get("run_target")

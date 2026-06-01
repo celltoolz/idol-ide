@@ -18,8 +18,11 @@ class CustomNotebook(ttk.Notebook):
 
     def __init__(
         self, *args,
-        on_close: Optional[Callable[[int], None]] = None,
+        on_close: Optional[Callable[[str], None]] = None,
         on_split: Optional[Callable[[str], None]] = None,
+        on_drag_split: Optional[Callable[[str], None]] = None,
+        on_drag_main: Optional[Callable[[str], None]] = None,
+        split_label: str = "Open in Split Editor",
         **kwargs
     ):
         if not self.__class__.__initialized:
@@ -30,8 +33,11 @@ class CustomNotebook(ttk.Notebook):
         super().__init__(*args, **kwargs)
 
         self._on_close = on_close
-        self._on_split = on_split   # called with tab_id when drag/menu → split
+        self._on_split = on_split          # right-click menu: copy to other pane
+        self._on_drag_split = on_drag_split  # drag right: move tab to split
+        self._on_drag_main  = on_drag_main   # drag left:  move tab to main
         self._split_open_ref = None  # callable → bool, set by app to check split state
+        self._left_pane_ref: Optional[Callable] = None  # callable → Frame for left drop zone
         self._get_tab_path: Callable[[str], str | None] | None = None  # set by app
         self._hovered_tab: int | None = None
         self._tooltip_win: Toplevel | None = None
@@ -54,7 +60,7 @@ class CustomNotebook(ttk.Notebook):
 
         # Right-click context menu
         self._tab_menu = Menu(self, tearoff=0)
-        self._tab_menu.add_command(label="Open in Split Editor", command=self._split_from_menu)
+        self._tab_menu.add_command(label=split_label, command=self._split_from_menu)
         self._tab_menu.add_separator()
         self._tab_menu.add_command(label="Close",            command=self._close_from_menu)
         self._tab_menu.add_command(label="Close Others",     command=self._close_others)
@@ -107,14 +113,22 @@ class CustomNotebook(ttk.Notebook):
         tab_bar_bottom = self.winfo_rooty() + self._tab_bar_height() + 60
         below_tab_bar  = event.y_root > tab_bar_bottom
 
-        nb_right = self.winfo_rootx() + self.winfo_width()
-        if self._on_split and self._split_open_ref and self._split_open_ref():
-            threshold = nb_right - 8   # near the right edge of the left pane
-        else:
-            threshold = self.winfo_rootx() + self.winfo_width() // 2
-        if below_tab_bar and event.x_root > threshold:
-            self._show_drop_zone()
+        # Left-drag drop zone: cursor has left the notebook's left edge → drop to main
+        if self._on_drag_main and below_tab_bar and event.x_root < self.winfo_rootx():
+            self._show_drop_zone_left()
             return
+
+        # Right-drag drop zone: cursor past right threshold → drop to split
+        if self._on_drag_split:
+            nb_right = self.winfo_rootx() + self.winfo_width()
+            if self._split_open_ref and self._split_open_ref():
+                threshold = nb_right - 8   # near the right edge of the left pane
+            else:
+                threshold = self.winfo_rootx() + self.winfo_width() // 2
+            if below_tab_bar and event.x_root > threshold:
+                self._show_drop_zone()
+                return
+
         self._hide_drop_zone()
 
         try:
@@ -133,19 +147,27 @@ class CustomNotebook(ttk.Notebook):
         self._drag_tab_id = None
         self.configure(cursor="")
         self._hide_drop_zone()
-        # Released past the threshold AND below the tab bar → open in split
-        if tab_id and self._on_split:
-            tab_bar_bottom = self.winfo_rooty() + self._tab_bar_height() + 60
+
+        tab_bar_bottom = self.winfo_rooty() + self._tab_bar_height() + 60
+
+        # Left-drop: drag from split back to main
+        if tab_id and self._on_drag_main:
+            if event.y_root > tab_bar_bottom and event.x_root < self.winfo_rootx():
+                self._on_drag_main(tab_id)
+                return
+
+        # Right-drop: drag from main to split
+        if tab_id and self._on_drag_split:
             nb_right = self.winfo_rootx() + self.winfo_width()
             if self._split_open_ref and self._split_open_ref():
                 threshold = nb_right - 8
             else:
                 threshold = self.winfo_rootx() + self.winfo_width() // 2
             if event.y_root > tab_bar_bottom and event.x_root > threshold:
-                self._on_split(tab_id)
+                self._on_drag_split(tab_id)
 
     def _show_drop_zone(self) -> None:
-        """Show a semi-transparent right-half overlay indicating the split drop target."""
+        """Blue overlay on the right (split) side during drag."""
         import tkinter as tk
         if not hasattr(self, "_drop_overlay") or self._drop_overlay is None:
             overlay = tk.Toplevel(self)
@@ -158,17 +180,40 @@ class CustomNotebook(ttk.Notebook):
         # If split is already open, cover the existing right notebook area.
         # Otherwise cover the right half of this notebook (preview position).
         if self._split_open_ref and self._split_open_ref():
-            # Right pane starts just after the right edge of this notebook
             split_pane = self.master.master if hasattr(self.master, "master") else self.master
             px = self.winfo_rootx() + self.winfo_width()
             py = self.winfo_rooty()
-            # Width = remaining space to the right
             pw = max(50, split_pane.winfo_rootx() + split_pane.winfo_width() - px)
             ph = split_pane.winfo_height()
         else:
             px = self.winfo_rootx() + self.winfo_width() // 2
             py = self.winfo_rooty()
             pw = self.winfo_width() // 2
+            ph = self.master.winfo_height()
+        self._drop_overlay.geometry(f"{pw}x{ph}+{px}+{py}")
+        self._drop_overlay.deiconify()
+
+    def _show_drop_zone_left(self) -> None:
+        """Blue overlay on the left (main) side during drag from split."""
+        import tkinter as tk
+        if not hasattr(self, "_drop_overlay") or self._drop_overlay is None:
+            overlay = tk.Toplevel(self)
+            overlay.overrideredirect(True)
+            overlay.attributes("-alpha", 0.25)
+            overlay.attributes("-topmost", True)
+            overlay.configure(bg="#007acc")
+            overlay.lift()
+            self._drop_overlay = overlay
+        if self._left_pane_ref:
+            lp = self._left_pane_ref()
+            px = lp.winfo_rootx()
+            py = lp.winfo_rooty()
+            pw = lp.winfo_width()
+            ph = lp.winfo_height()
+        else:
+            px = self.winfo_rootx() - self.winfo_width()
+            py = self.winfo_rooty()
+            pw = self.winfo_width()
             ph = self.master.winfo_height()
         self._drop_overlay.geometry(f"{pw}x{ph}+{px}+{py}")
         self._drop_overlay.deiconify()

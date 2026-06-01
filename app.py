@@ -419,7 +419,10 @@ class IDOL(Tk):
         # Canvas Editor sandbox — preview of the canvas-rendered editor
 
         # Split editor
-        self._split_active: bool = False
+        self._split_active: bool = False   # right pane has been built and has tabs
+        self._split_shown: bool = False    # right pane is currently visible
+        self._split_was_shown: bool = False  # was visible before designer hid it
+        self._split_sash_pos: int | None = None
         self._active_pane: str = "left"  # "left" | "right"
         self._notebook_r: CustomNotebook | None = None
         self._nb_frame_r = None
@@ -1016,9 +1019,12 @@ class IDOL(Tk):
         self._designer_props_width: int = 230
 
         self.notebook = CustomNotebook(
-            nb_frame, on_close=self._close_tab, on_split=self._open_in_split
+            nb_frame,
+            on_close=self._close_tab,
+            on_split=self._copy_to_split,
+            on_drag_split=self._move_to_split,
         )
-        self.notebook._split_open_ref = lambda: self._split_active
+        self.notebook._split_open_ref = lambda: self._split_active and self._split_shown
         self.notebook._get_tab_path = lambda tab_id: self._files.get(tab_id)
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add=True)
@@ -1365,7 +1371,7 @@ class IDOL(Tk):
 
     @property
     def _active_notebook(self) -> CustomNotebook:
-        if self._split_active and self._active_pane == "right" and self._notebook_r:
+        if self._split_active and self._split_shown and self._active_pane == "right" and self._notebook_r:
             return self._notebook_r
         return self.notebook
 
@@ -1688,7 +1694,8 @@ class IDOL(Tk):
                 self._statusbar.set_diagnostics(errors, warnings)
         nb.forget(index)
         if nb is self._notebook_r and not nb.tabs():
-            self._close_split()
+            # Last split tab closed via individual X — hide pane, keep it alive
+            self._hide_split()
         elif nb is self.notebook and not nb.tabs():
             self._new_tab("Untitled", "")
 
@@ -1749,7 +1756,7 @@ class IDOL(Tk):
                 # Tab was closed via the × button
                 self._close_learning_mode()
 
-        if self._split_active:
+        if self._split_active and self._split_shown:
             self._patch_scroll_callbacks()
 
         # Update form selector ▶ indicator when in Active Tab entry mode
@@ -3082,7 +3089,7 @@ class IDOL(Tk):
     # ── File operations ───────────────────────────────────────────────────────
 
     def file_new(self) -> None:
-        if self._split_active and self._active_pane == "right" and self._notebook_r:
+        if self._split_active and self._split_shown and self._active_pane == "right" and self._notebook_r:
             self._new_tab_in(self._notebook_r, "Untitled", "")
         else:
             self._new_tab("Untitled", "")
@@ -3786,11 +3793,14 @@ class IDOL(Tk):
         self._refresh_nav_bar()
 
     def view_split_editor(self) -> None:
-        """Toggle the split editor."""
+        """Toggle split editor visibility (never destroys tabs)."""
         if self._split_active:
-            self._close_split()
+            if self._split_shown:
+                self._hide_split()
+            else:
+                self._show_split()
         else:
-            self._open_in_split(self._current_tab_id)
+            self._ensure_split_shown(self._current_tab_id)
 
     def view_fold_all(self) -> None:
         cv = self._current_codeview
@@ -4453,10 +4463,11 @@ class IDOL(Tk):
         """Switch the main content area to the designer canvas."""
         if self._designer_mode:
             return
-        if self._split_active:
-            self._close_split()
-            if self._split_active:
-                return  # user cancelled the unsaved-changes dialog
+        if self._split_active and self._split_shown:
+            self._split_was_shown = True
+            self._hide_split()
+        else:
+            self._split_was_shown = False
         self._designer_mode = True
         self._designer_project_type = "gui"
         self.notebook.pack_forget()
@@ -4603,6 +4614,11 @@ class IDOL(Tk):
                 pass
 
         self._refresh_mode_bar()
+
+        # Restore split if it was visible before entering designer mode
+        if self._split_was_shown and self._split_active and not self._split_shown:
+            self._split_was_shown = False
+            self.after(50, self._show_split)
 
         def _restore_editor_focus():
             cv = self._current_codeview
@@ -6695,35 +6711,145 @@ class IDOL(Tk):
 
     # ── Split editor ──────────────────────────────────────────────────────────
 
-    def _open_in_split(self, tab_id: str | None) -> None:
-        """Open the file from *tab_id* in the right split pane."""
-        if not tab_id:
-            return
-        path = self._files.get(tab_id)
-        title = self._titles.get(tab_id, "Untitled")
-        cv = self._codeviews.get(tab_id)
-        if cv is None:
-            # Non-editor tab (Learning, Package Manager, etc.) — open Untitled
-            path, title, content = None, "Untitled", ""
-        else:
-            content = _cv_text(cv)
-
-        # Build the right pane on first use
+    def _ensure_split_shown(self, open_tab_id: str | None = None) -> None:
+        """Build + show the split pane if needed, optionally opening a tab."""
         if not self._split_active:
             self._build_right_pane()
+            if open_tab_id:
+                self._add_tab_to_split(open_tab_id)
+            self._split_active = True
+            self._split_shown = True
+            self._set_active_pane("right")
+            self._patch_scroll_callbacks()
+            self._refresh_nav_bar()
+        elif not self._split_shown:
+            self._show_split()
 
-        # Open as a new tab in the right notebook
-        self._new_tab_in(
-            self._notebook_r,
-            title,
-            content,
-            filepath=path,
-        )
-        self._split_active = True
+    def _hide_split(self) -> None:
+        """Hide the split pane without destroying it or its tabs."""
+        if not self._split_active or not self._split_shown:
+            return
+        self._patched_scroll_pair = None
+        for cv in (self._get_left_cv(), self._get_right_cv()):
+            if cv is not None:
+                cv.on_scroll = None
+        try:
+            self._split_sash_pos = self._split_pane.sashpos(0)
+        except Exception:
+            pass
+        self._split_pane.forget(self._nb_frame_r)
+        self._split_shown = False
+        self._refresh_nav_bar()
+
+    def _show_split(self) -> None:
+        """Re-show a hidden split pane, restoring the sash position."""
+        if not self._split_active or self._split_shown:
+            return
+        self._split_pane.add(self._nb_frame_r, weight=1)
+        if self._split_sash_pos:
+            pos = self._split_sash_pos
+            self.after(10, lambda: self._split_pane.sashpos(0, pos))
+        self._split_shown = True
         self._set_active_pane("right")
-        # Patch scroll callbacks on all codeviews now that split is live
         self._patch_scroll_callbacks()
         self._refresh_nav_bar()
+
+    def _copy_to_split(self, tab_id: str | None) -> None:
+        """Right-click: open a copy of tab_id in the split, keep it in main too."""
+        if not tab_id:
+            return
+        self._ensure_split_shown()
+        self._add_tab_to_split(tab_id)
+        self._set_active_pane("right")
+        self._patch_scroll_callbacks()
+
+    def _move_to_split(self, tab_id: str | None) -> None:
+        """Drag main→split: move the tab (remove from main, open in split)."""
+        if not tab_id:
+            return
+        path  = self._files.get(tab_id)
+        title = self._titles.get(tab_id, "Untitled")
+        cv    = self._codeviews.get(tab_id)
+        content = _cv_text(cv) if cv else ""
+        dirty   = self._dirty.get(tab_id, False)
+        tmp     = self._temp_files.pop(tab_id, None)
+
+        self._ensure_split_shown()
+        self._new_tab_in(self._notebook_r, title, content, filepath=path)
+        new_tid = self._notebook_r.tabs()[-1]
+        if dirty:
+            self._dirty[new_tid] = True
+            self._refresh_tab_title(new_tid)
+            if tmp:
+                self._temp_files[new_tid] = tmp
+        self._remove_tab_silent(tab_id, self.notebook)
+        self._set_active_pane("right")
+        self._patch_scroll_callbacks()
+
+    def _copy_to_main(self, tab_id: str | None) -> None:
+        """Right-click on split tab: open a copy in main, keep it in split too."""
+        if not tab_id:
+            return
+        path    = self._files.get(tab_id)
+        title   = self._titles.get(tab_id, "Untitled")
+        cv      = self._codeviews.get(tab_id)
+        content = _cv_text(cv) if cv else ""
+        self._new_tab(title, content, filepath=path)
+        self._set_active_pane("left")
+
+    def _move_to_main(self, tab_id: str | None) -> None:
+        """Drag split→main: move the tab (remove from split, open in main)."""
+        if not tab_id:
+            return
+        path    = self._files.get(tab_id)
+        title   = self._titles.get(tab_id, "Untitled")
+        cv      = self._codeviews.get(tab_id)
+        content = _cv_text(cv) if cv else ""
+        dirty   = self._dirty.get(tab_id, False)
+        tmp     = self._temp_files.pop(tab_id, None)
+
+        self._new_tab(title, content, filepath=path)
+        new_tid = self.notebook.tabs()[-1]
+        if dirty:
+            self._dirty[new_tid] = True
+            self._refresh_tab_title(new_tid)
+            if tmp:
+                self._temp_files[new_tid] = tmp
+        self._remove_tab_silent(tab_id, self._notebook_r)
+        self._set_active_pane("left")
+        # If split is now empty, hide it (don't destroy — X button does that)
+        if self._notebook_r and not self._notebook_r.tabs():
+            self._hide_split()
+
+    def _add_tab_to_split(self, tab_id: str) -> None:
+        """Open a copy of main-pane tab_id in the split notebook."""
+        path  = self._files.get(tab_id)
+        title = self._titles.get(tab_id, "Untitled")
+        cv    = self._codeviews.get(tab_id)
+        content = _cv_text(cv) if cv else ""
+        self._new_tab_in(self._notebook_r, title, content, filepath=path)
+
+    def _remove_tab_silent(self, tab_id: str, nb: "CustomNotebook") -> None:
+        """Remove a tab from notebook without unsaved-changes prompt."""
+        closed_path = self._files.pop(tab_id, None)
+        self._titles.pop(tab_id, None)
+        self._dirty.pop(tab_id, None)
+        self._clean_crcs.pop(tab_id, None)
+        self._indent_sizes.pop(tab_id, None)
+        self._breadcrumbs.pop(tab_id, None)
+        self._codeviews.pop(tab_id, None)
+        kh = self._key_handlers.pop(tab_id, None)
+        if kh:
+            kh.detach()
+        mc = self._multi_cursors.pop(tab_id, None)
+        if mc:
+            mc.clear()
+        # Don't close LSP file — it may still be open in the other pane
+        try:
+            idx = list(nb.tabs()).index(tab_id)
+            nb.forget(idx)
+        except Exception:
+            pass
 
     def _build_right_pane(self) -> None:
         """Create the right notebook frame and wire it up."""
@@ -6732,11 +6858,7 @@ class IDOL(Tk):
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
 
-        # Set sash to midpoint after geometry settles. Read split_pane width
-        # fresh at callback time — it's stable by then on all platforms.
-        # Use a one-shot <Configure> binding — fires when _split_pane receives
-        # its final size after all layout passes, regardless of timing.
-        # This survives session restore cascades that would override a fixed delay.
+        # Set sash to midpoint after geometry settles.
         _mid_set = [False]
 
         def _on_split_configured(event):
@@ -6774,7 +6896,7 @@ class IDOL(Tk):
         close_lbl.pack(side="right")
         close_lbl.bind("<Enter>", lambda _: close_lbl.config(fg="#cccccc"))
         close_lbl.bind("<Leave>", lambda _: close_lbl.config(fg="#858585"))
-        close_lbl.bind("<Button-1>", lambda _: self._close_split())
+        close_lbl.bind("<ButtonRelease-1>", lambda _: self._close_split())
 
         self._scroll_locked = self._get_system_scroll_lock()
         self._lock_btn = tk.Label(
@@ -6813,8 +6935,12 @@ class IDOL(Tk):
         self._notebook_r = CustomNotebook(
             self._nb_frame_r,
             on_close=lambda idx: self._close_tab(idx, self._notebook_r),
+            on_split=self._copy_to_main,
+            on_drag_main=self._move_to_main,
+            split_label="Open in Main Editor",
         )
         self._notebook_r.pack(fill="both", expand=True)
+        self._notebook_r._left_pane_ref = lambda: self._nb_frame_l
         self._notebook_r.bind(
             "<<NotebookTabChanged>>",
             lambda _: self._on_tab_changed_r(),
@@ -6830,7 +6956,7 @@ class IDOL(Tk):
         """Tab changed in the right notebook — set it active and refresh outline."""
         self._active_pane = "right"
         self._on_tab_changed()
-        if self._split_active:
+        if self._split_active and self._split_shown:
             self._patch_scroll_callbacks()
 
     @staticmethod
@@ -6924,37 +7050,49 @@ class IDOL(Tk):
         right_cv.on_scroll = lambda first, last: _sync_to(left_cv,  first)
 
     def _close_split(self) -> None:
-        """Close the right split pane after checking for unsaved changes."""
+        """X button: close all split tabs (with unsaved-changes prompts) and destroy pane."""
         if not self._split_active or self._notebook_r is None:
             return
         self._patched_scroll_pair = None
-        # Clear scroll-sync hooks before tearing down
         for cv in (self._get_left_cv(), self._get_right_cv()):
             if cv is not None:
                 cv.on_scroll = None
-        # Check each right-pane tab for unsaved changes
+        # Prompt for each dirty tab
         for tab_id in list(self._notebook_r.tabs()):
             if not self._confirm_close_tab(tab_id):
                 return  # user cancelled
-        # All confirmed — clean up
+        # All confirmed — clean up state
         for tab_id in list(self._notebook_r.tabs()):
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)
+            self._clean_crcs.pop(tab_id, None)
             self._indent_sizes.pop(tab_id, None)
+            self._breadcrumbs.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
-            self._key_handlers.pop(tab_id, None)
+            kh = self._key_handlers.pop(tab_id, None)
+            if kh:
+                kh.detach()
             mc = self._multi_cursors.pop(tab_id, None)
             if mc:
                 mc.clear()
+            _tmp = self._temp_files.pop(tab_id, None)
+            if _tmp:
+                try:
+                    Path(_tmp).unlink(missing_ok=True)
+                except Exception:
+                    pass
             if closed_path and closed_path.endswith(".py"):
                 for srv in self._each_lsp():
                     srv.close_file(closed_path)
-        self._split_pane.forget(self._nb_frame_r)
+        if self._split_shown:
+            self._split_pane.forget(self._nb_frame_r)
         self._nb_frame_r.destroy()
         self._nb_frame_r = None
         self._notebook_r = None
         self._split_active = False
+        self._split_shown = False
+        self._split_was_shown = False
         self._set_active_pane("left")
         self._refresh_nav_bar()
 
