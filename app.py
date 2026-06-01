@@ -884,7 +884,7 @@ class IDOL(Tk):
             " SPLIT ",
             self.view_split_editor,
             side="right",
-            active_fn=lambda: self._split_active,
+            active_fn=lambda: self._split_active and self._split_shown,
         )
         self._nav_term_btn = _nav_btn(
             _nav_bar, " >_ ", self.view_new_terminal, side="right"
