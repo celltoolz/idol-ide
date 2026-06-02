@@ -4715,7 +4715,7 @@ class IDOL(Tk):
         self._h_pane.add(self._props_panel, minsize=200, stretch="never")
 
         self._designer_palette.reset_to_pointer()
-        self._refresh_mode_bar()
+        self._show_mode_bar()
         # Hide autocomplete before the canvas unmaps — pack_forget() doesn't
         # reliably trigger FocusOut on the inner canvas widget.
         cv = self._current_codeview
