@@ -87,7 +87,8 @@ no widget imports, no stateful objects.
 | `ollama_client.py` | HTTP client for local Ollama API |
 | `theme_loader.py` | Loads `themes/<id>.json` files — `list_themes()` + `load_theme(id)` consumed by the canvas editor + the View → Theme menu. Drop a new JSON in `themes/` to add a theme; no code change. |
 | `settings.py` | Settings load/save |
-| `session.py` | Session persistence — saves/restores open tabs, layout, appearance, breakpoints, active interpreter, and active venv (re-activates in terminal on next launch). Auto-session writes to `~/.idol/session.json`; named saves write to `.idol-project` in the project root. |
+| `session.py` | Session persistence — saves/restores open tabs (including split-pane tabs with dirty/temp-file state), layout, appearance, breakpoints, active interpreter, and active venv (re-activates in terminal on next launch). Auto-session writes to `~/.idol/session.json`; named saves write to `.idol-project` in the project root. |
+| `recent.py` | Recent projects and files — read/write helpers for `~/.idol/recent.json`. `add_project(path)` / `add_file(path)` prepend entries (max 10 each); `remove_project` / `remove_file` delete by path; `get_show_on_startup()` / `set_show_on_startup(bool)` control the Welcome tab preference. |
 | `learning_registry.py` | Registry of learning content |
 | `git_diagnostics.py` | Pure classification logic for Git health panel — regex pattern sets, `FileInfo`/`Issue`/`HealthCheck` dataclasses, stateless analysis functions. Called by `source_control.py`. |
 | `venv_guide.py` | Content module — exports `get_pages()` returning `GuidePage` dataclasses for the venv guide. No UI code. |
@@ -111,7 +112,8 @@ Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `clipbo
 `explorer.py`, `find_replace.py`, `guide_window.py`, `learning_manager.py`,
 `learning_panel.py`, `minimap.py`, `notebook.py`, `outline.py`,
 `output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
-`sidebar.py`, `source_control.py`, `statusbar.py`, `styled_checkbox.py`, `terminal.py`
+`sidebar.py`, `source_control.py`, `statusbar.py`, `styled_checkbox.py`, `terminal.py`,
+`welcome.py`
 
 `canvas_codeview.py` — IDOL's sole editor engine. Renders text directly on a `tk.Canvas` (no `tk.Text` widget, no pygments). All state lives in `self.lines: list[str]`; cursor + selection are plain `(line, col)` tuples; tokenization is a regex-rule pass driven by `_rules` in `_init_state`. Themes are loaded from `themes/*.json` via `utils/theme_loader.py` — swap by calling `set_theme(id)`. The internal layout grids in: breadcrumb (row 0), find/replace strip (row 1, reserved), main `tk.Canvas` (row 2 col 0) + `VerticalScrollbar` (row 2 col 1), `HorizontalScrollbar` (row 3 col 0). Embedded inside the canvas: line-number / fold / breakpoint gutter, sticky scope-header band (own canvas, place'd at top), minimap (embedded `tk.Text` at font size 1, place'd on the right). Public API: `get_text/set_text`, `get_line/line_count`, `get_cursor/set_cursor`, `get_selection/set_selection/clear_selection/selected_text`, `insert/delete_selection/delete_range/replace_range`, `scroll_to_line/ensure_visible/visible_range`, `set_diagnostics/set_breakpoints/set_git_hunks/set_runtime_error_line/set_debug_line/set_filepath/set_theme`. Host hooks: `on_change`, `on_cursor_move`, `on_lines_changed`, `on_copy`, `on_completion_request`, `on_breakpoint_toggle`, and the `on_request_*` family used by the right-click menu. **Multi-cursor state**: `_mc_cursors: list[tuple[int,int]]` (secondary positions) and `_mc_anchors: list[tuple[int,int]|None]` (secondary selection anchors); Alt+click in `_on_alt_click`; edits via `_mc_apply_key`; `mc_count()` public helper.
 
@@ -124,6 +126,8 @@ of 50 entries; deduplication by content; per-entry pin (right-click); search/fil
 nav (Up/Down/Enter/Ctrl+C); pin-to-top toolbar button. Opened as a persistent hidden `Toplevel`
 (Ctrl+Shift+H); `push(text, source)` is called from `app.py` whenever the editor copies or cuts.
 Pilot for the canvas-renderer pattern that will eventually back all sidebar panels.
+
+`welcome.py` — Welcome tab panel shown on first launch and whenever the main notebook is otherwise empty. Sections: **Start** (new file / open file / open folder / new project / open project action links), **Explore** (Learning Mode / GUI Designer / Package Manager), **What's New** (live `CHANGELOG.md` viewer with ‹ › section navigation, syntax-styled content, isolated mousewheel scroll), **Recent Projects** and **Recent Files** (from `utils/recent.py`; click to open, × to remove), rotating **Tips** (8-second cycle), and a **Show on startup** checkbox (persisted to `~/.idol/recent.json`). Global `<Enter>`/`<Leave>` activate `bind_all` wheel scrolling for the outer canvas; `_cl_text` returns `"break"` from its handler so the changelog box scrolls independently. `WelcomePanel` is constructed with eight `on_*` callbacks wired in `app.py`. `_parse_changelog(path)` splits `CHANGELOG.md` on `## ` headings into `{title, lines}` dicts; `_cl_render()` inserts them into the text widget with `h3`/`bullet`/`dim` tags.
 
 #### `guide_window.py` — reusable paginated guide UI
 

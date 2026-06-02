@@ -42,6 +42,17 @@ python main.py path/to/file.py
 
 Next time you open a new terminal, re-activate the venv first (`.\.venv\Scripts\Activate.ps1` on Windows, `source .venv/bin/activate` elsewhere) before running `python main.py`.
 
+## Welcome Tab
+
+On first launch (or whenever no editor tabs are open), IDOL shows a **Welcome** tab instead of a blank Untitled file.
+
+- **Start** — quick links to New File, Open File, Open Folder, New Project, and Open Project
+- **Explore** — one-click access to Learning Mode, the GUI Designer, and the Package Manager
+- **Recent Projects / Recent Files** — last 10 of each, persisted in `~/.idol/recent.json`; click to reopen, × to remove
+- **What's New** — live view of `CHANGELOG.md` with ‹ › navigation between milestone sections
+- **Tips** — rotating keyboard shortcut hints at the bottom
+- **Show on startup** checkbox — uncheck to skip the Welcome tab on next launch (reopen anytime via **Help → Welcome**)
+
 ## First Steps
 
 1. **Open a file** — `Ctrl+O` or `File → Open File`

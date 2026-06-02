@@ -45,9 +45,31 @@ A thin bar between the tab row and the editor showing the full file path and cur
 
 ## Split Editor
 
-- **Side-by-side editing** — drag a tab past the midpoint or use `Ctrl+\` / right-click menu
-- **Scroll lock** — ⇕ button syncs both panes to the same scroll position; Scroll Lock key toggles it
-- Unsaved-changes check when closing the split pane
+### Opening and closing
+
+| Action | Result |
+|---|---|
+| **SPLIT button** (nav bar) or `Ctrl+\` | First open with multiple tabs — moves the active tab to the split. First open with one tab — opens a fresh Untitled in the split. Subsequent clicks toggle visibility without destroying tabs. |
+| **Drag a tab** past the midpoint of the main editor | **Moves** the tab to the split pane (removes it from main) |
+| **Right-click → Open in Split Editor** | **Copies** the tab — it stays open in both panes |
+| **Drag a split tab** left past the split edge | **Moves** the tab back to the main pane; blue drop zone confirms the drop target |
+| **Right-click a split tab → Open in Main Editor** | **Copies** to main — stays open in both panes |
+| **Split pane × button** | True close — prompts for any unsaved changes, then destroys the pane |
+| **Individual tab ×** in split | Closes that tab; if it was the last, the split pane closes |
+
+### Hide / show
+
+The SPLIT button hides and re-shows the split pane **without closing or discarding any tabs**. All open split tabs survive behind the scenes. Click SPLIT again (or `Ctrl+\`) to restore them exactly as you left them.
+
+Entering **Designer mode** also hides the split automatically; returning to Editor mode restores it.
+
+### Session persistence
+
+Split tabs are saved and restored across app restarts — including dirty/unsaved files (stored in `~/.idol/tmp/` just like main-pane tabs). The split state, sash position, and active tab index all survive a restart.
+
+### Scroll lock
+
+The ⇕ button (in the split header) syncs both panes to the same scroll position. The hardware **Scroll Lock key** also toggles it — IDOL reads the key state on startup.
 
 ## Code Editing Helpers
 
