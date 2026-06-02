@@ -3206,14 +3206,22 @@ class IDOL(Tk):
     def file_new_project(self) -> None:
         from widgets.project_wizard import ProjectWizard
 
-        # If there are meaningful tabs open, offer to save the current project
-        # before wiping the slate for the new one.
-        has_project = any(
+        # Only consider tabs that have a real codeview — excludes Welcome,
+        # Package Manager, Learning Mode, and any other special tabs.
+        editor_tabs = [t for t in self.notebook.tabs() if self._codeviews.get(t) is not None]
+        has_editor_content = any(
             self._titles.get(t) != "Untitled"
             or self._dirty.get(t)
-            or bool(self._codeviews.get(t) and self._codeviews[t].get_text().strip())
-            for t in self.notebook.tabs()
+            or bool(self._codeviews[t].get_text().strip())
+            for t in editor_tabs
         )
+        # Designer counts if a form is loaded AND has unsaved changes.
+        # An empty canvas or a freshly-saved form doesn't trigger the prompt.
+        has_designer_content = (
+            getattr(self._design_canvas, "form", None) is not None
+            and (self._designer_dirty or self._designer_forms_dirty)
+        )
+        has_project = has_editor_content or has_designer_content
         if has_project:
             answer = askyesnocancel(
                 "New Project",
