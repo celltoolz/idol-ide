@@ -4740,6 +4740,10 @@ class IDOL(Tk):
         if not self._run_entry_file:
             self._refresh_form_list()
 
+        # Grab focus so keyboard shortcuts (Delete, arrows, Ctrl+Z) go to the
+        # canvas immediately without requiring a click first
+        self._design_canvas.focus_set()
+
     def _load_designer_form_from_project(self) -> None:
         """Load form JSON files into the designer.
 
