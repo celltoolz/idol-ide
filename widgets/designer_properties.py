@@ -435,12 +435,20 @@ class DesignerProperties(tk.Frame):
             self._props_insert(f"form__{key}", label, str(val))
         # Tint the background row only when a color is explicitly set
         self._apply_color_swatch("form__bg", form.bg.upper() if form.bg else None)
+        # Background image row
+        import os as _os
+        img_disp = _os.path.basename(form.image) if form.image else ""
+        self._props_insert("form__image", "image", img_disp)
         # Menu bar row (blue link)
         n = len(form.menu_items)
         menu_val = f"{n} item{'s' if n != 1 else ''}" if n else "(none)"
         self._props_insert("form__menu_bar", "menu bar", menu_val)
         self._props_set_link("form__menu_bar", True)
         self._props_redraw()
+        if form.image:
+            self._check_pil_async(
+                lambda ok: self._update_pil_warning_row("form__image", ok)
+            )
 
         self._events_clear()
         for ev in ("load", "activate", "deactivate", "unload", "resize"):
@@ -1879,6 +1887,43 @@ class DesignerProperties(tk.Frame):
             self._on_prop_change(d.id, "image", rel)
         self._check_pil_async(lambda ok: self._update_pil_warning_row(row_iid, ok))
 
+    def _open_form_image_picker(self, row_iid: str) -> None:
+        import os, shutil
+        from tkinter.filedialog import askopenfilename
+        if self._form is None:
+            return
+        picked = askopenfilename(
+            title="Select background image",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not picked:
+            return
+        images_dir = os.path.join(self._project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        basename = os.path.basename(picked)
+        dest = os.path.join(images_dir, basename)
+        if os.path.exists(dest):
+            try:
+                same = os.path.samefile(picked, dest)
+            except OSError:
+                same = False
+            if not same:
+                name, ext = os.path.splitext(basename)
+                counter = 1
+                while os.path.exists(dest):
+                    dest = os.path.join(images_dir, f"{name}_{counter}{ext}")
+                    counter += 1
+        if not os.path.exists(dest):
+            shutil.copy2(picked, dest)
+        rel = os.path.relpath(dest, self._project_dir).replace("\\", "/")
+        self._props_set(row_iid, os.path.basename(rel))
+        if self._on_prop_change:
+            self._on_prop_change("__form__", "image", rel)
+        self._check_pil_async(lambda ok: self._update_pil_warning_row(row_iid, ok))
+
     def _update_pil_warning_row(self, image_row_iid: str, pil_ok: bool) -> None:
         if pil_ok:
             idx = self._props_row_map.get("pil__warning")
@@ -2767,6 +2812,8 @@ class DesignerProperties(tk.Frame):
             return
         if row == "form__menu_bar":
             self._open_menu_editor()
+        elif row == "form__image":
+            self._open_form_image_picker(row)
         elif row == "form__bg" or self._is_color_row(row):
             self._open_color_picker(row)
         elif row == "form__border_style":
@@ -3508,7 +3555,7 @@ class DesignerProperties(tk.Frame):
 
     def _is_prop_clearable(self, row_iid: str) -> bool:
         """Return True if this prop row has a value that can be cleared to empty."""
-        if row_iid in ("var__name", "var__initial", "anchor__value", "form__bg"):
+        if row_iid in ("var__name", "var__initial", "anchor__value", "form__bg", "form__image"):
             return True
         if not row_iid.startswith("prop__"):
             return False

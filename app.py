@@ -4878,7 +4878,11 @@ class IDOL(Tk):
                 self._props_panel.load_widget(form.get_widget(new_name))
             return
         if widget_id == "__form__":
-            if key == "bg":
+            if key == "image":
+                form.image = value
+                self._design_canvas._img_cache.clear()
+                self._design_canvas.redraw()
+            elif key == "bg":
                 form.bg = value
                 self._design_canvas.redraw()
             elif key == "title":

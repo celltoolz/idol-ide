@@ -80,7 +80,7 @@ _COMP_E          = "        # ── IDOL:COMPONENTS:END "   + "─" * 48
 
 
 def _has_images(form: "FormModel") -> bool:
-    return any(w.props.get("image") for w in form.widgets)
+    return bool(form.image) or any(w.props.get("image") for w in form.widgets)
 
 
 def _image_load_lines(form: "FormModel") -> list[str]:
@@ -271,8 +271,17 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
 
     # ── _build_ui ─────────────────────────────────────────────────────────────
     out.append("    def _build_ui(self):")
+    if form.image:
+        rel_fwd = form.image.replace("\\", "/")
+        out.append(f'        self._form_bg_img = ImageTk.PhotoImage(')
+        out.append(f'            Image.open(os.path.join(os.path.dirname(__file__), "{rel_fwd}"))')
+        out.append(f'        )')
+        out.append(f'        tk.Label(self, image=self._form_bg_img, bd=0).place(x=0, y=0)')
+        if form.widgets or form.menu_items:
+            out.append("")
     if not form.widgets and not form.menu_items:
-        out.append(f"        {_STUB}")
+        if not form.image:
+            out.append(f"        {_STUB}")
     else:
         if form.menu_items:
             out.extend(_menu_lines(form.menu_items))

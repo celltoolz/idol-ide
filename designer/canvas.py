@@ -1007,6 +1007,15 @@ class DesignerCanvas(tk.Canvas):
         self.create_rectangle(ox, oy, x2, y2,
                                fill=bg, outline="#aaaaaa", tags="form_bg")
 
+        # Background image (natural size, below grid)
+        if f.image:
+            photo = _load_natural_image(self, f.image)
+            if photo:
+                self.create_image(ox, oy, anchor="nw", image=photo, tags="form_bg")
+            else:
+                self.create_text(ox + 4, oy + 4, text="[bg image]", anchor="nw",
+                                 fill="#ce9178", font=(UI_FONT, 7), tags="form_bg")
+
         # Dot grid
         for gx in range(0, f.width + 1, GRID):
             for gy in range(0, f.height + 1, GRID):
@@ -2177,6 +2186,25 @@ def _resolve_image_path(rel_path: str, project_dir: str) -> str:
     if p.is_absolute():
         return str(p)
     return str(Path(project_dir) / p)
+
+
+def _load_natural_image(canvas, rel_path: str):
+    """Return a cached ImageTk.PhotoImage at natural size, or None on any failure."""
+    try:
+        from PIL import Image, ImageTk
+    except ImportError:
+        return None
+    try:
+        resolved = _resolve_image_path(rel_path, canvas._project_dir)
+        key = f"natural:{resolved}"
+        cached = canvas._img_cache.get(key)
+        if cached is not None:
+            return cached
+        photo = ImageTk.PhotoImage(Image.open(resolved))
+        canvas._img_cache[key] = photo
+        return photo
+    except Exception:
+        return None
 
 
 def _load_preview_image(canvas, rel_path: str, max_w: int, max_h: int):

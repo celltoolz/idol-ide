@@ -200,6 +200,7 @@ class FormModel:
     maximize_box:   bool = True
     always_on_top:  bool = False
     bg: str = ""                         # "" = system default
+    image: str = ""                      # relative path to background image, "" = none
     form_type:  str = "main"              # "main" (tk.Tk) | "dialog" (tk.Toplevel)
     widgets:    list[WidgetDescriptor]    = field(default_factory=list)
     menu_items: list[MenuItemDescriptor]  = field(default_factory=list)
@@ -287,6 +288,8 @@ class FormModel:
             "menu_items": [m.to_dict() for m in self.menu_items],
             "form_events": dict(self.form_events),
         }
+        if self.image:
+            d["image"] = self.image
         if self.linked_dialogs:
             d["linked_dialogs"] = list(self.linked_dialogs)
         if self.enabled_handlers:
@@ -318,6 +321,7 @@ class FormModel:
             maximize_box=d.get("maximize_box", True),
             always_on_top=d.get("always_on_top", False),
             bg=d.get("bg", ""),
+            image=d.get("image", ""),
             form_type=d.get("form_type", "main"),
             widgets       =[WidgetDescriptor.from_dict(w)    for w in d.get("widgets",    [])],
             menu_items    =[MenuItemDescriptor.from_dict(m)  for m in d.get("menu_items", [])],
