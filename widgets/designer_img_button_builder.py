@@ -306,7 +306,7 @@ class ImageButtonBuilder(tk.Toplevel):
         cv.create_rectangle(0, 2, 12, 14, fill=box_fill, outline=box_outline)
         if checked:
             cv.create_text(6, 8, text="✓", fill="#ffffff", font=(UI_FONT, 7, "bold"))
-        cv.create_text(17, 8, text="Auto-size canvas to images", fill="#cccccc",
+        cv.create_text(17, 8, text="Auto-size canvas", fill="#cccccc",
                        font=(UI_FONT, 8), anchor="w")
 
     def _toggle_autosize(self) -> None:
