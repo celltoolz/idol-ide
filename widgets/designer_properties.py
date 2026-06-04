@@ -723,6 +723,28 @@ class DesignerProperties(tk.Frame):
                     return f"Connected to {w.id}.{ev_key}"
         return ""
 
+    def _form_image_hint(self) -> str:
+        """Dynamic hint for the form__image property row."""
+        if not self._form or not self._form.image:
+            return "Background Image  (click to pick a file)"
+        import os
+        basename = os.path.basename(self._form.image)
+        resolved = os.path.join(self._project_dir, self._form.image)
+        try:
+            from PIL import Image
+            with Image.open(resolved) as img:
+                w, h = img.size
+            return f"Background Image\n{basename}  Width: {w}  Height: {h}"
+        except Exception:
+            pass
+        try:
+            photo = tk.PhotoImage(file=resolved)
+            w, h = photo.width(), photo.height()
+            del photo
+            return f"Background Image\n{basename}  Width: {w}  Height: {h}"
+        except Exception:
+            return f"Background Image\n{basename}"
+
     def _insert_comp_prop_rows(self, descriptor, comp_def) -> None:
         """Insert prop rows, skipping Socket mode-specific props that don't apply."""
         mode = str(descriptor.props.get("socket_type", "")) if descriptor.type == "Socket" else ""
@@ -2673,8 +2695,10 @@ class DesignerProperties(tk.Frame):
             row = self._props_rows[idx]
             iid = row["iid"]
             self._update_prop_clear_btn(idx)
-            # Dynamic hint for Dialog Title sub-rows
-            if iid.startswith("comp__dtitle__") and iid != "comp__dtitle__header":
+            # Dynamic hints
+            if iid == "form__image":
+                self._show_hint(self._form_image_hint())
+            elif iid.startswith("comp__dtitle__") and iid != "comp__dtitle__header":
                 prop_key = iid[14:]   # strip "comp__dtitle__"
                 self._show_hint(self._dtitle_conn_hint(prop_key))
             else:
