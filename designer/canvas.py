@@ -352,6 +352,7 @@ class DesignerCanvas(tk.Canvas):
             for desc in self._descendants_of(wid):
                 to_delete.add(desc.id)
         for wid in to_delete:
+            self._disconnect_widget(wid)
             self._form.remove_widget(wid)
             self.delete(f"widget:{wid}")
         self.delete("handle")
@@ -362,6 +363,22 @@ class DesignerCanvas(tk.Canvas):
             self._on_deselect()
         if self._on_structure_changed:
             self._on_structure_changed()
+
+    def _disconnect_widget(self, wid: str) -> None:
+        """Strip all component/handler connections that reference this widget before deletion."""
+        if self._form is None:
+            return
+        # Remove canvas_button entries in Image components that target this widget
+        for comp in self._form.components:
+            if comp.type == "Image":
+                buttons = comp.props.get("canvas_buttons") or []
+                comp.props["canvas_buttons"] = [
+                    b for b in buttons if b.get("canvas_id") != wid
+                ]
+        # Remove orphaned handler wires that target this widget
+        self._form.handler_wires = [
+            w for w in self._form.handler_wires if w.widget_id != wid
+        ]
 
     def _nudge(self, dx: int, dy: int) -> None:
         """Move all selected widgets by (dx, dy) pixels, clamped to form bounds."""
