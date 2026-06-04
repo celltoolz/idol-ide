@@ -410,7 +410,7 @@ class DesignerProperties(tk.Frame):
             )
         self._populate_events(descriptor, reg)
         self._widget_comp_handlers = self._collect_widget_comp_handlers(descriptor)
-        self._widget_comp_avail    = []   # not used in widget view
+        self._widget_comp_avail    = self._collect_canvas_img_avail(descriptor)
         if self._form:
             self.load_handlers(self._form)
 
@@ -608,6 +608,19 @@ class DesignerProperties(tk.Frame):
                 result.append((method, f"via {ev_key}", True, (comp_id, descriptor.id, ev_key)))
         return result
 
+    def _collect_canvas_img_avail(self, descriptor: "WidgetDescriptor") -> list[tuple]:
+        """Return (method, comp_id, handler_id) for Image comps available for canvas_button on a Canvas widget."""
+        if descriptor.type != "Canvas" or self._form is None:
+            return []
+        result = []
+        for comp in self._form.components:
+            if comp.type != "Image":
+                continue
+            if not comp.props.get("paths"):
+                continue
+            result.append((f"{comp.id}  canvas button", comp.id, "canvas_button"))
+        return result
+
     def _collect_comp_connections(self, comp_id: str) -> list[tuple[str, str, bool, "tuple[str,str] | None"]]:
         """Return (method, label, removable, removal_key) for every connection to this component.
 
@@ -637,6 +650,19 @@ class DesignerProperties(tk.Frame):
                 continue
             if not hdef.has_connector and (any_wired or timer_auto):
                 result.append((f"_{comp_id}{hdef.label}", f"{form_name}.init", False, None))
+
+        # canvas_button entries (stored in comp.props, not widget.events)
+        comp_obj2 = self._form.get_component(comp_id)
+        if comp_obj2 and comp_obj2.type == "Image":
+            for btn in (comp_obj2.props.get("canvas_buttons") or []):
+                tag = btn.get("tag", "?")
+                canvas_id = btn.get("canvas_id", "?")
+                result.append((
+                    f"_{tag}_click",
+                    f"{canvas_id}  ·  {tag}",
+                    True,
+                    ("__canvas_btn__", tag),
+                ))
 
         # Explicit widget.events connections
         comp_methods: set[str] = {f"_{comp_id}{hdef.label}" for hdef in self._comp_def.handler_defs}

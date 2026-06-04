@@ -308,6 +308,11 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
             out.extend(wire_lines)
             out.append("")
 
+    # Canvas image button placement (Image component canvas_buttons)
+    cb_build = _canvas_button_build_lines(form)
+    if cb_build:
+        out.extend(cb_build)
+
     # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
     if _anchored:
         # Container widgets with size-changing anchors that have anchored children
@@ -446,10 +451,14 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
 
     # ── component handler methods ─────────────────────────────────────────────
     comp_handler_lines = _component_handler_lines(form, bodies)
-    if comp_handler_lines:
+    cb_methods = _canvas_button_handler_methods(form, bodies)
+    if comp_handler_lines or cb_methods:
         out.append("    # ── Component Handlers " + "─" * 50)
         out.append("")
-        out.extend(comp_handler_lines)
+        if comp_handler_lines:
+            out.extend(comp_handler_lines)
+        if cb_methods:
+            out.extend(cb_methods)
 
     # ── helper methods ────────────────────────────────────────────────────────
     out.append("    # ── Functions " + "─" * 59)
@@ -1197,6 +1206,94 @@ def _comp_init_for(comp, cdef) -> list[str]:
             _val = str(comp.props.get(_prop, ""))
             lines.append(f"        self._{cid}_{_hid}_title = {repr(_val)}")
 
+    return lines
+
+
+def _img_ref(comp_id: str, key: str) -> str:
+    """Return the Python expression for one image from an Image component.
+
+    key="" means single-image component (self.name),
+    key="stem" means multi-image dict (self.name["stem"]).
+    """
+    return f'self.{comp_id}["{key}"]' if key else f"self.{comp_id}"
+
+
+def _canvas_button_build_lines(form: FormModel) -> list[str]:
+    """Return indented _build_ui lines for canvas image buttons on Image components."""
+    import os as _os
+    lines: list[str] = []
+    for comp in form.components:
+        if comp.type != "Image":
+            continue
+        buttons = comp.props.get("canvas_buttons") or []
+        if not buttons:
+            continue
+        lines.append(f"        # {comp.id} canvas buttons")
+        for btn in buttons:
+            cid    = comp.id
+            canvas = btn.get("canvas_id", "")
+            tag    = btn.get("tag", "")
+            x      = btn.get("x", 0)
+            y      = btn.get("y", 0)
+            nk     = btn.get("normal_key",  "")
+            hk     = btn.get("hover_key",   "")
+            pk     = btn.get("pressed_key", "")
+            if not canvas or not tag:
+                continue
+            normal_ref = _img_ref(cid, nk)
+            lines.append(f'        self.{canvas}.create_image({x}, {y}, image={normal_ref}, anchor="nw", tags="{tag}")')
+            lines.append(f'        self.{canvas}.tag_bind("{tag}", "<Button-1>",        self._{tag}_down)')
+            lines.append(f'        self.{canvas}.tag_bind("{tag}", "<ButtonRelease-1>", self._{tag}_up)')
+            if hk:
+                lines.append(f'        self.{canvas}.tag_bind("{tag}", "<Enter>", self._{tag}_enter)')
+                lines.append(f'        self.{canvas}.tag_bind("{tag}", "<Leave>", self._{tag}_leave)')
+        lines.append("")
+    return lines
+
+
+def _canvas_button_handler_methods(form: FormModel, bodies: dict[str, str]) -> list[str]:
+    """Return generated + user-stub methods for all canvas image buttons."""
+    lines: list[str] = []
+    for comp in form.components:
+        if comp.type != "Image":
+            continue
+        buttons = comp.props.get("canvas_buttons") or []
+        for btn in buttons:
+            cid    = comp.id
+            canvas = btn.get("canvas_id", "")
+            tag    = btn.get("tag", "")
+            nk     = btn.get("normal_key",  "")
+            hk     = btn.get("hover_key",   "")
+            pk     = btn.get("pressed_key", "")
+            if not canvas or not tag:
+                continue
+            normal_ref  = _img_ref(cid, nk)
+            pressed_ref = _img_ref(cid, pk) if pk else normal_ref
+            hover_ref   = _img_ref(cid, hk) if hk else normal_ref
+
+            # _down — generated, always overwritten
+            lines.append(f"    def _{tag}_down(self, event):")
+            lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={pressed_ref})')
+            lines.append("")
+            # _up — generated, calls user stub
+            lines.append(f"    def _{tag}_up(self, event):")
+            lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={normal_ref})')
+            lines.append(f"        self._{tag}_click(event)")
+            lines.append("")
+            if hk:
+                lines.append(f"    def _{tag}_enter(self, event):")
+                lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={hover_ref})')
+                lines.append("")
+                lines.append(f"    def _{tag}_leave(self, event):")
+                lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={normal_ref})')
+                lines.append("")
+            # _click — user stub, never overwritten
+            click_method = f"_{tag}_click"
+            body = bodies.get(click_method, "pass  # TODO")
+            lines.append(f"    def {click_method}(self, event):")
+            for bline in body.splitlines():
+                lines.append(f"        {bline}")
+            lines.append("")
     return lines
 
 

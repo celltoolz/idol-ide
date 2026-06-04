@@ -1180,6 +1180,10 @@ class DesignerCanvas(tk.Canvas):
         else:
             _DRAW.get(w.type, _draw_generic)(self, x, y, x2, y2, text, props, tag)
 
+        # Ghost previews of Image component canvas buttons targeting this widget
+        if w.type == "Canvas" and self._form:
+            self._draw_canvas_btn_ghosts(w, x, y, tag)
+
         # Bind click → select on every newly created item
         for item in self.find_withtag(tag):
             self.tag_bind(item, "<Button-1>",
@@ -1197,6 +1201,41 @@ class DesignerCanvas(tk.Canvas):
                               lambda e, wid=w.id: self._widget_enter(e, wid))
                 self.tag_bind(item, "<Leave>",
                               lambda e, wid=w.id: self._widget_leave(e, wid))
+
+    def _draw_canvas_btn_ghosts(self, w: "WidgetDescriptor", wx: int, wy: int, tag: str) -> None:
+        """Draw ghost images of canvas_button placements from Image components."""
+        if not self._form:
+            return
+        for comp in self._form.components:
+            if comp.type != "Image":
+                continue
+            paths = comp.props.get("paths") or []
+            stems = [__import__("os").path.splitext(__import__("os").path.basename(p))[0]
+                     for p in paths]
+            is_multi = len(paths) > 1
+            for btn in (comp.props.get("canvas_buttons") or []):
+                if btn.get("canvas_id") != w.id:
+                    continue
+                nk = btn.get("normal_key", "")
+                bx, by = btn.get("x", 0), btn.get("y", 0)
+                btn_tag = btn.get("tag", "")
+                # Resolve path for normal image
+                if is_multi and nk:
+                    idx = next((i for i, s in enumerate(stems) if s == nk), 0)
+                    path = paths[idx] if idx < len(paths) else ""
+                elif paths:
+                    path = paths[0]
+                else:
+                    path = ""
+                if not path:
+                    continue
+                photo = _load_natural_image(self, path)
+                if photo:
+                    self.create_image(wx + bx, wy + by, anchor="nw", image=photo, tags=tag)
+                    # Dim label showing tag name
+                    self.create_text(wx + bx + 2, wy + by + 2,
+                                     text=btn_tag, anchor="nw",
+                                     fill="#ce9178", font=(UI_FONT, 7), tags=tag)
 
     # ── Selection handles ─────────────────────────────────────────────────────
 

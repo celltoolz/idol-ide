@@ -262,7 +262,16 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 description="Image file(s) — click to pick one or more files. Single file → self.name, multiple → self.name = {stem: PhotoImage, ...}",
             ),
         ),
-        handler_defs=(),
+        handler_defs=(
+            ComponentHandlerDef(
+                id="canvas_button",
+                label="_canvas_button",
+                description="Place an image button on a Canvas widget — click ⚡ to configure position, images, and tag name",
+                has_connector=True,
+                default_body="",
+                applies_to_widgets=("Canvas",),
+            ),
+        ),
     ),
 
     "Socket": ComponentDef(

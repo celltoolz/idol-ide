@@ -5910,6 +5910,11 @@ class IDOL(Tk):
         if hdef is None:
             return
 
+        # canvas_button opens the Image Button Builder instead of the standard connector
+        if handler_id == "canvas_button":
+            self._open_img_button_builder(comp_id, comp, form)
+            return
+
         # For file-object handlers, build a dynamic "Populate" widget list
         _FILE_OBJ_HANDLERS = ("ask_open_file", "ask_save_file")
         _POPULATE_TYPES = ("Entry", "Text", "Listbox")
@@ -6057,9 +6062,74 @@ class IDOL(Tk):
             stub_checker=_is_stub,
         )
 
+    def _open_img_button_builder(self, comp_id: str, comp, form, edit_tag: str = "") -> None:
+        """Open the Image Button Builder dialog for an Image component."""
+        from widgets.designer_img_button_builder import ImageButtonBuilder
+        paths      = comp.props.get("paths") or []
+        canvas_ids = [w.id for w in form.widgets if w.type == "Canvas"]
+        preset_canvas = ""
+        # Pre-select current widget if it's a Canvas
+        cur = self._props_panel._current_widget
+        if cur and cur.type == "Canvas":
+            preset_canvas = cur.id
+        # Find existing config if editing
+        edit_config = None
+        if edit_tag:
+            edit_config = next(
+                (b for b in (comp.props.get("canvas_buttons") or []) if b.get("tag") == edit_tag),
+                None
+            )
+
+        def _on_create_canvas() -> str:
+            """Add a new Canvas widget to the form and return its ID."""
+            from designer.model import WidgetDescriptor
+            new_id = form.next_id("Canvas")
+            w = WidgetDescriptor(
+                id=new_id, type="Canvas",
+                x=20, y=20, width=200, height=150,
+                props={"bg": "", "image": "", "sizing": "sizable"},
+            )
+            form.add_widget(w)
+            self._design_canvas.redraw()
+            self._set_designer_dirty()
+            return new_id
+
+        def _on_confirm(config: dict) -> None:
+            buttons = list(comp.props.get("canvas_buttons") or [])
+            if edit_tag:
+                buttons = [b for b in buttons if b.get("tag") != edit_tag]
+            buttons.append(config)
+            comp.props["canvas_buttons"] = buttons
+            self._comp_tray.refresh(form.components)
+            self._design_canvas.redraw()
+            self._set_designer_dirty()
+            self._props_panel.refresh_comp_connections()
+
+        ImageButtonBuilder(
+            self,
+            comp_id=comp_id,
+            paths=paths,
+            canvas_ids=canvas_ids,
+            project_dir=self._design_canvas._project_dir,
+            on_confirm=_on_confirm,
+            on_create_canvas=_on_create_canvas,
+            preset_canvas_id=preset_canvas,
+            edit_config=edit_config,
+        )
+
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
         form = self._design_canvas.form
         if form is None:
+            return
+        # canvas_button deletion — event_key is the tag name
+        if widget_id == "__canvas_btn__":
+            comp = form.get_component(comp_id)
+            if comp:
+                buttons = comp.props.get("canvas_buttons") or []
+                comp.props["canvas_buttons"] = [b for b in buttons if b.get("tag") != event_key]
+                self._design_canvas.redraw()
+                self._set_designer_dirty()
+                self._props_panel.refresh_comp_connections()
             return
         if widget_id.startswith("__mi__"):
             mi = form.get_menu_item(widget_id[6:])
