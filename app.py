@@ -3252,6 +3252,8 @@ class IDOL(Tk):
             self._props_panel.set_project_dir(root)
         if hasattr(self, "_design_canvas") and self._design_canvas:
             self._design_canvas.set_project_dir(root)
+        if hasattr(self, "_comp_tray") and self._comp_tray:
+            self._comp_tray.set_project_dir(root)
         # If the designer is open, silently drop back to editor mode so the
         # now-stale form state (from the old project root) doesn't persist into
         # the session.  Without this, closing IDOL after a root change would
@@ -5890,6 +5892,8 @@ class IDOL(Tk):
         if comp is None:
             return
         comp.props[prop_key] = value
+        if prop_key == "paths":
+            self._comp_tray.refresh(form.components)
         self._set_designer_dirty()
 
     def _on_comp_connect(self, comp_id: str, handler_id: str) -> None:

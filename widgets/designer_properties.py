@@ -755,7 +755,13 @@ class DesignerProperties(tk.Frame):
                 if pd.key in self._SOCKET_CLIENT_ONLY and mode != "client":
                     continue
             val = descriptor.props.get(pd.key, pd.default)
-            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
+            if pd.kind == "image_list":
+                paths = val if isinstance(val, list) else []
+                n = len(paths)
+                display = f"{n} image{'s' if n != 1 else ''}" if n else "(none)"
+            else:
+                display = str(val)
+            self._props_insert(f"comp__{pd.key}", pd.label, display,
                                kind="readonly" if pd.kind == "readonly" else "normal")
 
     def _rebuild_comp_props(self, descriptor) -> None:
@@ -1909,6 +1915,50 @@ class DesignerProperties(tk.Frame):
             self._on_prop_change(d.id, "image", rel)
         self._check_pil_async(lambda ok: self._update_pil_warning_row(row_iid, ok))
 
+    def _open_comp_image_picker(self, row_iid: str) -> None:
+        import os, shutil
+        from tkinter.filedialog import askopenfilenames
+        if not self._form or not self._comp_id:
+            return
+        comp = self._form.get_component(self._comp_id)
+        if comp is None:
+            return
+        picked = askopenfilenames(
+            title="Select image(s)",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not picked:
+            return
+        images_dir = os.path.join(self._project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        rel_paths = []
+        for src in picked:
+            basename = os.path.basename(src)
+            dest = os.path.join(images_dir, basename)
+            if os.path.exists(dest):
+                try:
+                    same = os.path.samefile(src, dest)
+                except OSError:
+                    same = False
+                if not same:
+                    name, ext = os.path.splitext(basename)
+                    counter = 1
+                    while os.path.exists(dest):
+                        dest = os.path.join(images_dir, f"{name}_{counter}{ext}")
+                        counter += 1
+            if not os.path.exists(dest):
+                shutil.copy2(src, dest)
+            rel_paths.append(os.path.relpath(dest, self._project_dir).replace("\\", "/"))
+        comp.props["paths"] = rel_paths
+        n = len(rel_paths)
+        display = f"{n} image{'s' if n != 1 else ''}"
+        self._props_set(row_iid, display)
+        if self._on_component_prop_change:
+            self._on_component_prop_change(self._comp_id, "paths", rel_paths)
+
     def _open_form_image_picker(self, row_iid: str) -> None:
         import os, shutil
         from tkinter.filedialog import askopenfilename
@@ -2778,7 +2828,9 @@ class DesignerProperties(tk.Frame):
         pd  = next((p for p in self._comp_def.prop_defs if p.key == key), None)
         if pd is None or pd.kind == "readonly":
             return
-        if pd.kind == "bool":
+        if pd.kind == "image_list":
+            self._open_comp_image_picker(row)
+        elif pd.kind == "bool":
             self._props_open_dropdown(row, ["True", "False"], self._commit_comp_prop)
         else:
             self._props_open_editor(row, self._commit_comp_prop)

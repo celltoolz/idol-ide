@@ -80,7 +80,14 @@ _COMP_E          = "        # ── IDOL:COMPONENTS:END "   + "─" * 48
 
 
 def _has_images(form: "FormModel") -> bool:
-    return bool(form.image) or any(w.props.get("image") for w in form.widgets)
+    if bool(form.image):
+        return True
+    if any(w.props.get("image") for w in form.widgets):
+        return True
+    return any(
+        comp.type == "Image" and comp.props.get("paths")
+        for comp in form.components
+    )
 
 
 def _image_load_lines(form: "FormModel") -> list[str]:
@@ -1010,8 +1017,11 @@ def _comp_should_emit(comp, cdef, wired_methods: set[str]) -> bool:
     """True if this component should generate any code.
 
     A Timer with enabled=True auto-starts from __init__ and always emits.
+    An Image component emits whenever it has at least one path.
     All other components only emit when at least one connectable handler is wired.
     """
+    if comp.type == "Image":
+        return bool(comp.props.get("paths"))
     if comp.type == "Timer" and comp.props.get("enabled", True):
         return True
     return any(
@@ -1079,8 +1089,30 @@ def _component_init_lines(form: FormModel) -> list[str]:
 
 def _comp_init_for(comp, cdef) -> list[str]:
     """Init lines for one component instance."""
+    import os as _os
     cid = comp.id
     lines: list[str] = []
+
+    if comp.type == "Image":
+        paths = comp.props.get("paths", [])
+        if not paths:
+            return lines
+        if len(paths) == 1:
+            rel = paths[0].replace("\\", "/")
+            lines.append(f"        self.{cid} = ImageTk.PhotoImage(")
+            lines.append(f'            Image.open(os.path.join(os.path.dirname(__file__), "{rel}"))')
+            lines.append(f"        )")
+        else:
+            lines.append(f"        self.{cid} = {{")
+            for path in paths:
+                rel  = path.replace("\\", "/")
+                stem = _os.path.splitext(_os.path.basename(rel))[0]
+                lines.append(
+                    f'            "{stem}": ImageTk.PhotoImage('
+                    f'Image.open(os.path.join(os.path.dirname(__file__), "{rel}"))),'
+                )
+            lines.append(f"        }}")
+        return lines
 
     if comp.type == "Timer":
         interval = int(comp.props.get("interval", 1000))

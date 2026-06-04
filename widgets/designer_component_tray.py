@@ -36,6 +36,7 @@ class ComponentTray(tk.Frame):
         self._on_deselect = on_deselect
         self._on_delete = on_delete
         self._on_rename = on_rename
+        self._project_dir: str = ""
 
         self._selected: str | None = None
         self._chips: dict[str, _Chip] = {}  # comp_id → chip widget
@@ -56,6 +57,9 @@ class ComponentTray(tk.Frame):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def set_project_dir(self, path: str) -> None:
+        self._project_dir = path
+
     def refresh(self, components: list) -> None:
         """Rebuild chips from a list of ComponentDescriptor objects (id, type, props)."""
         for chip in self._chips.values():
@@ -63,7 +67,7 @@ class ComponentTray(tk.Frame):
         self._chips.clear()
 
         for comp in components:
-            self._add_chip(comp.id, comp.type)
+            self._add_chip(comp.id, comp.type, comp.props)
 
         self._sync_empty()
         # Re-apply selection highlight if still valid
@@ -82,18 +86,21 @@ class ComponentTray(tk.Frame):
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _add_chip(self, comp_id: str, type_key: str) -> None:
+    def _add_chip(self, comp_id: str, type_key: str, props: dict = None) -> None:
         from designer.component_registry import COMPONENT_REGISTRY
 
-        icon = COMPONENT_REGISTRY.get(type_key, None)
-        glyph = icon.icon if icon else "?"
-        chip = _Chip(
+        cdef  = COMPONENT_REGISTRY.get(type_key, None)
+        glyph = cdef.icon if cdef else "?"
+        paths = (props or {}).get("paths", []) if type_key == "Image" else []
+        chip  = _Chip(
             self._strip,
             comp_id,
             glyph,
             on_click=self._handle_click,
             on_right=self._handle_right,
             on_delete=self._do_delete,
+            image_paths=paths,
+            project_dir=self._project_dir,
         )
         chip.pack(side="left", padx=(0, 2), fill="y")
         self._chips[comp_id] = chip
@@ -152,6 +159,35 @@ class ComponentTray(tk.Frame):
             self._chips[comp_id].set_active(True)
 
 
+# ── Image helpers ────────────────────────────────────────────────────────────
+
+def _load_chip_thumb(paths: list, project_dir: str, size: int = 22):
+    """Return a 22×22 PhotoImage thumbnail of the first image, or None."""
+    if not paths:
+        return None
+    try:
+        from PIL import Image, ImageTk
+        import os
+        resolved = os.path.join(project_dir, paths[0]) if not os.path.isabs(paths[0]) else paths[0]
+        img = Image.open(resolved).convert("RGBA").resize((size, size), Image.LANCZOS)
+        return ImageTk.PhotoImage(img)
+    except Exception:
+        return None
+
+
+def _load_gallery_thumb(path: str, project_dir: str, size: int = 80):
+    """Return a PhotoImage thumbnail for the gallery popup, or None."""
+    try:
+        from PIL import Image, ImageTk
+        import os
+        resolved = os.path.join(project_dir, path) if not os.path.isabs(path) else path
+        img = Image.open(resolved).convert("RGBA")
+        img.thumbnail((size, size), Image.LANCZOS)
+        return ImageTk.PhotoImage(img)
+    except Exception:
+        return None
+
+
 # ── Chip widget ───────────────────────────────────────────────────────────────
 
 
@@ -166,12 +202,18 @@ class _Chip(tk.Frame):
         on_click: Callable[[str], None],
         on_right: Callable[[str, int, int], None],
         on_delete: Callable[[str], None],
+        image_paths: list = None,
+        project_dir: str = "",
     ) -> None:
         super().__init__(master, bg=_CHIP, cursor="hand2", padx=0, pady=0)
-        self._comp_id = comp_id
-        self._on_click = on_click
-        self._on_right = on_right
-        self._on_delete = on_delete
+        self._comp_id    = comp_id
+        self._on_click   = on_click
+        self._on_right   = on_right
+        self._on_delete  = on_delete
+        self._img_paths  = image_paths or []
+        self._project_dir = project_dir
+        self._gallery_win = None
+        self._gallery_after = None
 
         # Left blue accent bar (3px, shown when active)
         self._accent = tk.Frame(self, bg=_CHIP, width=3)
@@ -180,7 +222,13 @@ class _Chip(tk.Frame):
         inner = tk.Frame(self, bg=_CHIP, padx=4, pady=0)
         inner.pack(side="left", fill="both", expand=True)
 
-        icon_lbl = tk.Label(inner, text=glyph, bg=_CHIP, fg=_FG, font=(UI_FONT, 11))
+        # Icon — thumbnail for Image type, glyph for everything else
+        thumb = _load_chip_thumb(self._img_paths, project_dir) if self._img_paths else None
+        if thumb:
+            icon_lbl = tk.Label(inner, image=thumb, bg=_CHIP)
+            icon_lbl._thumb = thumb  # prevent GC
+        else:
+            icon_lbl = tk.Label(inner, text=glyph, bg=_CHIP, fg=_FG, font=(UI_FONT, 11))
         icon_lbl.pack(side="left")
 
         name_lbl = tk.Label(
@@ -188,8 +236,18 @@ class _Chip(tk.Frame):
         )
         name_lbl.pack(side="left")
 
+        # Count badge for multi-image
+        self._count_lbl = None
+        if len(self._img_paths) > 1:
+            self._count_lbl = tk.Label(
+                inner, text=f"×{len(self._img_paths)}",
+                bg=_CHIP, fg="#569cd6", font=(UI_FONT, 7), padx=2,
+            )
+            self._count_lbl.pack(side="left")
+
         self._inner = inner
-        self._labels = [icon_lbl, name_lbl]
+        extra = [self._count_lbl] if self._count_lbl else []
+        self._labels = [icon_lbl, name_lbl] + extra
 
         # Hover X — placed over the chip top-right corner, hidden until hover
         self._x_btn = tk.Label(
@@ -206,7 +264,7 @@ class _Chip(tk.Frame):
         self._x_btn.bind("<Enter>", lambda e: self._on_x_enter())
         self._x_btn.bind("<Leave>", lambda e: self._on_x_leave())
 
-        for w in [self, self._accent, inner, icon_lbl, name_lbl]:
+        for w in [self, self._accent, inner, icon_lbl, name_lbl] + extra:
             w.bind("<ButtonRelease-1>", lambda e: self._on_click(self._comp_id))
             w.bind(
                 "<Button-3>",
@@ -227,6 +285,8 @@ class _Chip(tk.Frame):
     def _hover(self, entering: bool) -> None:
         if entering:
             self._x_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-1, y=1)
+            if self._img_paths:
+                self._gallery_after = self.after(400, self._show_gallery)
         else:
             # Only hide if the pointer has genuinely left the chip bounds
             px, py = self.winfo_pointerxy()
@@ -237,6 +297,10 @@ class _Chip(tk.Frame):
             ):
                 self._x_btn.config(fg="#884444")
                 self._x_btn.place_forget()
+                if self._gallery_after:
+                    self.after_cancel(self._gallery_after)
+                    self._gallery_after = None
+                self._hide_gallery()
         if self._is_active():
             return
         bg = _CHIP_HV if entering else _CHIP
@@ -244,6 +308,57 @@ class _Chip(tk.Frame):
         self._inner.config(bg=bg)
         for lbl in self._labels:
             lbl.config(bg=bg)
+
+    def _show_gallery(self) -> None:
+        self._gallery_after = None
+        if self._gallery_win:
+            return
+        import os
+        win = tk.Toplevel(self)
+        win.overrideredirect(True)
+        win.wm_attributes("-topmost", True)
+        win.configure(bg="#252526", highlightbackground="#555555", highlightthickness=1)
+        self._gallery_win = win
+        self._gallery_thumbs: list = []  # keep PhotoImages alive
+
+        row = tk.Frame(win, bg="#252526")
+        row.pack(padx=6, pady=6)
+
+        for path in self._img_paths:
+            stem = os.path.splitext(os.path.basename(path))[0]
+            cell = tk.Frame(row, bg="#252526")
+            cell.pack(side="left", padx=4)
+
+            thumb = _load_gallery_thumb(path, self._project_dir)
+            if thumb:
+                self._gallery_thumbs.append(thumb)
+                img_lbl = tk.Label(cell, image=thumb, bg="#1e1e1e",
+                                   relief="flat", bd=1)
+                img_lbl.pack()
+            else:
+                tk.Label(cell, text="?", bg="#1e1e1e", fg="#888888",
+                         width=6, height=4).pack()
+
+            tk.Label(cell, text=stem, bg="#252526", fg="#888888",
+                     font=(UI_FONT, 7)).pack(pady=(2, 0))
+
+        # Position above the chip
+        self.update_idletasks()
+        win.update_idletasks()
+        cx = self.winfo_rootx() + self.winfo_width() // 2
+        cy = self.winfo_rooty()
+        ww = win.winfo_reqwidth()
+        win.geometry(f"+{cx - ww // 2}+{cy - win.winfo_reqheight() - 4}")
+        win.bind("<Leave>", lambda e: self._hide_gallery())
+
+    def _hide_gallery(self) -> None:
+        if self._gallery_win:
+            try:
+                self._gallery_win.destroy()
+            except Exception:
+                pass
+            self._gallery_win = None
+        self._gallery_thumbs = []
 
     def _on_x_enter(self) -> None:
         self._x_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-1, y=1)
