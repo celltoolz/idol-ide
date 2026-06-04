@@ -606,6 +606,21 @@ class DesignerProperties(tk.Frame):
             if method in comp_method_to_comp:
                 comp_id = comp_method_to_comp[method]
                 result.append((method, f"via {ev_key}", True, (comp_id, descriptor.id, ev_key)))
+        # canvas_button connections targeting this Canvas widget
+        if descriptor.type == "Canvas":
+            for comp in self._form.components:
+                if comp.type != "Image":
+                    continue
+                for btn in (comp.props.get("canvas_buttons") or []):
+                    if btn.get("canvas_id") != descriptor.id:
+                        continue
+                    tag = btn.get("tag", "?")
+                    result.append((
+                        f"_{tag}_click",
+                        f"{comp.id}  ·  {tag}",
+                        True,
+                        (comp.id, "__canvas_btn__", tag),
+                    ))
         return result
 
     def _collect_canvas_img_avail(self, descriptor: "WidgetDescriptor") -> list[tuple]:

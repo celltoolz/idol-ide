@@ -6161,6 +6161,10 @@ class IDOL(Tk):
         comp = form.get_component(comp_id)
         if comp is None:
             return
+        # canvas_button edit — open builder pre-filled
+        if widget_id == "__canvas_btn__":
+            self._open_img_button_builder(comp_id, comp, form, edit_tag=event_key)
+            return
         cdef = get_component_def(comp.type)
         if cdef is None:
             return
