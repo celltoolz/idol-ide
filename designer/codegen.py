@@ -250,6 +250,10 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
     # Generated _build_ui call block + component init + form event bindings
     _anchored = [w for w in form.widgets if w.anchor and w.anchor != "top_left"]
     out.append(_INIT_B)
+    # Image component refs must be created BEFORE _build_ui uses them
+    img_comp_init = _image_comp_init_lines(form)
+    if img_comp_init:
+        out.extend(img_comp_init)
     out.append("        self._build_ui()")
     comp_init = _component_init_lines(form)
     if comp_init:
@@ -1083,12 +1087,32 @@ def _collect_component_imports(form: FormModel) -> list[str]:
     return result
 
 
-def _component_init_lines(form: FormModel) -> list[str]:
-    """Return 8-space-indented __init__ lines for components that will emit code."""
+def _image_comp_init_lines(form: FormModel) -> list[str]:
+    """Return init lines for Image components only — must run before _build_ui."""
     from .component_registry import COMPONENT_REGISTRY
     wired = _comp_wired_methods(form)
     lines: list[str] = []
     for comp in form.components:
+        if comp.type != "Image":
+            continue
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef is None or not _comp_should_emit(comp, cdef, wired):
+            continue
+        lines.extend(_comp_init_for(comp, cdef))
+    return lines
+
+
+def _component_init_lines(form: FormModel) -> list[str]:
+    """Return 8-space-indented __init__ lines for components that will emit code.
+
+    Image components are excluded — they are emitted before _build_ui instead.
+    """
+    from .component_registry import COMPONENT_REGISTRY
+    wired = _comp_wired_methods(form)
+    lines: list[str] = []
+    for comp in form.components:
+        if comp.type == "Image":
+            continue   # handled by _image_comp_init_lines before _build_ui
         cdef = COMPONENT_REGISTRY.get(comp.type)
         if cdef is None or not _comp_should_emit(comp, cdef, wired):
             continue
