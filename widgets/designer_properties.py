@@ -2766,6 +2766,30 @@ class DesignerProperties(tk.Frame):
             self._events_insert(iid, ev, handler)
             if handler and not handler.startswith("_"):
                 self._events_set_warn(iid, True)
+        # Read-only rows for canvas_button generated bindings on Canvas widgets
+        if d.type == "Canvas" and self._form:
+            for comp in self._form.components:
+                if comp.type != "Image":
+                    continue
+                for btn in (comp.props.get("canvas_buttons") or []):
+                    if btn.get("canvas_id") != d.id:
+                        continue
+                    tag = btn.get("tag", "")
+                    if not tag:
+                        continue
+                    pairs = [
+                        ("mousedown", f"_{tag}_down"),
+                        ("mouseup",   f"_{tag}_up"),
+                    ]
+                    if btn.get("hover_key"):
+                        pairs += [
+                            ("mouseenter", f"_{tag}_enter"),
+                            ("mouseleave", f"_{tag}_leave"),
+                        ]
+                    for ev_name, method in pairs:
+                        self._events_insert(
+                            f"ev__cb__{tag}__{ev_name}", ev_name, method, kind="readonly"
+                        )
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
 
