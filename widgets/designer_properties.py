@@ -4399,6 +4399,7 @@ _PROP_HINTS: dict[str, str] = {
     "image":              "Background image displayed on this widget (click to pick a file; requires Pillow)",
     "compound":           "When both text and image are set, controls which is shown and where: none shows only the image, left/right/top/bottom places the image beside the text",
     # Canvas-specific
+    "border":             "Show or hide the canvas border and focus-highlight ring — False emits highlightthickness=0, bd=0 (recommended for game/image canvases)",
     "sizing":             "sizable — widget fills its placed bounds; fit image — widget auto-sizes to the natural dimensions of the background image",
     # Scrollbar
     "scrollbar":          "Attach a scrollbar: None, Vertical, Horizontal, or Both",

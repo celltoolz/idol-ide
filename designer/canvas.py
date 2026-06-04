@@ -2660,7 +2660,9 @@ def _draw_generic(c, x, y, x2, y2, text, props, tag):
 @_tag
 def _draw_canvas_widget(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#e8e8e8") or "#e8e8e8"
-    c.create_rectangle(x, y, x2, y2, fill=bg, outline="#808080")
+    show_border = str(props.get("border", True)).lower() not in ("false", "0")
+    outline = "#808080" if show_border else ""
+    c.create_rectangle(x, y, x2, y2, fill=bg, outline=outline)
     img_path = props.get("image", "")
     if img_path:
         photo = _load_preview_image(c, img_path, x2 - x, y2 - y)

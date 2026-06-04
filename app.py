@@ -6091,7 +6091,7 @@ class IDOL(Tk):
             w = WidgetDescriptor(
                 id=new_id, type="Canvas",
                 x=20, y=20, width=200, height=150,
-                props={"bg": "", "image": "", "sizing": "sizable"},
+                props={"bg": "", "image": "", "sizing": "sizable", "border": False},
             )
             form.add_widget(w)
             self._design_canvas.redraw()

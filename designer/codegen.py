@@ -564,6 +564,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
             continue
         if k == "sizing":
             continue  # IDOL-only layout hint, not a tkinter kwarg
+        if k == "border":
+            continue  # handled below as highlightthickness/bd injection
         if k == "image":
             # Canvas uses create_image() not a constructor kwarg
             if v and w.type != "Canvas":
@@ -582,6 +584,11 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     )
     if command_method:
         kw_parts.append(f"command=self.{command_method}")
+
+    # Canvas border=False → remove highlight ring and bd
+    if w.type == "Canvas" and str(w.props.get("border", True)).lower() in ("false", "0"):
+        kw_parts.append("highlightthickness=0")
+        kw_parts.append("bd=0")
 
     # Resolve parent — Notebook children attach to their tab Frame, not the Notebook
     if w.parent_id:

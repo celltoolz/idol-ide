@@ -404,11 +404,11 @@ REGISTRY: dict[str, dict] = {
         "label":        "Canvas",
         "tk_class":     "tk.Canvas",
         "default_size": (200, 150),
-        "default_props": {"bg": "", "image": "", "sizing": "sizable"},
+        "default_props": {"bg": "", "image": "", "sizing": "sizable", "border": True},
         "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_canvas_palette,
         "color_props":  ["bg"],
-        "prop_choices": {"sizing": ["sizable", "fit image"]},
+        "prop_choices": {"sizing": ["sizable", "fit image"], "border": ["True", "False"]},
     },
 }
 
