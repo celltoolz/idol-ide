@@ -74,6 +74,8 @@ A horizontal strip above the canvas with alignment, snap, and history controls.
 
 **Grid Layout popup** — ⊡ button opens a `Toplevel` with Make Grid and H/V nudge controls for arranging widgets in a regular grid automatically; H/V nudge buttons step by 8px, or **1px when Shift is held**
 
+**Show/hide grid** — `⋯` toggle button shows or hides the dot grid on the canvas; defaults on; lit blue when active
+
 **Tab order toggle** — `⇥` button shows or hides numbered blue badges on every widget indicating its tab/z-order position; toggles as a sticky button (lit blue when active)
 
 **Right cluster — History & Clipboard:**
@@ -139,6 +141,8 @@ Label, Button, and Canvas widgets support an `image` property. Click the row to 
 ### Form Properties
 Click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), maximize box, and **always on top** (pins the window above all other windows). Border style and maximize box stay in sync automatically.
 
+**Background image** — the `image` row on the form opens a file picker. The selected file is copied to `<project>/images/` and rendered at natural size on the designer canvas, sitting behind the dot grid. Hovering the row shows the filename plus its pixel dimensions. A `×` button clears the image. Codegen emits a `tk.Label` placed at (0, 0) as the first child in `_build_ui` so all other widgets render on top. Requires Pillow — an amber warning row appears if Pillow is not installed.
+
 ### Menu Bar
 A `menu bar` row in form properties opens the **Menu Editor** — see [Menu Editor](#menu-editor) below.
 
@@ -157,6 +161,7 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 - Wired rows show a `×` button on hover to clear the handler
 - **✦ auto-wire button** appears on hover for unwired rows
 - **? Events** row at the bottom opens a paginated guide explaining events, wiring steps, naming conventions, and a full reference table for the selected widget type
+- **Canvas widget** — when a Canvas widget has image buttons configured via an [Image component](#image), the Events tab shows additional **read-only** rows for each `tag_bind` generated: `mousedown`, `mouseup`, and (if hover is configured) `mouseenter` / `mouseleave`. These rows are greyed out; use the Image Button Builder to change them.
 
 **`command` event** — for Button, Checkbutton, Radiobutton, Scale, Spinbox this generates `command=self.method` as a constructor kwarg (not `.bind()`).
 
@@ -264,6 +269,57 @@ Non-visual components (timers, dialogs, file pickers) live in the **component tr
 **Menu item wiring** — wiring a component handler to a menu item stores the method reference directly on the menu item (`command_handler`); codegen emits `command=self._cd1_show_open` instead of the default `_{name}_click` wrapper.
 
 **Selective imports** — codegen only emits dialog imports your form actually uses (e.g. `from tkinter import filedialog` appears only if `_show_open` or `_show_save` is wired; `messagebox` only if `_show_message` is wired).
+
+### Image
+
+Named image references loaded in `__init__` — not a visible widget, just a Python object that holds one or more `ImageTk.PhotoImage` values that your code can use anywhere.
+
+**Adding images** — click the `images` property row to open a multi-select file picker. All selected files are copied to `<project>/images/`. The number of files selected determines the generated code shape:
+
+| Files selected | Generated code |
+|---|---|
+| 1 | `self.name = ImageTk.PhotoImage(Image.open(...))` |
+| 2+ | `self.name = {"stem": ImageTk.PhotoImage(...), ...}` keyed by filename stem |
+
+**Tray chip** — shows a live thumbnail of the first image; multi-image groups show a `×N` badge. Hovering the chip opens a gallery popup (400 ms delay) showing 80 px thumbnails with key names for every image in the group.
+
+#### Canvas Button handler (`canvas_button` ⚡)
+
+The `canvas_button` handler places an image-based clickable button on any `tk.Canvas` widget. Click ⚡ to open the **Image Button Builder**:
+
+- **Canvas** — pick an existing Canvas widget or choose `＋ Create New Canvas` (a new Canvas is created on the form automatically)
+- **Normal / Hover / Pressed** — choose which image key to display in each state. Hover and Pressed are optional; omitting Hover skips `<Enter>`/`<Leave>` bindings.
+- **Position** — X and Y coordinates within the canvas
+- **Tag name** — auto-generated from `{comp_id}_{canvas_id}`; must be unique per canvas
+- **Auto-size canvas** — checked by default; reads PIL dimensions of all images in the component and resizes the target Canvas widget to the largest width × height
+- **Live preview** — the preview pane shows the actual image and responds to clicks so you can verify the normal/pressed/hover states before confirming
+
+**Designer canvas preview** — once a canvas button is configured, the designer renders the normal image at the configured position on the Canvas widget as a ghost, with a dim tag-name label.
+
+**Connected display** — canvas buttons appear in the Connected section in both the Image component's Handlers tab (`canvas1 · btn_tag`) and the Canvas widget's Handlers tab. Clicking ✏ on either side reopens the builder pre-filled with the existing config; × deletes the button and its generated code.
+
+**Generated code shape:**
+
+```python
+# _build_ui — placement + bindings
+self.canvas1.create_image(50, 80, image=self.dragon["idle"], anchor="nw", tags="btn_attack")
+self.canvas1.tag_bind("btn_attack", "<Button-1>",        self._btn_attack_down)
+self.canvas1.tag_bind("btn_attack", "<ButtonRelease-1>", self._btn_attack_up)
+self.canvas1.tag_bind("btn_attack", "<Enter>",           self._btn_attack_enter)  # if hover
+self.canvas1.tag_bind("btn_attack", "<Leave>",           self._btn_attack_leave)  # if hover
+
+# Generated (always overwritten — do not edit directly)
+def _btn_attack_down(self, event): ...   # swap to pressed image
+def _btn_attack_up(self, event):   ...   # swap back, then call _btn_attack_click
+def _btn_attack_enter(self, event): ...  # swap to hover image
+def _btn_attack_leave(self, event): ...  # swap back to normal
+
+# User stub (never overwritten — put your click logic here)
+def _btn_attack_click(self, event):
+    pass  # TODO
+```
+
+One Image component can power multiple canvas buttons on the same or different canvases — each ⚡ click adds another wire.
 
 ### Timer
 

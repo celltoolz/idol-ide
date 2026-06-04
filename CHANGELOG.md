@@ -5,6 +5,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-03 to 2026-06-04] — Image Resources + Canvas Button Builder
+
+### Added
+- **Image component** — new non-visual component for named image references. Click `COMPONENTS → Image` to add one to the tray; click the `images` row to pick one or more files via a multi-select dialog (all copied to `<project>/images/` automatically). Single file → `self.name = ImageTk.PhotoImage(...)`. Multiple files → `self.name = {"stem": ImageTk.PhotoImage(...), ...}` keyed dict. Component tray chip shows a live thumbnail of the first image plus a `×N` count badge; hovering the chip (400 ms delay) opens a gallery popup above the tray showing 80 px thumbnails with key names for every image in the group.
+- **Canvas Button handler on Image component** — `canvas_button` handler with a ⚡ wire button. Clicking ⚡ opens the **Image Button Builder** dialog:
+  - Canvas picker with a `＋ Create New Canvas` option (auto-creates a Canvas widget on the form)
+  - Normal / Hover / Pressed image key dropdowns populated from the component's paths dict
+  - X and Y position fields; editable Tag name (tkinter tag used for `itemconfigure` and `tag_bind`)
+  - **Auto-size canvas** checkbox (checked by default) — reads PIL dimensions of all images and resizes the target Canvas widget to the largest width × height
+  - Live preview pane showing the actual image, responds to clicks to preview pressed/hover states
+  - Multiple wires supported — one Image component can drive any number of canvas buttons on any number of canvases
+- **Canvas button codegen** — generates in `_build_ui`: `create_image()` + `tag_bind()` calls for `<Button-1>` / `<ButtonRelease-1>` and (if hover is configured) `<Enter>` / `<Leave>`. Generates in the Component Handlers section: `_btn_X_down` / `_btn_X_up` / `_btn_X_enter` / `_btn_X_leave` (always overwritten), plus a `_btn_X_click` user stub (never overwritten, safe to customize).
+- **Canvas ghost preview** — when a canvas_button is configured, the designer canvas renders the normal image as a ghost at the configured (x, y) position on the Canvas widget so you can see layout without running the app.
+- **canvas_button Connected display** — canvas buttons appear in the Connected section on both sides: in the Image component's Handlers tab (label `canvas1 · btn_tag`) and in the Canvas widget's Handlers tab. ✏ on either side reopens the builder pre-filled with the existing config; × deletes the button.
+- **Readonly event rows for canvas_button** — the Canvas widget's Events tab now shows read-only `mousedown`, `mouseup`, and (if hover configured) `mouseenter` / `mouseleave` rows indicating the generated `tag_bind` methods.
+- **Form background image** — new `image` property on Form/Dialog. Click to open a file picker; the image is copied to `images/` and rendered at natural size on the designer canvas behind the dot grid. Codegen emits a `tk.Label(self, image=self._form_bg_img, bd=0).place(x=0, y=0)` as the first child in `_build_ui`. Hovering the image property row shows `Background Image` + `filename  Width: W  Height: H` when an image is set (reads dimensions via PIL or `tk.PhotoImage` fallback).
+- **Show/hide grid button** — `⋯` toggle button in the designer toolbar between Snap and Tab Order; defaults on; same blue active style as Snap. Redraws the canvas dot grid on each toggle.
+- **Complete prop hint coverage** — all 41 widget property keys now have status-bar hover descriptions; previously missing: `image`, `compound`, `sizing`, `scrollbar`, `tabs`, `value`.
+
+### Fixed
+- **Props hover IndexError** — `_props_redraw_row` would crash with `IndexError: list index out of range` when hovering the props panel after PIL row removal shifted row indices. Fixed by adding an `idx >= len(self._props_rows)` bounds guard.
+- **Canvas widget event set** — Canvas events were incorrectly `["click", "dblclick", "motion"]`; `"motion"` is not a valid `_BINDINGS` key (`"mousemove"` is). Updated to `_SIMPLE_EVENTS + _KEY_EVENTS` — the full standard event set matching all other interactive widgets.
+- **Image component init ordering** — `self.img1 = {...}` was emitted after `self._build_ui()` but `_build_ui` references it for `create_image()`. Image component init now runs before `_build_ui`.
+- **Builder OK with no canvases** — when no Canvas widgets existed on the form, the builder combobox initialized to `＋ Create New Canvas` and the trace never fired (value never changed), so OK returned early. Canvas creation now happens in `_commit` regardless of how the picker reached that value.
+- **Widget deletion leaves orphaned codegen** — deleting a Canvas widget that had canvas_button connections left `comp.props["canvas_buttons"]` entries intact, generating dead code referencing the removed canvas. `_disconnect_widget()` now runs before each widget removal, stripping both canvas_button entries from Image components and orphaned `handler_wires` entries.
+- **Designer mode focus** — clicking the `[Designer]` button left keyboard focus in the code editor, so pressing Delete removed text instead of deleting the selected widget. `_enter_designer_mode` now calls `self._design_canvas.focus_set()` immediately.
+
+---
+
 ## [2026-06-01] — Split Editor Overhaul + Welcome Tab
 
 ### Added
