@@ -185,7 +185,16 @@ class ImageButtonBuilder(tk.Toplevel):
                  insertbackground=_FLD_FG, font=(UI_FONT, 9), width=22, relief="flat", bd=4,
                  ).pack(fill="x")
 
-        tk.Frame(left, bg=_BG, height=8).pack()
+        # Auto-size checkbox
+        tk.Frame(left, bg=_BG, height=6).pack()
+        self._autosize_cv = tk.Canvas(left, bg=_BG, width=120, height=16,
+                                       highlightthickness=0, cursor="hand2")
+        self._autosize_cv.pack(anchor="w")
+        self._autosize_var = tk.BooleanVar(value=True)
+        self._draw_autosize_checkbox()
+        self._autosize_cv.bind("<ButtonRelease-1>", lambda e: self._toggle_autosize())
+
+        tk.Frame(left, bg=_BG, height=6).pack()
 
         # Buttons row
         btn_row = tk.Frame(left, bg=_BG)
@@ -222,21 +231,11 @@ class ImageButtonBuilder(tk.Toplevel):
 
     def _on_canvas_changed(self) -> None:
         val = self._canvas_var.get()
-        if val == "＋ Create New Canvas" and self._on_create_canvas:
-            new_id = self._on_create_canvas()
-            if new_id:
-                all_vals = list(self._canvas_cb["values"])
-                if new_id not in all_vals:
-                    all_vals.insert(-1, new_id)
-                    self._canvas_cb["values"] = all_vals
-                self._canvas_var.set(new_id)
-                # Update default tag
-                if self._tag_var.get().startswith("btn_") and "__new__" not in self._tag_var.get():
-                    self._tag_var.set(f"btn_{self._comp_id}_{new_id}")
-            else:
-                # Revert picker if creation was cancelled
-                existing = [v for v in self._canvas_cb["values"] if v != "＋ Create New Canvas"]
-                self._canvas_var.set(existing[0] if existing else "")
+        # When a real canvas is selected, update the default tag to match
+        if val and val != "＋ Create New Canvas":
+            current = self._tag_var.get()
+            if not current or current.startswith(f"btn_{self._comp_id}_"):
+                self._tag_var.set(f"btn_{self._comp_id}_{val}")
 
     # ── Preview ───────────────────────────────────────────────────────────────
 
@@ -298,13 +297,49 @@ class ImageButtonBuilder(tk.Toplevel):
 
     # ── Commit ────────────────────────────────────────────────────────────────
 
+    def _draw_autosize_checkbox(self) -> None:
+        cv = self._autosize_cv
+        cv.delete("all")
+        checked = self._autosize_var.get()
+        box_fill    = "#007acc" if checked else ""
+        box_outline = "#007acc" if checked else "#666666"
+        cv.create_rectangle(0, 2, 12, 14, fill=box_fill, outline=box_outline)
+        if checked:
+            cv.create_text(6, 8, text="✓", fill="#ffffff", font=(UI_FONT, 7, "bold"))
+        cv.create_text(17, 8, text="Auto-size canvas to images", fill="#cccccc",
+                       font=(UI_FONT, 8), anchor="w")
+
+    def _toggle_autosize(self) -> None:
+        self._autosize_var.set(not self._autosize_var.get())
+        self._draw_autosize_checkbox()
+
+    def _get_max_image_size(self) -> tuple[int, int]:
+        max_w, max_h = 0, 0
+        for path in self._paths:
+            try:
+                from PIL import Image
+                resolved = os.path.join(self._project_dir, path) if not os.path.isabs(path) else path
+                with Image.open(resolved) as img:
+                    w, h = img.size
+                max_w = max(max_w, w)
+                max_h = max(max_h, h)
+            except Exception:
+                pass
+        return max_w, max_h
+
     def _commit(self) -> None:
         canvas_id = self._canvas_var.get().strip()
         tag       = self._tag_var.get().strip()
-        if not canvas_id or canvas_id == "＋ Create New Canvas":
-            return
         if not tag:
             return
+        # If "Create New Canvas" is still selected, create one now
+        if not canvas_id or canvas_id == "＋ Create New Canvas":
+            if not self._on_create_canvas:
+                return
+            new_id = self._on_create_canvas()
+            if not new_id:
+                return
+            canvas_id = new_id
         try:
             x = int(self._x_var.get())
             y = int(self._y_var.get())
@@ -312,6 +347,7 @@ class ImageButtonBuilder(tk.Toplevel):
             return
         hover_val   = self._hover_var.get()
         pressed_val = self._pressed_var.get()
+        auto_w, auto_h = self._get_max_image_size() if self._autosize_var.get() else (0, 0)
         config = {
             "canvas_id":   canvas_id,
             "tag":         tag,
@@ -320,6 +356,8 @@ class ImageButtonBuilder(tk.Toplevel):
             "normal_key":  self._normal_var.get() if self._is_multi else "",
             "hover_key":   hover_val   if hover_val   != _NONE_KEY else "",
             "pressed_key": pressed_val if pressed_val != _NONE_KEY else "",
+            "auto_size_w": auto_w,
+            "auto_size_h": auto_h,
         }
         self._on_confirm(config)
         self.destroy()

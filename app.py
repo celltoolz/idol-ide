@@ -6100,6 +6100,14 @@ class IDOL(Tk):
                 buttons = [b for b in buttons if b.get("tag") != edit_tag]
             buttons.append(config)
             comp.props["canvas_buttons"] = buttons
+            # Auto-size the canvas widget to the largest image dimensions
+            aw = config.get("auto_size_w", 0)
+            ah = config.get("auto_size_h", 0)
+            if aw > 0 and ah > 0:
+                cw = form.get_widget(config["canvas_id"])
+                if cw:
+                    cw.width  = aw
+                    cw.height = ah
             self._comp_tray.refresh(form.components)
             self._design_canvas.redraw()
             self._set_designer_dirty()
