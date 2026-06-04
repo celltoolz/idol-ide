@@ -405,7 +405,7 @@ REGISTRY: dict[str, dict] = {
         "tk_class":     "tk.Canvas",
         "default_size": (200, 150),
         "default_props": {"bg": "", "image": "", "sizing": "sizable"},
-        "events":       ["click", "dblclick", "motion"],
+        "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_canvas_palette,
         "color_props":  ["bg"],
         "prop_choices": {"sizing": ["sizable", "fit image"]},

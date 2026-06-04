@@ -2006,7 +2006,7 @@ class DesignerProperties(tk.Frame):
 
     def _props_redraw_row(self, idx: int) -> None:
         """Redraw a single row in-place (no full delete)."""
-        if not self._props_rows:
+        if not self._props_rows or idx >= len(self._props_rows):
             return
         cv = self._props_cv
         w  = max(cv.winfo_width(), 160)
