@@ -44,6 +44,7 @@ class DesignerToolbar(tk.Frame):
         self.pack_propagate(False)
         self._canvas = canvas
         self._snap_lbl:    tk.Label | None = None
+        self._grid_lbl:    tk.Label | None = None
         self._autogen_lbl: tk.Label | None = None
         self._autogen_after_id: str | None = None
 
@@ -101,6 +102,15 @@ class DesignerToolbar(tk.Frame):
             sticky=True,
         )
         self._refresh_snap()
+
+        # Grid visibility toggle — always enabled
+        self._grid_lbl = self._btn(
+            "⋯",
+            self._toggle_grid,
+            "Show/hide grid",
+            sticky=True,
+        )
+        self._refresh_grid()
 
         # Tab order badge toggle — always enabled
         self._taborder_btn = self._btn(
@@ -241,6 +251,26 @@ class DesignerToolbar(tk.Frame):
         on = self._canvas.snap_enabled
         self._snap_lbl._active = on  # type: ignore[attr-defined]
         self._snap_lbl.config(
+            bg=_BTN_ACT if on else _BTN_BG,
+            fg=_SNAP_ON  if on else _BTN_FG,
+        )
+
+    def _toggle_grid(self) -> None:
+        on = self._canvas.toggle_grid()
+        if self._grid_lbl is None:
+            return
+        self._grid_lbl._active = on  # type: ignore[attr-defined]
+        self._grid_lbl.config(
+            bg=_BTN_ACT if on else _BTN_BG,
+            fg=_SNAP_ON  if on else _BTN_FG,
+        )
+
+    def _refresh_grid(self) -> None:
+        if self._grid_lbl is None:
+            return
+        on = self._canvas.grid_visible
+        self._grid_lbl._active = on  # type: ignore[attr-defined]
+        self._grid_lbl.config(
             bg=_BTN_ACT if on else _BTN_BG,
             fg=_SNAP_ON  if on else _BTN_FG,
         )

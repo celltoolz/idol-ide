@@ -32,7 +32,8 @@ from .registry import REGISTRY
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 GRID         = 8     # snap grid (px)
-_snap_enabled = True # module-level flag toggled by DesignerCanvas.toggle_snap()
+_snap_enabled  = True  # module-level flag toggled by DesignerCanvas.toggle_snap()
+_grid_visible  = True  # module-level flag toggled by DesignerCanvas.toggle_grid()
 _MARGIN = 50        # space around the form on the canvas
 _BG     = "#1e1e1e" # canvas background
 _FORM   = "#f5f5f5" # default form fill
@@ -724,6 +725,16 @@ class DesignerCanvas(tk.Canvas):
     def snap_enabled(self) -> bool:
         return (not _snap_enabled) if self._shift_snap_override else _snap_enabled
 
+    def toggle_grid(self) -> bool:
+        global _grid_visible
+        _grid_visible = not _grid_visible
+        self.redraw()
+        return _grid_visible
+
+    @property
+    def grid_visible(self) -> bool:
+        return _grid_visible
+
     # ── Alignment / distribution / sizing (multi-select operations) ───────────
 
     def _selected_widgets(self) -> list[WidgetDescriptor]:
@@ -1017,11 +1028,12 @@ class DesignerCanvas(tk.Canvas):
                                  fill="#ce9178", font=(UI_FONT, 7), tags="form_bg")
 
         # Dot grid
-        for gx in range(0, f.width + 1, GRID):
-            for gy in range(0, f.height + 1, GRID):
-                px, py = ox + gx, oy + gy
-                self.create_rectangle(px, py, px + 1, py + 1,
-                                      fill=_DOT, outline="", tags="grid")
+        if _grid_visible:
+            for gx in range(0, f.width + 1, GRID):
+                for gy in range(0, f.height + 1, GRID):
+                    px, py = ox + gx, oy + gy
+                    self.create_rectangle(px, py, px + 1, py + 1,
+                                          fill=_DOT, outline="", tags="grid")
 
         # Menu bar strip — drawn after form body so it sits on top
         self._menu_hitboxes = []
