@@ -4278,6 +4278,17 @@ _PROP_HINTS: dict[str, str] = {
     "maximize_box":       "Whether the maximize / restore button is visible",
     "always_on_top":      "Pin this window above all other windows (wm_attributes -topmost)",
     "menu_bar":           "Click to open the Menu Editor and build a menu bar for this form",
+    # Widget image / compound
+    "image":              "Background image displayed on this widget (click to pick a file; requires Pillow)",
+    "compound":           "When both text and image are set, controls which is shown and where: none shows only the image, left/right/top/bottom places the image beside the text",
+    # Canvas-specific
+    "sizing":             "sizable — widget fills its placed bounds; fit image — widget auto-sizes to the natural dimensions of the background image",
+    # Scrollbar
+    "scrollbar":          "Attach a scrollbar: None, Vertical, Horizontal, or Both",
+    # Notebook tabs
+    "tabs":               "Ordered list of tab names; click to open the tab editor",
+    # Radiobutton
+    "value":              "The value written to the linked variable when this radio button is selected; each button in a group should have a unique value",
 }
 
 _DROPDOWN_ITEM_HINTS: dict[str, dict[str, str]] = {
