@@ -533,6 +533,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 arg_str = ", ".join(f"'{a.strip()}'" for a in args_raw.split(","))
                 kw_parts.append(f"{k}=(self.register(self.{v}), {arg_str})")
             continue
+        if k == "sizing":
+            continue  # IDOL-only layout hint, not a tkinter kwarg
         if k == "image":
             # Canvas uses create_image() not a constructor kwarg
             if v and w.type != "Canvas":

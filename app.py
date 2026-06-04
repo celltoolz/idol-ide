@@ -4932,7 +4932,30 @@ class IDOL(Tk):
                     self._design_canvas._active_nb_tabs[w.id] = tabs[0] if tabs else ""
                 self._design_canvas.redraw()
             else:
+                if w.type == "Canvas":
+                    if key == "image" and value:
+                        # Auto-fit canvas to the image's natural size
+                        self._canvas_fit_to_image(w, value)
+                    elif key == "sizing" and value == "fit image":
+                        img = w.props.get("image", "")
+                        if img:
+                            self._canvas_fit_to_image(w, img)
                 self._design_canvas.update_widget(w)
+                if w.type == "Canvas" and key in ("image", "sizing"):
+                    self._props_panel.load_widget(w)
+
+    def _canvas_fit_to_image(self, widget, rel_path: str) -> None:
+        """Resize a Canvas widget to its image's natural pixel dimensions."""
+        project_dir = self._design_canvas._project_dir
+        img_path = os.path.join(project_dir, rel_path.replace("/", os.sep))
+        try:
+            from PIL import Image as _PIL_Image
+            with _PIL_Image.open(img_path) as img:
+                widget.width  = img.width
+                widget.height = img.height
+            widget.props["sizing"] = "fit image"
+        except Exception:
+            pass
 
     def _on_designer_event_change(
         self, widget_id: str, event_key: str, handler: str
@@ -7972,6 +7995,7 @@ class IDOL(Tk):
             output.write("✓ Pillow installed.\n", tag="info")
             self._props_panel._pil_available = True
             self._props_panel._update_pil_warning_row("prop__image", True)
+            self._add_to_requirements("Pillow")
 
         pip.run_operation(
             ["install", "pillow"],
@@ -7979,6 +8003,30 @@ class IDOL(Tk):
             on_done=_on_done,
             on_error=lambda e: output.write(e + "\n", tag="err"),
         )
+
+    def _add_to_requirements(self, package: str) -> None:
+        """Append *package* to the project's requirements.txt if not already listed."""
+        import re as _re
+        root = str(getattr(self._sidebar.explorer, "_root", "") or "")
+        if not root:
+            return
+        req = Path(root) / "requirements.txt"
+        if not req.is_file():
+            return
+        try:
+            text = req.read_text(encoding="utf-8")
+            existing = {
+                _re.split(r"[=<>!~;\s]", ln.strip())[0].lower()
+                for ln in text.splitlines()
+                if ln.strip() and not ln.startswith("#")
+            }
+            if package.lower() in existing:
+                return
+            if text and not text.endswith("\n"):
+                text += "\n"
+            req.write_text(text + f"{package}\n", encoding="utf-8")
+        except Exception:
+            pass
 
     # ── Run entry file ────────────────────────────────────────────────────────
 
