@@ -246,6 +246,34 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
         ),
     ),
 
+    "Image": ComponentDef(
+        type_key="Image",
+        label="Image",
+        icon="🖼",
+        description="Named image reference(s) loaded in __init__ — single file becomes self.name, multiple become self.name = {key: PhotoImage}",
+        default_name="img",
+        codegen_imports=[],   # PIL import handled by _has_images in codegen
+        prop_defs=(
+            PropDef(
+                key="paths",
+                label="images",
+                kind="image_list",
+                default=[],
+                description="Image file(s) — click to pick one or more files. Single file → self.name, multiple → self.name = {stem: PhotoImage, ...}",
+            ),
+        ),
+        handler_defs=(
+            ComponentHandlerDef(
+                id="canvas_button",
+                label="_canvas_button",
+                description="Place an image button on a Canvas widget — click ⚡ to configure position, images, and tag name",
+                has_connector=True,
+                default_body="",
+                applies_to_widgets=("Canvas",),
+            ),
+        ),
+    ),
+
     "Socket": ComponentDef(
         type_key="Socket",
         label="Socket",

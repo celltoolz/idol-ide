@@ -80,7 +80,14 @@ _COMP_E          = "        # ── IDOL:COMPONENTS:END "   + "─" * 48
 
 
 def _has_images(form: "FormModel") -> bool:
-    return bool(form.image) or any(w.props.get("image") for w in form.widgets)
+    if bool(form.image):
+        return True
+    if any(w.props.get("image") for w in form.widgets):
+        return True
+    return any(
+        comp.type == "Image" and comp.props.get("paths")
+        for comp in form.components
+    )
 
 
 def _image_load_lines(form: "FormModel") -> list[str]:
@@ -243,6 +250,10 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
     # Generated _build_ui call block + component init + form event bindings
     _anchored = [w for w in form.widgets if w.anchor and w.anchor != "top_left"]
     out.append(_INIT_B)
+    # Image component refs must be created BEFORE _build_ui uses them
+    img_comp_init = _image_comp_init_lines(form)
+    if img_comp_init:
+        out.extend(img_comp_init)
     out.append("        self._build_ui()")
     comp_init = _component_init_lines(form)
     if comp_init:
@@ -300,6 +311,11 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
         if wire_lines:
             out.extend(wire_lines)
             out.append("")
+
+    # Canvas image button placement (Image component canvas_buttons)
+    cb_build = _canvas_button_build_lines(form)
+    if cb_build:
+        out.extend(cb_build)
 
     # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
     if _anchored:
@@ -439,10 +455,14 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
 
     # ── component handler methods ─────────────────────────────────────────────
     comp_handler_lines = _component_handler_lines(form, bodies)
-    if comp_handler_lines:
+    cb_methods = _canvas_button_handler_methods(form, bodies)
+    if comp_handler_lines or cb_methods:
         out.append("    # ── Component Handlers " + "─" * 50)
         out.append("")
-        out.extend(comp_handler_lines)
+        if comp_handler_lines:
+            out.extend(comp_handler_lines)
+        if cb_methods:
+            out.extend(cb_methods)
 
     # ── helper methods ────────────────────────────────────────────────────────
     out.append("    # ── Functions " + "─" * 59)
@@ -1010,8 +1030,11 @@ def _comp_should_emit(comp, cdef, wired_methods: set[str]) -> bool:
     """True if this component should generate any code.
 
     A Timer with enabled=True auto-starts from __init__ and always emits.
+    An Image component emits whenever it has at least one path.
     All other components only emit when at least one connectable handler is wired.
     """
+    if comp.type == "Image":
+        return bool(comp.props.get("paths"))
     if comp.type == "Timer" and comp.props.get("enabled", True):
         return True
     return any(
@@ -1064,12 +1087,32 @@ def _collect_component_imports(form: FormModel) -> list[str]:
     return result
 
 
-def _component_init_lines(form: FormModel) -> list[str]:
-    """Return 8-space-indented __init__ lines for components that will emit code."""
+def _image_comp_init_lines(form: FormModel) -> list[str]:
+    """Return init lines for Image components only — must run before _build_ui."""
     from .component_registry import COMPONENT_REGISTRY
     wired = _comp_wired_methods(form)
     lines: list[str] = []
     for comp in form.components:
+        if comp.type != "Image":
+            continue
+        cdef = COMPONENT_REGISTRY.get(comp.type)
+        if cdef is None or not _comp_should_emit(comp, cdef, wired):
+            continue
+        lines.extend(_comp_init_for(comp, cdef))
+    return lines
+
+
+def _component_init_lines(form: FormModel) -> list[str]:
+    """Return 8-space-indented __init__ lines for components that will emit code.
+
+    Image components are excluded — they are emitted before _build_ui instead.
+    """
+    from .component_registry import COMPONENT_REGISTRY
+    wired = _comp_wired_methods(form)
+    lines: list[str] = []
+    for comp in form.components:
+        if comp.type == "Image":
+            continue   # handled by _image_comp_init_lines before _build_ui
         cdef = COMPONENT_REGISTRY.get(comp.type)
         if cdef is None or not _comp_should_emit(comp, cdef, wired):
             continue
@@ -1079,8 +1122,30 @@ def _component_init_lines(form: FormModel) -> list[str]:
 
 def _comp_init_for(comp, cdef) -> list[str]:
     """Init lines for one component instance."""
+    import os as _os
     cid = comp.id
     lines: list[str] = []
+
+    if comp.type == "Image":
+        paths = comp.props.get("paths", [])
+        if not paths:
+            return lines
+        if len(paths) == 1:
+            rel = paths[0].replace("\\", "/")
+            lines.append(f"        self.{cid} = ImageTk.PhotoImage(")
+            lines.append(f'            Image.open(os.path.join(os.path.dirname(__file__), "{rel}"))')
+            lines.append(f"        )")
+        else:
+            lines.append(f"        self.{cid} = {{")
+            for path in paths:
+                rel  = path.replace("\\", "/")
+                stem = _os.path.splitext(_os.path.basename(rel))[0]
+                lines.append(
+                    f'            "{stem}": ImageTk.PhotoImage('
+                    f'Image.open(os.path.join(os.path.dirname(__file__), "{rel}"))),'
+                )
+            lines.append(f"        }}")
+        return lines
 
     if comp.type == "Timer":
         interval = int(comp.props.get("interval", 1000))
@@ -1165,6 +1230,94 @@ def _comp_init_for(comp, cdef) -> list[str]:
             _val = str(comp.props.get(_prop, ""))
             lines.append(f"        self._{cid}_{_hid}_title = {repr(_val)}")
 
+    return lines
+
+
+def _img_ref(comp_id: str, key: str) -> str:
+    """Return the Python expression for one image from an Image component.
+
+    key="" means single-image component (self.name),
+    key="stem" means multi-image dict (self.name["stem"]).
+    """
+    return f'self.{comp_id}["{key}"]' if key else f"self.{comp_id}"
+
+
+def _canvas_button_build_lines(form: FormModel) -> list[str]:
+    """Return indented _build_ui lines for canvas image buttons on Image components."""
+    import os as _os
+    lines: list[str] = []
+    for comp in form.components:
+        if comp.type != "Image":
+            continue
+        buttons = comp.props.get("canvas_buttons") or []
+        if not buttons:
+            continue
+        lines.append(f"        # {comp.id} canvas buttons")
+        for btn in buttons:
+            cid    = comp.id
+            canvas = btn.get("canvas_id", "")
+            tag    = btn.get("tag", "")
+            x      = btn.get("x", 0)
+            y      = btn.get("y", 0)
+            nk     = btn.get("normal_key",  "")
+            hk     = btn.get("hover_key",   "")
+            pk     = btn.get("pressed_key", "")
+            if not canvas or not tag:
+                continue
+            normal_ref = _img_ref(cid, nk)
+            lines.append(f'        self.{canvas}.create_image({x}, {y}, image={normal_ref}, anchor="nw", tags="{tag}")')
+            lines.append(f'        self.{canvas}.tag_bind("{tag}", "<Button-1>",        self._{tag}_down)')
+            lines.append(f'        self.{canvas}.tag_bind("{tag}", "<ButtonRelease-1>", self._{tag}_up)')
+            if hk:
+                lines.append(f'        self.{canvas}.tag_bind("{tag}", "<Enter>", self._{tag}_enter)')
+                lines.append(f'        self.{canvas}.tag_bind("{tag}", "<Leave>", self._{tag}_leave)')
+        lines.append("")
+    return lines
+
+
+def _canvas_button_handler_methods(form: FormModel, bodies: dict[str, str]) -> list[str]:
+    """Return generated + user-stub methods for all canvas image buttons."""
+    lines: list[str] = []
+    for comp in form.components:
+        if comp.type != "Image":
+            continue
+        buttons = comp.props.get("canvas_buttons") or []
+        for btn in buttons:
+            cid    = comp.id
+            canvas = btn.get("canvas_id", "")
+            tag    = btn.get("tag", "")
+            nk     = btn.get("normal_key",  "")
+            hk     = btn.get("hover_key",   "")
+            pk     = btn.get("pressed_key", "")
+            if not canvas or not tag:
+                continue
+            normal_ref  = _img_ref(cid, nk)
+            pressed_ref = _img_ref(cid, pk) if pk else normal_ref
+            hover_ref   = _img_ref(cid, hk) if hk else normal_ref
+
+            # _down — generated, always overwritten
+            lines.append(f"    def _{tag}_down(self, event):")
+            lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={pressed_ref})')
+            lines.append("")
+            # _up — generated, calls user stub
+            lines.append(f"    def _{tag}_up(self, event):")
+            lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={normal_ref})')
+            lines.append(f"        self._{tag}_click(event)")
+            lines.append("")
+            if hk:
+                lines.append(f"    def _{tag}_enter(self, event):")
+                lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={hover_ref})')
+                lines.append("")
+                lines.append(f"    def _{tag}_leave(self, event):")
+                lines.append(f'        self.{canvas}.itemconfigure("{tag}", image={normal_ref})')
+                lines.append("")
+            # _click — user stub, never overwritten
+            click_method = f"_{tag}_click"
+            body = bodies.get(click_method, "pass  # TODO")
+            lines.append(f"    def {click_method}(self, event):")
+            for bline in body.splitlines():
+                lines.append(f"        {bline}")
+            lines.append("")
     return lines
 
 

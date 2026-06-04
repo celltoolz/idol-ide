@@ -410,7 +410,7 @@ class DesignerProperties(tk.Frame):
             )
         self._populate_events(descriptor, reg)
         self._widget_comp_handlers = self._collect_widget_comp_handlers(descriptor)
-        self._widget_comp_avail    = []   # not used in widget view
+        self._widget_comp_avail    = self._collect_canvas_img_avail(descriptor)
         if self._form:
             self.load_handlers(self._form)
 
@@ -606,6 +606,34 @@ class DesignerProperties(tk.Frame):
             if method in comp_method_to_comp:
                 comp_id = comp_method_to_comp[method]
                 result.append((method, f"via {ev_key}", True, (comp_id, descriptor.id, ev_key)))
+        # canvas_button connections targeting this Canvas widget
+        if descriptor.type == "Canvas":
+            for comp in self._form.components:
+                if comp.type != "Image":
+                    continue
+                for btn in (comp.props.get("canvas_buttons") or []):
+                    if btn.get("canvas_id") != descriptor.id:
+                        continue
+                    tag = btn.get("tag", "?")
+                    result.append((
+                        f"_{tag}_click",
+                        f"{comp.id}  ·  {tag}",
+                        True,
+                        (comp.id, "__canvas_btn__", tag),
+                    ))
+        return result
+
+    def _collect_canvas_img_avail(self, descriptor: "WidgetDescriptor") -> list[tuple]:
+        """Return (method, comp_id, handler_id) for Image comps available for canvas_button on a Canvas widget."""
+        if descriptor.type != "Canvas" or self._form is None:
+            return []
+        result = []
+        for comp in self._form.components:
+            if comp.type != "Image":
+                continue
+            if not comp.props.get("paths"):
+                continue
+            result.append((f"{comp.id}  canvas button", comp.id, "canvas_button"))
         return result
 
     def _collect_comp_connections(self, comp_id: str) -> list[tuple[str, str, bool, "tuple[str,str] | None"]]:
@@ -637,6 +665,19 @@ class DesignerProperties(tk.Frame):
                 continue
             if not hdef.has_connector and (any_wired or timer_auto):
                 result.append((f"_{comp_id}{hdef.label}", f"{form_name}.init", False, None))
+
+        # canvas_button entries (stored in comp.props, not widget.events)
+        comp_obj2 = self._form.get_component(comp_id)
+        if comp_obj2 and comp_obj2.type == "Image":
+            for btn in (comp_obj2.props.get("canvas_buttons") or []):
+                tag = btn.get("tag", "?")
+                canvas_id = btn.get("canvas_id", "?")
+                result.append((
+                    f"_{tag}_click",
+                    f"{canvas_id}  ·  {tag}",
+                    True,
+                    ("__canvas_btn__", tag),
+                ))
 
         # Explicit widget.events connections
         comp_methods: set[str] = {f"_{comp_id}{hdef.label}" for hdef in self._comp_def.handler_defs}
@@ -755,7 +796,13 @@ class DesignerProperties(tk.Frame):
                 if pd.key in self._SOCKET_CLIENT_ONLY and mode != "client":
                     continue
             val = descriptor.props.get(pd.key, pd.default)
-            self._props_insert(f"comp__{pd.key}", pd.label, str(val),
+            if pd.kind == "image_list":
+                paths = val if isinstance(val, list) else []
+                n = len(paths)
+                display = f"{n} image{'s' if n != 1 else ''}" if n else "(none)"
+            else:
+                display = str(val)
+            self._props_insert(f"comp__{pd.key}", pd.label, display,
                                kind="readonly" if pd.kind == "readonly" else "normal")
 
     def _rebuild_comp_props(self, descriptor) -> None:
@@ -1909,6 +1956,50 @@ class DesignerProperties(tk.Frame):
             self._on_prop_change(d.id, "image", rel)
         self._check_pil_async(lambda ok: self._update_pil_warning_row(row_iid, ok))
 
+    def _open_comp_image_picker(self, row_iid: str) -> None:
+        import os, shutil
+        from tkinter.filedialog import askopenfilenames
+        if not self._form or not self._comp_id:
+            return
+        comp = self._form.get_component(self._comp_id)
+        if comp is None:
+            return
+        picked = askopenfilenames(
+            title="Select image(s)",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not picked:
+            return
+        images_dir = os.path.join(self._project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        rel_paths = []
+        for src in picked:
+            basename = os.path.basename(src)
+            dest = os.path.join(images_dir, basename)
+            if os.path.exists(dest):
+                try:
+                    same = os.path.samefile(src, dest)
+                except OSError:
+                    same = False
+                if not same:
+                    name, ext = os.path.splitext(basename)
+                    counter = 1
+                    while os.path.exists(dest):
+                        dest = os.path.join(images_dir, f"{name}_{counter}{ext}")
+                        counter += 1
+            if not os.path.exists(dest):
+                shutil.copy2(src, dest)
+            rel_paths.append(os.path.relpath(dest, self._project_dir).replace("\\", "/"))
+        comp.props["paths"] = rel_paths
+        n = len(rel_paths)
+        display = f"{n} image{'s' if n != 1 else ''}"
+        self._props_set(row_iid, display)
+        if self._on_component_prop_change:
+            self._on_component_prop_change(self._comp_id, "paths", rel_paths)
+
     def _open_form_image_picker(self, row_iid: str) -> None:
         import os, shutil
         from tkinter.filedialog import askopenfilename
@@ -2675,6 +2766,30 @@ class DesignerProperties(tk.Frame):
             self._events_insert(iid, ev, handler)
             if handler and not handler.startswith("_"):
                 self._events_set_warn(iid, True)
+        # Read-only rows for canvas_button generated bindings on Canvas widgets
+        if d.type == "Canvas" and self._form:
+            for comp in self._form.components:
+                if comp.type != "Image":
+                    continue
+                for btn in (comp.props.get("canvas_buttons") or []):
+                    if btn.get("canvas_id") != d.id:
+                        continue
+                    tag = btn.get("tag", "")
+                    if not tag:
+                        continue
+                    pairs = [
+                        ("mousedown", f"_{tag}_down"),
+                        ("mouseup",   f"_{tag}_up"),
+                    ]
+                    if btn.get("hover_key"):
+                        pairs += [
+                            ("mouseenter", f"_{tag}_enter"),
+                            ("mouseleave", f"_{tag}_leave"),
+                        ]
+                    for ev_name, method in pairs:
+                        self._events_insert(
+                            f"ev__cb__{tag}__{ev_name}", ev_name, method, kind="readonly"
+                        )
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
 
@@ -2778,7 +2893,9 @@ class DesignerProperties(tk.Frame):
         pd  = next((p for p in self._comp_def.prop_defs if p.key == key), None)
         if pd is None or pd.kind == "readonly":
             return
-        if pd.kind == "bool":
+        if pd.kind == "image_list":
+            self._open_comp_image_picker(row)
+        elif pd.kind == "bool":
             self._props_open_dropdown(row, ["True", "False"], self._commit_comp_prop)
         else:
             self._props_open_editor(row, self._commit_comp_prop)
