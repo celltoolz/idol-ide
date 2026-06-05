@@ -2760,13 +2760,10 @@ class DesignerProperties(tk.Frame):
 
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_clear()
-        for ev in reg.get("events", []):
-            handler = d.events.get(ev, "")
-            iid     = f"ev__{ev}"
-            self._events_insert(iid, ev, handler)
-            if handler and not handler.startswith("_"):
-                self._events_set_warn(iid, True)
-        # Read-only rows for canvas_button generated bindings on Canvas widgets
+
+        # Build canvas_button event map so generated methods show inline in
+        # their matching event rows rather than as separate rows at the bottom.
+        cb_event_map: dict[str, list[str]] = {}
         if d.type == "Canvas" and self._form:
             for comp in self._form.components:
                 if comp.type != "Image":
@@ -2777,19 +2774,28 @@ class DesignerProperties(tk.Frame):
                     tag = btn.get("tag", "")
                     if not tag:
                         continue
-                    pairs = [
-                        ("mousedown", f"_{tag}_down"),
-                        ("mouseup",   f"_{tag}_up"),
-                    ]
+                    pairs = [("mousedown", f"_{tag}_down"), ("mouseup", f"_{tag}_up")]
                     if btn.get("hover_key"):
-                        pairs += [
-                            ("mouseenter", f"_{tag}_enter"),
-                            ("mouseleave", f"_{tag}_leave"),
-                        ]
+                        pairs += [("mouseenter", f"_{tag}_enter"),
+                                  ("mouseleave", f"_{tag}_leave")]
                     for ev_name, method in pairs:
-                        self._events_insert(
-                            f"ev__cb__{tag}__{ev_name}", ev_name, method, kind="readonly"
-                        )
+                        cb_event_map.setdefault(ev_name, []).append(method)
+
+        for ev in reg.get("events", []):
+            iid = f"ev__{ev}"
+            cb_methods = cb_event_map.get(ev)
+            if cb_methods:
+                # Show canvas_button generated method in the existing row, readonly
+                display = cb_methods[0]
+                if len(cb_methods) > 1:
+                    display += f" +{len(cb_methods) - 1}"
+                self._events_insert(iid, ev, display, kind="readonly")
+            else:
+                handler = d.events.get(ev, "")
+                self._events_insert(iid, ev, handler)
+                if handler and not handler.startswith("_"):
+                    self._events_set_warn(iid, True)
+
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
 
