@@ -558,6 +558,10 @@ class DesignerCanvas(tk.Canvas):
         self.delete("fhandle")
         self._draw_all_handles()
         self.tag_raise("handle")
+        if self._tab_order_visible:
+            self.delete("tab_badge")
+            self._draw_tab_badges()
+            self.tag_raise("handle")
         self._notify_selection()
         if self._on_structure_changed:
             self._on_structure_changed()
