@@ -231,6 +231,30 @@ This document tracks completed milestones, work in progress, and the planned fea
 
 ---
 
+## 2026-06-03 to 2026-06-04 — Image Resources, Canvas Polish & Bug Fixes
+
+### Added
+- **Image component** — see Phase 3 Components section above
+- **Form background image** — `image` property on Form/Dialog; file copied to `images/`; rendered at natural size on designer canvas behind dot grid; codegen emits `tk.Label(self, image=..., bd=0).place(x=0, y=0)` as first child in `_build_ui`; PIL check + warning row; hover hint shows filename + dimensions
+- **Show/hide grid toggle** — `⋯` toolbar button between Snap and Tab Order; defaults on; blue active style; redraws dot grid on toggle
+- **Canvas `border` property** (True/False) — when False codegen emits `highlightthickness=0, bd=0`; designer preview drops outline; auto-created builder canvases default to False; hover hint in status bar
+- **All 41 widget property keys** now have status-bar hover descriptions (`_PROP_HINTS`); previously missing: `image`, `compound`, `sizing`, `scrollbar`, `tabs`, `value`, `border`
+- **Canvas widget events** corrected to `_SIMPLE_EVENTS + _KEY_EVENTS` (was `["click","dblclick","motion"]`; `"motion"` is not a valid `_BINDINGS` key)
+- **Auto-save .py before codegen** — `_autosave_form_py()` called at top of `_generate_one_form`; saves open dirty tab to disk before extraction pass so user edits are never silently discarded
+
+### Fixed
+- **Props hover IndexError** — `_props_redraw_row` crashed when PIL row removal shifted indices; fixed with `idx >= len(self._props_rows)` guard
+- **Paste order** — `copy_selected` iterated `_selected_ids` (a set, unordered); now iterates `form.widgets` filtered to selected, preserving creation order → pasted copies get sequential IDs
+- **Paste offset drift** — `_paste_offset` now resets to 0 after a move drag so repeated paste+position cycles don't accumulate rightward drift
+- **Tab badges after delete** — `remove_selected` now clears and redraws `tab_badge` items immediately when tab order is visible
+- **Tab badges after paste** — `paste()` now clears and redraws badges immediately; re-raises handles so they stay on top
+- **Gallery + grid popups on app focus loss** — both popups now bind `<FocusOut>` on the IDOL root window and dismiss when `e.widget is top`; handler IDs tracked and unbound to prevent accumulation
+- **Canvas_button Events tab deduplication** — canvas_button methods now show inline in their matching existing event row (readonly kind) instead of appending separate rows, eliminating duplicate mousedown/mouseup/mouseenter/mouseleave entries
+- **Designer canvas focus on mode enter** — `_enter_designer_mode` now calls `focus_set()` on the canvas so Delete/arrows/Ctrl+Z route to the canvas immediately without requiring a click first
+- **Widget deletion cleans up wires** — `_disconnect_widget()` runs before each removal; strips `canvas_buttons` entries from Image components targeting the deleted widget and removes orphaned `handler_wires`
+
+---
+
 ## Next Up — Priority Bug & Feature Queue
 
 > Start here when picking up the next session. Items are roughly in order of priority.
@@ -365,6 +389,9 @@ Use a fresh name for each new feature branch (don't reuse merged names). Master 
 
 ## Planned — Designer
 
+- **ttk.Treeview widget** — Palette entry, canvas-drawn preview (header + sample rows). Props: columns (list editor like Notebook tabs), show (tree/headings/both), selectmode, height. Column editor popup defines ids/headings/widths/anchor/stretch. Events: `treeselect` (`<<TreeviewSelect>>`), `treeopen`, `treeclose` + standard mouse events. Codegen emits column defs + heading setup in `_build_ui`. Consistent with Listbox/Notebook handling.
+- **Audit component-generated event visibility** — `canvas_button` done (readonly rows in Events tab). Audit Timer (`_tick` → show as read-only `after` binding?), CommonDialog, Socket for same pattern.
+- **Codegen settings section** — add to `View → Settings` panel. Toggles: "Auto-save .py before regen" (currently always-on → opt-out), "Warn on manual .py edit detected before regen", "Show confirmation before overwriting user code zones". Expand as codegen grows.
 - Open Designer for existing (non-wizard) projects
 - Live Preview mode — eye icon toggles canvas to interactive state without running the app
 - Priority event sorting — most relevant events floated to top per widget type
@@ -499,6 +526,8 @@ codegen emits the `.bind()` call with no changes.
 
 - ✅ **Socket** — see *Designer — Image Support & Socket Component — SHIPPED (2026-05-26)* below.
 
+- ✅ **Image** (2026-06-03) — Named image references for game/app asset management. Multi-file picker (`askopenfilenames`); all files copied to `images/`. Single file → `self.name = ImageTk.PhotoImage(...)`, multiple → `self.name = {"stem": PhotoImage, ...}` dict. Tray chip shows PIL thumbnail of first image + `×N` count badge; hovering the chip (400 ms) opens a gallery popup showing 80 px thumbnails with key names. `canvas_button` handler ⚡ opens **Image Button Builder** (new Toplevel): canvas picker (+ auto-create), Normal/Hover/Pressed image key dropdowns, x/y position, tag name, auto-size-canvas checkbox (reads PIL dims, resizes Canvas widget), live clickable preview pane. Codegen: `create_image + tag_bind` in `_build_ui`; `_down/_up/_enter/_leave` always-overwritten methods; `_click` user stub (never overwritten). Ghost preview on designer canvas at configured position. Connected/edit shown on both Image component side and Canvas widget side. Canvas Events tab shows readonly `mousedown/mouseup/mouseenter/mouseleave` rows for each button.
+
 **Candidate components (next up):**
 1. **Database** — `sqlite3`; props: DatabaseFile; handlers: `_open_db` (⚡), `_close_db` (⚡), `_execute` (⚡), `_on_results`
 2. **"Me" proxy** — opt-in VB-style window wrapper (`back_color`, `hide()`, `show()`, `controls`, etc.)
@@ -575,10 +604,10 @@ as first-class entries in the Designer palette alongside the standard Tk widgets
 - **Code peek on canvas hover** — 2s hover shows handler code preview popup
 - **Multi-framework support** — PySide6 / PyQt6 backend alongside Tkinter
 - **Bidirectional designer ↔ code sync** — very long term
-- **Treeview** widget type (Canvas and Notebook already shipped)
+- **Treeview** widget type (Canvas and Notebook already shipped; Treeview is next — see Planned — Designer above)
 - **Learning Mode in Designer** — hover-driven explanations when F1 is active
 - **Floating sticky-note mini editor** — mini panel that grabs current selection, stays on top
-- **Rename project to "IDOL"** — at feature-complete milestone
+- ~~**Rename project to "IDOL"**~~ — DONE; IDOL has been the name since 2026-04-11
 
 ---
 
