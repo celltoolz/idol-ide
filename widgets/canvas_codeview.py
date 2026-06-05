@@ -306,6 +306,7 @@ class CanvasCodeView(tk.Frame):
         self._scroll_x = 0
         self.folded.clear()
         self._file_max_w_dirty = True
+        self._ml_state = self._scan_triple_state(self.lines)
         # Invalidate the content-width cache BEFORE render so the
         # horizontal scrollbar fractions reflect the new line set on
         # the very first paint.
@@ -321,6 +322,7 @@ class CanvasCodeView(tk.Frame):
         delete, line move/duplicate, comment toggle, paste, cut, etc.)
         so app.py can mark the tab dirty, schedule LSP didChange, and
         refresh the outline without polling."""
+        self._ml_state = self._scan_triple_state(self.lines)
         self._file_max_w_dirty = True
         if self.on_change is not None:
             try:
@@ -953,6 +955,9 @@ class CanvasCodeView(tk.Frame):
         # even when that line isn't currently in the viewport.
         self._file_max_w: int = 0
         self._file_max_w_dirty: bool = True
+        # Per-line triple-quote state: None = line starts outside any triple-
+        # quoted string; "'" or '"' = line starts inside one with that quote char.
+        self._ml_state: list[str | None] = []
 
         # Tokenizer rules. Each rule is (regex, category_name). The category
         # is resolved against the active theme's `tokens` map at render time,
@@ -966,7 +971,17 @@ class CanvasCodeView(tk.Frame):
             # Strings BEFORE comments — `#.*` would otherwise eat hex
             # color strings (`bg="#FFFFFF"`) by matching from the `#`
             # to end of line, swallowing the rest of the statement.
-            (re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""), "string"),
+            # Triple-quoted patterns come first so ''' isn't parsed as
+            # '' (empty) + ' (open). The (?:'''|$) close allows the
+            # pattern to match unclosed triples on the opening line of
+            # a multiline string (continuation lines are handled by
+            # _tokenize via _ml_state / _tokenize_in_triple).
+            (re.compile(
+                r"'''[^'\\]*(?:(?:\\.|'{1,2}(?!'))[^'\\]*)*(?:'''|$)"
+                r'|"""[^"\\]*(?:(?:\\.|"{1,2}(?!"))[^"\\]*)*(?:"""|$)'
+                r"|'(?:\\.|[^'\\])*'"
+                r'|"(?:\\.|[^"\\])*"'
+            ), "string"),
             (re.compile(r"#.*"),                                  "comment"),
             (re.compile(r"@\w+(?:\.\w+)*"),                       "decorator"),
             (re.compile(r"(?<=\bclass\s)\w+"),                    "type"),
@@ -1287,7 +1302,7 @@ class CanvasCodeView(tk.Frame):
             # using the italic font when the category specifies it.
             x = text_x0
             fg = self._palette["fg"]
-            for txt, cat in self._tokenize(line):
+            for txt, cat in self._tokenize(line, i):
                 if cat is None:
                     color, italic = fg, False
                 else:
@@ -1560,7 +1575,7 @@ class CanvasCodeView(tk.Frame):
         total = len(self.lines)
         for i, line in enumerate(self.lines, start=1):
             col = 0
-            for txt, cat in self._tokenize(line):
+            for txt, cat in self._tokenize(line, i - 1):
                 pt.insert("end", txt)
                 if cat is not None:
                     pt.tag_add(f"tok_{cat}",
@@ -1788,7 +1803,7 @@ class CanvasCodeView(tk.Frame):
             line = self.lines[ln - 1] if 0 <= ln - 1 < n else ""
             col = 0
             preview_row = ln - first + 1
-            for txt, cat in self._tokenize(line):
+            for txt, cat in self._tokenize(line, ln - 1):
                 pt.insert("end", txt)
                 if cat is not None:
                     pt.tag_add(f"tok_{cat}",
@@ -1874,7 +1889,7 @@ class CanvasCodeView(tk.Frame):
                 # Tokenize + render header line
                 x = self._text_x
                 fg = self._palette["fg"]
-                for txt, cat in self._tokenize(line):
+                for txt, cat in self._tokenize(line, hi):
                     if cat is None:
                         color, italic = fg, False
                     else:
@@ -2258,7 +2273,68 @@ class CanvasCodeView(tk.Frame):
             return [(line, "diff_hunk")]
         return [(line, None)]
 
-    def _tokenize(self, line: str):
+    @staticmethod
+    def _scan_triple_state(lines: list[str]) -> list[str | None]:
+        """Return a per-line list of triple-quoted string states.
+
+        Each element is None (line starts outside any triple-quoted string)
+        or the quote character ("'" or '"') if the line starts inside one.
+        Used by _tokenize to colour continuation lines as strings."""
+        state: list[str | None] = []
+        current: str | None = None  # quote char while inside a triple string
+        for line in lines:
+            state.append(current)
+            i = 0
+            n = len(line)
+            while i < n:
+                ch = line[i]
+                if current:
+                    if ch == "\\":
+                        i += 2
+                        continue
+                    if line[i:i + 3] == current * 3:
+                        current = None
+                        i += 3
+                        continue
+                else:
+                    if ch == "#":
+                        break  # rest is a comment
+                    if ch in ('"', "'") and line[i:i + 3] in ("'''", '"""'):
+                        current = ch
+                        i += 3
+                        continue
+                    if ch in ('"', "'"):
+                        q = ch
+                        i += 1
+                        while i < n:
+                            c2 = line[i]
+                            if c2 == "\\":
+                                i += 2
+                                continue
+                            if c2 == q:
+                                i += 1
+                                break
+                            i += 1
+                        continue
+                i += 1
+        return state
+
+    def _tokenize_in_triple(self, line: str, quote_char: str):
+        """Tokenize a line that starts inside a triple-quoted string.
+
+        Colours everything up to (and including) the closing triple-quote
+        as "string", then hands the remainder back to _tokenize."""
+        triple = quote_char * 3
+        end_idx = line.find(triple)
+        if end_idx == -1:
+            return [(line, "string")] if line else []
+        segs: list = [(line[:end_idx + 3], "string")]
+        rest = line[end_idx + 3:]
+        if rest:
+            segs.extend(self._tokenize(rest))
+        return [s for s in segs if s[0]]
+
+    def _tokenize(self, line: str, line_idx: int | None = None):
         """Return a list of (text, category_or_None) segments.
 
         Category None means default fg. Categories are resolved to actual
@@ -2270,6 +2346,11 @@ class CanvasCodeView(tk.Frame):
         rules run only on the code portion that precedes the `#`."""
         if self.language == "diff":
             return self._tokenize_diff(line)
+        # Continuation lines of a multiline triple-quoted string.
+        if line_idx is not None and line_idx < len(self._ml_state):
+            triple_q = self._ml_state[line_idx]
+            if triple_q is not None:
+                return self._tokenize_in_triple(line, triple_q)
         comment_at = self._comment_start(line)
         code_part   = line[:comment_at] if comment_at is not None else line
         segments: list = [(code_part, None)] if code_part else []
@@ -3278,6 +3359,19 @@ class CanvasCodeView(tk.Frame):
             # opened character-by-character).
             prev_ch = line[self.cur_col - 1] if self.cur_col > 0 else ""
             if ch in ("'", '"') and prev_ch == ch:
+                # Triple-quote completion: user typed the 3rd consecutive quote.
+                # Produce '''|''' (or """|""") with cursor centered.
+                if self.cur_col >= 2 and line[self.cur_col - 2] == ch:
+                    cur_line_text = self.lines[self.cur_line]
+                    after = cur_line_text[self.cur_col] if self.cur_col < len(cur_line_text) else ""
+                    if after == ch:
+                        # Remove the auto-paired closer before inserting the triple.
+                        self.lines[self.cur_line] = (
+                            cur_line_text[:self.cur_col] + cur_line_text[self.cur_col + 1:]
+                        )
+                    self._insert_text(ch + ch + ch + ch)
+                    self.cur_col -= 3
+                    return
                 self._insert_text(ch)
                 return
             self._insert_text(ch + _PAIRS[ch])
