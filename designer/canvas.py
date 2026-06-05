@@ -491,15 +491,17 @@ class DesignerCanvas(tk.Canvas):
         if not self._selected_ids or self._form is None:
             return
         self._clipboard = []
-        for wid in self._selected_ids:
-            w = self._form.get_widget(wid)
-            if w:
-                self._clipboard.append(WidgetDescriptor(
-                    id=w.id, type=w.type,
-                    x=w.x, y=w.y, width=w.width, height=w.height,
-                    props=dict(w.props),
-                    events={},
-                ))
+        # Iterate form.widgets (ordered list) so clipboard preserves creation order,
+        # giving paste a deterministic ID sequence instead of random set iteration.
+        for w in self._form.widgets:
+            if w.id not in self._selected_ids:
+                continue
+            self._clipboard.append(WidgetDescriptor(
+                id=w.id, type=w.type,
+                x=w.x, y=w.y, width=w.width, height=w.height,
+                props=dict(w.props),
+                events={},
+            ))
         self._paste_offset = 0
 
     def _notify_selection(self) -> None:
