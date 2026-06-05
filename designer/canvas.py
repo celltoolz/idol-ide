@@ -357,6 +357,9 @@ class DesignerCanvas(tk.Canvas):
             self.delete(f"widget:{wid}")
         self.delete("handle")
         self.delete("fhandle")
+        if self._tab_order_visible:
+            self.delete("tab_badge")
+            self._draw_tab_badges()
         self._selected_ids.clear()
         self._primary_id = None
         if self._on_deselect:
