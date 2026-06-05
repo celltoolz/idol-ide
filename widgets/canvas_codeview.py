@@ -3829,19 +3829,21 @@ class CanvasCodeView(tk.Frame):
         all_commented = bool(non_empty) and all(
             l.lstrip().startswith("#") for l in non_empty
         )
+        # Use the minimum indent of all non-empty lines so every # lines up
+        # in a straight column (VS Code style).
+        min_ind = min((len(l) - len(l.lstrip()) for l in non_empty), default=0)
         for i in range(start, end + 1):
             text = self.lines[i]
-            ind = len(text) - len(text.lstrip())
-            body = text[ind:]
+            if not text.strip():
+                continue  # leave blank lines untouched
+            body = text[min_ind:]
             if all_commented:
                 if body.startswith("# "):
-                    self.lines[i] = text[:ind] + body[2:]
+                    self.lines[i] = text[:min_ind] + body[2:]
                 elif body.startswith("#"):
-                    self.lines[i] = text[:ind] + body[1:]
+                    self.lines[i] = text[:min_ind] + body[1:]
             else:
-                if not body:
-                    continue
-                self.lines[i] = text[:ind] + "# " + body
+                self.lines[i] = text[:min_ind] + "# " + text[min_ind:]
         # Clamp cur_col so it doesn't dangle past the modified line.
         self.cur_col = min(self.cur_col, len(self.lines[self.cur_line]))
         self.render()
