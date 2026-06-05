@@ -7252,6 +7252,18 @@ class IDOL(Tk):
         self._designer_dirty = False
         self._designer_forms_dirty = False
 
+    def _autosave_form_py(self, py_path) -> None:
+        """Save the editor tab for py_path if it has unsaved changes.
+
+        Called just before codegen reads the file so user edits are captured
+        before the extraction pass runs, not silently discarded.
+        """
+        target = str(py_path)
+        for tab_id, path in self._files.items():
+            if path == target and self._dirty.get(tab_id):
+                self._write_file(tab_id, target)
+                break
+
     def _generate_one_form(self, form, root: str) -> None:
         from pathlib import Path as _Path
         from designer.codegen import generate as _gen
@@ -7270,8 +7282,9 @@ class IDOL(Tk):
         json_path = _Path(root) / f"{form.name}.form.json"
         py_path = _Path(root) / f"{form.name}.py"
 
-        # Manual edits are always preserved (event bodies, helpers, init zones)
-        # so no confirmation is needed before regenerating.
+        # Auto-save the .py if it's open in the editor with unsaved changes so
+        # the extraction pass below reads the latest user edits, not stale disk.
+        self._autosave_form_py(py_path)
 
         if py_path.exists():
             event_bodies = _bodies(py_path)
