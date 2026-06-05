@@ -3306,6 +3306,37 @@ class CanvasCodeView(tk.Frame):
             self.cur_col = len(parts[-1])
         self._fire_change()
 
+    def _fold_end(self, start: int) -> int:
+        """Return the physical index of the last hidden line in a fold at `start`.
+
+        Mirrors the skip logic in _visual_to_physical so the two stay in sync.
+        """
+        line = self.lines[start]
+        if _IDOL_BEGIN_RE.match(line):
+            for i in range(start + 1, len(self.lines)):
+                if _IDOL_END_RE.match(self.lines[i]):
+                    return i
+            return len(self.lines) - 1
+        if _SECTION_MARKER.match(line):
+            si = len(line) - len(line.lstrip())
+            last = start
+            for i in range(start + 1, len(self.lines)):
+                ln = self.lines[i]
+                if ln.strip():
+                    ind = len(ln) - len(ln.lstrip())
+                    if ind < si or (ind == si and _SECTION_MARKER.match(ln)):
+                        return last
+                last = i
+            return last
+        base_ind = len(line) - len(line.lstrip())
+        last = start
+        for i in range(start + 1, len(self.lines)):
+            ln = self.lines[i]
+            if ln.strip() and len(ln) - len(ln.lstrip()) <= base_ind:
+                return last
+            last = i
+        return last
+
     def _insert_newline(self) -> None:
         self._push_undo("")
         if self.sel_anchor:
@@ -3315,10 +3346,19 @@ class CanvasCodeView(tk.Frame):
         indent = " " * (len(line) - len(line.lstrip()))
         if head.rstrip().endswith(":"):
             indent += "    "
-        self.lines[self.cur_line] = head
-        self.lines.insert(self.cur_line + 1, indent + tail)
-        self.cur_line += 1
-        self.cur_col = len(indent)
+        # When the cursor is on a folded line, insert after the fold so the
+        # new line appears below the collapsed block, not inside it.
+        if self.cur_line in self.folded:
+            insert_at = self._fold_end(self.cur_line) + 1
+            self.lines[self.cur_line] = head
+            self.lines.insert(insert_at, indent + tail)
+            self.cur_line = insert_at
+            self.cur_col = len(indent)
+        else:
+            self.lines[self.cur_line] = head
+            self.lines.insert(self.cur_line + 1, indent + tail)
+            self.cur_line += 1
+            self.cur_col = len(indent)
         self._fire_change()
 
     def _delete_back(self) -> None:
