@@ -1896,6 +1896,7 @@ class DesignerCanvas(tk.Canvas):
             if w:
                 if d["mode"] == "move":
                     self._try_reparent(w)
+                    self._paste_offset = 0   # repositioning signals a new paste cycle
                 if self._on_widget_changed:
                     self._on_widget_changed(w)
             if d["mode"] == "resize" and self._on_widget_changed:
