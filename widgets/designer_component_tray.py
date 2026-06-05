@@ -351,7 +351,25 @@ class _Chip(tk.Frame):
         win.geometry(f"+{cx - ww // 2}+{cy - win.winfo_reqheight() - 4}")
         win.bind("<Leave>", lambda e: self._hide_gallery())
 
+        # Dismiss when the IDOL application loses focus
+        idol_top = self.winfo_toplevel()
+        def _on_app_focus_out(e):
+            if e.widget is idol_top:
+                self._hide_gallery()
+        self._gallery_focus_id = idol_top.bind("<FocusOut>", _on_app_focus_out, add=True)
+        self._gallery_top_ref  = idol_top
+
     def _hide_gallery(self) -> None:
+        # Unbind the app-level focus-out handler first
+        fid = getattr(self, "_gallery_focus_id", None)
+        top = getattr(self, "_gallery_top_ref", None)
+        if fid and top:
+            try:
+                top.unbind("<FocusOut>", fid)
+            except Exception:
+                pass
+        self._gallery_focus_id = None
+        self._gallery_top_ref  = None
         if self._gallery_win:
             try:
                 self._gallery_win.destroy()

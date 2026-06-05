@@ -350,6 +350,7 @@ class DesignerToolbar(tk.Frame):
 
         top  = self.winfo_toplevel()
         _bid: list = []
+        _fid: list = []
 
         def _global_click(e):
             try:
@@ -358,9 +359,25 @@ class DesignerToolbar(tk.Frame):
                 if not (px <= e.x_root < px + pw and py <= e.y_root < py + ph):
                     if _bid:
                         top.unbind("<Button-1>", _bid.pop())
+                    if _fid:
+                        top.unbind("<FocusOut>", _fid.pop())
                     _dismiss()
             except Exception:
                 pass
+
+        def _on_focus_out(e):
+            if e.widget is top:
+                if _bid:
+                    try:
+                        top.unbind("<Button-1>", _bid.pop())
+                    except Exception:
+                        pass
+                if _fid:
+                    try:
+                        top.unbind("<FocusOut>", _fid.pop())
+                    except Exception:
+                        pass
+                _dismiss()
 
         def _on_destroy(e):
             if _bid:
@@ -368,8 +385,14 @@ class DesignerToolbar(tk.Frame):
                     top.unbind("<Button-1>", _bid.pop())
                 except Exception:
                     pass
+            if _fid:
+                try:
+                    top.unbind("<FocusOut>", _fid.pop())
+                except Exception:
+                    pass
 
         _bid.append(top.bind("<Button-1>", _global_click, add=True))
+        _fid.append(top.bind("<FocusOut>", _on_focus_out, add=True))
         win.bind("<Destroy>", _on_destroy)
 
 
