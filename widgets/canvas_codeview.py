@@ -521,8 +521,7 @@ class CanvasCodeView(tk.Frame):
     # ── Public viewport API ──────────────────────────────────────────────────
 
     def scroll_to_line(self, line: int) -> None:
-        """Move the viewport so the (0-indexed) line is visible near
-        the top with a small overscan above for context."""
+        """Move the viewport so the (0-indexed) line is centered vertically."""
         idx = max(0, min(max(0, len(self.lines) - 1), line))
         v = 0
         skip: int | None = None
@@ -558,7 +557,8 @@ class CanvasCodeView(tk.Frame):
                 else:
                     skip = len(txt) - len(txt.lstrip())
             v += 1
-        self.scroll_y = max(0, v - 2)  # 2-row top overscan
+        visible_rows = max(1, self.canvas.winfo_height() // self._line_h)
+        self.scroll_y = max(0, v - visible_rows // 2)
         self.render()
 
     def ensure_visible(self) -> None:
@@ -739,9 +739,8 @@ class CanvasCodeView(tk.Frame):
         self.cur_line = idx
         self.cur_col = 0
         self.sel_anchor = None
-        self._ensure_visible()
+        self.scroll_to_line(idx)  # centers viewport; also calls render()
         self.canvas.focus_set()
-        self.render()
 
     def _refresh_breadcrumb(self) -> None:
         pass  # app.py's 25 ms _highlight_active_line loop owns all crumb updates
