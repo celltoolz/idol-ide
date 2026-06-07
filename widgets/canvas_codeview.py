@@ -3474,10 +3474,10 @@ class CanvasCodeView(tk.Frame):
         # When the cursor is on a folded line, insert after the fold so the
         # new line appears below the collapsed block, not inside it.
         if self.cur_line in self.folded:
-            insert_at = self._fold_end(self.cur_line) + 1
+            self.folded.discard(self.cur_line)
             self.lines[self.cur_line] = head
-            self.lines.insert(insert_at, indent + tail)
-            self.cur_line = insert_at
+            self.lines.insert(self.cur_line + 1, indent + tail)
+            self.cur_line += 1
             self.cur_col = len(indent)
         else:
             self.lines[self.cur_line] = head

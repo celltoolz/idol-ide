@@ -104,6 +104,26 @@ A right-click option on linked dialog rows in the FORMS tree opens a picker list
 
 ## 🌐 Long-Term Ideas
 
+### `canvas_codeview.py` Decomposition — Code Cleanup Session
+
+`canvas_codeview.py` has grown to ~10 distinct widgets/subsystems crammed into one file. Needs a dedicated cleanup session — audit codebase against CONTRIBUTING.md conventions at the same time.
+
+**Proposed split:**
+| File | Contents |
+|---|---|
+| `widgets/canvas_codeview.py` | Core render loop, cursor, selection, key dispatch |
+| `widgets/canvas_editor/tokenizer.py` | `_rules`, `_scan_triple_state`, `_tokenize*` |
+| `widgets/canvas_editor/fold.py` | `folded`, `_fold_end`, `_toggle_fold`, fold rendering |
+| `widgets/canvas_editor/multicursor.py` | `_mc_cursors`, `_mc_anchors`, `_mc_apply_key`, `_mc_shift_same_line` |
+| `widgets/canvas_editor/autocomplete.py` | Completion popup, LSP trigger, filtering |
+| `widgets/canvas_editor/minimap.py` | Minimap canvas, dirty tracking, click-to-scroll |
+| `widgets/canvas_editor/gutter.py` | Line numbers, breakpoints, git-hunk margin |
+| `editor/bracket_matcher.py` | Dead code — uses `tk.Text` API; either port or delete |
+
+**Prerequisites:** no active features being built on `canvas_codeview.py`; full test pass before/after; one file at a time with syntax check after each move.
+
+**Also clean up:** `editor/bracket_matcher.py` (dead code — still instantiated in `app.py` but not wired to canvas editor events); memory file maintenance; CONTRIBUTING.md audit pass.
+
 ### Canvas-Virtualized Side Panel Renderer
 Replace Frame/Label widget trees in sidebar panels with a single `Canvas` per section — only repaint visible rows, `create_text`/`create_image` items, `tag_bind` interaction.
 - Zero widget teardown = zero flicker; handles 10k-row lists; smooth expand/collapse
