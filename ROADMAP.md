@@ -176,6 +176,7 @@ Use a fresh name for each new feature branch (don't reuse merged names). Master 
 - **Linux:** IDOL window maximize state has a visible flash on restore — WM session management re-maximizes asynchronously; `_force_normal` at 300 ms fights it but can't eliminate the flash; accepted limitation
 - **Debugger:** global hotkeys (F5/F10/F11/Shift+F11/Shift+F5) need a low-level keyboard hook (pynput or keyboard lib) to fire when IDOL doesn't have focus; hook installed only during active debug session
 - **Codegen:** removing the last widget reference to a handler method silently drops its body on next regen; should warn "handler `_on_x` has a body but nothing calls it — remove?"
+- **Codegen:** `_`-prefixed methods with decorators (e.g. `@staticmethod def _helper()`) lose their decorator on regen — event stub bodies are extracted separately and the `def` line is rebuilt by codegen, so decorator info is never captured. Uncommon pattern for event handlers but worth fixing eventually; would require plumbing decorator data through `extract_event_bodies` and `generate()`.
 
 ---
 ---
