@@ -3451,6 +3451,16 @@ class CanvasCodeView(tk.Frame):
             self.cur_col = len(parts[-1])
         self._fire_change()
 
+    def _shift_folds(self, after: int, delta: int = 1) -> None:
+        """Shift fold indices strictly after `after` by `delta`.
+
+        Call with delta=+1 after inserting a line at after+1, or delta=-1
+        after deleting a line that was at after+1.  Indices equal to `after`
+        are never moved (the line at `after` itself didn't shift).
+        """
+        if self.folded:
+            self.folded = {f + delta if f > after else f for f in self.folded}
+
     def _fold_end(self, start: int) -> int:
         """Return the physical index of the last hidden line in a fold at `start`.
 
@@ -3497,11 +3507,13 @@ class CanvasCodeView(tk.Frame):
             self.folded.discard(self.cur_line)
             self.lines[self.cur_line] = head
             self.lines.insert(self.cur_line + 1, indent + tail)
+            self._shift_folds(self.cur_line)
             self.cur_line += 1
             self.cur_col = len(indent)
         else:
             self.lines[self.cur_line] = head
             self.lines.insert(self.cur_line + 1, indent + tail)
+            self._shift_folds(self.cur_line)
             self.cur_line += 1
             self.cur_col = len(indent)
         self._fire_change()
@@ -3535,6 +3547,8 @@ class CanvasCodeView(tk.Frame):
             self.cur_col = len(prev)
             self.lines[self.cur_line - 1] = prev + curr
             del self.lines[self.cur_line]
+            self.folded.discard(self.cur_line)
+            self._shift_folds(self.cur_line, -1)
             self.cur_line -= 1
         self._fire_change()
 
@@ -3555,6 +3569,8 @@ class CanvasCodeView(tk.Frame):
         elif self.cur_line + 1 < len(self.lines):
             self.lines[self.cur_line] = line + self.lines[self.cur_line + 1]
             del self.lines[self.cur_line + 1]
+            self.folded.discard(self.cur_line + 1)
+            self._shift_folds(self.cur_line + 1, -1)
         self._fire_change()
 
     def _delete_selection(self) -> None:
