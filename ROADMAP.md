@@ -48,6 +48,8 @@ Completed sessions live at the bottom as a historical record.
 
 - **Editor fg/bg color hover** — hovering a hex string literal (e.g. `"#FF00AA"`) shows a color swatch tooltip; clicking opens the IDOL color chooser. Canvas editor already renders inline color swatches — extend to interactive.
 
+- **References code-peek zoom** — hovering a row in the References panel shows a small floating zoom window with the reference's surrounding code, similar to the minimap zoom but smaller. Exact sizing/layout TBD in a dedicated design session before implementation.
+
 - **More bundled themes** — add 2–3 popular themes as `themes/*.json`. Candidates: `github-dark`, `one-dark`, `solarized-dark`.
 
 - **Internationalization (i18n)** — UI localization (active Czech user base). `gettext`-based; `utils/i18n.py`; `locale/<lang>/LC_MESSAGES/idol.po + .mo`; language setting in `~/.idol/settings.json`; auto-detect OS locale; hot-swap via `retranslate_ui()`. Use a dedicated `feature/i18n` branch — touches every file.
