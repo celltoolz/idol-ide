@@ -1632,14 +1632,34 @@ class CanvasCodeView(tk.Frame):
         self._mm_last_folded = cur_folded
 
     def _mm_sync_scroll(self) -> None:
-        """Move the minimap's yview so the editor viewport stays centered."""
-        n = len(self.lines)
-        if n == 0:
+        """Move the minimap's yview so it tracks the editor scroll proportionally.
+
+        The old approach used top_phys/n which clamped the minimap to its bottom
+        while the editor still had rows to scroll — because yview_moveto(frac)
+        positions frac of the document at the minimap TOP, so fracs above
+        (1 - mm_visible_fraction) are silently clamped.
+
+        Fix: normalise the editor's scroll position to 0→1 over its own scrollable
+        range, then map that onto 0→mm_max_top so the minimap reaches its bottom
+        exactly when the editor reaches its bottom.
+        """
+        if not self.lines:
             return
         try:
-            top_phys = self._visual_to_physical(self.scroll_y) or 0
-            frac = top_phys / max(1, n)
-            self._mm_text.yview_moveto(max(0.0, min(1.0, frac)))
+            total   = max(1, self._visual_row_count())
+            visible = max(1, self.canvas.winfo_height() // self._line_h)
+
+            editor_max_top = max(0.0, 1.0 - visible / total)
+            if editor_max_top == 0.0:
+                self._mm_text.yview_moveto(0.0)
+                return
+
+            editor_norm = max(0.0, min(1.0, (self.scroll_y / total) / editor_max_top))
+
+            mm_top, mm_bot = self._mm_text.yview()
+            mm_max_top = max(0.0, 1.0 - (mm_bot - mm_top))
+
+            self._mm_text.yview_moveto(editor_norm * mm_max_top)
         except Exception:
             pass
 
