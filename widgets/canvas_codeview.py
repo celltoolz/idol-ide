@@ -2729,6 +2729,20 @@ class CanvasCodeView(tk.Frame):
                           "Home", "End", "Prior", "Next"):
             self._fire_change()
 
+    def _mc_shift_same_line(self, line: int, col_threshold: int, delta: int) -> None:
+        """Shift secondary cursor/anchor columns when the primary cursor
+        edited the same line. Any secondary position on *line* at column
+        >= *col_threshold* is moved by *delta* (positive = insertion,
+        negative = deletion). Must be called BEFORE _mc_apply_key so the
+        secondary cursors start from the correct post-edit columns."""
+        for i in range(len(self._mc_cursors)):
+            mc_l, mc_c = self._mc_cursors[i]
+            if mc_l == line and mc_c >= col_threshold:
+                self._mc_cursors[i] = (mc_l, max(0, mc_c + delta))
+            anch = self._mc_anchors[i]
+            if anch is not None and anch[0] == line and anch[1] >= col_threshold:
+                self._mc_anchors[i] = (anch[0], max(0, anch[1] + delta))
+
     def _mc_delete_range(self, sl: int, sc: int,
                          el: int, ec: int) -> tuple[int, int]:
         """Delete the range [sl,sc)→[el,ec) from self.lines."""
@@ -3222,13 +3236,25 @@ class CanvasCodeView(tk.Frame):
 
         # Editing
         if ks == "BackSpace":
+            _pl, _pc = self.cur_line, self.cur_col
+            _llen = len(self.lines[_pl])
             self._delete_back()
+            if self._mc_cursors and self.cur_line == _pl and _pc > 0:
+                _delta = len(self.lines[_pl]) - _llen  # -1 or -2
+                if _delta:
+                    self._mc_shift_same_line(_pl, _pc, _delta)
             self._mc_apply_key("BackSpace", "", shift, ctrl)
             self._ensure_visible(); self.render()
             self._maybe_show_autocomplete()
             return "break"
         if ks == "Delete":
+            _pl, _pc = self.cur_line, self.cur_col
+            _llen = len(self.lines[_pl])
             self._delete_forward()
+            if self._mc_cursors and self.cur_line == _pl:
+                _delta = len(self.lines[_pl]) - _llen  # -1 or -2
+                if _delta:
+                    self._mc_shift_same_line(_pl, _pc + 1, _delta)
             self._mc_apply_key("Delete", "", shift, ctrl)
             self._ensure_visible(); self.render(); return "break"
         if ks == "Return":
@@ -3245,7 +3271,12 @@ class CanvasCodeView(tk.Frame):
             self._ensure_visible(); self.render(); return "break"
 
         if event.char and event.char.isprintable() and not ctrl:
+            _pl, _pc, _llen = self.cur_line, self.cur_col, len(self.lines[self.cur_line])
             self._insert_char_with_pairs(event.char)
+            if self._mc_cursors and self.cur_line == _pl:
+                _delta = len(self.lines[_pl]) - _llen  # 1 or 2 (auto-pair)
+                if _delta:
+                    self._mc_shift_same_line(_pl, _pc, _delta)
             self._mc_apply_key("char", event.char, shift, ctrl)
             self._ensure_visible()
             self.render()
