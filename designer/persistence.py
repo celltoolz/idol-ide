@@ -263,8 +263,12 @@ def extract_helper_methods(py_path: Path) -> str:
                 continue
             if item.name in ("__init__", "_build_ui") or item.name.startswith("_"):
                 continue
-            start = item.lineno - 1   # 0-indexed, includes def line
-            end   = item.end_lineno   # exclusive
+            # Include decorator lines (@property, @name.setter, @staticmethod, etc.)
+            if item.decorator_list:
+                start = item.decorator_list[0].lineno - 1
+            else:
+                start = item.lineno - 1
+            end = item.end_lineno   # exclusive
             parts.append(textwrap.dedent("\n".join(lines[start:end])))
 
     return "\n\n".join(parts)
