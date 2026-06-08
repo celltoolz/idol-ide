@@ -3291,6 +3291,7 @@ class IDOL(Tk):
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
+                self._sync_all_ci_image_components(form)
                 self._comp_tray.refresh(form.components)
                 self._comp_tray.deselect()
                 self._refresh_form_list(active=form.name)
@@ -4806,6 +4807,7 @@ class IDOL(Tk):
         self._design_canvas.load_form(primary)
         self._props_panel.set_form(primary)
         self._props_panel.load_form(primary)
+        self._sync_all_ci_image_components(primary)
         self._comp_tray.refresh(primary.components)
         self._comp_tray.deselect()
         self._designer_menu_had_items = bool(primary.menu_items)
@@ -5191,9 +5193,45 @@ class IDOL(Tk):
                     if ci.kind == "image" and ci.props.get("image_path")
                 ]
                 self._designer_palette.refresh_ci_images(img_paths)
+                if w:
+                    self._sync_ci_image_component(form, w)
             else:
                 sel = next(iter(self._design_canvas.selected_ids), None)
                 self._props_panel.refresh_order(form, sel)
+
+    def _sync_ci_image_component(self, form, canvas_widget) -> None:
+        """Create or update the {canvas_id}_ci Image component for CI image items."""
+        from designer.model import ComponentDescriptor
+        img_paths = [
+            ci.props["image_path"] for ci in canvas_widget.canvas_items
+            if ci.kind == "image" and ci.props.get("image_path")
+        ]
+        # Deduplicate while preserving order
+        seen: set = set()
+        unique_paths = [p for p in img_paths if not (p in seen or seen.add(p))]
+        comp_id = f"{canvas_widget.id}_ci"
+        existing = form.get_component(comp_id)
+        if not unique_paths:
+            if existing is not None:
+                form.components = [c for c in form.components if c.id != comp_id]
+                self._comp_tray.refresh(form.components)
+            return
+        if existing is None:
+            comp = ComponentDescriptor(id=comp_id, type="Image",
+                                       props={"paths": unique_paths})
+            form.components.append(comp)
+        else:
+            existing.props["paths"] = unique_paths
+        self._comp_tray.refresh(form.components)
+
+    def _sync_all_ci_image_components(self, form) -> None:
+        """Pass over all Canvas widgets on form load and ensure CI image components exist."""
+        for w in form.widgets:
+            if w.type == "Canvas" and any(
+                ci.kind == "image" and ci.props.get("image_path")
+                for ci in w.canvas_items
+            ):
+                self._sync_ci_image_component(form, w)
 
     def _on_designer_reorder_widget(self, widget_id: str, new_idx: int) -> None:
         """Order tab drag-drop → move widget (or CI item) in model."""

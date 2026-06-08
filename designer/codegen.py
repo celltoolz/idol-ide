@@ -1362,6 +1362,24 @@ def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[st
     return lines
 
 
+def _ci_image_ref(form: FormModel, img_path: str) -> str:
+    """Return the Python expression for a CI image item, via its Image component."""
+    import os as _os
+    if not img_path:
+        return "None"
+    comp_id = None
+    comp_paths: list = []
+    for comp in form.components:
+        if comp.type == "Image" and img_path in comp.props.get("paths", []):
+            comp_id = comp.id
+            comp_paths = comp.props.get("paths", [])
+            break
+    if comp_id is None:
+        return "None"
+    stem = _os.path.splitext(_os.path.basename(img_path))[0]
+    return _img_ref(comp_id, stem if len(comp_paths) > 1 else "")
+
+
 def _canvas_items_build_lines(form: FormModel) -> list[str]:
     """Return indented _build_ui lines for canvas items created via the Canvas Item Designer."""
     lines: list[str] = []
@@ -1384,12 +1402,7 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
             anchor  = item.props.get("anchor", "nw")
             if item.kind == "image":
                 img_path = item.props.get("image_path", "")
-                if img_path:
-                    # Reference via _img_ attribute — same pattern as canvas_button
-                    stem = __import__("os").path.splitext(__import__("os").path.basename(img_path))[0]
-                    img_ref = f"self._img_{stem}"
-                else:
-                    img_ref = "None"
+                img_ref  = _ci_image_ref(form, img_path)
                 tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
                 lines.append(
                     f'        self.{canvas_name}.create_image({ix}, {iy}, image={img_ref},'
