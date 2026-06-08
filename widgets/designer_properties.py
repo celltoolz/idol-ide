@@ -104,6 +104,10 @@ class DesignerProperties(tk.Frame):
         self._ev_clearing:    bool                      = False
         self._prop_clear_iid: str | None                = None
         self._ev_btn_iid:     str | None                = None
+        # Canvas item mode state (active when a CI item is selected in CI edit mode)
+        self._ci_item_mode:   bool                      = False
+        self._ci_item:        "Any | None"              = None   # CanvasItemDescriptor
+        self._ci_canvas_wid:  str | None                = None   # canvas widget id
         # Component mode state
         self._comp_mode:      bool                      = False
         self._comp_id:        str | None                = None
@@ -392,11 +396,16 @@ class DesignerProperties(tk.Frame):
         # Display list: ('w', widget, nb_info) | ('h', tab_name)
         self._order_display: list = []
         self._disp_to_w:     dict[int, int] = {}   # display_idx → _order_widgets idx
+        # CI mode order state
+        self._order_ci_mode: bool = False
+        self._order_ci_items: list = []            # list[CanvasItemDescriptor]
+        self._order_ci_sel_id: str | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def load_widget(self, descriptor: WidgetDescriptor) -> None:
         """Populate the panel from *descriptor*."""
+        self._exit_ci_mode()
         self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = descriptor
@@ -416,6 +425,7 @@ class DesignerProperties(tk.Frame):
 
     def load_form(self, form: FormModel) -> None:
         """Show form-level properties when the canvas background is selected."""
+        self._exit_ci_mode()
         self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = None
@@ -886,6 +896,7 @@ class DesignerProperties(tk.Frame):
 
     def load_component(self, descriptor, comp_def) -> None:
         """Switch the panel into component mode and show the component's properties/handlers."""
+        self._exit_ci_mode()
         self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = None
@@ -945,6 +956,78 @@ class DesignerProperties(tk.Frame):
         self._comp_conn_hov_idx      = None
         self._comp_dtitles_expanded  = False
 
+    # ── Canvas item mode ──────────────────────────────────────────────────────
+
+    def load_canvas_item(self, item, canvas_widget_id: str) -> None:
+        """Show properties for a canvas item selected in canvas-item edit mode."""
+        self._exit_comp_mode()
+        self._dismiss_editor()
+        self._ci_item_mode  = True
+        self._ci_item       = item
+        self._ci_canvas_wid = canvas_widget_id
+        self._current_widget = None
+        self._multi_widgets  = []
+        self._set_selector(canvas_widget_id)
+        if item is None:
+            self._props_clear()
+            self._events_clear()
+        else:
+            self._populate_ci_props(item)
+            self._populate_ci_events(item)
+
+    def _exit_ci_mode(self) -> None:
+        if not self._ci_item_mode:
+            return
+        self._ci_item_mode   = False
+        self._ci_item        = None
+        self._ci_canvas_wid  = None
+        self._order_ci_mode  = False
+        self._order_ci_items = []
+
+    def _populate_ci_props(self, item) -> None:
+        self._props_clear()
+        self._props_insert("ci__kind",   "kind",   item.kind)
+        self._props_insert("ci__id",     "id",     item.id)
+        self._props_insert("ci__x",      "x",      str(item.x))
+        self._props_insert("ci__y",      "y",      str(item.y))
+        self._props_insert("ci__width",  "width",  str(item.width))
+        self._props_insert("ci__height", "height", str(item.height))
+        tags_val = ", ".join(item.tags)
+        self._props_insert("ci__tags", "tags", tags_val,
+                           hint="Comma-separated tags. Used for tag_bind and batch operations.")
+        # Kind-specific props
+        if item.kind == "image":
+            self._props_insert("ci__image_path", "image", item.props.get("image_path", ""),
+                               kind="image",
+                               hint="Pick an image from the project images/ folder.")
+        elif item.kind in ("rectangle", "oval"):
+            self._props_insert("ci__fill",    "fill",    item.props.get("fill", ""),    kind="color")
+            self._props_insert("ci__outline", "outline", item.props.get("outline", ""), kind="color")
+        elif item.kind == "text":
+            self._props_insert("ci__text", "text", item.props.get("text", ""))
+            self._props_insert("ci__fill", "fill", item.props.get("fill", ""), kind="color")
+            self._props_insert("ci__font", "font", item.props.get("font", ""))
+        elif item.kind == "line":
+            self._props_insert("ci__fill",      "fill",      item.props.get("fill", ""),     kind="color")
+            self._props_insert("ci__linewidth", "linewidth", str(item.props.get("linewidth", 1)))
+        self._props_redraw()
+
+    def _populate_ci_events(self, item) -> None:
+        self._events_clear()
+        _CI_EVENTS = [
+            ("<Button-1>",        "mousedown"),
+            ("<ButtonRelease-1>", "mouseup"),
+            ("<Enter>",           "mouseenter"),
+            ("<Leave>",           "mouseleave"),
+            ("<B1-Motion>",       "drag"),
+        ]
+        for ev_key, label in _CI_EVENTS:
+            val = item.bindings.get(ev_key, "")
+            self._events_insert(ev_key, label, val)
+        # Guide row
+        self._events_insert("__guide__", "? Events guide", "", kind="guide")
+        self._events_redraw()
+
     # ── Socket-aware handler helpers ──────────────────────────────────────────
 
     _SOCKET_SERVER_ONLY = {"max_clients", "bind_address"}
@@ -972,6 +1055,7 @@ class DesignerProperties(tk.Frame):
 
     def load_multi(self, descriptors: list[WidgetDescriptor]) -> None:
         """Show shared properties panel for a multi-widget selection."""
+        self._exit_ci_mode()
         self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = None
@@ -1047,6 +1131,7 @@ class DesignerProperties(tk.Frame):
 
     def clear(self) -> None:
         """Reset to the empty / no-selection state."""
+        self._exit_ci_mode()
         self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = None
@@ -1070,8 +1155,17 @@ class DesignerProperties(tk.Frame):
 
     def refresh_order(self, form: "FormModel | None", selected_id: str | None = None) -> None:
         """Refresh the Order tab list. Call on any structure change or selection change."""
+        self._order_ci_mode = False
         self._order_widgets = list(form.widgets) if form else []
         self._order_sel_id  = selected_id
+        self._order_bgs.clear()
+        self._order_redraw()
+
+    def refresh_ci_order(self, items: list, sel_id: str | None = None) -> None:
+        """Switch Order tab to Canvas Item mode and populate with CI items."""
+        self._order_ci_mode    = True
+        self._order_ci_items   = list(items)
+        self._order_ci_sel_id  = sel_id
         self._order_bgs.clear()
         self._order_redraw()
 
@@ -2226,6 +2320,9 @@ class DesignerProperties(tk.Frame):
     # ── Order tab internals ───────────────────────────────────────────────────
 
     def _order_redraw(self) -> None:
+        if self._order_ci_mode:
+            self._order_redraw_ci()
+            return
         cv = self._order_cv
         cv.delete("all")
         self._order_bgs.clear()
@@ -2293,6 +2390,45 @@ class DesignerProperties(tk.Frame):
             else:
                 self._order_draw_row(item[1], d_idx, y, w, item[2])
                 y += _ORD_ROW_H
+
+    def _order_redraw_ci(self) -> None:
+        cv = self._order_cv
+        cv.delete("all")
+        self._order_bgs.clear()
+        w = cv.winfo_width()
+        if w <= 1:
+            return
+        items = self._order_ci_items
+        if not items:
+            cv.create_text(w // 2, 40, text="No items on canvas.",
+                           fill=_ORD_DIM, font=(UI_FONT, 9), anchor="center")
+            cv.configure(scrollregion=(0, 0, w, 80))
+            return
+        total_h = len(items) * _ORD_ROW_H
+        cv.configure(scrollregion=(0, 0, w, total_h))
+        for i, item in enumerate(items):
+            y = i * _ORD_ROW_H
+            tag = f"orow{i}"
+            is_sel = item.id == self._order_ci_sel_id
+            bg = _ORD_SEL if is_sel else (_ORD_EVEN if i % 2 == 0 else _ORD_ODD)
+            rect = cv.create_rectangle(0, y, w, y + _ORD_ROW_H - 1,
+                                       fill=bg, outline="", tags=tag)
+            self._order_bgs[i] = rect
+            r = 9
+            bx = r + 6
+            by = y + _ORD_ROW_H // 2
+            cv.create_oval(bx - r, by - r, bx + r, by + r,
+                           fill=_ORD_NUM, outline="", tags=tag)
+            cv.create_text(bx, by, text=str(i + 1), fill="#ffffff",
+                           font=(UI_FONT, 7, "bold"), anchor="center", tags=tag)
+            cv.create_text(bx + r + 6, by, text=item.id,
+                           fill=_ORD_FG, font=("Consolas", 9),
+                           anchor="w", tags=tag)
+            cv.create_text(w - 8, by, text=item.kind,
+                           fill=_ORD_DIM, font=(UI_FONT, 8),
+                           anchor="e", tags=tag)
+            cv.tag_bind(tag, "<Enter>", lambda e, d=i: self._order_hover_on(d))
+            cv.tag_bind(tag, "<Leave>", lambda e, d=i: self._order_hover_off(d))
 
     def _order_draw_header(self, tab_name: str, y: int, w: int) -> None:
         cv = self._order_cv
@@ -2375,6 +2511,14 @@ class DesignerProperties(tk.Frame):
         return len(self._order_display)
 
     def _order_press(self, event) -> None:
+        if self._order_ci_mode:
+            cy = int(self._order_cv.canvasy(event.y))
+            i  = min(cy // _ORD_ROW_H, len(self._order_ci_items) - 1)
+            if 0 <= i < len(self._order_ci_items):
+                self._order_drag_idx = i
+                if self._on_select_widget:
+                    self._on_select_widget(self._order_ci_items[i].id)
+            return
         d_idx = self._order_y_to_disp(event.y)
         if d_idx not in self._disp_to_w:
             return  # header row — not selectable/draggable
@@ -2386,9 +2530,13 @@ class DesignerProperties(tk.Frame):
     def _order_motion(self, event) -> None:
         if self._order_drag_idx is None:
             return
-        cv     = self._order_cv
-        target = self._order_drop_target(event.y)
-        ghost_y = self._disp_idx_to_y(target)
+        cv = self._order_cv
+        if self._order_ci_mode:
+            target  = self._ci_order_drop_target(event.y)
+            ghost_y = target * _ORD_ROW_H
+        else:
+            target  = self._order_drop_target(event.y)
+            ghost_y = self._disp_idx_to_y(target)
         if self._order_drag_ghost is not None:
             cv.coords(self._order_drag_ghost, 0, ghost_y, cv.winfo_width(), ghost_y)
         else:
@@ -2399,14 +2547,25 @@ class DesignerProperties(tk.Frame):
         cv.tag_raise("order_ghost")
 
     def _order_release(self, event) -> None:
-        src_d = self._order_drag_idx
-        if src_d is None:
+        src = self._order_drag_idx
+        if src is None:
             return
         if self._order_drag_ghost is not None:
             self._order_cv.delete(self._order_drag_ghost)
             self._order_drag_ghost = None
         self._order_drag_idx = None
 
+        if self._order_ci_mode:
+            if 0 <= src < len(self._order_ci_items):
+                dst = self._ci_order_drop_target(event.y)
+                if dst > src:
+                    dst -= 1
+                dst = max(0, min(dst, len(self._order_ci_items) - 1))
+                if dst != src and self._on_reorder_widget:
+                    self._on_reorder_widget(self._order_ci_items[src].id, dst)
+            return
+
+        src_d = src
         if src_d not in self._disp_to_w:
             return
         src_w = self._disp_to_w[src_d]
@@ -2465,6 +2624,14 @@ class DesignerProperties(tk.Frame):
                 return y
             y += _ORD_HDR_H if item[0] == 'h' else _ORD_ROW_H
         return y
+
+    def _ci_order_drop_target(self, canvas_y: int) -> int:
+        """Return insertion index (0..N) for a CI item drop from canvas y coord."""
+        cy  = int(self._order_cv.canvasy(canvas_y))
+        n   = len(self._order_ci_items)
+        idx = cy // _ORD_ROW_H
+        mid = idx * _ORD_ROW_H + _ORD_ROW_H // 2
+        return min(idx + (1 if cy > mid else 0), n)
 
     def _set_selector(self, widget_id: str | None) -> None:
         """Update the selector label to reflect the currently selected item."""
@@ -2555,12 +2722,15 @@ class DesignerProperties(tk.Frame):
         if self._status_after is None:
             self._status_label.config(text=text, fg="#888888")
 
+    def _order_hint_text(self) -> str:
+        if self._order_ci_mode:
+            return "Drag rows to reorder canvas items  ·  click to select"
+        return "Drag rows to reorder  ·  Tab key visits widgets in this order"
+
     def _clear_hint(self) -> None:
         if self._status_after is None:
             if self._nb.select() == str(self._order_frame):
-                self._show_hint(
-                    "Drag rows to reorder  ·  Tab key visits widgets in this order"
-                )
+                self._show_hint(self._order_hint_text())
             elif self._nb.select() == str(self._handlers_frame):
                 self._show_hint("Click a row to enable or disable the handler")
             else:
@@ -2568,9 +2738,7 @@ class DesignerProperties(tk.Frame):
 
     def _on_tab_changed(self, _event=None) -> None:
         if self._nb.select() == str(self._order_frame):
-            self._show_hint(
-                "Drag rows to reorder  ·  Tab key visits widgets in this order"
-            )
+            self._show_hint(self._order_hint_text())
         elif self._nb.select() == str(self._handlers_frame):
             self._show_hint("Click a row to enable or disable the handler")
         else:
@@ -2942,6 +3110,15 @@ class DesignerProperties(tk.Frame):
             self._on_component_prop_change(self._comp_id, key, value)
 
     def _dispatch_prop_click(self, row: str) -> None:
+        if self._ci_item_mode and row.startswith("ci__") and self._ci_item is not None:
+            key = row[4:]
+            if key in ("fill", "outline"):
+                self._open_color_picker(row)
+            elif key == "image_path":
+                self._open_ci_image_picker(row)
+            else:
+                self._props_open_editor(row, self._commit_prop)
+            return
         if self._comp_mode and row.startswith("comp__"):
             self._dispatch_comp_prop_click(row)
             return
@@ -3889,6 +4066,34 @@ class DesignerProperties(tk.Frame):
         self._apply_color_swatch(row_iid, color)
         self._commit_prop(row_iid, color)
 
+    def _open_ci_image_picker(self, row_iid: str) -> None:
+        """Pick an image file for a canvas item's image_path prop."""
+        import os, shutil
+        from tkinter.filedialog import askopenfilename
+        if self._ci_item is None:
+            return
+        path = askopenfilename(
+            parent=self.winfo_toplevel(),
+            title="Select Image",
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("All", "*.*")],
+        )
+        if not path:
+            return
+        images_dir = os.path.join(self._project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        fname = os.path.basename(path)
+        dest  = os.path.join(images_dir, fname)
+        if os.path.abspath(path) != os.path.abspath(dest):
+            n = 1
+            base, ext = os.path.splitext(fname)
+            while os.path.exists(dest):
+                dest = os.path.join(images_dir, f"{base}_{n}{ext}")
+                n += 1
+            shutil.copy2(path, dest)
+        rel = os.path.relpath(dest, self._project_dir).replace("\\", "/")
+        self._props_set(row_iid, os.path.basename(rel))
+        self._commit_prop(row_iid, rel)
+
     def _open_menu_editor(self) -> None:
         self.open_menu_editor()
 
@@ -4026,6 +4231,33 @@ class DesignerProperties(tk.Frame):
     # ── Commit callbacks ──────────────────────────────────────────────────────
 
     def _commit_prop(self, row_iid: str, raw: str) -> None:
+        # Canvas item mode — write to item.props
+        if self._ci_item_mode and row_iid.startswith("ci__") and self._ci_item is not None:
+            key = row_iid[4:]   # strip "ci__"
+            item = self._ci_item
+            if key == "x":
+                item.x = int(raw) if raw.lstrip("-").isdigit() else item.x
+            elif key == "y":
+                item.y = int(raw) if raw.lstrip("-").isdigit() else item.y
+            elif key == "width":
+                item.width = max(1, int(raw)) if raw.isdigit() else item.width
+            elif key == "height":
+                item.height = int(raw) if raw.lstrip("-").isdigit() else item.height
+            elif key == "tags":
+                item.tags = [t.strip() for t in raw.split(",") if t.strip()]
+            elif key == "image_path":
+                item.props["image_path"] = raw
+            elif key in ("fill", "outline"):
+                item.props[key] = raw
+            elif key == "text":
+                item.props["text"] = raw
+            elif key == "font":
+                item.props["font"] = raw
+            elif key == "linewidth":
+                item.props["linewidth"] = int(raw) if raw.isdigit() else item.props.get("linewidth", 1)
+            if self._on_prop_change:
+                self._on_prop_change("__canvas_item__", key, raw)
+            return
         if row_iid.startswith("form__"):
             key = row_iid[6:]
             if key == "border_style":
@@ -4213,6 +4445,17 @@ class DesignerProperties(tk.Frame):
 
     def _commit_event(self, row_iid: str, raw: str) -> None:
         handler = raw.strip()
+
+        # Canvas item mode — write to item.bindings
+        if self._ci_item_mode and self._ci_item is not None:
+            ev_key = row_iid   # row_iid IS the tk event string e.g. "<Button-1>"
+            if handler:
+                self._ci_item.bindings[ev_key] = handler
+            else:
+                self._ci_item.bindings.pop(ev_key, None)
+            if self._on_event_change:
+                self._on_event_change("__canvas_item__", ev_key, handler)
+            return
 
         if row_iid.startswith("form_ev__"):
             if self._form is None:

@@ -983,6 +983,8 @@ class IDOL(Tk):
             on_menu_item_no_command=self._on_designer_menu_item_no_command,
             on_tool_cancel=self._on_designer_tool_cancel,
             on_snap_state_changed=self._on_designer_snap_state_changed,
+            on_canvas_item_mode=self._on_designer_canvas_item_mode,
+            on_ci_select=self._on_designer_ci_select,
             xscrollcommand=_hbar.set,
             yscrollcommand=_vbar.set,
         )
@@ -4866,10 +4868,45 @@ class IDOL(Tk):
 
         self.after_idle(_restore_editor_focus)
 
+    def _on_palette_ci_arm(self, kind: str | None) -> None:
+        """CI palette button click → arm the canvas placement tool."""
+        self._design_canvas.arm_item_tool(kind)
+        self._designer_palette.set_ci_armed(kind)
+
+    def _on_designer_canvas_item_mode(self, widget_id: str | None) -> None:
+        """Canvas entered/exited canvas-item edit mode."""
+        if widget_id is not None:
+            self._designer_palette.enter_ci_mode(self._on_palette_ci_arm)
+        else:
+            self._designer_palette.exit_ci_mode()
+            self._props_panel.clear()
+        self._set_designer_dirty()
+
+    def _on_designer_ci_select(self, item) -> None:
+        """Canvas item selected in CI edit mode → load into properties panel + refresh order."""
+        widget_id = self._design_canvas.ci_widget_id
+        if item is None or widget_id is None:
+            self._props_panel.clear()
+            w = self._design_canvas.get_ci_widget()
+            if w is not None:
+                self._props_panel.refresh_ci_order(w.canvas_items, None)
+        else:
+            self._props_panel.load_canvas_item(item, widget_id)
+            w = self._design_canvas.get_ci_widget()
+            if w is not None:
+                self._props_panel.refresh_ci_order(w.canvas_items, item.id)
+
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
         """Property panel edit → update canvas rendering."""
         form = self._design_canvas.form
         if form is None:
+            return
+        if widget_id == "__canvas_item__":
+            # Model already mutated by properties panel; just redraw CI overlay.
+            self._set_designer_dirty()
+            ci_item = self._design_canvas.get_ci_selected()
+            if ci_item is not None:
+                self._design_canvas.update_canvas_item(ci_item)
             return
         self._design_canvas.push_undo()
         self._set_designer_dirty()
@@ -5081,11 +5118,30 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form:
             self._props_panel.set_form(form)
-            sel = next(iter(self._design_canvas.selected_ids), None)
-            self._props_panel.refresh_order(form, sel)
+            if self._design_canvas.ci_mode:
+                w = self._design_canvas.get_ci_widget()
+                sel_id = self._design_canvas.ci_selected_id
+                self._props_panel.refresh_ci_order(
+                    w.canvas_items if w else [], sel_id)
+            else:
+                sel = next(iter(self._design_canvas.selected_ids), None)
+                self._props_panel.refresh_order(form, sel)
 
     def _on_designer_reorder_widget(self, widget_id: str, new_idx: int) -> None:
-        """Order tab drag-drop → move widget in model."""
+        """Order tab drag-drop → move widget (or CI item) in model."""
+        if self._design_canvas.ci_mode:
+            w = self._design_canvas.get_ci_widget()
+            if w:
+                items = w.canvas_items
+                idx = next((i for i, ci in enumerate(items) if ci.id == widget_id), None)
+                if idx is not None and idx != new_idx:
+                    item = items.pop(idx)
+                    items.insert(new_idx, item)
+                    self._set_designer_dirty()
+                    self._design_canvas.update_canvas_item(item)
+                    sel_id = self._design_canvas.ci_selected_id
+                    self._props_panel.refresh_ci_order(items, sel_id)
+            return
         self._design_canvas.move_widget_to(widget_id, new_idx)
 
     def _on_designer_handler_toggle(self, handler_id: str, enabled: bool) -> None:
@@ -6449,7 +6505,11 @@ class IDOL(Tk):
         self.after(50, _navigate)
 
     def _on_designer_selector_pick(self, widget_id: str | None) -> None:
-        """User picks a control from the selector dropdown → select on canvas."""
+        """User picks a control from the selector dropdown (or CI Order row) → select on canvas."""
+        if self._design_canvas.ci_mode:
+            if widget_id is not None:
+                self._design_canvas.select_ci_item(widget_id)
+            return
         if widget_id is None:
             self._design_canvas.select_form()
         else:
