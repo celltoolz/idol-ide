@@ -4876,7 +4876,7 @@ class IDOL(Tk):
         self._designer_palette.set_ci_armed(kind)
 
     def _on_palette_ci_open_images(self) -> list:
-        """Open multi-select image dialog, copy to project images/, return rel paths."""
+        """Open multi-select image dialog, copy to project images/, auto-place on canvas."""
         import os, shutil
         from tkinter.filedialog import askopenfilenames
         paths = askopenfilenames(
@@ -4890,6 +4890,7 @@ class IDOL(Tk):
         images_dir  = os.path.join(project_dir, "images")
         os.makedirs(images_dir, exist_ok=True)
         result = []
+        stagger = 0
         for src in paths:
             fname = os.path.basename(src)
             dest  = os.path.join(images_dir, fname)
@@ -4900,8 +4901,29 @@ class IDOL(Tk):
                     dest = os.path.join(images_dir, f"{base}_{n}{ext}")
                     n += 1
                 shutil.copy2(src, dest)
-            result.append(os.path.relpath(dest, project_dir).replace("\\", "/"))
+            rel = os.path.relpath(dest, project_dir).replace("\\", "/")
+            result.append(rel)
+            # Auto-place on canvas with actual image dimensions
+            self._design_canvas.add_canvas_item(
+                "image", stagger * 20 + 10, stagger * 20 + 10,
+                props={"image_path": rel},
+            )
+            stagger += 1
         return result
+
+    def _on_palette_ci_drag_drop(self, kind: str, props: dict | None,
+                                  x_root: int, y_root: int) -> None:
+        """CI palette drag-drop → place item at the drop position on the canvas."""
+        canvas = self._design_canvas
+        cx = canvas.winfo_rootx()
+        cy = canvas.winfo_rooty()
+        cw = canvas.winfo_width()
+        ch = canvas.winfo_height()
+        if cx <= x_root <= cx + cw and cy <= y_root <= cy + ch:
+            canvas.drop_ci_item(kind, x_root - cx, y_root - cy, props=props)
+        self._designer_palette.set_ci_armed(None)
+        if self._designer_palette._on_ci_arm:
+            self._designer_palette._on_ci_arm(None)
 
     def _on_designer_canvas_item_mode(self, widget_id: str | None) -> None:
         """Canvas entered/exited canvas-item edit mode."""
@@ -4916,6 +4938,7 @@ class IDOL(Tk):
                 self._on_palette_ci_arm,
                 on_open_images=self._on_palette_ci_open_images,
                 initial_images=initial_images,
+                on_ci_drag_drop=self._on_palette_ci_drag_drop,
             )
         else:
             self._designer_palette.exit_ci_mode()

@@ -60,12 +60,15 @@ class DesignerPalette(tk.Frame):
         # CI mode state
         self._on_ci_arm: Optional[Callable] = None
         self._on_open_images: Optional[Callable[[], list]] = None
+        self._on_ci_drag_drop: Optional[Callable] = None
         self._ci_armed: str = "__none__"     # sentinel — no CI tool highlighted
         self._ci_rows:  dict[str | None, tk.Frame] = {}
         self._ci_image_paths: list[str] = []
         self._ci_img_armed_path: str | None = None
         self._ci_img_refs: list = []         # keep PhotoImage refs alive
         self._project_dir: str = ""
+        self._ci_drag_pending: dict | None = None
+        self._ci_ghost: "tk.Toplevel | None" = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -241,7 +244,9 @@ class DesignerPalette(tk.Frame):
         lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
         for widget in (row, prev, lbl, accent):
-            widget.bind("<ButtonRelease-1>", lambda e, k=kind: self._ci_select(k))
+            widget.bind("<Button-1>",        lambda e, k=kind: self._ci_on_press(k, None, e))
+            widget.bind("<B1-Motion>",       lambda e, k=kind: self._ci_on_drag_motion(k, e))
+            widget.bind("<ButtonRelease-1>", lambda e, k=kind: self._ci_on_drag_release(k, None, e))
             widget.bind("<Enter>",  lambda e, r=row, k=kind: self._ci_hover(r, k, True))
             widget.bind("<Leave>",  lambda e, r=row, k=kind: self._ci_hover(r, k, False))
 
@@ -267,11 +272,13 @@ class DesignerPalette(tk.Frame):
         on_arm: Callable,
         on_open_images: Optional[Callable[[], list]] = None,
         initial_images: Optional[list] = None,
+        on_ci_drag_drop: Optional[Callable] = None,
     ) -> None:
         """Swap palette to Canvas Item placement mode."""
-        self._on_ci_arm      = on_arm
-        self._on_open_images = on_open_images
-        self._ci_armed       = "__none__"
+        self._on_ci_arm       = on_arm
+        self._on_open_images  = on_open_images
+        self._on_ci_drag_drop = on_ci_drag_drop
+        self._ci_armed        = "__none__"
         self._ci_img_armed_path = None
         self._ci_image_paths = list(initial_images or [])
         self._rebuild_ci_images()
@@ -288,9 +295,12 @@ class DesignerPalette(tk.Frame):
         """Restore normal widget palette."""
         if self._on_ci_arm is None:
             return
+        self._ci_hide_ghost()
+        self._ci_drag_pending   = None
         self._ci_frame.pack_forget()
         self._on_ci_arm         = None
         self._on_open_images    = None
+        self._on_ci_drag_drop   = None
         self._ci_armed          = "__none__"
         self._ci_img_armed_path = None
         self._ci_image_paths    = []
@@ -369,7 +379,9 @@ class DesignerPalette(tk.Frame):
                        wraplength=82, justify="left")
         lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
         for widget in (row, accent, th_cv, lbl):
-            widget.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_arm_image(p))
+            widget.bind("<Button-1>",        lambda e, p=path: self._ci_on_press("image", {"image_path": p}, e))
+            widget.bind("<B1-Motion>",       lambda e, p=path: self._ci_on_drag_motion("image", e))
+            widget.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_on_drag_release("image", {"image_path": p}, e))
             widget.bind("<Enter>",  lambda e, r=row, a=accent, l=lbl, p=path:
                         self._ci_img_hover(r, a, l, p, True))
             widget.bind("<Leave>",  lambda e, r=row, a=accent, l=lbl, p=path:
@@ -526,6 +538,64 @@ class DesignerPalette(tk.Frame):
         accent.config(bg=bg)
         icon_lbl.config(bg=bg)
         name_lbl.config(bg=bg)
+
+    # ── CI drag-drop ──────────────────────────────────────────────────────────
+
+    def _ci_on_press(self, kind: str | None, props: dict | None, event: tk.Event) -> None:
+        self._ci_drag_pending = {
+            "kind": kind, "props": props,
+            "start_x": event.x_root, "start_y": event.y_root,
+            "dragging": False,
+        }
+
+    def _ci_on_drag_motion(self, kind: str | None, event: tk.Event) -> None:
+        if self._ci_drag_pending is None or kind is None:
+            return
+        if not self._ci_drag_pending["dragging"]:
+            dx = abs(event.x_root - self._ci_drag_pending["start_x"])
+            dy = abs(event.y_root - self._ci_drag_pending["start_y"])
+            if dx > 5 or dy > 5:
+                self._ci_drag_pending["dragging"] = True
+                p = self._ci_drag_pending["props"]
+                label = (p.get("image_path", "").split("/")[-1] if p and "image_path" in p
+                         else (kind or "Select"))
+                self._ci_show_ghost(label)
+        if self._ci_drag_pending["dragging"]:
+            self._ci_move_ghost(event.x_root, event.y_root)
+
+    def _ci_on_drag_release(self, kind: str | None, props: dict | None, event: tk.Event) -> None:
+        if self._ci_drag_pending is None:
+            return
+        was_dragging = self._ci_drag_pending["dragging"]
+        self._ci_drag_pending = None
+        self._ci_hide_ghost()
+        if was_dragging:
+            if kind is not None and self._on_ci_drag_drop:
+                self._on_ci_drag_drop(kind, props, event.x_root, event.y_root)
+        else:
+            if kind == "image" and props and "image_path" in props:
+                self._ci_arm_image(props["image_path"])
+            else:
+                self._ci_select(kind)
+
+    def _ci_show_ghost(self, label: str) -> None:
+        self._ci_hide_ghost()
+        self._ci_ghost = tk.Toplevel(self.winfo_toplevel())
+        self._ci_ghost.overrideredirect(True)
+        self._ci_ghost.attributes("-topmost", True)
+        self._ci_ghost.attributes("-alpha", 0.85)
+        tk.Label(self._ci_ghost, text=f"  {label}  ",
+                 bg=_ACT, fg="#ffffff",
+                 font=(UI_FONT, 9), relief="solid", bd=1).pack()
+
+    def _ci_move_ghost(self, x_root: int, y_root: int) -> None:
+        if self._ci_ghost:
+            self._ci_ghost.geometry(f"+{x_root + 14}+{y_root + 10}")
+
+    def _ci_hide_ghost(self) -> None:
+        if self._ci_ghost:
+            self._ci_ghost.destroy()
+            self._ci_ghost = None
 
     def _ci_select(self, kind: str | None) -> None:
         self.set_ci_armed(kind)

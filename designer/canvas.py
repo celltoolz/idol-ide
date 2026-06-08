@@ -276,7 +276,8 @@ class DesignerCanvas(tk.Canvas):
         self._ci_arm_props = props or {}
         self.config(cursor="crosshair" if kind else "arrow")
 
-    def add_canvas_item(self, kind: str, x: int = 0, y: int = 0) -> CanvasItemDescriptor | None:
+    def add_canvas_item(self, kind: str, x: int = 0, y: int = 0,
+                        props: dict | None = None) -> CanvasItemDescriptor | None:
         """Create a new canvas item on the active CI widget and select it."""
         if not self._ci_mode or not self._ci_widget_id or not self._form:
             return None
@@ -288,14 +289,23 @@ class DesignerCanvas(tk.Canvas):
                           "text": {"text": "Text", "fill": "#ffffff"},
                           "line": {"fill": "#888888", "linewidth": 1}}
         base_props = dict(defaults.get(kind, {}))
-        if self._ci_arm_props:
-            base_props.update(self._ci_arm_props)
+        base_props.update(self._ci_arm_props)
+        if props:
+            base_props.update(props)
+        if kind == "image":
+            iw, ih = self._get_image_size(base_props.get("image_path", ""))
+            item_w, item_h = iw, ih
+        elif kind == "line":
+            item_w, item_h = 50, 0
+        elif kind == "text":
+            item_w, item_h = 64, 20
+        else:
+            item_w, item_h = 64, 64
         item = CanvasItemDescriptor(
             id=w.next_item_id(kind), kind=kind,
             x=max(0, min(x, w.width - 32)),
             y=max(0, min(y, w.height - 32)),
-            width=50 if kind == "line" else 64,
-            height=0  if kind == "line" else (20 if kind == "text" else 64),
+            width=item_w, height=item_h,
             props=base_props,
         )
         w.canvas_items.append(item)
@@ -305,6 +315,33 @@ class DesignerCanvas(tk.Canvas):
         if self._on_structure_changed:
             self._on_structure_changed()
         return item
+
+    def _get_image_size(self, rel_path: str) -> tuple[int, int]:
+        import os
+        if not rel_path:
+            return 64, 64
+        full = rel_path if os.path.isabs(rel_path) else os.path.join(
+            self._project_dir, rel_path.replace("/", os.sep))
+        try:
+            from PIL import Image
+            with Image.open(full) as img:
+                return img.size
+        except Exception:
+            return 64, 64
+
+    def drop_ci_item(self, kind: str, local_x: int, local_y: int,
+                     props: dict | None = None) -> None:
+        """Place a CI item at local pixel coords within the designer canvas widget."""
+        if not self._ci_mode or not self._ci_widget_id or not self._form:
+            return
+        w = self._form.get_widget(self._ci_widget_id)
+        if w is None:
+            return
+        cx = int(self.canvasx(local_x))
+        cy = int(self.canvasy(local_y))
+        wx, wy = self._abs_xy(w)
+        self.add_canvas_item(kind, cx - wx, cy - wy, props=props)
+        self.arm_item_tool(None)
 
     def remove_canvas_item(self, item_id: str) -> None:
         if not self._ci_widget_id or not self._form:
