@@ -3256,6 +3256,8 @@ class IDOL(Tk):
             self._design_canvas.set_project_dir(root)
         if hasattr(self, "_comp_tray") and self._comp_tray:
             self._comp_tray.set_project_dir(root)
+        if hasattr(self, "_designer_palette") and self._designer_palette:
+            self._designer_palette.set_project_dir(root)
         # If the designer is open, silently drop back to editor mode so the
         # now-stale form state (from the old project root) doesn't persist into
         # the session.  Without this, closing IDOL after a root change would
@@ -4868,15 +4870,53 @@ class IDOL(Tk):
 
         self.after_idle(_restore_editor_focus)
 
-    def _on_palette_ci_arm(self, kind: str | None) -> None:
-        """CI palette button click → arm the canvas placement tool."""
-        self._design_canvas.arm_item_tool(kind)
+    def _on_palette_ci_arm(self, kind: str | None, props: dict | None = None) -> None:
+        """CI palette button/image click → arm the canvas placement tool."""
+        self._design_canvas.arm_item_tool(kind, props)
         self._designer_palette.set_ci_armed(kind)
+
+    def _on_palette_ci_open_images(self) -> list:
+        """Open multi-select image dialog, copy to project images/, return rel paths."""
+        import os, shutil
+        from tkinter.filedialog import askopenfilenames
+        paths = askopenfilenames(
+            parent=self,
+            title="Select Images",
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("All", "*.*")],
+        )
+        if not paths:
+            return []
+        project_dir = self._design_canvas._project_dir
+        images_dir  = os.path.join(project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        result = []
+        for src in paths:
+            fname = os.path.basename(src)
+            dest  = os.path.join(images_dir, fname)
+            if os.path.abspath(src) != os.path.abspath(dest):
+                base, ext = os.path.splitext(fname)
+                n = 1
+                while os.path.exists(dest):
+                    dest = os.path.join(images_dir, f"{base}_{n}{ext}")
+                    n += 1
+                shutil.copy2(src, dest)
+            result.append(os.path.relpath(dest, project_dir).replace("\\", "/"))
+        return result
 
     def _on_designer_canvas_item_mode(self, widget_id: str | None) -> None:
         """Canvas entered/exited canvas-item edit mode."""
         if widget_id is not None:
-            self._designer_palette.enter_ci_mode(self._on_palette_ci_arm)
+            w = self._design_canvas.get_ci_widget()
+            initial_images = [
+                ci.props["image_path"]
+                for ci in (w.canvas_items if w else [])
+                if ci.kind == "image" and ci.props.get("image_path")
+            ]
+            self._designer_palette.enter_ci_mode(
+                self._on_palette_ci_arm,
+                on_open_images=self._on_palette_ci_open_images,
+                initial_images=initial_images,
+            )
         else:
             self._designer_palette.exit_ci_mode()
             self._props_panel.clear()
@@ -5121,8 +5161,13 @@ class IDOL(Tk):
             if self._design_canvas.ci_mode:
                 w = self._design_canvas.get_ci_widget()
                 sel_id = self._design_canvas.ci_selected_id
-                self._props_panel.refresh_ci_order(
-                    w.canvas_items if w else [], sel_id)
+                items  = w.canvas_items if w else []
+                self._props_panel.refresh_ci_order(items, sel_id)
+                img_paths = [
+                    ci.props["image_path"] for ci in items
+                    if ci.kind == "image" and ci.props.get("image_path")
+                ]
+                self._designer_palette.refresh_ci_images(img_paths)
             else:
                 sel = next(iter(self._design_canvas.selected_ids), None)
                 self._props_panel.refresh_order(form, sel)

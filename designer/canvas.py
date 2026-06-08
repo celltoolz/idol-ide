@@ -148,6 +148,7 @@ class DesignerCanvas(tk.Canvas):
         self._ci_selected_id: str | None    = None    # selected CanvasItemDescriptor id
         self._ci_drag:        dict | None   = None    # drag state
         self._ci_arm_kind:    str | None    = None    # armed item type for placement
+        self._ci_arm_props:   dict         = {}      # extra props pre-set on placement (e.g. image_path)
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -270,8 +271,9 @@ class DesignerCanvas(tk.Canvas):
         if self._on_ci_select:
             self._on_ci_select(None)
 
-    def arm_item_tool(self, kind: str | None) -> None:
-        self._ci_arm_kind = kind
+    def arm_item_tool(self, kind: str | None, props: dict | None = None) -> None:
+        self._ci_arm_kind  = kind
+        self._ci_arm_props = props or {}
         self.config(cursor="crosshair" if kind else "arrow")
 
     def add_canvas_item(self, kind: str, x: int = 0, y: int = 0) -> CanvasItemDescriptor | None:
@@ -285,13 +287,16 @@ class DesignerCanvas(tk.Canvas):
                           "oval": {"fill": "#4a4a4a", "outline": "#888888"},
                           "text": {"text": "Text", "fill": "#ffffff"},
                           "line": {"fill": "#888888", "linewidth": 1}}
+        base_props = dict(defaults.get(kind, {}))
+        if self._ci_arm_props:
+            base_props.update(self._ci_arm_props)
         item = CanvasItemDescriptor(
             id=w.next_item_id(kind), kind=kind,
             x=max(0, min(x, w.width - 32)),
             y=max(0, min(y, w.height - 32)),
             width=50 if kind == "line" else 64,
             height=0  if kind == "line" else (20 if kind == "text" else 64),
-            props=dict(defaults.get(kind, {})),
+            props=base_props,
         )
         w.canvas_items.append(item)
         self._ci_selected_id = item.id

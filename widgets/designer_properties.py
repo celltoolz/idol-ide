@@ -986,31 +986,36 @@ class DesignerProperties(tk.Frame):
 
     def _populate_ci_props(self, item) -> None:
         self._props_clear()
-        self._props_insert("ci__kind",   "kind",   item.kind)
-        self._props_insert("ci__id",     "id",     item.id)
+        self._props_insert("ci__kind",   "kind",   item.kind,  kind="readonly")
+        self._props_insert("ci__id",     "id",     item.id,    kind="readonly")
         self._props_insert("ci__x",      "x",      str(item.x))
         self._props_insert("ci__y",      "y",      str(item.y))
         self._props_insert("ci__width",  "width",  str(item.width))
         self._props_insert("ci__height", "height", str(item.height))
-        tags_val = ", ".join(item.tags)
-        self._props_insert("ci__tags", "tags", tags_val,
-                           hint="Comma-separated tags. Used for tag_bind and batch operations.")
+        self._props_insert("ci__tags",   "tags",   ", ".join(item.tags))
         # Kind-specific props
         if item.kind == "image":
-            self._props_insert("ci__image_path", "image", item.props.get("image_path", ""),
-                               kind="image",
-                               hint="Pick an image from the project images/ folder.")
+            self._props_insert("ci__image_path", "image", item.props.get("image_path", ""))
         elif item.kind in ("rectangle", "oval"):
-            self._props_insert("ci__fill",    "fill",    item.props.get("fill", ""),    kind="color")
-            self._props_insert("ci__outline", "outline", item.props.get("outline", ""), kind="color")
+            self._props_insert("ci__fill",    "fill",    item.props.get("fill", ""))
+            self._props_insert("ci__outline", "outline", item.props.get("outline", ""))
         elif item.kind == "text":
             self._props_insert("ci__text", "text", item.props.get("text", ""))
-            self._props_insert("ci__fill", "fill", item.props.get("fill", ""), kind="color")
+            self._props_insert("ci__fill", "fill", item.props.get("fill", ""))
             self._props_insert("ci__font", "font", item.props.get("font", ""))
         elif item.kind == "line":
-            self._props_insert("ci__fill",      "fill",      item.props.get("fill", ""),     kind="color")
+            self._props_insert("ci__fill",      "fill",      item.props.get("fill", ""))
             self._props_insert("ci__linewidth", "linewidth", str(item.props.get("linewidth", 1)))
         self._props_redraw()
+        # Apply colour swatches now that rows exist
+        if item.kind in ("rectangle", "oval", "text", "line"):
+            fill = item.props.get("fill", "")
+            if fill:
+                self._apply_color_swatch("ci__fill", fill)
+        if item.kind in ("rectangle", "oval"):
+            outline = item.props.get("outline", "")
+            if outline:
+                self._apply_color_swatch("ci__outline", outline)
 
     def _populate_ci_events(self, item) -> None:
         self._events_clear()

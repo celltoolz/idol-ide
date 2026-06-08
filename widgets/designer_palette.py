@@ -58,9 +58,14 @@ class DesignerPalette(tk.Frame):
         self._drag_pending: dict | None = None
         self._ghost: tk.Toplevel | None = None
         # CI mode state
-        self._on_ci_arm: Optional[Callable[[str | None], None]] = None
-        self._ci_armed: str = "__none__"  # sentinel — no CI tool highlighted
+        self._on_ci_arm: Optional[Callable] = None
+        self._on_open_images: Optional[Callable[[], list]] = None
+        self._ci_armed: str = "__none__"     # sentinel — no CI tool highlighted
         self._ci_rows:  dict[str | None, tk.Frame] = {}
+        self._ci_image_paths: list[str] = []
+        self._ci_img_armed_path: str | None = None
+        self._ci_img_refs: list = []         # keep PhotoImage refs alive
+        self._project_dir: str = ""
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -115,14 +120,44 @@ class DesignerPalette(tk.Frame):
 
         # ── CI mode frame (hidden until enter_ci_mode()) ──────────────────────
         self._ci_frame = tk.Frame(self, bg=_BG)
+
+        # Tool buttons section (fixed height)
         tk.Label(self._ci_frame, text="CANVAS ITEMS", bg=_BG, fg=_DIM,
                  font=(UI_FONT, 8, "bold"), anchor="w",
                  padx=8).pack(fill="x", pady=(8, 2))
         ttk.Separator(self._ci_frame, orient="horizontal").pack(fill="x")
         self._ci_list = tk.Frame(self._ci_frame, bg=_BG)
-        self._ci_list.pack(fill="both", expand=True)
+        self._ci_list.pack(fill="x")   # fixed — does NOT expand
         for kind, label in _CI_TOOLS:
             self._add_ci_item(kind, label)
+
+        # Images section (scrollable, fills remaining space)
+        ttk.Separator(self._ci_frame, orient="horizontal").pack(fill="x", pady=(6, 0))
+        _img_hdr = tk.Frame(self._ci_frame, bg=_BG)
+        _img_hdr.pack(fill="x", pady=(2, 2))
+        tk.Label(_img_hdr, text="IMAGES", bg=_BG, fg=_DIM,
+                 font=(UI_FONT, 8, "bold"), anchor="w", padx=8).pack(side="left")
+        _open_lbl = tk.Label(_img_hdr, text="+", bg=_BG, fg="#569cd6",
+                             font=(UI_FONT, 11, "bold"), cursor="hand2", padx=8)
+        _open_lbl.pack(side="right")
+        _open_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_open_images())
+
+        _img_area = tk.Frame(self._ci_frame, bg=_BG)
+        _img_area.pack(fill="both", expand=True)
+        self._ci_img_sb = VerticalScrollbar(_img_area)
+        self._ci_img_sb.pack(side="right", fill="y")
+        self._ci_img_cv = tk.Canvas(_img_area, bg=_BG, highlightthickness=0)
+        self._ci_img_cv.configure(yscrollcommand=self._ci_img_sb.set)
+        self._ci_img_sb.configure(command=self._ci_img_cv.yview)
+        self._ci_img_cv.pack(side="left", fill="both", expand=True)
+        self._ci_images_list = tk.Frame(self._ci_img_cv, bg=_BG)
+        self._ci_img_cv.create_window((0, 0), window=self._ci_images_list, anchor="nw")
+        self._ci_images_list.bind(
+            "<Configure>",
+            lambda e: self._ci_img_cv.configure(scrollregion=self._ci_img_cv.bbox("all")))
+        self._ci_img_cv.bind(
+            "<MouseWheel>",
+            lambda e: self._ci_img_cv.yview_scroll(-1 * (e.delta // 120), "units"))
 
     def _add_item(self, type_key: str | None, label: str, draw_fn) -> None:
         row = tk.Frame(self._list, bg=_ITEM, cursor="hand2")
@@ -227,10 +262,19 @@ class DesignerPalette(tk.Frame):
         else:
             self._apply_selection(None)
 
-    def enter_ci_mode(self, on_arm: Callable[[str | None], None]) -> None:
+    def enter_ci_mode(
+        self,
+        on_arm: Callable,
+        on_open_images: Optional[Callable[[], list]] = None,
+        initial_images: Optional[list] = None,
+    ) -> None:
         """Swap palette to Canvas Item placement mode."""
-        self._on_ci_arm = on_arm
-        self._ci_armed  = "__none__"
+        self._on_ci_arm      = on_arm
+        self._on_open_images = on_open_images
+        self._ci_armed       = "__none__"
+        self._ci_img_armed_path = None
+        self._ci_image_paths = list(initial_images or [])
+        self._rebuild_ci_images()
         # Hide normal content
         self._scroll_sb.pack_forget()
         self._scroll_canvas.pack_forget()
@@ -245,8 +289,12 @@ class DesignerPalette(tk.Frame):
         if self._on_ci_arm is None:
             return
         self._ci_frame.pack_forget()
-        self._on_ci_arm = None
-        self._ci_armed  = "__none__"
+        self._on_ci_arm         = None
+        self._on_open_images    = None
+        self._ci_armed          = "__none__"
+        self._ci_img_armed_path = None
+        self._ci_image_paths    = []
+        self._ci_img_refs.clear()
         # Restore normal content
         self._widgets_header.pack(fill="x", pady=(8, 2))
         self._widgets_sep.pack(fill="x")
@@ -255,6 +303,9 @@ class DesignerPalette(tk.Frame):
 
     def set_ci_armed(self, kind: str | None) -> None:
         """Update highlighted tool in CI mode."""
+        if kind != "image" and self._ci_img_armed_path is not None:
+            self._ci_img_armed_path = None
+            self._rebuild_ci_images()
         old = self._ci_armed
         if old in self._ci_rows:
             row = self._ci_rows[old]
@@ -271,6 +322,94 @@ class DesignerPalette(tk.Frame):
             for child in row.winfo_children():
                 if not isinstance(child, tk.Canvas):
                     child.config(bg=_ACT)
+
+    def set_project_dir(self, path: str) -> None:
+        self._project_dir = path
+
+    def refresh_ci_images(self, paths: list) -> None:
+        """Merge new image paths into the list and rebuild the images section."""
+        for p in paths:
+            if p not in self._ci_image_paths:
+                self._ci_image_paths.append(p)
+        self._rebuild_ci_images()
+
+    def _rebuild_ci_images(self) -> None:
+        for w in self._ci_images_list.winfo_children():
+            w.destroy()
+        self._ci_img_refs.clear()
+        if not self._ci_image_paths:
+            tk.Label(self._ci_images_list, text="Click + to add images",
+                     bg=_BG, fg=_DIM, font=(UI_FONT, 8),
+                     anchor="w", padx=12).pack(fill="x", pady=6)
+            return
+        for path in self._ci_image_paths:
+            self._add_ci_image_row(path)
+
+    def _add_ci_image_row(self, path: str) -> None:
+        import os
+        fname = os.path.basename(path)
+        is_armed = (path == self._ci_img_armed_path)
+        bg = _ACT if is_armed else _ITEM
+        row = tk.Frame(self._ci_images_list, bg=bg, cursor="hand2")
+        row.pack(fill="x", padx=4, pady=1)
+        accent = tk.Frame(row, bg=_BORDER if is_armed else bg, width=3)
+        accent.pack(side="left", fill="y")
+        thumb = self._load_ci_thumb(path)
+        th_cv = tk.Canvas(row, width=48, height=36, bg="#2d2d30",
+                          highlightthickness=1, highlightbackground="#555555")
+        th_cv.pack(side="left", padx=(4, 4), pady=3)
+        if thumb:
+            self._ci_img_refs.append(thumb)
+            th_cv.create_image(24, 18, image=thumb, anchor="center")
+        else:
+            th_cv.create_text(24, 18, text="?", fill=_DIM,
+                              font=(UI_FONT, 9), anchor="center")
+        lbl = tk.Label(row, text=fname, bg=bg, fg=_FG,
+                       font=(UI_FONT, 8), anchor="w",
+                       wraplength=82, justify="left")
+        lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        for widget in (row, accent, th_cv, lbl):
+            widget.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_arm_image(p))
+            widget.bind("<Enter>",  lambda e, r=row, a=accent, l=lbl, p=path:
+                        self._ci_img_hover(r, a, l, p, True))
+            widget.bind("<Leave>",  lambda e, r=row, a=accent, l=lbl, p=path:
+                        self._ci_img_hover(r, a, l, p, False))
+
+    def _load_ci_thumb(self, path: str):
+        import os
+        full = path if os.path.isabs(path) else os.path.join(
+            self._project_dir, path.replace("/", os.sep))
+        try:
+            from PIL import Image, ImageTk
+            with Image.open(full) as img:
+                img.thumbnail((48, 36), Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+        except Exception:
+            return None
+
+    def _ci_arm_image(self, path: str) -> None:
+        self._ci_img_armed_path = path
+        self._ci_armed = "__none__"          # prevent set_ci_armed from clearing path
+        self.set_ci_armed("image")
+        self._rebuild_ci_images()
+        if self._on_ci_arm:
+            self._on_ci_arm("image", {"image_path": path})
+
+    def _ci_img_hover(self, row, accent, lbl, path, entering) -> None:
+        if path == self._ci_img_armed_path:
+            return
+        bg = "#3e3e42" if entering else _ITEM
+        row.config(bg=bg)
+        accent.config(bg=bg)
+        lbl.config(bg=bg)
+
+    def _ci_open_images(self) -> None:
+        if self._on_open_images:
+            new_paths = self._on_open_images()
+            for p in new_paths:
+                if p not in self._ci_image_paths:
+                    self._ci_image_paths.append(p)
+            self._rebuild_ci_images()
 
     # ── Interaction ───────────────────────────────────────────────────────────
 
