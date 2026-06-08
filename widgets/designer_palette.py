@@ -140,8 +140,17 @@ class DesignerPalette(tk.Frame):
         _img_hdr.pack(fill="x", pady=(2, 2))
         tk.Label(_img_hdr, text="IMAGES", bg=_BG, fg=_DIM,
                  font=(UI_FONT, 8, "bold"), anchor="w", padx=8).pack(side="left")
+        # Buttons packed right-to-left → visual order left-to-right: + − ×
+        _clear_lbl = tk.Label(_img_hdr, text="×", bg=_BG, fg="#888888",
+                              font=(UI_FONT, 10), cursor="hand2", padx=4)
+        _clear_lbl.pack(side="right", padx=(0, 4))
+        _clear_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_clear_images())
+        _remove_lbl = tk.Label(_img_hdr, text="−", bg=_BG, fg="#888888",
+                               font=(UI_FONT, 11, "bold"), cursor="hand2", padx=4)
+        _remove_lbl.pack(side="right")
+        _remove_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_remove_image())
         _open_lbl = tk.Label(_img_hdr, text="+", bg=_BG, fg="#569cd6",
-                             font=(UI_FONT, 11, "bold"), cursor="hand2", padx=8)
+                             font=(UI_FONT, 11, "bold"), cursor="hand2", padx=4)
         _open_lbl.pack(side="right")
         _open_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_open_images())
 
@@ -422,6 +431,21 @@ class DesignerPalette(tk.Frame):
                 if p not in self._ci_image_paths:
                     self._ci_image_paths.append(p)
             self._rebuild_ci_images()
+
+    def _ci_remove_image(self) -> None:
+        """Remove the currently armed image from the palette list."""
+        if self._ci_img_armed_path in self._ci_image_paths:
+            self._ci_image_paths.remove(self._ci_img_armed_path)
+            self._ci_img_armed_path = None
+            self._ci_armed = "__none__"
+            self._rebuild_ci_images()
+
+    def _ci_clear_images(self) -> None:
+        """Remove all images from the palette list."""
+        self._ci_image_paths.clear()
+        self._ci_img_armed_path = None
+        self._ci_armed = "__none__"
+        self._rebuild_ci_images()
 
     # ── Interaction ───────────────────────────────────────────────────────────
 

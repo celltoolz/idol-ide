@@ -1665,6 +1665,8 @@ class DesignerCanvas(tk.Canvas):
         # Ghost previews of Image component canvas buttons targeting this widget
         if w.type == "Canvas" and self._form:
             self._draw_canvas_btn_ghosts(w, x, y, tag)
+            if w.canvas_items:
+                self._draw_ci_items_preview(w, x, y, tag)
 
         # Bind click → select on every newly created item
         for item in self.find_withtag(tag):
@@ -1683,6 +1685,47 @@ class DesignerCanvas(tk.Canvas):
                               lambda e, wid=w.id: self._widget_enter(e, wid))
                 self.tag_bind(item, "<Leave>",
                               lambda e, wid=w.id: self._widget_leave(e, wid))
+
+    def _draw_ci_items_preview(self, w: "WidgetDescriptor", wx: int, wy: int, tag: str) -> None:
+        """Draw canvas items on a Canvas widget in normal (non-CI-edit) designer view."""
+        for item in w.canvas_items:
+            ix  = wx + item.x
+            iy  = wy + item.y
+            ix2 = ix + item.width
+            iy2 = iy + item.height
+            ptag = (tag, f"ci_preview:{item.id}")
+            if item.kind == "image":
+                img_path = item.props.get("image_path", "")
+                if img_path and item.width > 0 and item.height > 0:
+                    photo = _load_preview_image(self, img_path, item.width, item.height)
+                    if photo:
+                        self.create_image(ix, iy, anchor="nw", image=photo, tags=ptag)
+                        continue
+                self.create_rectangle(ix, iy, ix2, iy2, fill="#2a3a4a",
+                                      outline="#444444", tags=ptag)
+                self.create_text((ix + ix2) // 2, (iy + iy2) // 2,
+                                 text="[img]", fill="#ce9178",
+                                 font=(UI_FONT, 7), tags=ptag)
+            elif item.kind == "rectangle":
+                self.create_rectangle(ix, iy, ix2, iy2,
+                                      fill=item.props.get("fill", "#4a4a4a"),
+                                      outline=item.props.get("outline", "#888888"),
+                                      tags=ptag)
+            elif item.kind == "oval":
+                self.create_oval(ix, iy, ix2, iy2,
+                                 fill=item.props.get("fill", "#4a4a4a"),
+                                 outline=item.props.get("outline", "#888888"),
+                                 tags=ptag)
+            elif item.kind == "text":
+                fnt = item.props.get("font", "")
+                self.create_text(ix, iy, anchor="nw",
+                                 text=item.props.get("text", "Text"),
+                                 fill=item.props.get("fill", "#ffffff"),
+                                 font=fnt if fnt else (UI_FONT, 9), tags=ptag)
+            elif item.kind == "line":
+                self.create_line(ix, iy, ix + item.width, iy + item.height,
+                                 fill=item.props.get("fill", "#888888"),
+                                 width=item.props.get("linewidth", 1), tags=ptag)
 
     def _draw_canvas_btn_ghosts(self, w: "WidgetDescriptor", wx: int, wy: int, tag: str) -> None:
         """Draw ghost images of canvas_button placements from Image components."""
