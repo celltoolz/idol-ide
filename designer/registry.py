@@ -434,7 +434,7 @@ REGISTRY: dict[str, dict] = {
         "label":        "Canvas",
         "tk_class":     "tk.Canvas",
         "default_size": (200, 150),
-        "default_props": {"bg": "", "image": "", "sizing": "sizable", "border": True, "_canvas_tags": []},
+        "default_props": {"bg": "", "image": "", "sizing": "sizable", "border": False, "_canvas_tags": []},
         "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_canvas_palette,
         "color_props":  ["bg"],
