@@ -397,17 +397,21 @@ class DesignerToolbar(tk.Frame):
 
         def _on_focus_out(e):
             if e.widget is top:
-                if _bid:
+                def _check_dismiss():
                     try:
-                        top.unbind("<Button-1>", _bid.pop())
+                        # If focus is now inside the popup, keep it open
+                        if win.winfo_exists() and win.focus_get() is not None:
+                            return
                     except Exception:
                         pass
-                if _fid:
-                    try:
-                        top.unbind("<FocusOut>", _fid.pop())
-                    except Exception:
-                        pass
-                _dismiss()
+                    if _bid:
+                        try: top.unbind("<Button-1>", _bid.pop())
+                        except Exception: pass
+                    if _fid:
+                        try: top.unbind("<FocusOut>", _fid.pop())
+                        except Exception: pass
+                    _dismiss()
+                top.after(60, _check_dismiss)
 
         def _on_destroy(e):
             if _bid:

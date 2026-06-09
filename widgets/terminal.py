@@ -867,8 +867,8 @@ class TerminalPanel(ttk.Frame):
                 _sname = os.path.basename(_cmd0).lower()
                 if any(s in _sname for s in ("powershell", "pwsh")):
                     self.send_text("\x0c")  # PSReadLine ClearScreen: clears + redraws prompt
-                else:
-                    self.send_text("\r")
+                elif any(s in _sname for s in ("cmd", "bash", "zsh", "sh", "dash", "fish")):
+                    self.send_text("\r")    # nudge shell for a fresh prompt line
             else:
                 self.send_text("\r")
 

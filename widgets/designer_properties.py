@@ -404,6 +404,13 @@ class DesignerProperties(tk.Frame):
 
     def load_widget(self, descriptor: WidgetDescriptor) -> None:
         """Populate the panel from *descriptor*."""
+        # Migrate legacy Canvas "border: bool" → highlightthickness/bd int props
+        if descriptor.type == "Canvas" and "border" in descriptor.props \
+                and "highlightthickness" not in descriptor.props:
+            legacy = descriptor.props.pop("border", False)
+            no_border = str(legacy).lower() in ("false", "0")
+            descriptor.props["highlightthickness"] = 0 if no_border else None
+            descriptor.props["bd"] = 0 if no_border else None
         self._exit_comp_mode()
         self._dismiss_editor()
         self._current_widget = descriptor
