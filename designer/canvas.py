@@ -568,6 +568,9 @@ class DesignerCanvas(tk.Canvas):
 
     def _nudge(self, dx: int, dy: int) -> None:
         """Move all selected widgets by (dx, dy) pixels, clamped to form bounds."""
+        if self._ci_mode:
+            self._ci_nudge(dx, dy)
+            return
         if not self._selected_ids or self._form is None:
             return
         for wid in self._selected_ids:
@@ -1524,6 +1527,18 @@ class DesignerCanvas(tk.Canvas):
 
     # ── Canvas item mouse handlers ─────────────────────────────────────────────
 
+    def _ci_nudge(self, dx: int, dy: int) -> None:
+        """Nudge the selected CI item by (dx, dy), clamped to widget bounds."""
+        item = self.get_ci_selected()
+        w    = self.get_ci_widget()
+        if item is None or w is None:
+            return
+        item.x = max(0, min(item.x + dx, w.width  - max(item.width,  4)))
+        item.y = max(0, min(item.y + dy, w.height - max(item.height, 4)))
+        self._ci_redraw()
+        if self._on_widget_changed:
+            self._on_widget_changed(w)
+
     def _ci_on_click(self, cx: float, cy: float, event: tk.Event) -> None:
         if self._form is None or self._ci_widget_id is None:
             return
@@ -1550,14 +1565,7 @@ class DesignerCanvas(tk.Canvas):
         if not inside:
             return
 
-        # Armed placement
-        if self._ci_arm_kind:
-            rel_x = max(0, int(cx - wx))
-            rel_y = max(0, int(cy - wy))
-            self.add_canvas_item(self._ci_arm_kind, rel_x, rel_y)
-            return
-
-        # Hit an existing item?
+        # Hit an existing item first — same priority as main designer (select over place)
         item = self._ci_item_at(cx, cy, w)
         if item:
             if item.id != self._ci_selected_id:
@@ -1568,10 +1576,19 @@ class DesignerCanvas(tk.Canvas):
                 "mode": "move", "start_cx": cx, "start_cy": cy,
                 "orig_x": item.x, "orig_y": item.y,
             }
-        else:
-            self._ci_selected_id = None
-            self._ci_redraw()
-            self._notify_ci_select()
+            return
+
+        # Armed placement on empty canvas space
+        if self._ci_arm_kind:
+            rel_x = max(0, int(cx - wx))
+            rel_y = max(0, int(cy - wy))
+            self.add_canvas_item(self._ci_arm_kind, rel_x, rel_y)
+            return
+
+        # Clicked empty space, not armed → deselect
+        self._ci_selected_id = None
+        self._ci_redraw()
+        self._notify_ci_select()
 
     def _ci_on_motion(self, cx: float, cy: float, event: tk.Event) -> None:
         d = self._ci_drag
@@ -2474,7 +2491,23 @@ class DesignerCanvas(tk.Canvas):
         if self._on_structure_changed:
             self._on_structure_changed()
 
+    def _ci_on_hover(self, cx: float, cy: float) -> None:
+        """Update cursor for all CI-mode hover states."""
+        handle = self._ci_handle_at(int(cx), int(cy))
+        if handle:
+            self.config(cursor=_handle_cursor(handle))
+            return
+        w = self.get_ci_widget()
+        item = self._ci_item_at(cx, cy, w) if w else None
+        if item:
+            self.config(cursor="fleur")
+        else:
+            self.config(cursor="crosshair" if self._ci_arm_kind else "arrow")
+
     def _on_hover(self, event: tk.Event) -> None:
+        if self._ci_mode:
+            self._ci_on_hover(self.canvasx(event.x), self.canvasy(event.y))
+            return
         item = self._topmost_at(self.canvasx(event.x), self.canvasy(event.y))
         if item is None:
             if self._hover_id:
