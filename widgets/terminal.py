@@ -862,7 +862,13 @@ class TerminalPanel(ttk.Frame):
         self._redraw_full()
         if self._running and self._pty:
             if platform.system() == "Windows":
-                self.send_text("\x0c")   # PSReadLine ClearScreen: clears + redraws prompt
+                _meta = (self._session_meta.get(self._active_shell_key) or {})
+                _cmd0 = (_meta.get("cmd") or [""])[0]
+                _sname = os.path.basename(_cmd0).lower()
+                if any(s in _sname for s in ("powershell", "pwsh")):
+                    self.send_text("\x0c")  # PSReadLine ClearScreen: clears + redraws prompt
+                else:
+                    self.send_text("\r")
             else:
                 self.send_text("\r")
 
