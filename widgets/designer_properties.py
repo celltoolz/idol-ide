@@ -4182,6 +4182,31 @@ class DesignerProperties(tk.Frame):
                 pass
         elif row_iid.startswith("prop__"):
             key = row_iid[6:]
+            if key in _NULLABLE_INT_PROPS:
+                stripped = raw.strip()
+                if stripped == "":
+                    if self._prop_clearing:
+                        # × clicked — mark as omitted (None = not emitted in codegen)
+                        d.props[key] = None
+                        self._props_set(row_iid, "")
+                        if self._on_prop_change:
+                            self._on_prop_change(d.id, key, None)
+                    else:
+                        # Blank entry — revert display to current value, no commit
+                        old = d.props.get(key, 0)
+                        self._props_set(row_iid, "" if old is None else str(old))
+                    return
+                try:
+                    val = int(stripped)
+                except ValueError:
+                    # Invalid int — revert display
+                    old = d.props.get(key, 0)
+                    self._props_set(row_iid, "" if old is None else str(old))
+                    return
+                d.props[key] = val
+                if self._on_prop_change:
+                    self._on_prop_change(d.id, key, val)
+                return
             parsed = _parse_value(raw, d.props.get(key))
             d.props[key] = parsed
             if self._on_prop_change:
@@ -4388,7 +4413,11 @@ _PROP_LABELS: dict[str, str] = {
     "bg":               "Background",
     "fg":               "Foreground",
     "insertbackground": "Insert Cursor",
+    "bd":               "border",
 }
+
+# Props that store int-or-None; None means "omit from generated code entirely"
+_NULLABLE_INT_PROPS: frozenset[str] = frozenset({"highlightthickness", "bd"})
 
 _VALIDATE_LABELS: dict[str, str] = {
     "validatecommand": "  --vcmd",
@@ -4495,7 +4524,8 @@ _PROP_HINTS: dict[str, str] = {
     "image":              "Background image displayed on this widget (click to pick a file; requires Pillow)",
     "compound":           "When both text and image are set, controls which is shown and where: none shows only the image, left/right/top/bottom places the image beside the text",
     # Canvas-specific
-    "border":             "Show or hide the canvas border and focus-highlight ring — False emits highlightthickness=0, bd=0 (recommended for game/image canvases)",
+    "highlightthickness": "Focus-highlight ring width in pixels (0 = none); click × to omit entirely and let tkinter use its default",
+    "bd":                 "Canvas border (bd) width in pixels (0 = none); click × to omit entirely and let tkinter use its default",
     "sizing":             "sizable — widget fills its placed bounds; fit image — widget auto-sizes to the natural dimensions of the background image",
     # Scrollbar
     "scrollbar":          "Attach a scrollbar: None, Vertical, Horizontal, or Both",
@@ -4671,6 +4701,8 @@ def _make_tree(parent: tk.Widget, value_col_name: str = "Value") -> ttk.Treeview
 
 def _display(val: Any) -> str:
     """Human-readable string for a prop value shown in the tree."""
+    if val is None:
+        return ""
     if isinstance(val, list):
         return ", ".join(str(v) for v in val) if val else "(empty)"
     return str(val)

@@ -2993,7 +2993,15 @@ def _draw_generic(c, x, y, x2, y2, text, props, tag):
 @_tag
 def _draw_canvas_widget(c, x, y, x2, y2, text, props):
     bg = props.get("bg", "#e8e8e8") or "#e8e8e8"
-    show_border = str(props.get("border", True)).lower() not in ("false", "0")
+    # Legacy "border: False" support + new highlightthickness/bd props
+    if "highlightthickness" not in props and "border" in props:
+        show_border = str(props.get("border", True)).lower() not in ("false", "0")
+    else:
+        ht = props.get("highlightthickness", None)
+        try:
+            show_border = ht is None or int(ht) != 0
+        except (ValueError, TypeError):
+            show_border = True
     outline = "#808080" if show_border else ""
     c.create_rectangle(x, y, x2, y2, fill=bg, outline=outline)
     img_path = props.get("image", "")
