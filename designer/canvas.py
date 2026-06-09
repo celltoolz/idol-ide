@@ -147,6 +147,9 @@ class DesignerCanvas(tk.Canvas):
         self._ci_widget_id:     str | None    = None   # Canvas widget being edited
         self._ci_original_form: "FormModel | None" = None  # form to restore on exit
         self._tool_extra_props: dict          = {}     # extra props merged on next drop_widget
+        self._ci_orig_ox:       int           = _MARGIN        # ghost: original form ox
+        self._ci_orig_oy:       int           = _MARGIN + _TITLE  # ghost: original form oy
+        self._ci_drawing_ghost: bool          = False  # True during ghost render pass
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -767,6 +770,21 @@ class DesignerCanvas(tk.Canvas):
             return
         cw = max(self.winfo_width(),  1)
         ch = max(self.winfo_height(), 1)
+        if self._ci_sub_form and self._ci_original_form:
+            ci_w = self.get_ci_widget()
+            orig = self._ci_original_form
+            if ci_w:
+                orig_ox = max(_MARGIN,         (cw - orig.width)  // 2)
+                orig_oy = max(_MARGIN + _TITLE, (ch - orig.height) // 2)
+                self._ci_orig_ox = orig_ox
+                self._ci_orig_oy = orig_oy
+                self._ox = orig_ox + ci_w.x
+                self._oy = orig_oy + ci_w.y
+                sr_w = orig_ox + orig.width  + _MARGIN
+                sr_h = orig_oy + orig.height + _MARGIN
+                self.configure(scrollregion=(0, 0, max(cw, sr_w), max(ch, sr_h)))
+                self.redraw()
+                return
         self._ox = max(_MARGIN, (cw - self._form.width)  // 2)
         title_h = 0 if self._ci_sub_form else _TITLE
         self._oy = max(_MARGIN + title_h, (ch - self._form.height) // 2)
@@ -790,6 +808,8 @@ class DesignerCanvas(tk.Canvas):
         self.delete("all")
         if self._form is None:
             return
+        if self._ci_sub_form and self._ci_original_form:
+            self._draw_original_form_ghost()
         self._draw_form()
         for w in self._form.widgets:
             if self._should_render(w):
@@ -1149,6 +1169,37 @@ class DesignerCanvas(tk.Canvas):
 
     # ── Form background ───────────────────────────────────────────────────────
 
+    def _draw_original_form_ghost(self) -> None:
+        """Draw the original form greyed out behind the CI sub-form editor."""
+        orig = self._ci_original_form
+        if not orig:
+            return
+        before = set(self.find_all())
+        # Temporarily swap to original form at ghost origin
+        saved_form, saved_ox, saved_oy = self._form, self._ox, self._oy
+        self._form = orig
+        self._ox, self._oy = self._ci_orig_ox, self._ci_orig_oy
+        self._ci_drawing_ghost = True
+        self._draw_form()
+        for w in orig.widgets:
+            if self._should_render(w):
+                self._render_widget(w)
+        self._ci_drawing_ghost = False
+        self._form, self._ox, self._oy = saved_form, saved_ox, saved_oy
+        # Retag all ghost items so click handling can detect them
+        for iid in (set(self.find_all()) - before):
+            self.addtag_withtag("ci_ghost", iid)
+            for t in list(self.gettags(iid)):
+                if t.startswith("widget:") or t in ("widget", "handle", "fhandle"):
+                    self.dtag(iid, t)
+        # Semi-transparent grey overlay covering the whole form (title bar + body)
+        ox = self._ci_orig_ox
+        ty = self._ci_orig_oy - _TITLE
+        x2 = ox + orig.width
+        y2 = self._ci_orig_oy + orig.height
+        self.create_rectangle(ox, ty, x2, y2,
+                              fill="grey", stipple="gray50", outline="", tags="ci_ghost")
+
     def _draw_form(self) -> None:
         f   = self._form
         ox  = self._ox
@@ -1157,7 +1208,7 @@ class DesignerCanvas(tk.Canvas):
         y2  = oy + f.height
         ty  = oy - _TITLE   # title bar top
 
-        if self._ci_sub_form:
+        if self._ci_sub_form and not self._ci_drawing_ghost:
             # Sub-form: canvas background, optional bg image, then grid — no title bar
             bg = f.bg or "#2a2a2a"
             self.create_rectangle(ox, oy, x2, y2, fill=bg, outline=_CI_BORDER, width=2, tags="form_bg")
@@ -1179,10 +1230,11 @@ class DesignerCanvas(tk.Canvas):
                         self.create_rectangle(px, py, px + 1, py + 1, fill=_DOT, outline="", tags="grid")
             return
 
-        # Drop shadow
-        self.create_rectangle(ox + _SHADOW, oy + _SHADOW,
-                               x2 + _SHADOW, y2 + _SHADOW,
-                               fill="#000000", outline="", tags="shadow")
+        # Drop shadow (suppressed during CI ghost pass)
+        if not self._ci_drawing_ghost:
+            self.create_rectangle(ox + _SHADOW, oy + _SHADOW,
+                                   x2 + _SHADOW, y2 + _SHADOW,
+                                   fill="#000000", outline="", tags="shadow")
 
         # Title bar
         self.create_rectangle(ox, ty, x2, oy,
@@ -1359,7 +1411,7 @@ class DesignerCanvas(tk.Canvas):
             _DRAW.get(w.type, _draw_generic)(self, x, y, x2, y2, text, props, tag)
 
         # Ghost previews of Image component canvas buttons targeting this widget
-        if w.type == "Canvas" and self._form:
+        if w.type == "Canvas" and self._form and not self._ci_drawing_ghost:
             self._draw_canvas_btn_ghosts(w, x, y, tag)
             if w.canvas_items:
                 self._draw_ci_items_preview(w, x, y, tag)
@@ -1544,6 +1596,11 @@ class DesignerCanvas(tk.Canvas):
                     _, nb_id, tab_name = t.split(":", 2)
                     self._switch_nb_tab(nb_id, tab_name)
                     return
+
+        # Click on greyed-out ghost form → exit CI mode
+        if self._ci_sub_form and item is not None and "ci_ghost" in self.gettags(item):
+            self.exit_canvas_item_mode()
+            return
 
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
