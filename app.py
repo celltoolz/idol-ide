@@ -6762,7 +6762,10 @@ class IDOL(Tk):
         """Switch to editor mode and navigate to the named method in the generated .py."""
         from pathlib import Path as _Path
 
-        form = self._design_canvas.form
+        # In CI mode the current form is the synthetic sub-form; use the real form for the path
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         root = getattr(self._sidebar.explorer, "_root", None)
         if not form or not root:
             return
