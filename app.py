@@ -983,6 +983,8 @@ class IDOL(Tk):
             on_menu_item_no_command=self._on_designer_menu_item_no_command,
             on_tool_cancel=self._on_designer_tool_cancel,
             on_snap_state_changed=self._on_designer_snap_state_changed,
+            on_canvas_item_mode=self._on_designer_canvas_item_mode,
+            on_ci_select=self._on_designer_ci_select,
             xscrollcommand=_hbar.set,
             yscrollcommand=_vbar.set,
         )
@@ -1027,6 +1029,8 @@ class IDOL(Tk):
             on_component_edit=self._on_comp_edit,
             on_select_component=self._on_comp_select,
             on_install_pillow=self._on_designer_install_pillow,
+            on_ci_tags_needed=self._on_ci_tags_needed,
+            on_ci_image_paths_needed=self._ci_image_paths_for_props,
         )
         self._props_panel.configure(width=230)
 
@@ -3254,6 +3258,8 @@ class IDOL(Tk):
             self._design_canvas.set_project_dir(root)
         if hasattr(self, "_comp_tray") and self._comp_tray:
             self._comp_tray.set_project_dir(root)
+        if hasattr(self, "_designer_palette") and self._designer_palette:
+            self._designer_palette.set_project_dir(root)
         # If the designer is open, silently drop back to editor mode so the
         # now-stale form state (from the old project root) doesn't persist into
         # the session.  Without this, closing IDOL after a root change would
@@ -3287,6 +3293,7 @@ class IDOL(Tk):
                 self._design_canvas.load_form(form)
                 self._props_panel.set_form(form)
                 self._props_panel.load_form(form)
+                self._sync_all_ci_image_components(form)
                 self._comp_tray.refresh(form.components)
                 self._comp_tray.deselect()
                 self._refresh_form_list(active=form.name)
@@ -4802,6 +4809,7 @@ class IDOL(Tk):
         self._design_canvas.load_form(primary)
         self._props_panel.set_form(primary)
         self._props_panel.load_form(primary)
+        self._sync_all_ci_image_components(primary)
         self._comp_tray.refresh(primary.components)
         self._comp_tray.deselect()
         self._designer_menu_had_items = bool(primary.menu_items)
@@ -4865,6 +4873,342 @@ class IDOL(Tk):
                 cv.scroll_to_line(cv.get_cursor()[0])
 
         self.after_idle(_restore_editor_focus)
+
+    def _on_palette_ci_open_images(self) -> list:
+        """Open multi-select image dialog, copy to project images/, auto-place on canvas."""
+        import os, shutil
+        from tkinter.filedialog import askopenfilenames
+        paths = askopenfilenames(
+            parent=self,
+            title="Select Images",
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("All", "*.*")],
+        )
+        if not paths:
+            return []
+        project_dir = self._design_canvas._project_dir
+        images_dir  = os.path.join(project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        result = []
+        for src in paths:
+            fname = os.path.basename(src)
+            dest  = os.path.join(images_dir, fname)
+            if os.path.abspath(src) != os.path.abspath(dest):
+                base, ext = os.path.splitext(fname)
+                n = 1
+                while os.path.exists(dest):
+                    dest = os.path.join(images_dir, f"{base}_{n}{ext}")
+                    n += 1
+                shutil.copy2(src, dest)
+            rel = os.path.relpath(dest, project_dir).replace("\\", "/")
+            result.append(rel)
+
+        # Auto-place each new image on the canvas with actual PIL dimensions
+        if self._design_canvas.ci_mode and result:
+            from designer.model import WidgetDescriptor
+            from designer.registry import REGISTRY
+            reg = REGISTRY.get("CanvasImage", {})
+            form = self._design_canvas.form
+            if form:
+                stagger = len(form.widgets)
+                for rel in result:
+                    abs_path = os.path.join(project_dir, rel.replace("/", os.sep))
+                    try:
+                        from PIL import Image as _PILImg
+                        with _PILImg.open(abs_path) as _img:
+                            iw, ih = _img.size
+                    except Exception:
+                        iw, ih = reg.get("default_size", (64, 64))
+                    x = max(0, min(10 + stagger * 20, form.width  - iw))
+                    y = max(0, min(10 + stagger * 20, form.height - ih))
+                    props = dict(reg.get("default_props", {}))
+                    props["image_path"] = rel
+                    desc = WidgetDescriptor(
+                        id=form.next_id("CanvasImage"),
+                        type="CanvasImage",
+                        x=x, y=y, width=iw, height=ih,
+                        props=props,
+                    )
+                    self._design_canvas.add_widget(desc)
+                    stagger += 1
+
+        return result
+
+    def _ci_image_paths_for_props(self) -> list:
+        """Return available image paths for the current CI canvas (used by image_path dropdown)."""
+        canvas_w = self._design_canvas.get_ci_widget()
+        if canvas_w:
+            return self._ci_palette_images(canvas_w.id)
+        return []
+
+    def _on_ci_image_arm(self, path: str) -> None:
+        """Palette armed a CanvasImage tool with a specific image path."""
+        self._design_canvas.set_tool_extra_props({"image_path": path})
+        try:
+            import os
+            from PIL import Image as _PILImg
+            _abs = os.path.join(self._design_canvas._project_dir, path.replace("/", os.sep))
+            with _PILImg.open(_abs) as _img:
+                _iw, _ih = _img.size
+        except Exception:
+            _iw, _ih = None, None
+        self._design_canvas.set_tool_size(_iw, _ih)
+
+    def _on_ci_image_place(self, path: str) -> None:
+        """Palette double-clicked an image — auto-place on canvas at center with PIL dims."""
+        import os
+        from designer.model import WidgetDescriptor
+        from designer.registry import REGISTRY
+        if not self._design_canvas.ci_mode:
+            return
+        reg = REGISTRY.get("CanvasImage", {})
+        project_dir = self._design_canvas._project_dir
+        form = self._design_canvas.form
+        if not form:
+            return
+        abs_path = os.path.join(project_dir, path.replace("/", os.sep))
+        try:
+            from PIL import Image as _PILImg
+            with _PILImg.open(abs_path) as _img:
+                iw, ih = _img.size
+        except Exception:
+            iw, ih = reg.get("default_size", (64, 64))
+        fx = max(0, min(form.width  // 2 - iw // 2, form.width  - iw))
+        fy = max(0, min(form.height // 2 - ih // 2, form.height - ih))
+        props = dict(reg.get("default_props", {}))
+        props["image_path"] = path
+        desc = WidgetDescriptor(
+            id=form.next_id("CanvasImage"),
+            type="CanvasImage",
+            x=fx, y=fy, width=iw, height=ih,
+            props=props,
+        )
+        self._design_canvas.add_widget(desc)
+
+    def _on_ci_image_delete(self, path: str) -> None:
+        """Full delete: remove all placed CanvasImage items for this path + update Image component."""
+        if not self._design_canvas.ci_mode:
+            return
+        form = self._design_canvas.form          # sub-form
+        orig_form = self._design_canvas.ci_original_form
+        if not form or not orig_form:
+            return
+        # Remove all CanvasImage items matching this path from the sub-form
+        to_remove = [
+            w.id for w in form.widgets
+            if w.type == "CanvasImage" and w.props.get("image_path") == path
+        ]
+        if to_remove:
+            self._design_canvas.remove_widgets(to_remove)
+        # Remove path from Image component on the original form
+        canvas_w = self._design_canvas.get_ci_widget()
+        canvas_id = canvas_w.id if canvas_w else None
+        for comp in orig_form.components:
+            if comp.type != "Image":
+                continue
+            parent = comp.props.get("parent", "None")
+            if parent in (canvas_id, "Global"):
+                paths = list(comp.props.get("paths", []))
+                if path in paths:
+                    paths.remove(path)
+                    comp.props["paths"] = paths
+                    break
+
+    def _on_ci_tags_needed(self, widget_desc, event_key, on_proceed) -> None:
+        """Show the CI tag editor dialog; call on_proceed() after tags are confirmed."""
+        canvas_w = self._design_canvas.get_ci_widget()
+        # Collect all unique tags already in use across CI items on this canvas
+        global_tags: list[str] = []
+        seen: set[str] = set()
+        if canvas_w:
+            for ci in canvas_w.canvas_items:
+                for t in ci.tags:
+                    if t not in seen:
+                        global_tags.append(t)
+                        seen.add(t)
+        current_tags = list(widget_desc.props.get("_ci_tags", []))
+        self._show_ci_tag_dialog(widget_desc, current_tags, global_tags, canvas_w, on_proceed)
+
+    def _show_ci_tag_dialog(self, widget_desc, current_tags, global_tags, canvas_w, on_proceed) -> None:
+        """Modal tag-editor dialog for canvas items."""
+        _BG = "#2d2d2d"; _FG = "#cccccc"; _ACCENT = "#0e639c"
+        _ENTRY_BG = "#3c3c3c"; _BTN_BG = "#3a3a3a"
+
+        win = tk.Toplevel(self)
+        win.title("Canvas Item Tags")
+        win.configure(bg=_BG)
+        win.resizable(False, False)
+        win.transient(self)
+
+        tk.Label(win, text="Select tags to bind events to:", bg=_BG, fg=_FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(10, 4))
+
+        # ── Existing tags (global on this canvas) ──
+        list_frame = tk.Frame(win, bg=_BG)
+        list_frame.pack(fill="x", padx=12)
+
+        tag_vars: list[tuple[str, tk.BooleanVar]] = []
+        if global_tags:
+            for tag in global_tags:
+                var = tk.BooleanVar(value=tag in current_tags)
+                row = tk.Frame(list_frame, bg=_BG)
+                row.pack(fill="x", pady=1)
+                # Canvas-drawn checkbox (dark theme safe)
+                cb_cv = tk.Canvas(row, width=14, height=14, bg=_BG, highlightthickness=0)
+                cb_cv.pack(side="left", padx=(0, 6))
+                def _draw_cb(cv, v):
+                    cv.delete("all")
+                    cv.create_rectangle(1, 1, 13, 13, outline="#555", fill=_ACCENT if v.get() else _ENTRY_BG)
+                    if v.get():
+                        cv.create_text(7, 7, text="✓", fill="#fff", font=("Segoe UI", 8, "bold"))
+                def _toggle(cv=cb_cv, v=var):
+                    v.set(not v.get()); _draw_cb(cv, v)
+                _draw_cb(cb_cv, var)
+                cb_cv.bind("<ButtonRelease-1>", lambda e, cv=cb_cv, v=var: (_toggle(cv, v),))
+                tk.Label(row, text=tag, bg=_BG, fg=_FG, font=("Segoe UI", 9)).pack(side="left")
+                tag_vars.append((tag, var))
+        else:
+            tk.Label(list_frame, text="No existing tags on this canvas.",
+                     bg=_BG, fg="#888", font=("Segoe UI", 8, "italic")).pack(anchor="w")
+
+        # ── Add new tag ──
+        tk.Frame(win, bg="#444", height=1).pack(fill="x", padx=12, pady=8)
+        tk.Label(win, text="Add new tag:", bg=_BG, fg=_FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12)
+        add_frame = tk.Frame(win, bg=_BG)
+        add_frame.pack(fill="x", padx=12, pady=(4, 0))
+        new_tag_var = tk.StringVar()
+        new_tag_entry = tk.Entry(add_frame, textvariable=new_tag_var, bg=_ENTRY_BG, fg=_FG,
+                                 insertbackground=_FG, relief="flat", font=("Segoe UI", 9))
+        new_tag_entry.pack(side="left", fill="x", expand=True)
+
+        def _add_tag():
+            tag = new_tag_var.get().strip()
+            if not tag or any(t == tag for t, _ in tag_vars):
+                return
+            var = tk.BooleanVar(value=True)
+            tag_vars.append((tag, var))
+            row = tk.Frame(list_frame, bg=_BG)
+            row.pack(fill="x", pady=1)
+            cb_cv = tk.Canvas(row, width=14, height=14, bg=_BG, highlightthickness=0)
+            cb_cv.pack(side="left", padx=(0, 6))
+            def _draw_cb(cv, v):
+                cv.delete("all")
+                cv.create_rectangle(1, 1, 13, 13, outline="#555", fill=_ACCENT if v.get() else _ENTRY_BG)
+                if v.get():
+                    cv.create_text(7, 7, text="✓", fill="#fff", font=("Segoe UI", 8, "bold"))
+            def _toggle(cv=cb_cv, v=var):
+                v.set(not v.get()); _draw_cb(cv, v)
+            _draw_cb(cb_cv, var)
+            cb_cv.bind("<ButtonRelease-1>", lambda e, cv=cb_cv, v=var: (_toggle(cv, v),))
+            tk.Label(row, text=tag, bg=_BG, fg=_FG, font=("Segoe UI", 9)).pack(side="left")
+            new_tag_var.set("")
+            win.update_idletasks()
+
+        add_btn = tk.Label(add_frame, text=" Add ", bg=_BTN_BG, fg=_FG, relief="flat",
+                           font=("Segoe UI", 9), cursor="hand2", padx=6, pady=2)
+        add_btn.pack(side="left", padx=(6, 0))
+        add_btn.bind("<ButtonRelease-1>", lambda e: _add_tag())
+        new_tag_entry.bind("<Return>", lambda e: _add_tag())
+
+        # ── Buttons ──
+        tk.Frame(win, bg="#444", height=1).pack(fill="x", padx=12, pady=8)
+        btn_frame = tk.Frame(win, bg=_BG)
+        btn_frame.pack(fill="x", padx=12, pady=(0, 10))
+
+        def _on_ok():
+            selected = [tag for tag, var in tag_vars if var.get()]
+            if not selected:
+                import tkinter.messagebox as _mb
+                _mb.showwarning("No Tags", "Select or add at least one tag.", parent=win)
+                return
+            widget_desc.props["_ci_tags"] = selected
+            # Sync back to CanvasItemDescriptor.tags immediately
+            if canvas_w:
+                for ci in canvas_w.canvas_items:
+                    if ci.id == widget_desc.id:
+                        ci.tags = list(selected)
+                        break
+            self._props_panel.refresh_widget(widget_desc)
+            self._set_designer_dirty()
+            win.destroy()
+            if on_proceed:
+                on_proceed()
+
+        def _on_cancel():
+            win.destroy()
+
+        def _make_btn(parent, text, cmd, accent=False):
+            bg = _ACCENT if accent else _BTN_BG
+            b = tk.Label(parent, text=text, bg=bg, fg="#fff", relief="flat",
+                         font=("Segoe UI", 9), cursor="hand2", padx=10, pady=4)
+            b.pack(side="right", padx=(4, 0))
+            b.bind("<ButtonRelease-1>", lambda e: cmd())
+
+        _make_btn(btn_frame, "Cancel", _on_cancel)
+        _make_btn(btn_frame, "OK", _on_ok, accent=True)
+
+        win.bind("<Return>", lambda e: _on_ok())
+        win.bind("<Escape>", lambda e: _on_cancel())
+        win.update_idletasks()
+        pw = self.winfo_rootx() + self.winfo_width() // 2
+        ph = self.winfo_rooty() + self.winfo_height() // 2
+        win.update_idletasks()
+        win.geometry(f"+{pw - win.winfo_width() // 2}+{ph - win.winfo_height() // 2}")
+        win.deiconify()
+        win.grab_set()
+
+    def _ci_palette_images(self, canvas_widget_id: str) -> list:
+        """Collect image paths for the canvas editor palette: canvas-specific + Global comps."""
+        orig_form = self._design_canvas.ci_original_form or self._design_canvas.form
+        seen: set[str] = set()
+        paths: list[str] = []
+        if orig_form:
+            for comp in orig_form.components:
+                if comp.type != "Image":
+                    continue
+                p = comp.props.get("parent", "None")
+                if p == canvas_widget_id or p == "Global":
+                    for img in comp.props.get("paths", []):
+                        if img not in seen:
+                            seen.add(img); paths.append(img)
+        return paths
+
+    def _on_designer_canvas_item_mode(self, widget_id: str | None) -> None:
+        """Canvas entered/exited canvas-item edit mode."""
+        if widget_id is not None:
+            w = self._design_canvas.get_ci_widget()
+            initial_images = self._ci_palette_images(widget_id)
+            self._designer_palette.enter_ci_mode(
+                on_open_images=self._on_palette_ci_open_images,
+                initial_images=initial_images,
+                on_ci_image_arm=self._on_ci_image_arm,
+                on_ci_image_place=self._on_ci_image_place,
+                on_ci_image_delete=self._on_ci_image_delete,
+            )
+            # Rebuild selector with sub-form CI items
+            sub_form = self._design_canvas.form
+            if sub_form:
+                self._props_panel.set_form(sub_form)
+        else:
+            self._designer_palette.exit_ci_mode()
+            self._props_panel.clear()
+            # Rebuild selector with original form widgets
+            orig_form = self._design_canvas.form
+            if orig_form:
+                self._props_panel.set_form(orig_form)
+            # Re-populate properties for the canvas widget that was just exited
+            sel_id = self._design_canvas._primary_id
+            if sel_id and orig_form:
+                w = orig_form.get_widget(sel_id)
+                if w:
+                    self._props_panel.load_widget(w)
+                    self._props_panel.refresh_order(orig_form, sel_id)
+        self._set_designer_dirty()
+
+    def _on_designer_ci_select(self, item) -> None:
+        """Canvas item deselected in CI sub-form mode → clear properties panel."""
+        if item is None and self._design_canvas.ci_mode:
+            self._props_panel.clear()
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
         """Property panel edit → update canvas rendering."""
@@ -4972,6 +5316,20 @@ class IDOL(Tk):
     ) -> None:
         """Event panel edit — model already mutated by properties panel."""
         self._set_designer_dirty()
+        # In CI mode, mirror the event change into the CanvasItemDescriptor's bindings
+        if self._design_canvas.ci_mode:
+            from designer.model import _CI_EVENT_TO_TK
+            canvas_w = self._design_canvas.get_ci_widget()
+            if canvas_w:
+                for ci in canvas_w.canvas_items:
+                    if ci.id == widget_id:
+                        tk_ev = _CI_EVENT_TO_TK.get(event_key)
+                        if tk_ev:
+                            if handler:
+                                ci.bindings[tk_ev] = handler
+                            else:
+                                ci.bindings.pop(tk_ev, None)
+                        break
 
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
@@ -5032,11 +5390,18 @@ class IDOL(Tk):
         self._props_panel.refresh_order(form, widget_id)
 
     def _on_designer_deselect(self) -> None:
-        """Canvas deselect → show form-level properties."""
+        """Canvas deselect → show form-level properties (or canvas widget props in CI mode)."""
         if getattr(self, "_comp_selecting", False):
             return
         self._comp_tray.deselect()
         self._designer_toolbar.refresh()
+        if self._design_canvas.ci_mode:
+            canvas_w = self._design_canvas.get_ci_widget()
+            orig_form = self._design_canvas._ci_original_form
+            if canvas_w and orig_form:
+                self._props_panel.load_widget(canvas_w)
+                self._props_panel.refresh_order(orig_form, canvas_w.id)
+            return
         form = self._design_canvas.form
         if form:
             self._props_panel.load_form(form)
@@ -5057,6 +5422,17 @@ class IDOL(Tk):
 
     def _on_designer_widget_changed(self, descriptor) -> None:
         self._set_designer_dirty()
+        # In CI mode, keep canvas_items in sync so codegen sees current positions
+        if self._design_canvas.ci_mode:
+            from designer.model import widget_to_ci, _CI_TYPE_TO_KIND
+            orig_form = self._design_canvas._ci_original_form
+            canvas_w  = self._design_canvas.get_ci_widget()
+            form      = self._design_canvas.form
+            if orig_form and canvas_w and form:
+                canvas_w.canvas_items = [
+                    widget_to_ci(wd) for wd in form.widgets
+                    if wd.type in _CI_TYPE_TO_KIND
+                ]
         if len(self._design_canvas.selected_ids) > 1:
             form = self._design_canvas.form
             descriptors = [
@@ -5083,6 +5459,52 @@ class IDOL(Tk):
             self._props_panel.set_form(form)
             sel = next(iter(self._design_canvas.selected_ids), None)
             self._props_panel.refresh_order(form, sel)
+            if self._design_canvas.ci_mode:
+                from designer.model import widget_to_ci, _CI_TYPE_TO_KIND
+                orig_form = self._design_canvas._ci_original_form
+                canvas_w  = self._design_canvas.get_ci_widget()
+                if orig_form and canvas_w:
+                    canvas_w.canvas_items = [
+                        widget_to_ci(wd) for wd in form.widgets
+                        if wd.type in _CI_TYPE_TO_KIND
+                    ]
+                    self._sync_ci_image_component(orig_form, canvas_w)
+
+    def _sync_ci_image_component(self, form, canvas_widget) -> None:
+        """Create or update the {canvas_id}_ci Image component for CI image items."""
+        from designer.model import ComponentDescriptor
+        img_paths = [
+            ci.props["image_path"] for ci in canvas_widget.canvas_items
+            if ci.kind == "image" and ci.props.get("image_path")
+        ]
+        # Deduplicate while preserving order
+        seen: set = set()
+        unique_paths = [p for p in img_paths if not (p in seen or seen.add(p))]
+        comp_id = f"{canvas_widget.id}_ci"
+        existing = form.get_component(comp_id)
+        if not unique_paths:
+            if existing is not None:
+                form.components = [c for c in form.components if c.id != comp_id]
+                self._comp_tray.refresh(form.components)
+            return
+        if existing is None:
+            comp = ComponentDescriptor(id=comp_id, type="Image",
+                                       props={"paths": unique_paths,
+                                              "parent": canvas_widget.id})
+            form.components.append(comp)
+        else:
+            existing.props["paths"] = unique_paths
+            existing.props.setdefault("parent", canvas_widget.id)
+        self._comp_tray.refresh(form.components)
+
+    def _sync_all_ci_image_components(self, form) -> None:
+        """Pass over all Canvas widgets on form load and ensure CI image components exist."""
+        for w in form.widgets:
+            if w.type == "Canvas" and any(
+                ci.kind == "image" and ci.props.get("image_path")
+                for ci in w.canvas_items
+            ):
+                self._sync_ci_image_component(form, w)
 
     def _on_designer_reorder_widget(self, widget_id: str, new_idx: int) -> None:
         """Order tab drag-drop → move widget in model."""
@@ -5807,7 +6229,10 @@ class IDOL(Tk):
         win.grab_set()
 
     def _on_comp_select(self, comp_id: str) -> None:
-        form = self._design_canvas.form
+        # In CI mode the sub-form has no components; look on the original form
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         comp = form.get_component(comp_id)
@@ -5822,9 +6247,14 @@ class IDOL(Tk):
         finally:
             self._comp_selecting = False
         self._comp_tray.select(comp_id)
-        self._props_panel.load_component(comp, cdef)
+        # Pass original form so _open_comp_image_picker resolves the component correctly in CI mode
+        alt_form = form if self._design_canvas.ci_mode else None
+        self._props_panel.load_component(comp, cdef, form=alt_form)
 
     def _on_comp_deselect(self) -> None:
+        if self._design_canvas.ci_mode:
+            self._props_panel.clear()
+            return
         form = self._design_canvas.form
         if form:
             self._props_panel.load_form(form)
@@ -5889,15 +6319,22 @@ class IDOL(Tk):
         if prop_key == "__name__":
             self._on_comp_rename(comp_id, value)
             return
-        form = self._design_canvas.form
+        # In CI mode components live on the original form, not the sub-form
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         comp = form.get_component(comp_id)
         if comp is None:
             return
         comp.props[prop_key] = value
-        if prop_key == "paths":
+        if prop_key in ("paths", "parent"):
             self._comp_tray.refresh(form.components)
+            # In CI mode refresh palette Images (canvas-specific + Global comps)
+            if self._design_canvas.ci_mode and self._design_canvas.ci_widget_id:
+                updated = self._ci_palette_images(self._design_canvas.ci_widget_id)
+                self._designer_palette.refresh_ci_images(updated)
         self._set_designer_dirty()
 
     def _on_comp_connect(self, comp_id: str, handler_id: str) -> None:
@@ -6350,7 +6787,7 @@ class IDOL(Tk):
         )
 
     def _on_designer_double_click(self, widget_id: str) -> None:
-        """Double-click on canvas widget → jump to first event handler or flash Events tab."""
+        """Double-click on canvas widget (or CI item) → jump to first event handler."""
         from pathlib import Path as _Path
 
         form = self._design_canvas.form
@@ -6363,9 +6800,13 @@ class IDOL(Tk):
             self._props_panel.flash_events_tab()
             return
 
+        # In CI mode the sub-form name is a synthetic _ci_* name; use the original form
+        file_form = (self._design_canvas.ci_original_form
+                     if self._design_canvas.ci_mode
+                     else form)
         root = getattr(self._sidebar.explorer, "_root", None)
-        if root:
-            py_path = _Path(root) / f"{form.name}.py"
+        if root and file_form:
+            py_path = _Path(root) / f"{file_form.name}.py"
             if self._designer_dirty or not py_path.exists():
                 self.designer_generate_code()
 
@@ -6376,12 +6817,15 @@ class IDOL(Tk):
         """Double-click on a wired event row → jump to that handler in the editor."""
         from pathlib import Path as _Path
 
-        form = self._design_canvas.form
-        if not form:
+        # In CI mode the sub-form has a synthetic name; the handler lives in the real file
+        file_form = (self._design_canvas.ci_original_form
+                     if self._design_canvas.ci_mode
+                     else self._design_canvas.form)
+        if not file_form:
             return
         root = getattr(self._sidebar.explorer, "_root", None)
         if root:
-            py_path = _Path(root) / f"{form.name}.py"
+            py_path = _Path(root) / f"{file_form.name}.py"
             if self._designer_dirty or not py_path.exists():
                 self.designer_generate_code()
         self._designer_jump_to_handler(method_name)
@@ -6408,7 +6852,10 @@ class IDOL(Tk):
         """Switch to editor mode and navigate to the named method in the generated .py."""
         from pathlib import Path as _Path
 
-        form = self._design_canvas.form
+        # In CI mode the current form is the synthetic sub-form; use the real form for the path
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         root = getattr(self._sidebar.explorer, "_root", None)
         if not form or not root:
             return
@@ -7233,7 +7680,10 @@ class IDOL(Tk):
     def designer_generate_code(self) -> None:
         """Regenerate .py for all forms in the project and save checksums."""
         root = getattr(self._sidebar.explorer, "_root", None)
-        active_form = self._design_canvas.form
+        if self._design_canvas.ci_mode:
+            active_form = self._design_canvas._ci_original_form
+        else:
+            active_form = self._design_canvas.form
         if active_form is None or not root:
             return
 

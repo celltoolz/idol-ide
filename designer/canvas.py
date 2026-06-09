@@ -26,7 +26,7 @@ import sys
 import tkinter as tk
 from typing import Callable, Optional
 
-from .model import FormModel, WidgetDescriptor
+from .model import CanvasItemDescriptor, FormModel, WidgetDescriptor
 from .registry import REGISTRY
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -47,6 +47,8 @@ _MENUBAR    = 20    # menu bar strip height (px)
 _SHADOW     = 4     # form drop-shadow offset (px)
 _LF_LABEL_H = 17    # LabelFrame label area height — measured: child y=0 appears 17px below outer top
 _NB_TAB_H   = 26    # Notebook tab-strip height — content area starts this many px below the widget top
+_CI_BORDER  = "#007acc"  # active canvas-item-edit mode border
+_CI_SEL     = "#e8a844"  # selected canvas item handle/highlight color
 
 
 # ── Handle positions ──────────────────────────────────────────────────────────
@@ -99,6 +101,8 @@ class DesignerCanvas(tk.Canvas):
         on_menu_item_no_command:  Optional[Callable[[int],               None]] = None,
         on_tool_cancel:           Optional[Callable[[],                  None]] = None,
         on_snap_state_changed:    Optional[Callable[[],                  None]] = None,
+        on_canvas_item_mode:      Optional[Callable[[str | None],        None]] = None,
+        on_ci_select:             Optional[Callable[["CanvasItemDescriptor | None"], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=_BG, highlightthickness=0, **kwargs)
@@ -113,6 +117,8 @@ class DesignerCanvas(tk.Canvas):
         self._on_menu_item_no_command = on_menu_item_no_command
         self._on_tool_cancel       = on_tool_cancel
         self._on_snap_state_changed = on_snap_state_changed
+        self._on_canvas_item_mode  = on_canvas_item_mode
+        self._on_ci_select         = on_ci_select
         self._menu_hitboxes: list[tuple[int, int, int, int, int]] = []
 
         self._form:          FormModel | None        = None
@@ -135,6 +141,16 @@ class DesignerCanvas(tk.Canvas):
         self._active_nb_tabs: dict[str, str] = {}  # nb_id → active tab name
         self._img_cache: dict[str, object] = {}  # "{path}:{w}:{h}" → ImageTk.PhotoImage
         self._project_dir: str = __import__("os").getcwd()
+
+        # Canvas item sub-form state (CI editing via sub-form swap)
+        self._ci_sub_form:      bool          = False  # True while editing canvas items
+        self._ci_widget_id:     str | None    = None   # Canvas widget being edited
+        self._ci_original_form: "FormModel | None" = None  # form to restore on exit
+        self._tool_extra_props: dict          = {}     # extra props merged on next drop_widget
+        self._tool_size: "tuple[int,int] | None" = None  # size override for next placement
+        self._ci_orig_ox:       int           = _MARGIN        # ghost: original form ox
+        self._ci_orig_oy:       int           = _MARGIN + _TITLE  # ghost: original form oy
+        self._ci_drawing_ghost: bool          = False  # True during ghost render pass
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -168,7 +184,7 @@ class DesignerCanvas(tk.Canvas):
         self.bind("<Shift-MouseWheel>", self._on_mousewheel_h)
         self.bind("<Shift-Button-4>",   self._on_mousewheel_h)
         self.bind("<Shift-Button-5>",   self._on_mousewheel_h)
-        self.bind("<Escape>",          lambda _: self.cancel_tool())
+        self.bind("<Escape>",          self._on_escape)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -202,6 +218,128 @@ class DesignerCanvas(tk.Canvas):
         if self._on_tool_cancel:
             self._on_tool_cancel()
 
+    def _on_escape(self, event) -> None:
+        if self._ci_sub_form:
+            if self._active_tool:
+                self.cancel_tool()
+            else:
+                self.exit_canvas_item_mode()
+            return
+        self.cancel_tool()
+
+    # ── Canvas item sub-form mode (public API) ────────────────────────────────
+
+    @property
+    def ci_mode(self) -> bool:
+        return self._ci_sub_form
+
+    @property
+    def ci_original_form(self) -> "FormModel | None":
+        return self._ci_original_form
+
+    @property
+    def ci_widget_id(self) -> str | None:
+        return self._ci_widget_id
+
+    @property
+    def ci_selected_id(self) -> str | None:
+        return self._primary_id if self._ci_sub_form else None
+
+    def get_ci_widget(self) -> "WidgetDescriptor | None":
+        if self._ci_widget_id and self._ci_original_form:
+            return self._ci_original_form.get_widget(self._ci_widget_id)
+        return None
+
+    def get_ci_selected(self) -> "CanvasItemDescriptor | None":
+        """Return the selected canvas item (for app.py compatibility)."""
+        if not self._ci_sub_form or not self._form:
+            return None
+        sel_id = self._primary_id
+        if sel_id is None:
+            return None
+        w_desc = self._form.get_widget(sel_id)
+        if w_desc is None:
+            return None
+        from .model import _CI_TYPE_TO_KIND, widget_to_ci
+        if w_desc.type not in _CI_TYPE_TO_KIND:
+            return None
+        return widget_to_ci(w_desc)
+
+    def enter_canvas_item_mode(self, widget_id: str) -> None:
+        """Enter canvas-item editing: swap to a sub-form containing the CI items."""
+        if not self._form:
+            return
+        w = self._form.get_widget(widget_id)
+        if w is None or w.type != "Canvas":
+            return
+        from .model import ci_to_widget, FormModel
+        self._ci_original_form = self._form
+        self._ci_widget_id = widget_id
+        self._ci_sub_form = True
+        sub = FormModel(
+            name=f"_ci_{widget_id}",
+            width=w.width,
+            height=w.height,
+            bg=w.props.get("bg", "") or "#2a2a2a",
+        )
+        sub.widgets = [ci_to_widget(ci) for ci in w.canvas_items]
+        self.load_form(sub)
+        if self._on_canvas_item_mode:
+            self._on_canvas_item_mode(widget_id)
+
+    def exit_canvas_item_mode(self) -> None:
+        """Exit CI editing: convert sub-form widgets back and restore original form."""
+        if not self._ci_sub_form or self._ci_original_form is None:
+            return
+        from .model import widget_to_ci
+        orig = self._ci_original_form
+        w = orig.get_widget(self._ci_widget_id)
+        if w is not None and self._form:
+            w.canvas_items = [widget_to_ci(wdesc) for wdesc in self._form.widgets
+                              if wdesc.type in ("CanvasRect","CanvasOval","CanvasText","CanvasLine","CanvasImage")]
+        self._ci_sub_form = False
+        wid = self._ci_widget_id
+        self._ci_widget_id = None
+        self._ci_original_form = None
+        self._tool_extra_props = {}
+        self._tool_size = None
+        self.load_form(orig)
+        if wid:
+            self.select(wid)
+        if self._on_canvas_item_mode:
+            self._on_canvas_item_mode(None)
+        if self._on_ci_select:
+            self._on_ci_select(None)
+
+    def set_tool_extra_props(self, props: dict) -> None:
+        """Set extra props to merge on the next drop_widget call (used for image_path pre-setting)."""
+        self._tool_extra_props = dict(props)
+
+    def set_tool_size(self, w: int | None, h: int | None) -> None:
+        """Override the default_size used for the next tool placement (click or double-click)."""
+        if w is not None and h is not None:
+            self._tool_size: tuple[int, int] | None = (int(w), int(h))
+        else:
+            self._tool_size = None
+
+    def remove_widgets(self, ids: list[str]) -> None:
+        """Remove specific widget IDs from the sub-form and canvas without changing the selection."""
+        if not ids or self._form is None:
+            return
+        self.push_undo()
+        removed: set[str] = set(ids)
+        for wid in ids:
+            self._disconnect_widget(wid)
+            self._form.remove_widget(wid)
+            self.delete(f"widget:{wid}")
+        self.delete("handle")
+        self.delete("fhandle")
+        self._selected_ids -= removed
+        if self._primary_id in removed:
+            self._primary_id = None
+        if self._on_structure_changed:
+            self._on_structure_changed()
+
     def place_at_default(self, type_key: str) -> None:
         """Place *type_key* widget at the centre of the form and select it."""
         if self._form is None:
@@ -209,15 +347,22 @@ class DesignerCanvas(tk.Canvas):
         reg = REGISTRY.get(type_key)
         if not reg:
             return
-        w, h   = reg["default_size"]
+        _sz = getattr(self, "_tool_size", None)
+        self._tool_size = None  # consume
+        w, h   = _sz or reg["default_size"]
         usable = self._form.height - self._min_y
         fx = max(0, min(self._form.width  // 2 - w // 2, self._form.width  - w))
         fy = max(self._min_y, min(self._min_y + usable // 2 - h // 2, self._form.height - h))
         wid  = self._form.next_id(type_key)
+        extra = self._tool_extra_props
+        self._tool_extra_props = {}  # consume
+        props = dict(reg["default_props"])
+        if extra:
+            props.update(extra)
         desc = WidgetDescriptor(
             id=wid, type=type_key,
             x=fx, y=fy, width=w, height=h,
-            props=dict(reg["default_props"]),
+            props=props,
         )
         self.add_widget(desc)
         if REGISTRY.get(type_key, {}).get("is_notebook"):
@@ -259,10 +404,15 @@ class DesignerCanvas(tk.Canvas):
             fy = max(self._min_y, min(fy, self._form.height - h))
             parent_id = None
         wid = self._form.next_id(type_key)
+        extra = self._tool_extra_props
+        self._tool_extra_props = {}  # consume
+        props = dict(reg["default_props"])
+        if extra:
+            props.update(extra)
         desc = WidgetDescriptor(
             id=wid, type=type_key,
             x=fx, y=fy, width=w, height=h,
-            props=dict(reg["default_props"]),
+            props=props,
             parent_id=parent_id,
             tab=tab_name,
         )
@@ -653,8 +803,24 @@ class DesignerCanvas(tk.Canvas):
             return
         cw = max(self.winfo_width(),  1)
         ch = max(self.winfo_height(), 1)
+        if self._ci_sub_form and self._ci_original_form:
+            ci_w = self.get_ci_widget()
+            orig = self._ci_original_form
+            if ci_w:
+                orig_ox = max(_MARGIN,         (cw - orig.width)  // 2)
+                orig_oy = max(_MARGIN + _TITLE, (ch - orig.height) // 2)
+                self._ci_orig_ox = orig_ox
+                self._ci_orig_oy = orig_oy
+                self._ox = orig_ox + ci_w.x
+                self._oy = orig_oy + ci_w.y
+                sr_w = orig_ox + orig.width  + _MARGIN
+                sr_h = orig_oy + orig.height + _MARGIN
+                self.configure(scrollregion=(0, 0, max(cw, sr_w), max(ch, sr_h)))
+                self.redraw()
+                return
         self._ox = max(_MARGIN, (cw - self._form.width)  // 2)
-        self._oy = max(_MARGIN + _TITLE, (ch - self._form.height) // 2)
+        title_h = 0 if self._ci_sub_form else _TITLE
+        self._oy = max(_MARGIN + title_h, (ch - self._form.height) // 2)
         sr_w = self._ox + self._form.width  + _MARGIN
         sr_h = self._oy + self._form.height + _MARGIN
         self.configure(scrollregion=(0, 0, max(cw, sr_w), max(ch, sr_h)))
@@ -675,6 +841,8 @@ class DesignerCanvas(tk.Canvas):
         self.delete("all")
         if self._form is None:
             return
+        if self._ci_sub_form and self._ci_original_form:
+            self._draw_original_form_ghost()
         self._draw_form()
         for w in self._form.widgets:
             if self._should_render(w):
@@ -727,6 +895,21 @@ class DesignerCanvas(tk.Canvas):
             self.create_text(cx, cy, text=str(badge_num), fill="#ffffff",
                              font=(UI_FONT, 7, "bold"), tags="tab_badge")
         self.tag_raise("tab_badge")
+
+    def _draw_ci_order_badges(self, w: WidgetDescriptor) -> None:
+        """Draw z-order number badges over each CI item (amber, same style as tab badges)."""
+        wx, wy = self._abs_xy(w)
+        r = 9
+        for i, item in enumerate(w.canvas_items, 1):
+            ix = wx + item.x
+            iy = wy + item.y
+            cx, cy = ix + r + 2, iy + r + 2
+            self.create_oval(cx - r, cy - r, cx + r, cy + r,
+                             fill=_PRIMARY, outline="#ffffff", width=1,
+                             tags="ci_order_badge")
+            self.create_text(cx, cy, text=str(i), fill="#ffffff",
+                             font=(UI_FONT, 7, "bold"), tags="ci_order_badge")
+        self.tag_raise("ci_order_badge")
 
     def move_widget_to(self, widget_id: str, new_idx: int) -> None:
         """Move widget_id to new_idx in form order (tab + z order)."""
@@ -1019,6 +1202,37 @@ class DesignerCanvas(tk.Canvas):
 
     # ── Form background ───────────────────────────────────────────────────────
 
+    def _draw_original_form_ghost(self) -> None:
+        """Draw the original form greyed out behind the CI sub-form editor."""
+        orig = self._ci_original_form
+        if not orig:
+            return
+        before = set(self.find_all())
+        # Temporarily swap to original form at ghost origin
+        saved_form, saved_ox, saved_oy = self._form, self._ox, self._oy
+        self._form = orig
+        self._ox, self._oy = self._ci_orig_ox, self._ci_orig_oy
+        self._ci_drawing_ghost = True
+        self._draw_form()
+        for w in orig.widgets:
+            if self._should_render(w):
+                self._render_widget(w)
+        self._ci_drawing_ghost = False
+        self._form, self._ox, self._oy = saved_form, saved_ox, saved_oy
+        # Retag all ghost items so click handling can detect them
+        for iid in (set(self.find_all()) - before):
+            self.addtag_withtag("ci_ghost", iid)
+            for t in list(self.gettags(iid)):
+                if t.startswith("widget:") or t in ("widget", "handle", "fhandle"):
+                    self.dtag(iid, t)
+        # Semi-transparent grey overlay covering the whole form (title bar + body)
+        ox = self._ci_orig_ox
+        ty = self._ci_orig_oy - _TITLE
+        x2 = ox + orig.width
+        y2 = self._ci_orig_oy + orig.height
+        self.create_rectangle(ox, ty, x2, y2,
+                              fill="grey", stipple="gray50", outline="", tags="ci_ghost")
+
     def _draw_form(self) -> None:
         f   = self._form
         ox  = self._ox
@@ -1027,10 +1241,33 @@ class DesignerCanvas(tk.Canvas):
         y2  = oy + f.height
         ty  = oy - _TITLE   # title bar top
 
-        # Drop shadow
-        self.create_rectangle(ox + _SHADOW, oy + _SHADOW,
-                               x2 + _SHADOW, y2 + _SHADOW,
-                               fill="#000000", outline="", tags="shadow")
+        if self._ci_sub_form and not self._ci_drawing_ghost:
+            # Sub-form: canvas background, optional bg image, then grid — no title bar
+            bg = f.bg or "#2a2a2a"
+            self.create_rectangle(ox, oy, x2, y2, fill=bg, outline=_CI_BORDER, width=2, tags="form_bg")
+            # Draw the canvas widget's background image if one is set
+            ci_w = self.get_ci_widget()
+            if ci_w:
+                img_path = ci_w.props.get("image", "")
+                if img_path:
+                    photo = _load_preview_image(self, img_path, f.width, f.height)
+                    if photo:
+                        self.create_image(ox, oy, anchor="nw", image=photo, tags="form_bg")
+                    else:
+                        self.create_text(ox + 4, oy + 4, text="[bg image]", anchor="nw",
+                                         fill="#ce9178", font=(UI_FONT, 7), tags="form_bg")
+            if _grid_visible:
+                for gx in range(0, f.width + 1, GRID):
+                    for gy in range(0, f.height + 1, GRID):
+                        px, py = ox + gx, oy + gy
+                        self.create_rectangle(px, py, px + 1, py + 1, fill=_DOT, outline="", tags="grid")
+            return
+
+        # Drop shadow (suppressed during CI ghost pass)
+        if not self._ci_drawing_ghost:
+            self.create_rectangle(ox + _SHADOW, oy + _SHADOW,
+                                   x2 + _SHADOW, y2 + _SHADOW,
+                                   fill="#000000", outline="", tags="shadow")
 
         # Title bar
         self.create_rectangle(ox, ty, x2, oy,
@@ -1207,8 +1444,10 @@ class DesignerCanvas(tk.Canvas):
             _DRAW.get(w.type, _draw_generic)(self, x, y, x2, y2, text, props, tag)
 
         # Ghost previews of Image component canvas buttons targeting this widget
-        if w.type == "Canvas" and self._form:
+        if w.type == "Canvas" and self._form and not self._ci_drawing_ghost:
             self._draw_canvas_btn_ghosts(w, x, y, tag)
+            if w.canvas_items:
+                self._draw_ci_items_preview(w, x, y, tag)
 
         # Bind click → select on every newly created item
         for item in self.find_withtag(tag):
@@ -1227,6 +1466,47 @@ class DesignerCanvas(tk.Canvas):
                               lambda e, wid=w.id: self._widget_enter(e, wid))
                 self.tag_bind(item, "<Leave>",
                               lambda e, wid=w.id: self._widget_leave(e, wid))
+
+    def _draw_ci_items_preview(self, w: "WidgetDescriptor", wx: int, wy: int, tag: str) -> None:
+        """Draw canvas items on a Canvas widget in normal (non-CI-edit) designer view."""
+        for item in w.canvas_items:
+            ix  = wx + item.x
+            iy  = wy + item.y
+            ix2 = ix + item.width
+            iy2 = iy + item.height
+            ptag = (tag, f"ci_preview:{item.id}")
+            if item.kind == "image":
+                img_path = item.props.get("image_path", "")
+                if img_path and item.width > 0 and item.height > 0:
+                    photo = _load_preview_image(self, img_path, item.width, item.height)
+                    if photo:
+                        self.create_image(ix, iy, anchor="nw", image=photo, tags=ptag)
+                        continue
+                self.create_rectangle(ix, iy, ix2, iy2, fill="#2a3a4a",
+                                      outline="#444444", tags=ptag)
+                self.create_text((ix + ix2) // 2, (iy + iy2) // 2,
+                                 text="[img]", fill="#ce9178",
+                                 font=(UI_FONT, 7), tags=ptag)
+            elif item.kind == "rectangle":
+                self.create_rectangle(ix, iy, ix2, iy2,
+                                      fill=item.props.get("fill", "#4a4a4a"),
+                                      outline=item.props.get("outline", "#888888"),
+                                      tags=ptag)
+            elif item.kind == "oval":
+                self.create_oval(ix, iy, ix2, iy2,
+                                 fill=item.props.get("fill", "#4a4a4a"),
+                                 outline=item.props.get("outline", "#888888"),
+                                 tags=ptag)
+            elif item.kind == "text":
+                fnt = item.props.get("font", "")
+                self.create_text(ix, iy, anchor="nw",
+                                 text=item.props.get("text", "Text"),
+                                 fill=item.props.get("fill", "#ffffff"),
+                                 font=fnt if fnt else (UI_FONT, 9), tags=ptag)
+            elif item.kind == "line":
+                self.create_line(ix, iy, ix + item.width, iy + item.height,
+                                 fill=item.props.get("fill", "#888888"),
+                                 width=item.props.get("linewidth", 1), tags=ptag)
 
     def _draw_canvas_btn_ghosts(self, w: "WidgetDescriptor", wx: int, wy: int, tag: str) -> None:
         """Draw ghost images of canvas_button placements from Image components."""
@@ -1350,6 +1630,11 @@ class DesignerCanvas(tk.Canvas):
                     self._switch_nb_tab(nb_id, tab_name)
                     return
 
+        # Click on greyed-out ghost form → exit CI mode
+        if self._ci_sub_form and item is not None and "ci_ghost" in self.gettags(item):
+            self.exit_canvas_item_mode()
+            return
+
         # Placement mode: drop a new widget at the click position
         if self._active_tool and self._form:
             # If clicking a non-container widget, de-arm so the user can drag it
@@ -1380,6 +1665,9 @@ class DesignerCanvas(tk.Canvas):
                 return
 
         if item is None:
+            if self._ci_sub_form:
+                self.exit_canvas_item_mode()
+                return
             self.deselect()
             return
 
@@ -1490,6 +1778,16 @@ class DesignerCanvas(tk.Canvas):
         self.deselect()
 
     def _on_double_click_evt(self, event: tk.Event) -> None:
+        if self._ci_sub_form:
+            # In CI mode: double-click navigates to the CI item's handler
+            if self._on_double_click and self._primary_id:
+                self._on_double_click(self._primary_id)
+            return
+        if self._primary_id and self._form:
+            w = self._form.get_widget(self._primary_id)
+            if w and w.type == "Canvas":
+                self.enter_canvas_item_mode(self._primary_id)
+                return
         if self._on_double_click and self._primary_id:
             self._on_double_click(self._primary_id)
 
@@ -1779,6 +2077,8 @@ class DesignerCanvas(tk.Canvas):
             reg = REGISTRY.get(self._active_tool)
             if not reg:
                 return
+            _tool_sz = getattr(self, "_tool_size", None)  # capture + consume
+            self._tool_size = None
             shift_held = bool(event.state & 0x0001)
             _s = (lambda v: int(v)) if shift_held else _snap
             _min_sz = 1 if shift_held else GRID * 2
@@ -1818,8 +2118,8 @@ class DesignerCanvas(tk.Canvas):
                     fy = max(self._min_y, min(fy, self._form.height - fh))
                     parent_id = None
             else:
-                # Click: drop at default size centered on click point
-                fw, fh = reg["default_size"]
+                # Click: use tool size override or registry default
+                fw, fh = _tool_sz or reg["default_size"]
                 container = self._container_at(d["start_cx"], d["start_cy"])
                 if container:
                     ax, ay = self._abs_xy(container)
@@ -1843,10 +2143,15 @@ class DesignerCanvas(tk.Canvas):
                     fy = max(self._min_y, min(fy, self._form.height - fh))
                     parent_id = None
             wid = self._form.next_id(self._active_tool)
+            extra = self._tool_extra_props
+            self._tool_extra_props = {}  # consume
+            merged_props = dict(reg["default_props"])
+            if extra:
+                merged_props.update(extra)
             desc = WidgetDescriptor(
                 id=wid, type=self._active_tool,
                 x=fx, y=fy, width=fw, height=fh,
-                props=dict(reg["default_props"]),
+                props=merged_props,
                 parent_id=parent_id,
                 tab=tab_name,
             )
@@ -1883,8 +2188,17 @@ class DesignerCanvas(tk.Canvas):
                 self.tag_raise("handle")
                 self._notify_selection()
             else:
-                # Bare click on empty space → select form
-                self.select_form()
+                # Bare click on empty space
+                if self._ci_sub_form:
+                    # In CI mode: deselect items, show canvas widget props (not sub-form props)
+                    self._selected_ids.clear()
+                    self._primary_id = None
+                    self.delete("handle")
+                    self.delete("fhandle")
+                    if self._on_deselect:
+                        self._on_deselect()
+                else:
+                    self.select_form()
             return
 
         if d["mode"] == "form_resize":
@@ -2124,7 +2438,9 @@ class DesignerCanvas(tk.Canvas):
     def _on_right_click(self, event: tk.Event) -> None:
         import tkinter as _tk
         _rcx, _rcy = self.canvasx(event.x), self.canvasy(event.y)
-        # If widget under cursor isn't in selection, select just it
+        menu = _tk.Menu(self, tearoff=0)
+
+        # ── Normal / sub-form designer context menu ───────────────────────────
         item = self._topmost_at(_rcx, _rcy)
         if item:
             tags = self.gettags(item)
@@ -2134,9 +2450,16 @@ class DesignerCanvas(tk.Canvas):
                 if wid not in self._selected_ids:
                     self.select(wid)
 
-        menu = _tk.Menu(self, tearoff=0)
-        has_sel = bool(self._selected_ids)
+        has_sel  = bool(self._selected_ids)
         has_clip = self._clipboard is not None
+
+        # "Edit Canvas Items" at top when a single Canvas widget is selected
+        if self._primary_id and self._form and not self._selected_ids - {self._primary_id}:
+            pw = self._form.get_widget(self._primary_id)
+            if pw and pw.type == "Canvas":
+                menu.add_command(label="Edit Canvas Items",
+                                 command=lambda: self.enter_canvas_item_mode(self._primary_id))
+                menu.add_separator()
 
         menu.add_command(
             label="Undo",
@@ -2686,6 +3009,48 @@ def _draw_canvas_widget(c, x, y, x2, y2, text, props):
         _text(c, x, y, x2, y2, "Canvas", color="#666666")
 
 
+def _draw_CanvasRect(c, x, y, x2, y2, text, props, tag):
+    fill    = props.get("fill", "#4a4a4a")
+    outline = props.get("outline", "#888888")
+    c.create_rectangle(x, y, x2, y2, fill=fill, outline=outline, tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasOval(c, x, y, x2, y2, text, props, tag):
+    fill    = props.get("fill", "#4a4a4a")
+    outline = props.get("outline", "#888888")
+    c.create_oval(x, y, x2, y2, fill=fill, outline=outline, tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasText(c, x, y, x2, y2, text, props, tag):
+    t    = props.get("text", "Text")
+    fill = props.get("fill", "#ffffff")
+    fnt  = props.get("font", "")
+    c.create_text(x, y, anchor="nw", text=t, fill=fill,
+                  font=fnt if fnt else (UI_FONT, 9), tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasLine(c, x, y, x2, y2, text, props, tag):
+    fill = props.get("fill", "#888888")
+    lw   = int(props.get("linewidth", 1))
+    c.create_line(x, y, x2, y2, fill=fill, width=lw, tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasImage(c, x, y, x2, y2, text, props, tag):
+    img_path = props.get("image_path", "")
+    w = x2 - x
+    h = y2 - y
+    if img_path and w > 0 and h > 0:
+        photo = _load_preview_image(c, img_path, w, h)
+        if photo:
+            c.create_image(x, y, anchor="nw", image=photo, tags=tag)
+            c.addtag_withtag("widget", tag)
+            return
+    c.create_rectangle(x, y, x2, y2, fill="#2a3a4a", outline="#444444", tags=tag)
+    c.create_text((x + x2) // 2, (y + y2) // 2, text="[img]",
+                  fill="#ce9178", font=(UI_FONT, 7), tags=tag)
+    c.addtag_withtag("widget", tag)
+
+
 # ── Registry map ──────────────────────────────────────────────────────────────
 
 _DRAW: dict = {
@@ -2704,6 +3069,11 @@ _DRAW: dict = {
     "Progressbar": _draw_progressbar,
     "Separator":   _draw_separator,
     "Canvas":      _draw_canvas_widget,
+    "CanvasRect":  _draw_CanvasRect,
+    "CanvasOval":  _draw_CanvasOval,
+    "CanvasText":  _draw_CanvasText,
+    "CanvasLine":  _draw_CanvasLine,
+    "CanvasImage": _draw_CanvasImage,
 }
 
 

@@ -5,6 +5,40 @@ from typing import Any
 
 
 @dataclass
+class CanvasItemDescriptor:
+    """One item placed inside a tk.Canvas widget (create_image / create_rectangle / etc.)."""
+    id: str            # e.g. "ci_img1", "ci_rect1" — scoped per canvas widget
+    kind: str          # "image" | "rectangle" | "oval" | "text" | "line"
+    x: int = 0
+    y: int = 0
+    width: int = 64    # bounding box width (line: x-endpoint offset from origin)
+    height: int = 64   # bounding box height (line: y-endpoint offset from origin)
+    tags: list[str] = field(default_factory=list)
+    props: dict[str, Any] = field(default_factory=dict)          # fill, outline, image_path, text, font, …
+    bindings: dict[str, str] = field(default_factory=dict)       # tk event str → method name
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "kind": self.kind,
+            "x": self.x, "y": self.y, "width": self.width, "height": self.height,
+            "tags": list(self.tags),
+            "props": dict(self.props),
+            "bindings": dict(self.bindings),
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "CanvasItemDescriptor":
+        return CanvasItemDescriptor(
+            id=d.get("id", ""), kind=d.get("kind", "image"),
+            x=d.get("x", 0), y=d.get("y", 0),
+            width=d.get("width", 64), height=d.get("height", 64),
+            tags=list(d.get("tags", [])),
+            props=dict(d.get("props", {})),
+            bindings=dict(d.get("bindings", {})),
+        )
+
+
+@dataclass
 class VariableBinding:
     """A tkinter variable (StringVar/IntVar/DoubleVar/BooleanVar) bound to a widget."""
     name:     str   # attribute name on self, e.g. "result_var" → self.result_var
@@ -41,6 +75,21 @@ class WidgetDescriptor:
     anchor: str = ""
     # For children of a Notebook widget: the tab name this widget belongs to
     tab: str = ""
+    # Canvas items placed inside this widget (only used when type == "Canvas")
+    canvas_items: list[CanvasItemDescriptor] = field(default_factory=list)
+
+    def next_item_id(self, kind: str) -> str:
+        """Generate the next unique canvas item id, e.g. 'ci_img1'."""
+        _KIND_PREFIXES = {
+            "image": "ci_img", "rectangle": "ci_rect", "oval": "ci_oval",
+            "text": "ci_text", "line": "ci_line",
+        }
+        prefix = _KIND_PREFIXES.get(kind, f"ci_{kind}")
+        existing = {ci.id for ci in self.canvas_items}
+        n = 1
+        while f"{prefix}{n}" in existing:
+            n += 1
+        return f"{prefix}{n}"
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -61,6 +110,8 @@ class WidgetDescriptor:
             d["anchor"] = self.anchor
         if self.tab:
             d["tab"] = self.tab
+        if self.canvas_items:
+            d["canvas_items"] = [ci.to_dict() for ci in self.canvas_items]
         return d
 
     @staticmethod
@@ -79,6 +130,7 @@ class WidgetDescriptor:
             parent_id=d.get("parent_id", None),
             anchor=d.get("anchor", ""),
             tab=d.get("tab", ""),
+            canvas_items=[CanvasItemDescriptor.from_dict(ci) for ci in d.get("canvas_items", [])],
         )
 
 
@@ -341,6 +393,66 @@ def _load_enabled_handlers(d: dict) -> list[str]:
     # Old saved file — seed defaults based on form_type
     from designer.handlers import default_enabled_for
     return default_enabled_for(d.get("form_type", "main"))
+
+
+# ── Canvas item ↔ WidgetDescriptor conversion ─────────────────────────────────
+
+_CI_KIND_TO_TYPE = {
+    "rectangle": "CanvasRect",
+    "oval":      "CanvasOval",
+    "text":      "CanvasText",
+    "line":      "CanvasLine",
+    "image":     "CanvasImage",
+}
+_CI_TYPE_TO_KIND = {v: k for k, v in _CI_KIND_TO_TYPE.items()}
+
+# Logical event name → tk binding string for canvas items (subset of codegen._BINDINGS)
+_CI_EVENT_TO_TK: dict[str, str] = {
+    "click":      "<Button-1>",
+    "dblclick":   "<Double-Button-1>",
+    "rightclick": "<Button-3>",
+    "mousedown":  "<ButtonPress>",
+    "mouseup":    "<ButtonRelease>",
+    "mousemove":  "<Motion>",
+    "mouseenter": "<Enter>",
+    "mouseleave": "<Leave>",
+}
+_CI_TK_TO_EVENT: dict[str, str] = {v: k for k, v in _CI_EVENT_TO_TK.items()}
+
+
+def ci_to_widget(ci: "CanvasItemDescriptor") -> "WidgetDescriptor":
+    """Convert a CanvasItemDescriptor to a WidgetDescriptor for sub-form editing."""
+    props = dict(ci.props)
+    props["_ci_tags"] = list(ci.tags)
+    events = {_CI_TK_TO_EVENT[tk]: method
+              for tk, method in ci.bindings.items()
+              if tk in _CI_TK_TO_EVENT and method}
+    return WidgetDescriptor(
+        id=ci.id,
+        type=_CI_KIND_TO_TYPE[ci.kind],
+        x=ci.x, y=ci.y,
+        width=ci.width, height=ci.height,
+        props=props,
+        events=events,
+    )
+
+
+def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
+    """Convert a WidgetDescriptor (from sub-form) back to a CanvasItemDescriptor."""
+    props = dict(w.props)
+    tags = props.pop("_ci_tags", [])
+    bindings = {_CI_EVENT_TO_TK[ev]: method
+                for ev, method in w.events.items()
+                if ev in _CI_EVENT_TO_TK and method}
+    return CanvasItemDescriptor(
+        id=w.id,
+        kind=_CI_TYPE_TO_KIND[w.type],
+        x=w.x, y=w.y,
+        width=w.width, height=w.height,
+        tags=list(tags),
+        props=props,
+        bindings=bindings,
+    )
 
 
 # Short id prefixes per widget type

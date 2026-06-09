@@ -317,6 +317,11 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
     if cb_build:
         out.extend(cb_build)
 
+    # Canvas item designer items (create_* + tag_bind calls)
+    ci_build = _canvas_items_build_lines(form)
+    if ci_build:
+        out.extend(ci_build)
+
     # ── anchor resize handler (IDOL-generated, always overwritten) ───────────
     if _anchored:
         # Container widgets with size-changing anchors that have anchored children
@@ -456,13 +461,16 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
     # ── component handler methods ─────────────────────────────────────────────
     comp_handler_lines = _component_handler_lines(form, bodies)
     cb_methods = _canvas_button_handler_methods(form, bodies)
-    if comp_handler_lines or cb_methods:
+    ci_methods = _canvas_items_handler_methods(form, bodies)
+    if comp_handler_lines or cb_methods or ci_methods:
         out.append("    # ── Component Handlers " + "─" * 50)
         out.append("")
         if comp_handler_lines:
             out.extend(comp_handler_lines)
         if cb_methods:
             out.extend(cb_methods)
+        if ci_methods:
+            out.extend(ci_methods)
 
     # ── helper methods ────────────────────────────────────────────────────────
     out.append("    # ── Functions " + "─" * 59)
@@ -519,6 +527,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     reg = REGISTRY.get(w.type)
     if not reg:
         return [f"        # Unknown widget type: {w.type}"]
+    if reg.get("is_canvas_item"):
+        return []  # canvas items live in canvas_items, not as standalone widgets
 
     tk_class = reg["tk_class"]
     scrollbar = w.props.get("scrollbar", "None")
@@ -1351,6 +1361,134 @@ def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[st
                 continue  # wrong socket mode — skip
             lines.extend(_comp_handler_method(comp, hdef, method, bodies, form))
             lines.append("")
+    return lines
+
+
+def _ci_image_ref(form: FormModel, img_path: str) -> str:
+    """Return the Python expression for a CI image item, via its Image component."""
+    import os as _os
+    if not img_path:
+        return "None"
+    comp_id = None
+    comp_paths: list = []
+    for comp in form.components:
+        if comp.type == "Image" and img_path in comp.props.get("paths", []):
+            comp_id = comp.id
+            comp_paths = comp.props.get("paths", [])
+            break
+    if comp_id is None:
+        return "None"
+    stem = _os.path.splitext(_os.path.basename(img_path))[0]
+    return _img_ref(comp_id, stem if len(comp_paths) > 1 else "")
+
+
+def _canvas_items_build_lines(form: FormModel) -> list[str]:
+    """Return indented _build_ui lines for canvas items created via the Canvas Item Designer."""
+    lines: list[str] = []
+    _BINDINGS_CI: dict[str, str] = {
+        "<Button-1>":        "<Button-1>",
+        "<ButtonRelease-1>": "<ButtonRelease-1>",
+        "<Enter>":           "<Enter>",
+        "<Leave>":           "<Leave>",
+        "<B1-Motion>":       "<B1-Motion>",
+    }
+    for w in form.widgets:
+        if w.type != "Canvas" or not w.canvas_items:
+            continue
+        canvas_name = w.id
+        lines.append(f"        # {canvas_name} items")
+        # Group tag_binds by (tag, event) to deduplicate across items sharing a tag
+        tag_event_handler: dict[tuple[str, str], str] = {}
+        for item in w.canvas_items:
+            ix, iy = item.x, item.y
+            anchor  = item.props.get("anchor", "nw")
+            if item.kind == "image":
+                img_path = item.props.get("image_path", "")
+                img_ref  = _ci_image_ref(form, img_path)
+                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
+                lines.append(
+                    f'        self.{canvas_name}.create_image({ix}, {iy}, image={img_ref},'
+                    f' anchor="{anchor}", tags={tags_str})'
+                )
+            elif item.kind == "rectangle":
+                fill    = item.props.get("fill", "")
+                outline = item.props.get("outline", "")
+                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
+                x2, y2 = ix + item.width, iy + item.height
+                fill_arg    = f', fill="{fill}"'    if fill    else ""
+                outline_arg = f', outline="{outline}"' if outline else ""
+                lines.append(
+                    f'        self.{canvas_name}.create_rectangle({ix}, {iy}, {x2}, {y2}'
+                    f'{fill_arg}{outline_arg}, tags={tags_str})'
+                )
+            elif item.kind == "oval":
+                fill    = item.props.get("fill", "")
+                outline = item.props.get("outline", "")
+                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
+                x2, y2 = ix + item.width, iy + item.height
+                fill_arg    = f', fill="{fill}"'    if fill    else ""
+                outline_arg = f', outline="{outline}"' if outline else ""
+                lines.append(
+                    f'        self.{canvas_name}.create_oval({ix}, {iy}, {x2}, {y2}'
+                    f'{fill_arg}{outline_arg}, tags={tags_str})'
+                )
+            elif item.kind == "text":
+                text    = item.props.get("text", "")
+                fill    = item.props.get("fill", "")
+                font    = item.props.get("font", "")
+                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
+                fill_arg = f', fill="{fill}"' if fill else ""
+                font_arg = f', font={repr(font)}' if font else ""
+                lines.append(
+                    f'        self.{canvas_name}.create_text({ix}, {iy}, anchor="nw",'
+                    f' text={repr(text)}{fill_arg}{font_arg}, tags={tags_str})'
+                )
+            elif item.kind == "line":
+                fill = item.props.get("fill", "")
+                lw   = item.props.get("linewidth", 1)
+                x2pt, y2pt = ix + item.width, iy + item.height
+                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
+                fill_arg = f', fill="{fill}"' if fill else ""
+                lw_arg   = f', width={lw}' if lw and lw != 1 else ""
+                lines.append(
+                    f'        self.{canvas_name}.create_line({ix}, {iy}, {x2pt}, {y2pt}'
+                    f'{fill_arg}{lw_arg}, tags={tags_str})'
+                )
+            # Collect bindings by tag (deduplicate)
+            for ev_key, method in item.bindings.items():
+                if not method:
+                    continue
+                for tag in item.tags:
+                    key = (tag, ev_key)
+                    if key not in tag_event_handler:
+                        tag_event_handler[key] = method
+
+        # Emit deduplicated tag_binds
+        for (tag, ev_key), method in tag_event_handler.items():
+            lines.append(
+                f'        self.{canvas_name}.tag_bind("{tag}", "{ev_key}", self.{method})'
+            )
+        lines.append("")
+    return lines
+
+
+def _canvas_items_handler_methods(form: FormModel, bodies: dict[str, str]) -> list[str]:
+    """Return user-stub handler methods for canvas item bindings."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for w in form.widgets:
+        if w.type != "Canvas":
+            continue
+        for item in w.canvas_items:
+            for method in item.bindings.values():
+                if not method or method in seen:
+                    continue
+                seen.add(method)
+                body = bodies.get(method, "pass  # TODO")
+                lines.append(f"    def {method}(self, event):")
+                for bline in body.splitlines():
+                    lines.append(f"        {bline}")
+                lines.append("")
     return lines
 
 

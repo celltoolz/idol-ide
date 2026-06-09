@@ -5,7 +5,7 @@ from tkinter import ttk
 from typing import Callable, Optional
 
 from designer.component_registry import COMPONENT_REGISTRY, all_component_types
-from designer.registry import REGISTRY, all_types
+from designer.registry import REGISTRY, all_types, canvas_item_types
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar
 
@@ -48,31 +48,43 @@ class DesignerPalette(tk.Frame):
         self._items:    dict[str | None, tk.Frame] = {}
         self._drag_pending: dict | None = None
         self._ghost: tk.Toplevel | None = None
+        # CI mode state — kept for images section
+        self._on_open_images: Optional[Callable[[], list]] = None
+        self._on_ci_image_arm: Optional[Callable] = None
+        self._on_ci_image_place: Optional[Callable] = None
+        self._on_ci_image_delete: Optional[Callable] = None
+        self._ci_image_paths: list[str] = []
+        self._ci_img_armed_path: str | None = None
+        self._ci_img_refs: list = []         # keep PhotoImage refs alive
+        self._project_dir: str = ""
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        # ── Normal palette ────────────────────────────────────────────────────
         # Header
-        tk.Label(self, text="WIDGETS", bg=_BG, fg=_DIM,
-                 font=(UI_FONT, 8, "bold"), anchor="w",
-                 padx=8).pack(fill="x", pady=(8, 2))
-        ttk.Separator(self, orient="horizontal").pack(fill="x")
+        self._widgets_header = tk.Label(self, text="WIDGETS", bg=_BG, fg=_DIM,
+                                        font=(UI_FONT, 8, "bold"), anchor="w", padx=8)
+        self._widgets_header.pack(fill="x", pady=(8, 2))
+        self._widgets_sep = ttk.Separator(self, orient="horizontal")
+        self._widgets_sep.pack(fill="x")
 
         # Scrollable list
-        canvas = tk.Canvas(self, bg=_BG, highlightthickness=0, bd=0)
-        sb = VerticalScrollbar(self, command=canvas.yview)
-        canvas.configure(yscrollcommand=sb.set)
-        sb.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
+        self._scroll_canvas = tk.Canvas(self, bg=_BG, highlightthickness=0, bd=0)
+        self._scroll_sb = VerticalScrollbar(self, command=self._scroll_canvas.yview)
+        self._scroll_canvas.configure(yscrollcommand=self._scroll_sb.set)
+        self._scroll_sb.pack(side="right", fill="y")
+        self._scroll_canvas.pack(side="left", fill="both", expand=True)
 
-        self._list = tk.Frame(canvas, bg=_BG)
-        canvas.create_window((0, 0), window=self._list, anchor="nw")
+        self._list = tk.Frame(self._scroll_canvas, bg=_BG)
+        self._scroll_canvas.create_window((0, 0), window=self._list, anchor="nw")
         self._list.bind("<Configure>",
-                        lambda e: canvas.configure(
-                            scrollregion=canvas.bbox("all")))
-        canvas.bind("<MouseWheel>",
-                    lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+                        lambda e: self._scroll_canvas.configure(
+                            scrollregion=self._scroll_canvas.bbox("all")))
+        self._scroll_canvas.bind(
+            "<MouseWheel>",
+            lambda e: self._scroll_canvas.yview_scroll(-1 * (e.delta // 120), "units"))
 
         # Pointer (select) tool
         self._add_item(None, "Pointer", self._draw_pointer)
@@ -96,6 +108,46 @@ class DesignerPalette(tk.Frame):
 
         # Select pointer by default
         self._apply_selection(None)
+
+        # ── CI mode frame (hidden until enter_ci_mode()) ──────────────────────
+        self._ci_frame = tk.Frame(self, bg=_BG)
+
+        # Images section (scrollable, fills remaining space)
+        ttk.Separator(self._ci_frame, orient="horizontal").pack(fill="x", pady=(6, 0))
+        _img_hdr = tk.Frame(self._ci_frame, bg=_BG)
+        _img_hdr.pack(fill="x", pady=(2, 2))
+        tk.Label(_img_hdr, text="IMAGES", bg=_BG, fg=_DIM,
+                 font=(UI_FONT, 8, "bold"), anchor="w", padx=8).pack(side="left")
+        # Buttons packed right-to-left → visual order left-to-right: + − ×
+        _clear_lbl = tk.Label(_img_hdr, text="×", bg=_BG, fg="#888888",
+                              font=(UI_FONT, 10), cursor="hand2", padx=4)
+        _clear_lbl.pack(side="right", padx=(0, 4))
+        _clear_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_clear_images())
+        _remove_lbl = tk.Label(_img_hdr, text="−", bg=_BG, fg="#888888",
+                               font=(UI_FONT, 11, "bold"), cursor="hand2", padx=4)
+        _remove_lbl.pack(side="right")
+        _remove_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_remove_image())
+        _open_lbl = tk.Label(_img_hdr, text="+", bg=_BG, fg="#569cd6",
+                             font=(UI_FONT, 11, "bold"), cursor="hand2", padx=4)
+        _open_lbl.pack(side="right")
+        _open_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_open_images())
+
+        _img_area = tk.Frame(self._ci_frame, bg=_BG)
+        _img_area.pack(fill="both", expand=True)
+        self._ci_img_sb = VerticalScrollbar(_img_area)
+        self._ci_img_sb.pack(side="right", fill="y")
+        self._ci_img_cv = tk.Canvas(_img_area, bg=_BG, highlightthickness=0)
+        self._ci_img_cv.configure(yscrollcommand=self._ci_img_sb.set)
+        self._ci_img_sb.configure(command=self._ci_img_cv.yview)
+        self._ci_img_cv.pack(side="left", fill="both", expand=True)
+        self._ci_images_list = tk.Frame(self._ci_img_cv, bg=_BG)
+        self._ci_img_cv.create_window((0, 0), window=self._ci_images_list, anchor="nw")
+        self._ci_images_list.bind(
+            "<Configure>",
+            lambda e: self._ci_img_cv.configure(scrollregion=self._ci_img_cv.bbox("all")))
+        self._ci_img_cv.bind(
+            "<MouseWheel>",
+            lambda e: self._ci_img_cv.yview_scroll(-1 * (e.delta // 120), "units"))
 
     def _add_item(self, type_key: str | None, label: str, draw_fn) -> None:
         row = tk.Frame(self._list, bg=_ITEM, cursor="hand2")
@@ -161,6 +213,229 @@ class DesignerPalette(tk.Frame):
 
     def reset_to_pointer(self) -> None:
         self._apply_selection(None)
+
+    def enter_ci_mode(
+        self,
+        on_open_images: Optional[Callable[[], list]] = None,
+        initial_images: Optional[list] = None,
+        on_ci_image_arm: Optional[Callable] = None,
+        on_ci_image_place: Optional[Callable] = None,
+        on_ci_image_delete: Optional[Callable] = None,
+    ) -> None:
+        """Swap palette to Canvas Item types."""
+        self._on_open_images     = on_open_images
+        self._on_ci_image_arm    = on_ci_image_arm
+        self._on_ci_image_place  = on_ci_image_place
+        self._on_ci_image_delete = on_ci_image_delete
+        self._ci_image_paths    = list(initial_images or [])
+        self._ci_img_armed_path = None
+        # Rebuild the widget list with canvas item types
+        for w in self._list.winfo_children():
+            w.destroy()
+        self._items.clear()
+        self._add_item(None, "Pointer", self._draw_pointer)
+        ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
+        from designer.registry import canvas_item_types, REGISTRY
+        for type_key in canvas_item_types():
+            reg = REGISTRY[type_key]
+            self._add_item(type_key, reg["label"], reg["draw_preview"])
+        self._apply_selection(None)
+        # Repack scroll area so CI frame can claim bottom space first
+        self._scroll_sb.pack_forget()
+        self._scroll_canvas.pack_forget()
+        self._ci_frame.pack(side="bottom", fill="x")
+        self._scroll_sb.pack(side="right", fill="y")
+        self._scroll_canvas.pack(side="left", fill="both", expand=True)
+        self._rebuild_ci_images()
+
+    def exit_ci_mode(self) -> None:
+        """Restore normal widget palette."""
+        self._hide_ghost()
+        self._ci_frame.pack_forget()
+        self._on_open_images     = None
+        self._on_ci_image_arm    = None
+        self._on_ci_image_place  = None
+        self._on_ci_image_delete = None
+        self._ci_img_armed_path  = None
+        self._ci_image_paths    = []
+        self._ci_img_refs.clear()
+        # Rebuild widget list with normal types
+        for w in self._list.winfo_children():
+            w.destroy()
+        self._items.clear()
+        self._add_item(None, "Pointer", self._draw_pointer)
+        ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
+        from designer.registry import all_types, REGISTRY
+        for type_key in all_types():
+            reg = REGISTRY[type_key]
+            self._add_item(type_key, reg["label"], reg["draw_preview"])
+        ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
+        tk.Label(self._list, text="COMPONENTS", bg=_BG, fg=_DIM,
+                 font=(UI_FONT, 8, "bold"), anchor="w", padx=8).pack(fill="x", pady=(0, 2))
+        from designer.component_registry import COMPONENT_REGISTRY, all_component_types
+        for type_key in all_component_types():
+            cdef = COMPONENT_REGISTRY[type_key]
+            self._add_component_item(type_key, cdef.label, cdef.icon)
+        self._apply_selection(None)
+
+    def set_project_dir(self, path: str) -> None:
+        self._project_dir = path
+
+    def refresh_ci_images(self, paths: list) -> None:
+        """Merge new image paths into the list and rebuild the images section."""
+        for p in paths:
+            if p not in self._ci_image_paths:
+                self._ci_image_paths.append(p)
+        self._rebuild_ci_images()
+
+    def _rebuild_ci_images(self) -> None:
+        for w in self._ci_images_list.winfo_children():
+            w.destroy()
+        self._ci_img_refs.clear()
+        if not self._ci_image_paths:
+            tk.Label(self._ci_images_list, text="Click + to add images",
+                     bg=_BG, fg=_DIM, font=(UI_FONT, 8),
+                     anchor="w", padx=12).pack(fill="x", pady=6)
+            return
+        for path in self._ci_image_paths:
+            self._add_ci_image_row(path)
+
+    def _add_ci_image_row(self, path: str) -> None:
+        import os
+        fname = os.path.basename(path)
+        is_armed = (path == self._ci_img_armed_path)
+        bg = _ACT if is_armed else _ITEM
+        row = tk.Frame(self._ci_images_list, bg=bg, cursor="hand2")
+        row.pack(fill="x", padx=4, pady=1)
+        accent = tk.Frame(row, bg=_BORDER if is_armed else bg, width=3)
+        accent.pack(side="left", fill="y")
+        thumb = self._load_ci_thumb(path)
+        th_cv = tk.Canvas(row, width=48, height=36, bg="#2d2d30",
+                          highlightthickness=1, highlightbackground="#555555")
+        th_cv.pack(side="left", padx=(4, 4), pady=3)
+        if thumb:
+            self._ci_img_refs.append(thumb)
+            th_cv.create_image(24, 18, image=thumb, anchor="center")
+        else:
+            th_cv.create_text(24, 18, text="?", fill=_DIM,
+                              font=(UI_FONT, 9), anchor="center")
+        # Up / down reorder buttons (right side)
+        btn_frame = tk.Frame(row, bg=bg)
+        btn_frame.pack(side="right", padx=(0, 2))
+        up_btn = tk.Label(btn_frame, text="▲", bg=bg, fg=_DIM,
+                          font=(UI_FONT, 7), cursor="hand2", padx=3)
+        up_btn.pack(side="top")
+        up_btn.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_move_image(p, -1))
+        dn_btn = tk.Label(btn_frame, text="▼", bg=bg, fg=_DIM,
+                          font=(UI_FONT, 7), cursor="hand2", padx=3)
+        dn_btn.pack(side="top")
+        dn_btn.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_move_image(p, 1))
+        lbl = tk.Label(row, text=fname, bg=bg, fg=_FG,
+                       font=(UI_FONT, 8), anchor="w",
+                       wraplength=70, justify="left")
+        lbl.pack(side="left", fill="x", expand=True, padx=(0, 2))
+        for widget in (row, accent, th_cv, lbl):
+            widget.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_arm_image(p))
+            widget.bind("<Double-Button-1>", lambda e, p=path: self._ci_place_image(p))
+            widget.bind("<Button-3>",        lambda e, p=path: self._ci_right_click_image(p, e))
+            widget.bind("<Enter>",  lambda e, r=row, a=accent, l=lbl, b=btn_frame,
+                                            ub=up_btn, db=dn_btn, p=path:
+                        self._ci_img_hover(r, a, l, b, ub, db, p, True))
+            widget.bind("<Leave>",  lambda e, r=row, a=accent, l=lbl, b=btn_frame,
+                                            ub=up_btn, db=dn_btn, p=path:
+                        self._ci_img_hover(r, a, l, b, ub, db, p, False))
+
+    def _load_ci_thumb(self, path: str):
+        import os
+        full = path if os.path.isabs(path) else os.path.join(
+            self._project_dir, path.replace("/", os.sep))
+        try:
+            from PIL import Image, ImageTk
+            with Image.open(full) as img:
+                img.thumbnail((48, 36), Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+        except Exception:
+            return None
+
+    def _ci_arm_image(self, path: str) -> None:
+        self._ci_img_armed_path = path
+        self._rebuild_ci_images()
+        # Arm the CanvasImage tool
+        self._apply_selection("CanvasImage")
+        if self._on_tool_select:
+            self._on_tool_select("CanvasImage")
+        if self._on_ci_image_arm:
+            self._on_ci_image_arm(path)
+
+    def _ci_img_hover(self, row, accent, lbl, btn_frame, up_btn, dn_btn, path, entering) -> None:
+        if path == self._ci_img_armed_path:
+            return
+        bg = "#3e3e42" if entering else _ITEM
+        row.config(bg=bg)
+        accent.config(bg=bg)
+        lbl.config(bg=bg)
+        btn_frame.config(bg=bg)
+        up_btn.config(bg=bg)
+        dn_btn.config(bg=bg)
+
+    def _ci_place_image(self, path: str) -> None:
+        """Double-click: arm then auto-place image on canvas."""
+        self._ci_arm_image(path)
+        if self._on_ci_image_place:
+            self._on_ci_image_place(path)
+
+    def _ci_right_click_image(self, path: str, event: tk.Event) -> None:
+        menu = tk.Menu(self, tearoff=0, bg="#252526", fg="#cccccc",
+                       activebackground="#094771", activeforeground="#ffffff",
+                       borderwidth=1, relief="solid", font=(UI_FONT, 9))
+        menu.add_command(label="Delete", command=lambda: self._ci_delete_image(path))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _ci_delete_image(self, path: str) -> None:
+        """Full delete: remove from palette list + notify app to remove from canvas+component."""
+        was_armed = (path == self._ci_img_armed_path)
+        if path in self._ci_image_paths:
+            self._ci_image_paths.remove(path)
+        if was_armed:
+            self._ci_img_armed_path = None
+            self._apply_selection(None)
+            if self._on_tool_select:
+                self._on_tool_select(None)
+        if self._on_ci_image_delete:
+            self._on_ci_image_delete(path)
+        self._rebuild_ci_images()
+
+    def _ci_move_image(self, path: str, direction: int) -> None:
+        """Move path up (direction=-1) or down (direction=1) in the list."""
+        if path not in self._ci_image_paths:
+            return
+        idx = self._ci_image_paths.index(path)
+        new_idx = idx + direction
+        if 0 <= new_idx < len(self._ci_image_paths):
+            self._ci_image_paths.pop(idx)
+            self._ci_image_paths.insert(new_idx, path)
+            self._rebuild_ci_images()
+
+    def _ci_open_images(self) -> None:
+        if self._on_open_images:
+            new_paths = self._on_open_images()
+            for p in new_paths:
+                if p not in self._ci_image_paths:
+                    self._ci_image_paths.append(p)
+            self._rebuild_ci_images()
+
+    def _ci_remove_image(self) -> None:
+        """Full delete of the currently armed image."""
+        if self._ci_img_armed_path:
+            self._ci_delete_image(self._ci_img_armed_path)
+
+    def _ci_clear_images(self) -> None:
+        """Remove all images from the palette list."""
+        for path in list(self._ci_image_paths):
+            self._ci_delete_image(path)
 
     # ── Interaction ───────────────────────────────────────────────────────────
 
@@ -286,3 +561,36 @@ class DesignerPalette(tk.Frame):
         pts = [cx, cy-8, cx+5, cy+2, cx+2, cy+1, cx+3, cy+6,
                cx+1, cy+6, cx, cy+2, cx-3, cy+4]
         c.create_polygon(pts, fill="#cccccc", outline="#888888", width=1)
+
+    @staticmethod
+    def _draw_ci_rect(c: tk.Canvas, x: int, y: int, w: int, h: int) -> None:
+        m = 4
+        c.create_rectangle(x + m, y + m, x + w - m, y + h - m,
+                            outline="#4ec9b0", fill="", width=1.5)
+
+    @staticmethod
+    def _draw_ci_oval(c: tk.Canvas, x: int, y: int, w: int, h: int) -> None:
+        m = 4
+        c.create_oval(x + m, y + m, x + w - m, y + h - m,
+                      outline="#ce9178", fill="", width=1.5)
+
+    @staticmethod
+    def _draw_ci_image(c: tk.Canvas, x: int, y: int, w: int, h: int) -> None:
+        m = 4
+        c.create_rectangle(x + m, y + m, x + w - m, y + h - m,
+                            outline="#569cd6", fill="", width=1)
+        cx = x + w // 2
+        my = y + h - m - 2
+        c.create_polygon([cx - 5, my, cx, y + m + 3, cx + 5, my],
+                         outline="#569cd6", fill="", width=1)
+
+    @staticmethod
+    def _draw_ci_text(c: tk.Canvas, x: int, y: int, w: int, h: int) -> None:
+        c.create_text(x + w // 2, y + h // 2, text="T",
+                      fill="#d4d4d4", font=("Consolas", 11, "bold"), anchor="center")
+
+    @staticmethod
+    def _draw_ci_line(c: tk.Canvas, x: int, y: int, w: int, h: int) -> None:
+        m = 5
+        c.create_line(x + m, y + h - m, x + w - m, y + m,
+                      fill="#9cdcfe", width=2)

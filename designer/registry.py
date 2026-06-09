@@ -131,6 +131,35 @@ def _draw_canvas_palette(c, x, y, w, h):
                   font=("TkDefaultFont", 7))
 
 
+def _draw_ci_rect_preview(c, x, y, w, h):
+    m = 4
+    c.create_rectangle(x + m, y + m, x + w - m, y + h - m,
+                       outline="#4ec9b0", fill="", width=1.5)
+
+def _draw_ci_oval_preview(c, x, y, w, h):
+    m = 4
+    c.create_oval(x + m, y + m, x + w - m, y + h - m,
+                  outline="#ce9178", fill="", width=1.5)
+
+def _draw_ci_text_preview(c, x, y, w, h):
+    c.create_text(x + w // 2, y + h // 2, text="Text",
+                  fill="#cccccc", font=("TkDefaultFont", 7))
+
+def _draw_ci_line_preview(c, x, y, w, h):
+    m = 4
+    c.create_line(x + m, y + h // 2, x + w - m, y + h // 2,
+                  fill="#888888", width=1.5)
+
+def _draw_ci_image_preview(c, x, y, w, h):
+    m = 4
+    c.create_rectangle(x + m, y + m, x + w - m, y + h - m,
+                       outline="#569cd6", fill="", width=1)
+    cx2 = x + w // 2
+    my = y + h - m - 2
+    c.create_polygon([cx2 - 5, my, cx2, y + m + 3, cx2 + 5, my],
+                     outline="#569cd6", fill="", width=1)
+
+
 # ── Common prop choice lists ──────────────────────────────────────────────────
 
 _JUSTIFY    = ["left", "center", "right"]
@@ -152,6 +181,7 @@ _CHANGE_EVENTS  = ["change"]
 
 _WIDGET_EVENTS  = _MOUSE_EVENTS + _FOCUS_EVENTS + _KEY_EVENTS + _CHANGE_EVENTS
 _SIMPLE_EVENTS  = _MOUSE_EVENTS + _FOCUS_EVENTS
+_CI_EVENTS      = _MOUSE_EVENTS   # canvas items: mouse only (tag_bind, no focus/key)
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -410,6 +440,41 @@ REGISTRY: dict[str, dict] = {
         "color_props":  ["bg"],
         "prop_choices": {"sizing": ["sizable", "fit image"], "border": ["True", "False"]},
     },
+    "CanvasRect": {
+        "label": "Rectangle", "is_canvas_item": True,
+        "default_size": (64, 64),
+        "default_props": {"fill": "#4a4a4a", "outline": "#888888", "_ci_tags": []},
+        "color_props": ["fill", "outline"],
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_rect_preview,
+    },
+    "CanvasOval": {
+        "label": "Oval", "is_canvas_item": True,
+        "default_size": (64, 64),
+        "default_props": {"fill": "#4a4a4a", "outline": "#888888", "_ci_tags": []},
+        "color_props": ["fill", "outline"],
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_oval_preview,
+    },
+    "CanvasText": {
+        "label": "Text", "is_canvas_item": True,
+        "default_size": (64, 20),
+        "default_props": {"text": "Text", "fill": "#ffffff", "font": "", "_ci_tags": []},
+        "color_props": ["fill"],
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_text_preview,
+    },
+    "CanvasLine": {
+        "label": "Line", "is_canvas_item": True,
+        "default_size": (50, 0),
+        "default_props": {"fill": "#888888", "linewidth": 1, "_ci_tags": []},
+        "color_props": ["fill"],
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_line_preview,
+    },
+    "CanvasImage": {
+        "label": "Image", "is_canvas_item": True,
+        "default_size": (64, 64),
+        "default_props": {"image_path": "", "_ci_tags": []},
+        "image_path_prop": True,
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_image_preview,
+    },
 }
 
 
@@ -419,5 +484,9 @@ def get(type_key: str) -> dict:
 
 
 def all_types() -> list[str]:
-    """Return all widget type keys in palette display order."""
-    return list(REGISTRY.keys())
+    """Return widget type keys for the normal palette (excludes canvas item types)."""
+    return [k for k, v in REGISTRY.items() if not v.get("is_canvas_item")]
+
+def canvas_item_types() -> list[str]:
+    """Return canvas item type keys for the CI palette."""
+    return [k for k, v in REGISTRY.items() if v.get("is_canvas_item")]
