@@ -5096,8 +5096,9 @@ class IDOL(Tk):
 
         # Track which radio is selected (wiring mode)
         selected_tag: list[str] = [current_tags[0] if current_tags else ""]
-        # Track hover state
+        # Track hover state (row index) and × hover (row index, manage mode only)
         hover_iid: list = [None]
+        hover_rm:  list = [None]
 
         def _render_list():
             list_cv.delete("all")
@@ -5141,8 +5142,8 @@ class IDOL(Tk):
                     list_cv.create_text(10, y0 + _ROW_H // 2, text=tag,
                                         fill=_FG, font=("Segoe UI", 9),
                                         anchor="w", tags=f"row_{i}")
-                    # Delete × (right) — changes colour on hover
-                    rm_fill = _RM_HV if is_hover else _RM_FG
+                    # Delete × (right) — red only when mouse is over the × zone
+                    rm_fill = _RM_HV if (hover_rm[0] == i) else _RM_FG
                     list_cv.create_text(LIST_W - 12, y0 + _ROW_H // 2,
                                         text="×", fill=rm_fill,
                                         font=("Segoe UI", 11, "bold"),
@@ -5164,13 +5165,17 @@ class IDOL(Tk):
 
         def _on_motion(e):
             i = _row_at(e.y)
-            if hover_iid[0] != i:
+            x_doc = list_cv.canvasx(e.x)
+            rm = i if (not _wiring_mode and i is not None and x_doc >= LIST_W - 24) else None
+            if hover_iid[0] != i or hover_rm[0] != rm:
                 hover_iid[0] = i
+                hover_rm[0]  = rm
                 _render_list()
 
         def _on_leave(e):
-            if hover_iid[0] is not None:
+            if hover_iid[0] is not None or hover_rm[0] is not None:
                 hover_iid[0] = None
+                hover_rm[0]  = None
                 _render_list()
 
         def _on_click(e):
@@ -5187,6 +5192,7 @@ class IDOL(Tk):
                 if x_doc >= LIST_W - 24:
                     tag_list.remove(tag)
                     hover_iid[0] = None
+                    hover_rm[0]  = None
                     _render_list()
 
         list_cv.bind("<Motion>", _on_motion)
