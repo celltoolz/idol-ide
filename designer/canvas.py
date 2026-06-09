@@ -2037,10 +2037,15 @@ class DesignerCanvas(tk.Canvas):
                     fy = max(self._min_y, min(fy, self._form.height - fh))
                     parent_id = None
             wid = self._form.next_id(self._active_tool)
+            extra = self._tool_extra_props
+            self._tool_extra_props = {}  # consume
+            merged_props = dict(reg["default_props"])
+            if extra:
+                merged_props.update(extra)
             desc = WidgetDescriptor(
                 id=wid, type=self._active_tool,
                 x=fx, y=fy, width=fw, height=fh,
-                props=dict(reg["default_props"]),
+                props=merged_props,
                 parent_id=parent_id,
                 tab=tab_name,
             )

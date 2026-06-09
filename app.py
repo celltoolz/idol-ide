@@ -4919,9 +4919,17 @@ class IDOL(Tk):
                 initial_images=initial_images,
                 on_ci_image_arm=self._on_ci_image_arm,
             )
+            # Rebuild selector with sub-form CI items
+            sub_form = self._design_canvas.form
+            if sub_form:
+                self._props_panel.set_form(sub_form)
         else:
             self._designer_palette.exit_ci_mode()
             self._props_panel.clear()
+            # Rebuild selector with original form widgets
+            orig_form = self._design_canvas.form
+            if orig_form:
+                self._props_panel.set_form(orig_form)
         self._set_designer_dirty()
 
     def _on_designer_ci_select(self, item) -> None:
@@ -5153,6 +5161,16 @@ class IDOL(Tk):
             self._props_panel.set_form(form)
             sel = next(iter(self._design_canvas.selected_ids), None)
             self._props_panel.refresh_order(form, sel)
+            if self._design_canvas.ci_mode:
+                from designer.model import widget_to_ci, _CI_TYPE_TO_KIND
+                orig_form = self._design_canvas._ci_original_form
+                canvas_w  = self._design_canvas.get_ci_widget()
+                if orig_form and canvas_w:
+                    canvas_w.canvas_items = [
+                        widget_to_ci(wd) for wd in form.widgets
+                        if wd.type in _CI_TYPE_TO_KIND
+                    ]
+                    self._sync_ci_image_component(orig_form, canvas_w)
 
     def _sync_ci_image_component(self, form, canvas_widget) -> None:
         """Create or update the {canvas_id}_ci Image component for CI image items."""

@@ -365,14 +365,12 @@ class DesignerPalette(tk.Frame):
         if self._ci_img_armed_path in self._ci_image_paths:
             self._ci_image_paths.remove(self._ci_img_armed_path)
             self._ci_img_armed_path = None
-            self._ci_armed = "__none__"
             self._rebuild_ci_images()
 
     def _ci_clear_images(self) -> None:
         """Remove all images from the palette list."""
         self._ci_image_paths.clear()
         self._ci_img_armed_path = None
-        self._ci_armed = "__none__"
         self._rebuild_ci_images()
 
     # ── Interaction ───────────────────────────────────────────────────────────
