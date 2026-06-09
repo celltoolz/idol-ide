@@ -265,8 +265,8 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 key="parent",
                 label="parent",
                 kind="canvas_ref",
-                default="",
-                description="Canvas widget this image set belongs to. When set, these images appear in the canvas editor for that widget.",
+                default="None",
+                description="Canvas this image set belongs to. 'None' = reference only, 'Global' = all canvases, or pick a specific canvas widget.",
             ),
         ),
         handler_defs=(

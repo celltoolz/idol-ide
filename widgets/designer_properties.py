@@ -2920,7 +2920,7 @@ class DesignerProperties(tk.Frame):
             self._open_comp_image_picker(row)
         elif pd.kind == "canvas_ref":
             lookup_form = self._comp_form or self._form
-            canvas_ids = [""] + [
+            canvas_ids = ["None", "Global"] + [
                 w.id for w in (lookup_form.widgets if lookup_form else [])
                 if w.type == "Canvas"
             ]
@@ -2960,13 +2960,14 @@ class DesignerProperties(tk.Frame):
             value = raw.lower() == "true"
         else:
             value = raw
-        # canvas_ref: warn + clear images when the parent canvas changes
+        # canvas_ref: warn + clear images when moving from a specific canvas to a different one
         if pd.kind == "canvas_ref":
             lookup_form = self._comp_form or self._form
             comp_obj = lookup_form.get_component(self._comp_id) if lookup_form else None
             if comp_obj:
-                old_parent = comp_obj.props.get("parent", "")
-                if old_parent != value and old_parent and comp_obj.props.get("paths"):
+                old_parent = comp_obj.props.get("parent", "None")
+                is_specific = old_parent not in ("", "None", "Global")
+                if is_specific and old_parent != value and comp_obj.props.get("paths"):
                     import tkinter.messagebox as _mb
                     n = len(comp_obj.props["paths"])
                     ok = _mb.askyesno(

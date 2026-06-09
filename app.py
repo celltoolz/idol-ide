@@ -5080,15 +5080,27 @@ class IDOL(Tk):
         win.deiconify()
         win.grab_set()
 
+    def _ci_palette_images(self, canvas_widget_id: str) -> list:
+        """Collect image paths for the canvas editor palette: canvas-specific + Global comps."""
+        orig_form = self._design_canvas.ci_original_form or self._design_canvas.form
+        seen: set[str] = set()
+        paths: list[str] = []
+        if orig_form:
+            for comp in orig_form.components:
+                if comp.type != "Image":
+                    continue
+                p = comp.props.get("parent", "None")
+                if p == canvas_widget_id or p == "Global":
+                    for img in comp.props.get("paths", []):
+                        if img not in seen:
+                            seen.add(img); paths.append(img)
+        return paths
+
     def _on_designer_canvas_item_mode(self, widget_id: str | None) -> None:
         """Canvas entered/exited canvas-item edit mode."""
         if widget_id is not None:
             w = self._design_canvas.get_ci_widget()
-            initial_images = [
-                ci.props["image_path"]
-                for ci in (w.canvas_items if w else [])
-                if ci.kind == "image" and ci.props.get("image_path")
-            ]
+            initial_images = self._ci_palette_images(widget_id)
             self._designer_palette.enter_ci_mode(
                 on_open_images=self._on_palette_ci_open_images,
                 initial_images=initial_images,
@@ -6227,11 +6239,12 @@ class IDOL(Tk):
         if comp is None:
             return
         comp.props[prop_key] = value
-        if prop_key == "paths":
+        if prop_key in ("paths", "parent"):
             self._comp_tray.refresh(form.components)
-            # In CI mode also refresh the palette Images section with the new paths
-            if self._design_canvas.ci_mode:
-                self._designer_palette.refresh_ci_images(list(value))
+            # In CI mode refresh palette Images (canvas-specific + Global comps)
+            if self._design_canvas.ci_mode and self._design_canvas.ci_widget_id:
+                updated = self._ci_palette_images(self._design_canvas.ci_widget_id)
+                self._designer_palette.refresh_ci_images(updated)
         self._set_designer_dirty()
 
     def _on_comp_connect(self, comp_id: str, handler_id: str) -> None:
