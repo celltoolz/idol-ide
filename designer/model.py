@@ -395,6 +395,45 @@ def _load_enabled_handlers(d: dict) -> list[str]:
     return default_enabled_for(d.get("form_type", "main"))
 
 
+# ── Canvas item ↔ WidgetDescriptor conversion ─────────────────────────────────
+
+_CI_KIND_TO_TYPE = {
+    "rectangle": "CanvasRect",
+    "oval":      "CanvasOval",
+    "text":      "CanvasText",
+    "line":      "CanvasLine",
+    "image":     "CanvasImage",
+}
+_CI_TYPE_TO_KIND = {v: k for k, v in _CI_KIND_TO_TYPE.items()}
+
+
+def ci_to_widget(ci: "CanvasItemDescriptor") -> "WidgetDescriptor":
+    """Convert a CanvasItemDescriptor to a WidgetDescriptor for sub-form editing."""
+    props = dict(ci.props)
+    props["_ci_tags"] = list(ci.tags)
+    return WidgetDescriptor(
+        id=ci.id,
+        type=_CI_KIND_TO_TYPE[ci.kind],
+        x=ci.x, y=ci.y,
+        width=ci.width, height=ci.height,
+        props=props,
+    )
+
+
+def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
+    """Convert a WidgetDescriptor (from sub-form) back to a CanvasItemDescriptor."""
+    props = dict(w.props)
+    tags = props.pop("_ci_tags", [])
+    return CanvasItemDescriptor(
+        id=w.id,
+        kind=_CI_TYPE_TO_KIND[w.type],
+        x=w.x, y=w.y,
+        width=w.width, height=w.height,
+        tags=list(tags),
+        props=props,
+    )
+
+
 # Short id prefixes per widget type
 _ID_PREFIXES: dict[str, str] = {
     "Button":      "btn",

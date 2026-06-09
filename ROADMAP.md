@@ -150,6 +150,7 @@ Curated palette of production-quality canvas-drawn widgets that ship with IDOL a
 - **Code peek on canvas hover** — 2s hover shows handler code preview popup; no click required
 - **Multi-framework support** — PySide6 / PyQt6 backend alongside Tkinter; framework selected at wizard time; model.py already framework-agnostic; hard part is layout (absolute setGeometry first, then layout-aware mode)
 - **Bidirectional designer ↔ code sync** — very long term
+- **Canvas editor form ghost** *(undecided)* — when entering canvas editor mode, keep the parent form visible but greyed out behind the sub-form so the designer context is preserved visually
 - **Learning Mode in Designer** — hover-driven explanations when F1 is active; needs interaction model design before code
 - **Floating sticky-note mini editor** — mini panel that auto-grabs selection, stays on top, with copy helpers
 - **Canvas File Dialog** — replace OS file picker with dark-theme IDOL dialog; same dialog reused for Open Form, Save Form, Export Project, Save As

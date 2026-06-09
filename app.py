@@ -4872,13 +4872,8 @@ class IDOL(Tk):
 
         self.after_idle(_restore_editor_focus)
 
-    def _on_palette_ci_arm(self, kind: str | None, props: dict | None = None) -> None:
-        """CI palette button/image click → arm the canvas placement tool."""
-        self._design_canvas.arm_item_tool(kind, props)
-        self._designer_palette.set_ci_armed(kind)
-
     def _on_palette_ci_open_images(self) -> list:
-        """Open multi-select image dialog, copy to project images/, auto-place on canvas."""
+        """Open multi-select image dialog, copy to project images/, return rel paths."""
         import os, shutil
         from tkinter.filedialog import askopenfilenames
         paths = askopenfilenames(
@@ -4892,7 +4887,6 @@ class IDOL(Tk):
         images_dir  = os.path.join(project_dir, "images")
         os.makedirs(images_dir, exist_ok=True)
         result = []
-        stagger = 0
         for src in paths:
             fname = os.path.basename(src)
             dest  = os.path.join(images_dir, fname)
@@ -4905,27 +4899,11 @@ class IDOL(Tk):
                 shutil.copy2(src, dest)
             rel = os.path.relpath(dest, project_dir).replace("\\", "/")
             result.append(rel)
-            # Auto-place on canvas with actual image dimensions
-            self._design_canvas.add_canvas_item(
-                "image", stagger * 20 + 10, stagger * 20 + 10,
-                props={"image_path": rel},
-            )
-            stagger += 1
         return result
 
-    def _on_palette_ci_drag_drop(self, kind: str, props: dict | None,
-                                  x_root: int, y_root: int) -> None:
-        """CI palette drag-drop → place item at the drop position on the canvas."""
-        canvas = self._design_canvas
-        cx = canvas.winfo_rootx()
-        cy = canvas.winfo_rooty()
-        cw = canvas.winfo_width()
-        ch = canvas.winfo_height()
-        if cx <= x_root <= cx + cw and cy <= y_root <= cy + ch:
-            canvas.drop_ci_item(kind, x_root - cx, y_root - cy, props=props)
-        self._designer_palette.set_ci_armed(None)
-        if self._designer_palette._on_ci_arm:
-            self._designer_palette._on_ci_arm(None)
+    def _on_ci_image_arm(self, path: str) -> None:
+        """Palette armed a CanvasImage tool with a specific image path."""
+        self._design_canvas.set_tool_extra_props({"image_path": path})
 
     def _on_designer_canvas_item_mode(self, widget_id: str | None) -> None:
         """Canvas entered/exited canvas-item edit mode."""
@@ -4937,10 +4915,9 @@ class IDOL(Tk):
                 if ci.kind == "image" and ci.props.get("image_path")
             ]
             self._designer_palette.enter_ci_mode(
-                self._on_palette_ci_arm,
                 on_open_images=self._on_palette_ci_open_images,
                 initial_images=initial_images,
-                on_ci_drag_drop=self._on_palette_ci_drag_drop,
+                on_ci_image_arm=self._on_ci_image_arm,
             )
         else:
             self._designer_palette.exit_ci_mode()
@@ -4948,30 +4925,14 @@ class IDOL(Tk):
         self._set_designer_dirty()
 
     def _on_designer_ci_select(self, item) -> None:
-        """Canvas item selected in CI edit mode → load into properties panel + refresh order."""
-        widget_id = self._design_canvas.ci_widget_id
-        if item is None or widget_id is None:
+        """Canvas item deselected in CI sub-form mode → clear properties panel."""
+        if item is None:
             self._props_panel.clear()
-            w = self._design_canvas.get_ci_widget()
-            if w is not None:
-                self._props_panel.refresh_ci_order(w.canvas_items, None)
-        else:
-            self._props_panel.load_canvas_item(item, widget_id)
-            w = self._design_canvas.get_ci_widget()
-            if w is not None:
-                self._props_panel.refresh_ci_order(w.canvas_items, item.id)
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
         """Property panel edit → update canvas rendering."""
         form = self._design_canvas.form
         if form is None:
-            return
-        if widget_id == "__canvas_item__":
-            # Model already mutated by properties panel; just redraw CI overlay.
-            self._set_designer_dirty()
-            ci_item = self._design_canvas.get_ci_selected()
-            if ci_item is not None:
-                self._design_canvas.update_canvas_item(ci_item)
             return
         self._design_canvas.push_undo()
         self._set_designer_dirty()
@@ -5134,11 +5095,18 @@ class IDOL(Tk):
         self._props_panel.refresh_order(form, widget_id)
 
     def _on_designer_deselect(self) -> None:
-        """Canvas deselect → show form-level properties."""
+        """Canvas deselect → show form-level properties (or canvas widget props in CI mode)."""
         if getattr(self, "_comp_selecting", False):
             return
         self._comp_tray.deselect()
         self._designer_toolbar.refresh()
+        if self._design_canvas.ci_mode:
+            canvas_w = self._design_canvas.get_ci_widget()
+            orig_form = self._design_canvas._ci_original_form
+            if canvas_w and orig_form:
+                self._props_panel.load_widget(canvas_w)
+                self._props_panel.refresh_order(orig_form, canvas_w.id)
+            return
         form = self._design_canvas.form
         if form:
             self._props_panel.load_form(form)
@@ -5183,21 +5151,8 @@ class IDOL(Tk):
         form = self._design_canvas.form
         if form:
             self._props_panel.set_form(form)
-            if self._design_canvas.ci_mode:
-                w = self._design_canvas.get_ci_widget()
-                sel_id = self._design_canvas.ci_selected_id
-                items  = w.canvas_items if w else []
-                self._props_panel.refresh_ci_order(items, sel_id)
-                img_paths = [
-                    ci.props["image_path"] for ci in items
-                    if ci.kind == "image" and ci.props.get("image_path")
-                ]
-                self._designer_palette.refresh_ci_images(img_paths)
-                if w:
-                    self._sync_ci_image_component(form, w)
-            else:
-                sel = next(iter(self._design_canvas.selected_ids), None)
-                self._props_panel.refresh_order(form, sel)
+            sel = next(iter(self._design_canvas.selected_ids), None)
+            self._props_panel.refresh_order(form, sel)
 
     def _sync_ci_image_component(self, form, canvas_widget) -> None:
         """Create or update the {canvas_id}_ci Image component for CI image items."""
@@ -5234,20 +5189,7 @@ class IDOL(Tk):
                 self._sync_ci_image_component(form, w)
 
     def _on_designer_reorder_widget(self, widget_id: str, new_idx: int) -> None:
-        """Order tab drag-drop → move widget (or CI item) in model."""
-        if self._design_canvas.ci_mode:
-            w = self._design_canvas.get_ci_widget()
-            if w:
-                items = w.canvas_items
-                idx = next((i for i, ci in enumerate(items) if ci.id == widget_id), None)
-                if idx is not None and idx != new_idx:
-                    item = items.pop(idx)
-                    items.insert(new_idx, item)
-                    self._set_designer_dirty()
-                    self._design_canvas.update_canvas_item(item)
-                    sel_id = self._design_canvas.ci_selected_id
-                    self._props_panel.refresh_ci_order(items, sel_id)
-            return
+        """Order tab drag-drop → move widget in model."""
         self._design_canvas.move_widget_to(widget_id, new_idx)
 
     def _on_designer_handler_toggle(self, handler_id: str, enabled: bool) -> None:
@@ -6611,11 +6553,7 @@ class IDOL(Tk):
         self.after(50, _navigate)
 
     def _on_designer_selector_pick(self, widget_id: str | None) -> None:
-        """User picks a control from the selector dropdown (or CI Order row) → select on canvas."""
-        if self._design_canvas.ci_mode:
-            if widget_id is not None:
-                self._design_canvas.select_ci_item(widget_id)
-            return
+        """User picks a control from the selector dropdown → select on canvas."""
         if widget_id is None:
             self._design_canvas.select_form()
         else:
@@ -7399,7 +7337,10 @@ class IDOL(Tk):
     def designer_generate_code(self) -> None:
         """Regenerate .py for all forms in the project and save checksums."""
         root = getattr(self._sidebar.explorer, "_root", None)
-        active_form = self._design_canvas.form
+        if self._design_canvas.ci_mode:
+            active_form = self._design_canvas._ci_original_form
+        else:
+            active_form = self._design_canvas.form
         if active_form is None or not root:
             return
 

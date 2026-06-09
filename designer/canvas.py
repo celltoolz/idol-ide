@@ -142,13 +142,11 @@ class DesignerCanvas(tk.Canvas):
         self._img_cache: dict[str, object] = {}  # "{path}:{w}:{h}" → ImageTk.PhotoImage
         self._project_dir: str = __import__("os").getcwd()
 
-        # Canvas item edit mode state
-        self._ci_mode:        bool          = False   # in canvas item edit mode?
-        self._ci_widget_id:   str | None    = None    # which Canvas widget we're editing
-        self._ci_selected_id: str | None    = None    # selected CanvasItemDescriptor id
-        self._ci_drag:        dict | None   = None    # drag state
-        self._ci_arm_kind:    str | None    = None    # armed item type for placement
-        self._ci_arm_props:   dict         = {}      # extra props pre-set on placement (e.g. image_path)
+        # Canvas item sub-form state (CI editing via sub-form swap)
+        self._ci_sub_form:      bool          = False  # True while editing canvas items
+        self._ci_widget_id:     str | None    = None   # Canvas widget being edited
+        self._ci_original_form: "FormModel | None" = None  # form to restore on exit
+        self._tool_extra_props: dict          = {}     # extra props merged on next drop_widget
 
         self.bind("<Button-1>",        self._on_click)
         self.bind("<Double-Button-1>", self._on_double_click_evt)
@@ -209,14 +207,6 @@ class DesignerCanvas(tk.Canvas):
 
     def cancel_tool(self) -> None:
         """Exit placement mode and return to pointer."""
-        if self._ci_mode:
-            if self._ci_arm_kind:
-                self.arm_item_tool(None)
-                if self._on_tool_cancel:
-                    self._on_tool_cancel()
-            else:
-                self.exit_canvas_item_mode()
-            return
         if self._active_tool is None:
             return
         self._active_tool = None
@@ -225,13 +215,19 @@ class DesignerCanvas(tk.Canvas):
             self._on_tool_cancel()
 
     def _on_escape(self, event) -> None:
+        if self._ci_sub_form:
+            if self._active_tool:
+                self.cancel_tool()
+            else:
+                self.exit_canvas_item_mode()
+            return
         self.cancel_tool()
 
-    # ── Canvas item edit mode (public API) ────────────────────────────────────
+    # ── Canvas item sub-form mode (public API) ────────────────────────────────
 
     @property
     def ci_mode(self) -> bool:
-        return self._ci_mode
+        return self._ci_sub_form
 
     @property
     def ci_widget_id(self) -> str | None:
@@ -239,151 +235,76 @@ class DesignerCanvas(tk.Canvas):
 
     @property
     def ci_selected_id(self) -> str | None:
-        return self._ci_selected_id
+        return self._primary_id if self._ci_sub_form else None
+
+    def get_ci_widget(self) -> "WidgetDescriptor | None":
+        if self._ci_widget_id and self._ci_original_form:
+            return self._ci_original_form.get_widget(self._ci_widget_id)
+        return None
+
+    def get_ci_selected(self) -> "CanvasItemDescriptor | None":
+        """Return the selected canvas item (for app.py compatibility)."""
+        if not self._ci_sub_form or not self._form:
+            return None
+        sel_id = self._primary_id
+        if sel_id is None:
+            return None
+        w_desc = self._form.get_widget(sel_id)
+        if w_desc is None:
+            return None
+        from .model import _CI_TYPE_TO_KIND, widget_to_ci
+        if w_desc.type not in _CI_TYPE_TO_KIND:
+            return None
+        return widget_to_ci(w_desc)
 
     def enter_canvas_item_mode(self, widget_id: str) -> None:
-        if self._form is None:
+        """Enter canvas-item editing: swap to a sub-form containing the CI items."""
+        if not self._form:
             return
         w = self._form.get_widget(widget_id)
         if w is None or w.type != "Canvas":
             return
-        self._ci_mode = True
+        from .model import ci_to_widget, FormModel
+        self._ci_original_form = self._form
         self._ci_widget_id = widget_id
-        self._ci_selected_id = None
-        self._ci_drag = None
-        self._ci_arm_kind = None
-        self.deselect()
-        self.config(cursor="arrow")
-        self._ci_redraw()
+        self._ci_sub_form = True
+        sub = FormModel(
+            name=f"_ci_{widget_id}",
+            width=w.width,
+            height=w.height,
+            bg=w.props.get("bg", "") or "#2a2a2a",
+        )
+        sub.widgets = [ci_to_widget(ci) for ci in w.canvas_items]
+        self.load_form(sub)
         if self._on_canvas_item_mode:
             self._on_canvas_item_mode(widget_id)
 
     def exit_canvas_item_mode(self) -> None:
-        self._ci_mode = False
+        """Exit CI editing: convert sub-form widgets back and restore original form."""
+        if not self._ci_sub_form or self._ci_original_form is None:
+            return
+        from .model import widget_to_ci
+        orig = self._ci_original_form
+        w = orig.get_widget(self._ci_widget_id)
+        if w is not None and self._form:
+            w.canvas_items = [widget_to_ci(wdesc) for wdesc in self._form.widgets
+                              if wdesc.type in ("CanvasRect","CanvasOval","CanvasText","CanvasLine","CanvasImage")]
+        self._ci_sub_form = False
+        wid = self._ci_widget_id
         self._ci_widget_id = None
-        self._ci_selected_id = None
-        self._ci_drag = None
-        self._ci_arm_kind = None
-        self.config(cursor="arrow")
-        self._redraw()
+        self._ci_original_form = None
+        self._tool_extra_props = {}
+        self.load_form(orig)
+        if wid:
+            self.select(wid)
         if self._on_canvas_item_mode:
             self._on_canvas_item_mode(None)
         if self._on_ci_select:
             self._on_ci_select(None)
 
-    def arm_item_tool(self, kind: str | None, props: dict | None = None) -> None:
-        self._ci_arm_kind  = kind
-        self._ci_arm_props = props or {}
-        self.config(cursor="crosshair" if kind else "arrow")
-
-    def add_canvas_item(self, kind: str, x: int = 0, y: int = 0,
-                        props: dict | None = None) -> CanvasItemDescriptor | None:
-        """Create a new canvas item on the active CI widget and select it."""
-        if not self._ci_mode or not self._ci_widget_id or not self._form:
-            return None
-        w = self._form.get_widget(self._ci_widget_id)
-        if w is None:
-            return None
-        defaults: dict = {"image": {}, "rectangle": {"fill": "#4a4a4a", "outline": "#888888"},
-                          "oval": {"fill": "#4a4a4a", "outline": "#888888"},
-                          "text": {"text": "Text", "fill": "#ffffff"},
-                          "line": {"fill": "#888888", "linewidth": 1}}
-        base_props = dict(defaults.get(kind, {}))
-        base_props.update(self._ci_arm_props)
-        if props:
-            base_props.update(props)
-        if kind == "image":
-            iw, ih = self._get_image_size(base_props.get("image_path", ""))
-            item_w, item_h = iw, ih
-        elif kind == "line":
-            item_w, item_h = 50, 0
-        elif kind == "text":
-            item_w, item_h = 64, 20
-        else:
-            item_w, item_h = 64, 64
-        item = CanvasItemDescriptor(
-            id=w.next_item_id(kind), kind=kind,
-            x=max(0, min(x, w.width - 32)),
-            y=max(0, min(y, w.height - 32)),
-            width=item_w, height=item_h,
-            props=base_props,
-        )
-        w.canvas_items.append(item)
-        self._ci_selected_id = item.id
-        self._ci_redraw()
-        self._notify_ci_select()
-        if self._on_structure_changed:
-            self._on_structure_changed()
-        return item
-
-    def _get_image_size(self, rel_path: str) -> tuple[int, int]:
-        import os
-        if not rel_path:
-            return 64, 64
-        full = rel_path if os.path.isabs(rel_path) else os.path.join(
-            self._project_dir, rel_path.replace("/", os.sep))
-        try:
-            from PIL import Image
-            with Image.open(full) as img:
-                return img.size
-        except Exception:
-            return 64, 64
-
-    def drop_ci_item(self, kind: str, local_x: int, local_y: int,
-                     props: dict | None = None) -> None:
-        """Place a CI item at local pixel coords within the designer canvas widget."""
-        if not self._ci_mode or not self._ci_widget_id or not self._form:
-            return
-        w = self._form.get_widget(self._ci_widget_id)
-        if w is None:
-            return
-        cx = int(self.canvasx(local_x))
-        cy = int(self.canvasy(local_y))
-        wx, wy = self._abs_xy(w)
-        self.add_canvas_item(kind, cx - wx, cy - wy, props=props)
-        self.arm_item_tool(None)
-
-    def remove_canvas_item(self, item_id: str) -> None:
-        if not self._ci_widget_id or not self._form:
-            return
-        w = self._form.get_widget(self._ci_widget_id)
-        if w is None:
-            return
-        w.canvas_items = [ci for ci in w.canvas_items if ci.id != item_id]
-        if self._ci_selected_id == item_id:
-            self._ci_selected_id = None
-        self._ci_redraw()
-        self._notify_ci_select()
-        if self._on_structure_changed:
-            self._on_structure_changed()
-
-    def update_canvas_item(self, item: CanvasItemDescriptor) -> None:
-        """Re-render after an external property change to a canvas item."""
-        if self._ci_mode:
-            self._ci_redraw()
-
-    def get_ci_widget(self) -> WidgetDescriptor | None:
-        if self._ci_widget_id and self._form:
-            return self._form.get_widget(self._ci_widget_id)
-        return None
-
-    def get_ci_selected(self) -> CanvasItemDescriptor | None:
-        w = self.get_ci_widget()
-        if w and self._ci_selected_id:
-            return next((ci for ci in w.canvas_items if ci.id == self._ci_selected_id), None)
-        return None
-
-    def select_ci_item(self, item_id: str) -> None:
-        """Select a canvas item by id (called from Order tab row click)."""
-        if not self._ci_mode:
-            return
-        self._ci_selected_id = item_id
-        self._ci_redraw()
-        self._notify_ci_select()
-
-    def _notify_ci_select(self) -> None:
-        if self._on_ci_select:
-            self._on_ci_select(self.get_ci_selected())
+    def set_tool_extra_props(self, props: dict) -> None:
+        """Set extra props to merge on the next drop_widget call (used for image_path pre-setting)."""
+        self._tool_extra_props = dict(props)
 
     def place_at_default(self, type_key: str) -> None:
         """Place *type_key* widget at the centre of the form and select it."""
@@ -397,10 +318,15 @@ class DesignerCanvas(tk.Canvas):
         fx = max(0, min(self._form.width  // 2 - w // 2, self._form.width  - w))
         fy = max(self._min_y, min(self._min_y + usable // 2 - h // 2, self._form.height - h))
         wid  = self._form.next_id(type_key)
+        extra = self._tool_extra_props
+        self._tool_extra_props = {}  # consume
+        props = dict(reg["default_props"])
+        if extra:
+            props.update(extra)
         desc = WidgetDescriptor(
             id=wid, type=type_key,
             x=fx, y=fy, width=w, height=h,
-            props=dict(reg["default_props"]),
+            props=props,
         )
         self.add_widget(desc)
         if REGISTRY.get(type_key, {}).get("is_notebook"):
@@ -442,10 +368,15 @@ class DesignerCanvas(tk.Canvas):
             fy = max(self._min_y, min(fy, self._form.height - h))
             parent_id = None
         wid = self._form.next_id(type_key)
+        extra = self._tool_extra_props
+        self._tool_extra_props = {}  # consume
+        props = dict(reg["default_props"])
+        if extra:
+            props.update(extra)
         desc = WidgetDescriptor(
             id=wid, type=type_key,
             x=fx, y=fy, width=w, height=h,
-            props=dict(reg["default_props"]),
+            props=props,
             parent_id=parent_id,
             tab=tab_name,
         )
@@ -526,10 +457,6 @@ class DesignerCanvas(tk.Canvas):
             self._on_structure_changed()
 
     def remove_selected(self) -> None:
-        if self._ci_mode:
-            if self._ci_selected_id:
-                self.remove_canvas_item(self._ci_selected_id)
-            return
         if not self._selected_ids or self._form is None:
             return
         self.push_undo()
@@ -572,9 +499,6 @@ class DesignerCanvas(tk.Canvas):
 
     def _nudge(self, dx: int, dy: int) -> None:
         """Move all selected widgets by (dx, dy) pixels, clamped to form bounds."""
-        if self._ci_mode:
-            self._ci_nudge(dx, dy)
-            return
         if not self._selected_ids or self._form is None:
             return
         for wid in self._selected_ids:
@@ -844,7 +768,8 @@ class DesignerCanvas(tk.Canvas):
         cw = max(self.winfo_width(),  1)
         ch = max(self.winfo_height(), 1)
         self._ox = max(_MARGIN, (cw - self._form.width)  // 2)
-        self._oy = max(_MARGIN + _TITLE, (ch - self._form.height) // 2)
+        title_h = 0 if self._ci_sub_form else _TITLE
+        self._oy = max(_MARGIN + title_h, (ch - self._form.height) // 2)
         sr_w = self._ox + self._form.width  + _MARGIN
         sr_h = self._oy + self._form.height + _MARGIN
         self.configure(scrollregion=(0, 0, max(cw, sr_w), max(ch, sr_h)))
@@ -882,10 +807,7 @@ class DesignerCanvas(tk.Canvas):
 
     def toggle_tab_order(self) -> bool:
         self._tab_order_visible = not self._tab_order_visible
-        if self._ci_mode:
-            self._ci_redraw()
-        else:
-            self.redraw()
+        self.redraw()
         return self._tab_order_visible
 
     def _draw_tab_badges(self) -> None:
@@ -1235,6 +1157,17 @@ class DesignerCanvas(tk.Canvas):
         y2  = oy + f.height
         ty  = oy - _TITLE   # title bar top
 
+        if self._ci_sub_form:
+            # Sub-form: just the canvas background and grid, no title bar
+            bg = f.bg or "#2a2a2a"
+            self.create_rectangle(ox, oy, x2, y2, fill=bg, outline=_CI_BORDER, width=2, tags="form_bg")
+            if _grid_visible:
+                for gx in range(0, f.width + 1, GRID):
+                    for gy in range(0, f.height + 1, GRID):
+                        px, py = ox + gx, oy + gy
+                        self.create_rectangle(px, py, px + 1, py + 1, fill=_DOT, outline="", tags="grid")
+            return
+
         # Drop shadow
         self.create_rectangle(ox + _SHADOW, oy + _SHADOW,
                                x2 + _SHADOW, y2 + _SHADOW,
@@ -1372,295 +1305,6 @@ class DesignerCanvas(tk.Canvas):
         elif self._form_selected:
             self._draw_form_handles()
             self.tag_raise("fhandle")
-
-    # ── Canvas item edit mode rendering ───────────────────────────────────────
-
-    def _ci_redraw(self) -> None:
-        """Full redraw in canvas item edit mode."""
-        self.delete("all")
-        if self._form is None or self._ci_widget_id is None:
-            return
-        self._draw_form()
-        for widget in self._form.widgets:
-            if self._should_render(widget):
-                self._render_widget(widget)
-        w = self._form.get_widget(self._ci_widget_id)
-        if w:
-            self._ci_draw_overlay(w)
-            self._ci_draw_items(w)
-            if self._ci_selected_id:
-                item = next((ci for ci in w.canvas_items if ci.id == self._ci_selected_id), None)
-                if item:
-                    wx, wy = self._abs_xy(w)
-                    self._ci_draw_handles(item, wx, wy)
-            if self._tab_order_visible:
-                self._draw_ci_order_badges(w)
-
-    def _ci_draw_overlay(self, w: WidgetDescriptor) -> None:
-        """Draw dim overlay over all widgets except the CI canvas, plus mode indicator."""
-        wx, wy = self._abs_xy(w)
-        ox, oy = self._ox, self._oy
-        fw, fh = self._form.width, self._form.height
-        x2, y2 = wx + w.width, wy + w.height
-
-        # Four dim strips framing the canvas widget within the form
-        if wy > oy:
-            self.create_rectangle(ox, oy, ox + fw, wy,
-                                  fill="#000000", outline="", stipple="gray25", tags="ci_overlay")
-        if y2 < oy + fh:
-            self.create_rectangle(ox, y2, ox + fw, oy + fh,
-                                  fill="#000000", outline="", stipple="gray25", tags="ci_overlay")
-        if wx > ox:
-            self.create_rectangle(ox, wy, wx, y2,
-                                  fill="#000000", outline="", stipple="gray25", tags="ci_overlay")
-        if x2 < ox + fw:
-            self.create_rectangle(x2, wy, ox + fw, y2,
-                                  fill="#000000", outline="", stipple="gray25", tags="ci_overlay")
-
-        # Blue border + mode label
-        self.create_rectangle(wx - 2, wy - 2, x2 + 2, y2 + 2,
-                               outline=_CI_BORDER, width=2, fill="", tags="ci_overlay")
-        self.create_text(wx, wy - 4, anchor="sw",
-                         text=f"Canvas Items: {w.id}  (Esc to exit)",
-                         fill=_CI_BORDER, font=(UI_FONT, 8), tags="ci_overlay")
-
-    def _ci_draw_items(self, w: WidgetDescriptor) -> None:
-        """Draw all canvas items belonging to widget w."""
-        wx, wy = self._abs_xy(w)
-        for item in w.canvas_items:
-            self._ci_draw_item(item, wx, wy)
-
-    def _ci_draw_item(self, item: CanvasItemDescriptor, wx: int, wy: int) -> None:
-        """Draw one canvas item at its absolute designer-canvas position."""
-        ix  = wx + item.x
-        iy  = wy + item.y
-        ix2 = ix + item.width
-        iy2 = iy + item.height
-        tags = ("ci_item", f"ci_item:{item.id}")
-        is_sel = item.id == self._ci_selected_id
-
-        if item.kind == "image":
-            img_path = item.props.get("image_path", "")
-            if img_path and item.width > 0 and item.height > 0:
-                photo = _load_preview_image(self, img_path, item.width, item.height)
-                if photo:
-                    self.create_image(ix, iy, anchor="nw", image=photo, tags=tags)
-                    if is_sel:
-                        self.create_rectangle(ix - 1, iy - 1, ix2 + 1, iy2 + 1,
-                                              outline=_CI_SEL, width=2, fill="", tags=tags)
-                else:
-                    self._ci_draw_placeholder(ix, iy, ix2, iy2, "[img]", "#ce9178", is_sel, tags)
-            else:
-                self._ci_draw_placeholder(ix, iy, ix2, iy2, "image", "#569cd6", is_sel, tags)
-
-        elif item.kind == "rectangle":
-            fill    = item.props.get("fill", "#4a4a4a")
-            outline = item.props.get("outline", "#888888")
-            self.create_rectangle(ix, iy, ix2, iy2, fill=fill, outline=outline, tags=tags)
-            if is_sel:
-                self.create_rectangle(ix - 1, iy - 1, ix2 + 1, iy2 + 1,
-                                      outline=_CI_SEL, width=2, fill="", tags=tags)
-
-        elif item.kind == "oval":
-            fill    = item.props.get("fill", "#4a4a4a")
-            outline = item.props.get("outline", "#888888")
-            self.create_oval(ix, iy, ix2, iy2, fill=fill, outline=outline, tags=tags)
-            if is_sel:
-                self.create_rectangle(ix - 1, iy - 1, ix2 + 1, iy2 + 1,
-                                      outline=_CI_SEL, width=2, fill="", tags=tags)
-
-        elif item.kind == "text":
-            text = item.props.get("text", "Text")
-            fill = item.props.get("fill", "#ffffff")
-            fnt  = item.props.get("font", "")
-            self.create_text(ix, iy, anchor="nw", text=text, fill=fill,
-                             font=fnt if fnt else (UI_FONT, 9), tags=tags)
-            if is_sel:
-                self.create_rectangle(ix - 2, iy - 2, ix + max(item.width, 30), iy + item.height + 2,
-                                      outline=_CI_SEL, width=1, fill="", dash=(4, 2), tags=tags)
-
-        elif item.kind == "line":
-            fill  = item.props.get("fill", "#888888")
-            lw    = item.props.get("linewidth", 1)
-            x2pt  = ix + item.width
-            y2pt  = iy + item.height
-            self.create_line(ix, iy, x2pt, y2pt, fill=fill, width=lw, tags=tags)
-            if is_sel:
-                h = _HW // 2
-                self.create_oval(ix - h, iy - h, ix + h, iy + h,
-                                 fill=_CI_SEL, outline="", tags=tags)
-                self.create_oval(x2pt - h, y2pt - h, x2pt + h, y2pt + h,
-                                 fill=_CI_SEL, outline="", tags=tags)
-
-        # Tag name label(s)
-        if item.tags:
-            label = ", ".join(item.tags[:2]) + ("…" if len(item.tags) > 2 else "")
-            self.create_text(ix + 2, iy + 2, anchor="nw", text=label,
-                             fill="#858585", font=(UI_FONT, 6), tags=tags)
-
-    def _ci_draw_placeholder(self, ix, iy, ix2, iy2, label, fg, is_sel, tags) -> None:
-        sel_out = _CI_SEL if is_sel else "#555555"
-        self.create_rectangle(ix, iy, ix2, iy2,
-                              fill="#2a3a4a", outline=sel_out,
-                              dash=(4, 2) if not is_sel else (), tags=tags)
-        self.create_text((ix + ix2) // 2, (iy + iy2) // 2,
-                         text=label, fill=fg, font=(UI_FONT, 7), tags=tags)
-
-    def _ci_draw_handles(self, item: CanvasItemDescriptor, wx: int, wy: int) -> None:
-        """Draw resize handles around the selected canvas item."""
-        ix, iy = wx + item.x, wy + item.y
-        h = _HW // 2
-        for name in _HANDLES:
-            hcx, hcy = _handle_center(ix, iy, item.width, item.height, name)
-            self.create_rectangle(hcx - h, hcy - h, hcx + h, hcy + h,
-                                  fill=_CI_SEL, outline="#ffffff", width=1,
-                                  tags=("ci_handle", f"ci_handle:{name}"))
-            self.tag_bind(f"ci_handle:{name}", "<Enter>",
-                          lambda e, n=name: self.config(cursor=_handle_cursor(n)))
-            self.tag_bind(f"ci_handle:{name}", "<Leave>",
-                          lambda e: self.config(
-                              cursor="crosshair" if self._ci_arm_kind else "arrow"))
-
-    # ── Canvas item hit testing ────────────────────────────────────────────────
-
-    def _ci_handle_at(self, cx: int, cy: int) -> str | None:
-        """Return handle name (e.g. 'NW') if a CI handle is at (cx, cy)."""
-        for item in self.find_overlapping(cx - 1, cy - 1, cx + 1, cy + 1):
-            for t in self.gettags(item):
-                if t.startswith("ci_handle:"):
-                    return t.split(":", 1)[1]
-        return None
-
-    def _ci_item_at(self, cx: int, cy: int, w: WidgetDescriptor) -> CanvasItemDescriptor | None:
-        """Return topmost canvas item under (cx, cy) (coords relative to designer canvas)."""
-        wx, wy = self._abs_xy(w)
-        for item in reversed(w.canvas_items):
-            ix = wx + item.x
-            iy = wy + item.y
-            if item.kind == "line":
-                # Widen hit area for lines
-                x2pt = ix + item.width
-                y2pt = iy + item.height
-                if min(ix, x2pt) - 4 <= cx <= max(ix, x2pt) + 4 and \
-                   min(iy, y2pt) - 4 <= cy <= max(iy, y2pt) + 4:
-                    return item
-            else:
-                if ix <= cx <= ix + max(item.width, 8) and iy <= cy <= iy + max(item.height, 8):
-                    return item
-        return None
-
-    # ── Canvas item mouse handlers ─────────────────────────────────────────────
-
-    def _ci_nudge(self, dx: int, dy: int) -> None:
-        """Nudge the selected CI item by (dx, dy), clamped to widget bounds."""
-        item = self.get_ci_selected()
-        w    = self.get_ci_widget()
-        if item is None or w is None:
-            return
-        item.x = max(0, min(item.x + dx, w.width  - max(item.width,  4)))
-        item.y = max(0, min(item.y + dy, w.height - max(item.height, 4)))
-        self._ci_redraw()
-        if self._on_widget_changed:
-            self._on_widget_changed(w)
-
-    def _ci_on_click(self, cx: float, cy: float, event: tk.Event) -> None:
-        if self._form is None or self._ci_widget_id is None:
-            return
-        w = self._form.get_widget(self._ci_widget_id)
-        if w is None:
-            return
-        wx, wy = self._abs_xy(w)
-        inside = (wx <= cx <= wx + w.width and wy <= cy <= wy + w.height)
-
-        # Handle resize
-        if self._ci_selected_id:
-            handle = self._ci_handle_at(int(cx), int(cy))
-            if handle:
-                item = self.get_ci_selected()
-                if item:
-                    self._ci_drag = {
-                        "mode": "resize", "handle": handle,
-                        "orig_x": item.x, "orig_y": item.y,
-                        "orig_w": item.width, "orig_h": item.height,
-                        "start_cx": cx, "start_cy": cy,
-                    }
-                return
-
-        if not inside:
-            return
-
-        # Hit an existing item first — same priority as main designer (select over place)
-        item = self._ci_item_at(cx, cy, w)
-        if item:
-            if item.id != self._ci_selected_id:
-                self._ci_selected_id = item.id
-                self._ci_redraw()
-                self._notify_ci_select()
-            self._ci_drag = {
-                "mode": "move", "start_cx": cx, "start_cy": cy,
-                "orig_x": item.x, "orig_y": item.y,
-            }
-            return
-
-        # Armed placement on empty canvas space
-        if self._ci_arm_kind:
-            rel_x = max(0, int(cx - wx))
-            rel_y = max(0, int(cy - wy))
-            self.add_canvas_item(self._ci_arm_kind, rel_x, rel_y)
-            return
-
-        # Clicked empty space, not armed → deselect
-        self._ci_selected_id = None
-        self._ci_redraw()
-        self._notify_ci_select()
-
-    def _ci_on_motion(self, cx: float, cy: float, event: tk.Event) -> None:
-        d = self._ci_drag
-        if d is None or not self._ci_selected_id:
-            return
-        w = self.get_ci_widget()
-        if w is None:
-            return
-        item = self.get_ci_selected()
-        if item is None:
-            return
-
-        dx = int(cx - d["start_cx"])
-        dy = int(cy - d["start_cy"])
-
-        if d["mode"] == "move":
-            item.x = max(0, min(_snap(d["orig_x"] + dx), w.width  - max(item.width,  1)))
-            item.y = max(0, min(_snap(d["orig_y"] + dy), w.height - max(item.height, 1)))
-
-        elif d["mode"] == "resize":
-            handle = d["handle"]
-            ox, oy_ = d["orig_x"], d["orig_y"]
-            ow, oh  = d["orig_w"], d["orig_h"]
-            nx, ny_, nw, nh = ox, oy_, ow, oh
-            if "W" in handle:
-                raw = ox + dx
-                nx  = _snap(raw)
-                nw  = max(GRID, ow - (nx - ox))
-            if "E" in handle:
-                nw = max(GRID, _snap(ow + dx))
-            if "N" in handle:
-                raw = oy_ + dy
-                ny_ = _snap(raw)
-                nh  = max(GRID, oh - (ny_ - oy_))
-            if "S" in handle:
-                nh = max(GRID, _snap(oh + dy))
-            item.x, item.y = max(0, nx), max(0, ny_)
-            item.width, item.height = nw, nh
-
-        self._ci_redraw()
-
-    def _ci_on_release(self, cx: float, cy: float, event: tk.Event) -> None:
-        if self._ci_drag and self._ci_drag.get("mode") in ("move", "resize"):
-            self._ci_drag = None
-            if self._on_widget_changed and self._ci_widget_id and self._form:
-                wgt = self._form.get_widget(self._ci_widget_id)
-                if wgt:
-                    self._on_widget_changed(wgt)
 
     # ── Widget rendering ──────────────────────────────────────────────────────
 
@@ -1880,9 +1524,6 @@ class DesignerCanvas(tk.Canvas):
     def _on_click(self, event: tk.Event) -> None:
         self.focus_set()
         cx, cy = self.canvasx(event.x), self.canvasy(event.y)
-        if self._ci_mode:
-            self._ci_on_click(cx, cy, event)
-            return
 
         # Notebook tab-strip click — always intercept before any tool logic
         item = self._topmost_at(cx, cy)
@@ -1923,6 +1564,9 @@ class DesignerCanvas(tk.Canvas):
                 return
 
         if item is None:
+            if self._ci_sub_form:
+                self.exit_canvas_item_mode()
+                return
             self.deselect()
             return
 
@@ -2033,7 +1677,7 @@ class DesignerCanvas(tk.Canvas):
         self.deselect()
 
     def _on_double_click_evt(self, event: tk.Event) -> None:
-        if self._ci_mode:
+        if self._ci_sub_form:
             return
         if self._primary_id and self._form:
             w = self._form.get_widget(self._primary_id)
@@ -2044,9 +1688,6 @@ class DesignerCanvas(tk.Canvas):
             self._on_double_click(self._primary_id)
 
     def _on_motion(self, event: tk.Event) -> None:
-        if self._ci_mode:
-            self._ci_on_motion(self.canvasx(event.x), self.canvasy(event.y), event)
-            return
         d = self._drag
         if d is None or self._form is None:
             return
@@ -2301,9 +1942,6 @@ class DesignerCanvas(tk.Canvas):
         self.tag_raise("handle")
 
     def _on_release(self, event: tk.Event) -> None:
-        if self._ci_mode:
-            self._ci_on_release(self.canvasx(event.x), self.canvasy(event.y), event)
-            return
         d = self._drag
         self._drag = None
         if self._shift_snap_override:
@@ -2439,8 +2077,17 @@ class DesignerCanvas(tk.Canvas):
                 self.tag_raise("handle")
                 self._notify_selection()
             else:
-                # Bare click on empty space → select form
-                self.select_form()
+                # Bare click on empty space
+                if self._ci_sub_form:
+                    # In CI mode: deselect items, show canvas widget props (not sub-form props)
+                    self._selected_ids.clear()
+                    self._primary_id = None
+                    self.delete("handle")
+                    self.delete("fhandle")
+                    if self._on_deselect:
+                        self._on_deselect()
+                else:
+                    self.select_form()
             return
 
         if d["mode"] == "form_resize":
@@ -2515,23 +2162,7 @@ class DesignerCanvas(tk.Canvas):
         if self._on_structure_changed:
             self._on_structure_changed()
 
-    def _ci_on_hover(self, cx: float, cy: float) -> None:
-        """Update cursor for all CI-mode hover states."""
-        handle = self._ci_handle_at(int(cx), int(cy))
-        if handle:
-            self.config(cursor=_handle_cursor(handle))
-            return
-        w = self.get_ci_widget()
-        item = self._ci_item_at(cx, cy, w) if w else None
-        if item:
-            self.config(cursor="fleur")
-        else:
-            self.config(cursor="crosshair" if self._ci_arm_kind else "arrow")
-
     def _on_hover(self, event: tk.Event) -> None:
-        if self._ci_mode:
-            self._ci_on_hover(self.canvasx(event.x), self.canvasy(event.y))
-            return
         item = self._topmost_at(self.canvasx(event.x), self.canvasy(event.y))
         if item is None:
             if self._hover_id:
@@ -2698,38 +2329,7 @@ class DesignerCanvas(tk.Canvas):
         _rcx, _rcy = self.canvasx(event.x), self.canvasy(event.y)
         menu = _tk.Menu(self, tearoff=0)
 
-        # ── Canvas item edit mode context menu ────────────────────────────────
-        if self._ci_mode:
-            w = self.get_ci_widget()
-            has_item = bool(self._ci_selected_id)
-            cx_inside = bool(w and self._abs_xy(w)[0] <= _rcx <= self._abs_xy(w)[0] + w.width and
-                             self._abs_xy(w)[1] <= _rcy <= self._abs_xy(w)[1] + w.height)
-            rel_x = max(0, int(_rcx - (self._abs_xy(w)[0] if w else 0)))
-            rel_y = max(0, int(_rcy - (self._abs_xy(w)[1] if w else 0)))
-
-            add_sub = _tk.Menu(menu, tearoff=0)
-            for kind, label in [("image", "Image"), ("rectangle", "Rectangle"),
-                                 ("oval", "Oval"), ("text", "Text"), ("line", "Line")]:
-                add_sub.add_command(
-                    label=label,
-                    state="normal" if cx_inside else "disabled",
-                    command=lambda k=kind, rx=rel_x, ry=rel_y: self.add_canvas_item(k, rx, ry),
-                )
-            menu.add_cascade(label="Add Item", menu=add_sub)
-            menu.add_separator()
-            menu.add_command(label="Delete Item",
-                             state="normal" if has_item else "disabled",
-                             command=lambda: self.remove_canvas_item(self._ci_selected_id))
-            menu.add_separator()
-            menu.add_command(label="Exit Canvas Edit  (Esc)",
-                             command=self.exit_canvas_item_mode)
-            try:
-                menu.tk_popup(event.x_root, event.y_root)
-            finally:
-                menu.grab_release()
-            return
-
-        # ── Normal designer context menu ──────────────────────────────────────
+        # ── Normal / sub-form designer context menu ───────────────────────────
         item = self._topmost_at(_rcx, _rcy)
         if item:
             tags = self.gettags(item)
@@ -3298,6 +2898,48 @@ def _draw_canvas_widget(c, x, y, x2, y2, text, props):
         _text(c, x, y, x2, y2, "Canvas", color="#666666")
 
 
+def _draw_CanvasRect(c, x, y, x2, y2, text, props, tag):
+    fill    = props.get("fill", "#4a4a4a")
+    outline = props.get("outline", "#888888")
+    c.create_rectangle(x, y, x2, y2, fill=fill, outline=outline, tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasOval(c, x, y, x2, y2, text, props, tag):
+    fill    = props.get("fill", "#4a4a4a")
+    outline = props.get("outline", "#888888")
+    c.create_oval(x, y, x2, y2, fill=fill, outline=outline, tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasText(c, x, y, x2, y2, text, props, tag):
+    t    = props.get("text", "Text")
+    fill = props.get("fill", "#ffffff")
+    fnt  = props.get("font", "")
+    c.create_text(x, y, anchor="nw", text=t, fill=fill,
+                  font=fnt if fnt else (UI_FONT, 9), tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasLine(c, x, y, x2, y2, text, props, tag):
+    fill = props.get("fill", "#888888")
+    lw   = int(props.get("linewidth", 1))
+    c.create_line(x, y, x2, y2, fill=fill, width=lw, tags=tag)
+    c.addtag_withtag("widget", tag)
+
+def _draw_CanvasImage(c, x, y, x2, y2, text, props, tag):
+    img_path = props.get("image_path", "")
+    w = x2 - x
+    h = y2 - y
+    if img_path and w > 0 and h > 0:
+        photo = _load_preview_image(c, img_path, w, h)
+        if photo:
+            c.create_image(x, y, anchor="nw", image=photo, tags=tag)
+            c.addtag_withtag("widget", tag)
+            return
+    c.create_rectangle(x, y, x2, y2, fill="#2a3a4a", outline="#444444", tags=tag)
+    c.create_text((x + x2) // 2, (y + y2) // 2, text="[img]",
+                  fill="#ce9178", font=(UI_FONT, 7), tags=tag)
+    c.addtag_withtag("widget", tag)
+
+
 # ── Registry map ──────────────────────────────────────────────────────────────
 
 _DRAW: dict = {
@@ -3316,6 +2958,11 @@ _DRAW: dict = {
     "Progressbar": _draw_progressbar,
     "Separator":   _draw_separator,
     "Canvas":      _draw_canvas_widget,
+    "CanvasRect":  _draw_CanvasRect,
+    "CanvasOval":  _draw_CanvasOval,
+    "CanvasText":  _draw_CanvasText,
+    "CanvasLine":  _draw_CanvasLine,
+    "CanvasImage": _draw_CanvasImage,
 }
 
 

@@ -5,7 +5,7 @@ from tkinter import ttk
 from typing import Callable, Optional
 
 from designer.component_registry import COMPONENT_REGISTRY, all_component_types
-from designer.registry import REGISTRY, all_types
+from designer.registry import REGISTRY, all_types, canvas_item_types
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar
 
@@ -18,15 +18,6 @@ _BORDER = "#007acc"
 
 _PREVIEW_W = 56
 _PREVIEW_H = 22
-
-_CI_TOOLS: list[tuple] = [
-    (None,        "Select"),
-    ("image",     "Image"),
-    ("rectangle", "Rectangle"),
-    ("oval",      "Oval"),
-    ("text",      "Text"),
-    ("line",      "Line"),
-]
 
 
 class DesignerPalette(tk.Frame):
@@ -57,18 +48,13 @@ class DesignerPalette(tk.Frame):
         self._items:    dict[str | None, tk.Frame] = {}
         self._drag_pending: dict | None = None
         self._ghost: tk.Toplevel | None = None
-        # CI mode state
-        self._on_ci_arm: Optional[Callable] = None
+        # CI mode state — kept for images section
         self._on_open_images: Optional[Callable[[], list]] = None
-        self._on_ci_drag_drop: Optional[Callable] = None
-        self._ci_armed: str = "__none__"     # sentinel — no CI tool highlighted
-        self._ci_rows:  dict[str | None, tk.Frame] = {}
+        self._on_ci_image_arm: Optional[Callable] = None
         self._ci_image_paths: list[str] = []
         self._ci_img_armed_path: str | None = None
         self._ci_img_refs: list = []         # keep PhotoImage refs alive
         self._project_dir: str = ""
-        self._ci_drag_pending: dict | None = None
-        self._ci_ghost: "tk.Toplevel | None" = None
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -123,16 +109,6 @@ class DesignerPalette(tk.Frame):
 
         # ── CI mode frame (hidden until enter_ci_mode()) ──────────────────────
         self._ci_frame = tk.Frame(self, bg=_BG)
-
-        # Tool buttons section (fixed height)
-        tk.Label(self._ci_frame, text="CANVAS ITEMS", bg=_BG, fg=_DIM,
-                 font=(UI_FONT, 8, "bold"), anchor="w",
-                 padx=8).pack(fill="x", pady=(8, 2))
-        ttk.Separator(self._ci_frame, orient="horizontal").pack(fill="x")
-        self._ci_list = tk.Frame(self._ci_frame, bg=_BG)
-        self._ci_list.pack(fill="x")   # fixed — does NOT expand
-        for kind, label in _CI_TOOLS:
-            self._add_ci_item(kind, label)
 
         # Images section (scrollable, fills remaining space)
         ttk.Separator(self._ci_frame, orient="horizontal").pack(fill="x", pady=(6, 0))
@@ -227,41 +203,6 @@ class DesignerPalette(tk.Frame):
             w.bind("<Leave>", lambda e, r=row, a=accent, il=icon_lbl, nl=name_lbl:
                    self._comp_hover(r, a, il, nl, False))
 
-    def _add_ci_item(self, kind: str | None, label: str) -> None:
-        row = tk.Frame(self._ci_list, bg=_ITEM, cursor="hand2")
-        row.pack(fill="x", padx=4, pady=1)
-
-        accent = tk.Frame(row, bg=_ITEM, width=3)
-        accent.pack(side="left", fill="y")
-
-        prev = tk.Canvas(row, width=_PREVIEW_W, height=_PREVIEW_H,
-                         bg="#f5f5f5", highlightthickness=1,
-                         highlightbackground="#555555")
-        prev.pack(side="left", padx=(4, 6), pady=4)
-        draw_fn = {
-            None:        self._draw_pointer,
-            "image":     self._draw_ci_image,
-            "rectangle": self._draw_ci_rect,
-            "oval":      self._draw_ci_oval,
-            "text":      self._draw_ci_text,
-            "line":      self._draw_ci_line,
-        }.get(kind, self._draw_pointer)
-        draw_fn(prev, 2, 1, _PREVIEW_W - 4, _PREVIEW_H - 2)
-
-        lbl = tk.Label(row, text=label, bg=_ITEM, fg=_FG,
-                       font=(UI_FONT, 8), anchor="w")
-        lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
-
-        for widget in (row, prev, lbl, accent):
-            widget.bind("<Button-1>",        lambda e, k=kind: self._ci_on_press(k, None, e))
-            widget.bind("<B1-Motion>",       lambda e, k=kind: self._ci_on_drag_motion(k, e))
-            widget.bind("<ButtonRelease-1>", lambda e, k=kind: self._ci_on_drag_release(k, None, e))
-            widget.bind("<Enter>",  lambda e, r=row, k=kind: self._ci_hover(r, k, True))
-            widget.bind("<Leave>",  lambda e, r=row, k=kind: self._ci_hover(r, k, False))
-
-        self._ci_rows[kind] = row
-        row._accent = accent  # type: ignore[attr-defined]
-
     # ── Public API ────────────────────────────────────────────────────────────
 
     @property
@@ -269,78 +210,65 @@ class DesignerPalette(tk.Frame):
         return self._selected
 
     def reset_to_pointer(self) -> None:
-        if self._on_ci_arm is not None:
-            self.set_ci_armed(None)
-            if self._on_ci_arm:
-                self._on_ci_arm(None)
-        else:
-            self._apply_selection(None)
+        self._apply_selection(None)
 
     def enter_ci_mode(
         self,
-        on_arm: Callable,
         on_open_images: Optional[Callable[[], list]] = None,
         initial_images: Optional[list] = None,
-        on_ci_drag_drop: Optional[Callable] = None,
+        on_ci_image_arm: Optional[Callable] = None,
     ) -> None:
-        """Swap palette to Canvas Item placement mode."""
-        self._on_ci_arm       = on_arm
-        self._on_open_images  = on_open_images
-        self._on_ci_drag_drop = on_ci_drag_drop
-        self._ci_armed        = "__none__"
+        """Swap palette to Canvas Item types."""
+        self._on_open_images    = on_open_images
+        self._on_ci_image_arm   = on_ci_image_arm
+        self._ci_image_paths    = list(initial_images or [])
         self._ci_img_armed_path = None
-        self._ci_image_paths = list(initial_images or [])
-        self._rebuild_ci_images()
-        # Hide normal content
+        # Rebuild the widget list with canvas item types
+        for w in self._list.winfo_children():
+            w.destroy()
+        self._items.clear()
+        self._add_item(None, "Pointer", self._draw_pointer)
+        ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
+        from designer.registry import canvas_item_types, REGISTRY
+        for type_key in canvas_item_types():
+            reg = REGISTRY[type_key]
+            self._add_item(type_key, reg["label"], reg["draw_preview"])
+        self._apply_selection(None)
+        # Repack scroll area so CI frame can claim bottom space first
         self._scroll_sb.pack_forget()
         self._scroll_canvas.pack_forget()
-        self._widgets_header.pack_forget()
-        self._widgets_sep.pack_forget()
-        # Show CI frame
-        self._ci_frame.pack(fill="both", expand=True)
-        self.set_ci_armed(None)  # highlight Select
+        self._ci_frame.pack(side="bottom", fill="x")
+        self._scroll_sb.pack(side="right", fill="y")
+        self._scroll_canvas.pack(side="left", fill="both", expand=True)
+        self._rebuild_ci_images()
 
     def exit_ci_mode(self) -> None:
         """Restore normal widget palette."""
-        if self._on_ci_arm is None:
-            return
-        self._ci_hide_ghost()
-        self._ci_drag_pending   = None
+        self._hide_ghost()
         self._ci_frame.pack_forget()
-        self._on_ci_arm         = None
         self._on_open_images    = None
-        self._on_ci_drag_drop   = None
-        self._ci_armed          = "__none__"
+        self._on_ci_image_arm   = None
         self._ci_img_armed_path = None
         self._ci_image_paths    = []
         self._ci_img_refs.clear()
-        # Restore normal content
-        self._widgets_header.pack(fill="x", pady=(8, 2))
-        self._widgets_sep.pack(fill="x")
-        self._scroll_sb.pack(side="right", fill="y")
-        self._scroll_canvas.pack(side="left", fill="both", expand=True)
-
-    def set_ci_armed(self, kind: str | None) -> None:
-        """Update highlighted tool in CI mode."""
-        if kind != "image" and self._ci_img_armed_path is not None:
-            self._ci_img_armed_path = None
-            self._rebuild_ci_images()
-        old = self._ci_armed
-        if old in self._ci_rows:
-            row = self._ci_rows[old]
-            row.config(bg=_ITEM)
-            row._accent.config(bg=_ITEM)  # type: ignore[attr-defined]
-            for child in row.winfo_children():
-                if not isinstance(child, tk.Canvas):
-                    child.config(bg=_ITEM)
-        self._ci_armed = kind  # type: ignore[assignment]
-        if kind in self._ci_rows:
-            row = self._ci_rows[kind]
-            row.config(bg=_ACT)
-            row._accent.config(bg=_BORDER)  # type: ignore[attr-defined]
-            for child in row.winfo_children():
-                if not isinstance(child, tk.Canvas):
-                    child.config(bg=_ACT)
+        # Rebuild widget list with normal types
+        for w in self._list.winfo_children():
+            w.destroy()
+        self._items.clear()
+        self._add_item(None, "Pointer", self._draw_pointer)
+        ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
+        from designer.registry import all_types, REGISTRY
+        for type_key in all_types():
+            reg = REGISTRY[type_key]
+            self._add_item(type_key, reg["label"], reg["draw_preview"])
+        ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
+        tk.Label(self._list, text="COMPONENTS", bg=_BG, fg=_DIM,
+                 font=(UI_FONT, 8, "bold"), anchor="w", padx=8).pack(fill="x", pady=(0, 2))
+        from designer.component_registry import COMPONENT_REGISTRY, all_component_types
+        for type_key in all_component_types():
+            cdef = COMPONENT_REGISTRY[type_key]
+            self._add_component_item(type_key, cdef.label, cdef.icon)
+        self._apply_selection(None)
 
     def set_project_dir(self, path: str) -> None:
         self._project_dir = path
@@ -388,9 +316,7 @@ class DesignerPalette(tk.Frame):
                        wraplength=82, justify="left")
         lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
         for widget in (row, accent, th_cv, lbl):
-            widget.bind("<Button-1>",        lambda e, p=path: self._ci_on_press("image", {"image_path": p}, e))
-            widget.bind("<B1-Motion>",       lambda e, p=path: self._ci_on_drag_motion("image", e))
-            widget.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_on_drag_release("image", {"image_path": p}, e))
+            widget.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_arm_image(p))
             widget.bind("<Enter>",  lambda e, r=row, a=accent, l=lbl, p=path:
                         self._ci_img_hover(r, a, l, p, True))
             widget.bind("<Leave>",  lambda e, r=row, a=accent, l=lbl, p=path:
@@ -410,11 +336,13 @@ class DesignerPalette(tk.Frame):
 
     def _ci_arm_image(self, path: str) -> None:
         self._ci_img_armed_path = path
-        self._ci_armed = "__none__"          # prevent set_ci_armed from clearing path
-        self.set_ci_armed("image")
         self._rebuild_ci_images()
-        if self._on_ci_arm:
-            self._on_ci_arm("image", {"image_path": path})
+        # Arm the CanvasImage tool
+        self._apply_selection("CanvasImage")
+        if self._on_tool_select:
+            self._on_tool_select("CanvasImage")
+        if self._on_ci_image_arm:
+            self._on_ci_image_arm(path)
 
     def _ci_img_hover(self, row, accent, lbl, path, entering) -> None:
         if path == self._ci_img_armed_path:
@@ -562,78 +490,6 @@ class DesignerPalette(tk.Frame):
         accent.config(bg=bg)
         icon_lbl.config(bg=bg)
         name_lbl.config(bg=bg)
-
-    # ── CI drag-drop ──────────────────────────────────────────────────────────
-
-    def _ci_on_press(self, kind: str | None, props: dict | None, event: tk.Event) -> None:
-        self._ci_drag_pending = {
-            "kind": kind, "props": props,
-            "start_x": event.x_root, "start_y": event.y_root,
-            "dragging": False,
-        }
-
-    def _ci_on_drag_motion(self, kind: str | None, event: tk.Event) -> None:
-        if self._ci_drag_pending is None or kind is None:
-            return
-        if not self._ci_drag_pending["dragging"]:
-            dx = abs(event.x_root - self._ci_drag_pending["start_x"])
-            dy = abs(event.y_root - self._ci_drag_pending["start_y"])
-            if dx > 5 or dy > 5:
-                self._ci_drag_pending["dragging"] = True
-                p = self._ci_drag_pending["props"]
-                label = (p.get("image_path", "").split("/")[-1] if p and "image_path" in p
-                         else (kind or "Select"))
-                self._ci_show_ghost(label)
-        if self._ci_drag_pending["dragging"]:
-            self._ci_move_ghost(event.x_root, event.y_root)
-
-    def _ci_on_drag_release(self, kind: str | None, props: dict | None, event: tk.Event) -> None:
-        if self._ci_drag_pending is None:
-            return
-        was_dragging = self._ci_drag_pending["dragging"]
-        self._ci_drag_pending = None
-        self._ci_hide_ghost()
-        if was_dragging:
-            if kind is not None and self._on_ci_drag_drop:
-                self._on_ci_drag_drop(kind, props, event.x_root, event.y_root)
-        else:
-            if kind == "image" and props and "image_path" in props:
-                self._ci_arm_image(props["image_path"])
-            else:
-                self._ci_select(kind)
-
-    def _ci_show_ghost(self, label: str) -> None:
-        self._ci_hide_ghost()
-        self._ci_ghost = tk.Toplevel(self.winfo_toplevel())
-        self._ci_ghost.overrideredirect(True)
-        self._ci_ghost.attributes("-topmost", True)
-        self._ci_ghost.attributes("-alpha", 0.85)
-        tk.Label(self._ci_ghost, text=f"  {label}  ",
-                 bg=_ACT, fg="#ffffff",
-                 font=(UI_FONT, 9), relief="solid", bd=1).pack()
-
-    def _ci_move_ghost(self, x_root: int, y_root: int) -> None:
-        if self._ci_ghost:
-            self._ci_ghost.geometry(f"+{x_root + 14}+{y_root + 10}")
-
-    def _ci_hide_ghost(self) -> None:
-        if self._ci_ghost:
-            self._ci_ghost.destroy()
-            self._ci_ghost = None
-
-    def _ci_select(self, kind: str | None) -> None:
-        self.set_ci_armed(kind)
-        if self._on_ci_arm:
-            self._on_ci_arm(kind)
-
-    def _ci_hover(self, row: tk.Frame, kind: str | None, entering: bool) -> None:
-        if kind == self._ci_armed:
-            return
-        bg = "#3e3e42" if entering else _ITEM
-        row.config(bg=bg)
-        for child in row.winfo_children():
-            if not isinstance(child, tk.Canvas):
-                child.config(bg=bg)
 
     # ── Pointer tool preview ──────────────────────────────────────────────────
 

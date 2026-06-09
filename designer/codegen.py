@@ -527,6 +527,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     reg = REGISTRY.get(w.type)
     if not reg:
         return [f"        # Unknown widget type: {w.type}"]
+    if reg.get("is_canvas_item"):
+        return []  # canvas items live in canvas_items, not as standalone widgets
 
     tk_class = reg["tk_class"]
     scrollbar = w.props.get("scrollbar", "None")
