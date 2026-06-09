@@ -331,6 +331,28 @@ def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
     return result
 
 
+_RESERVED_CANVAS_TAGS = frozenset(("all", "current"))
+
+def _is_valid_canvas_tag(tag: str) -> bool:
+    """Return True if tag is safe to use as a Tkinter canvas tag name."""
+    if not tag or " " in tag:
+        return False
+    try:
+        int(tag)
+        return False  # purely numeric — tkinter interprets as item ID
+    except ValueError:
+        pass
+    if tag.lower() in _RESERVED_CANVAS_TAGS:
+        return False
+    return True
+
+
+def _flash_entry_invalid(entry: "tk.Entry") -> None:
+    orig = entry.cget("bg")
+    entry.configure(bg="#5a1a1a")
+    entry.after(400, lambda: entry.configure(bg=orig))
+
+
 class IDOL(Tk):
     def __init__(self, initial_file: str | None = None) -> None:
         super().__init__()
@@ -5134,7 +5156,9 @@ class IDOL(Tk):
 
         def _add_tag():
             tag = new_tag_var.get().strip()
-            if not tag or tag in tag_list: return
+            if not _is_valid_canvas_tag(tag) or tag in tag_list:
+                if tag: _flash_entry_invalid(new_tag_entry)
+                return
             tag_list.append(tag); new_tag_var.set("")
             list_cv.configure(height=_ROW_H * min(len(tag_list), LIST_VIS))
             _render(); list_cv.yview_moveto(1.0)
@@ -5295,7 +5319,9 @@ class IDOL(Tk):
 
         def _add_tag():
             tag = new_tag_var.get().strip()
-            if not tag or tag in tag_list: return
+            if not _is_valid_canvas_tag(tag) or tag in tag_list:
+                if tag: _flash_entry_invalid(new_tag_entry)
+                return
             tag_list.append(tag); selected_tag[0] = tag; new_tag_var.set("")
             list_cv.configure(height=_ROW_H * min(len(tag_list), LIST_VIS))
             _render(); list_cv.yview_moveto(1.0)
@@ -5634,7 +5660,9 @@ class IDOL(Tk):
 
         def _add_new_tag():
             tag = new_tag_var.get().strip()
-            if not tag: return
+            if not _is_valid_canvas_tag(tag):
+                if tag: _flash_entry_invalid(new_tag_entry)
+                return
             if tag not in avail_pool: avail_pool.append(tag)
             _add_from_avail(tag)
             new_tag_var.set("")
@@ -5941,7 +5969,7 @@ class IDOL(Tk):
             orig_form = self._design_canvas._ci_original_form
             if canvas_w and orig_form:
                 self._props_panel.load_widget(canvas_w)
-                self._props_panel.refresh_order(orig_form, canvas_w.id)
+                self._props_panel.refresh_order(self._design_canvas.form, None)
             return
         form = self._design_canvas.form
         if form:
