@@ -5140,7 +5140,7 @@ class IDOL(Tk):
             _render(); list_cv.yview_moveto(1.0)
 
         add_btn.bind("<ButtonRelease-1>", lambda e: _add_tag())
-        new_tag_entry.bind("<Return>", lambda e: _add_tag())
+        new_tag_entry.bind("<Return>", lambda e: (_add_tag(), "break")[1])
 
         tk.Frame(win, bg=_BORDER, height=1).pack(fill="x", padx=12, pady=(8, 0))
         btn_row = tk.Frame(win, bg=_BG)
@@ -5301,7 +5301,7 @@ class IDOL(Tk):
             _render(); list_cv.yview_moveto(1.0)
 
         add_btn.bind("<ButtonRelease-1>", lambda e: _add_tag())
-        new_tag_entry.bind("<Return>", lambda e: _add_tag())
+        new_tag_entry.bind("<Return>", lambda e: (_add_tag(), "break")[1])
 
         tk.Frame(win, bg=_BORDER, height=1).pack(fill="x", padx=12, pady=(8, 0))
         btn_row = tk.Frame(win, bg=_BG)
@@ -5640,7 +5640,7 @@ class IDOL(Tk):
             new_tag_var.set("")
 
         add_btn.bind("<ButtonRelease-1>", lambda e: _add_new_tag())
-        new_tag_entry.bind("<Return>", lambda e: _add_new_tag())
+        new_tag_entry.bind("<Return>", lambda e: (_add_new_tag(), "break")[1])
 
         # ── OK / Cancel ────────────────────────────────────────────────────
         tk.Frame(win, bg=_BORDER, height=1).pack(fill="x", padx=12, pady=(8, 0))
