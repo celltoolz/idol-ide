@@ -6034,7 +6034,14 @@ class IDOL(Tk):
                                               "parent": canvas_widget.id})
             form.components.append(comp)
         else:
-            existing.props["paths"] = unique_paths
+            # Merge: keep manually-added palette paths, add any new canvas-item paths
+            saved = list(existing.props.get("paths", []))
+            seen = set(saved)
+            for p in unique_paths:
+                if p not in seen:
+                    saved.append(p)
+                    seen.add(p)
+            existing.props["paths"] = saved
             existing.props.setdefault("parent", canvas_widget.id)
         self._comp_tray.refresh(form.components)
 
