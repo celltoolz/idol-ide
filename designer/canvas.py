@@ -1074,9 +1074,16 @@ class DesignerCanvas(tk.Canvas):
             y += rh + gap
         self._commit_alignment()
 
-    def arrange_grid(self) -> None:
-        """Snap selected widgets into a uniform grid using their existing layout."""
-        widgets = self._selected_widgets()
+    def arrange_grid(self, rows: "int | None" = None, cols: "int | None" = None) -> None:
+        """Snap selected widgets into a uniform grid using their existing layout.
+
+        In CI mode with fewer than 2 items selected, all canvas items are used.
+        rows/cols override auto-detection; if only one is given the other is derived.
+        """
+        if self.ci_mode and len(self._selected_ids) < 2 and self._form:
+            widgets = list(self._form.widgets)
+        else:
+            widgets = self._selected_widgets()
         n = len(widgets)
         if n < 2:
             return
@@ -1084,30 +1091,42 @@ class DesignerCanvas(tk.Canvas):
         avg_w = sum(w.width  for w in widgets) / n
         avg_h = sum(w.height for w in widgets) / n
 
-        # Detect column count from existing x-clustering
-        by_cx = sorted(widgets, key=lambda w: w.x + w.width / 2)
-        cols: list[list] = []
-        for w in by_cx:
-            cx = w.x + w.width / 2
-            if cols and cx - (cols[-1][-1].x + cols[-1][-1].width / 2) < avg_w:
-                cols[-1].append(w)
-            else:
-                cols.append([w])
-        n_cols = max(1, len(cols))
-        n_rows = (n + n_cols - 1) // n_cols
+        # Determine column count
+        if cols is not None:
+            n_cols = max(1, cols)
+        else:
+            # Auto-detect from existing x-clustering
+            by_cx = sorted(widgets, key=lambda w: w.x + w.width / 2)
+            col_groups: list[list] = []
+            for w in by_cx:
+                cx = w.x + w.width / 2
+                if col_groups and cx - (col_groups[-1][-1].x + col_groups[-1][-1].width / 2) < avg_w:
+                    col_groups[-1].append(w)
+                else:
+                    col_groups.append([w])
+            n_cols = max(1, len(col_groups))
+
+        # Determine row count
+        if rows is not None:
+            n_rows = max(1, rows)
+            if cols is None:
+                # Only rows specified — derive cols to fit all items
+                n_cols = (n + n_rows - 1) // n_rows
+        else:
+            n_rows = (n + n_cols - 1) // n_cols
 
         # Sort in reading order (row clusters then left-to-right within each row)
         by_cy = sorted(widgets, key=lambda w: w.y + w.height / 2)
-        rows: list[list] = []
+        row_groups: list[list] = []
         for w in by_cy:
             cy = w.y + w.height / 2
-            if rows and cy - (rows[-1][-1].y + rows[-1][-1].height / 2) < avg_h:
-                rows[-1].append(w)
+            if row_groups and cy - (row_groups[-1][-1].y + row_groups[-1][-1].height / 2) < avg_h:
+                row_groups[-1].append(w)
             else:
-                rows.append([w])
+                row_groups.append([w])
         ordered: list = []
-        for row in rows:
-            ordered.extend(sorted(row, key=lambda w: w.x + w.width / 2))
+        for rg in row_groups:
+            ordered.extend(sorted(rg, key=lambda w: w.x + w.width / 2))
 
         start_x = min(w.x for w in widgets)
         start_y = min(w.y for w in widgets)
@@ -1124,10 +1143,10 @@ class DesignerCanvas(tk.Canvas):
         ]
 
         for i, w in enumerate(ordered):
-            row = i // n_cols
+            r = i // n_cols
             col = i % n_cols
             w.x = start_x + sum(col_widths[:col])  + col  * GRID
-            w.y = start_y + sum(row_heights[:row]) + row * GRID
+            w.y = start_y + sum(row_heights[:r])   + r    * GRID
         self._commit_alignment()
 
     def nudge_h(self, delta: int) -> None:

@@ -222,7 +222,11 @@ class DesignerToolbar(tk.Frame):
         for lbl in self._dist_btns:
             self._set_enabled(lbl, sel >= 3)
 
-        self._set_enabled(self._grid_btn, sel >= 2)
+        if self._canvas.ci_mode:
+            ci_count = len(self._canvas.form.widgets) if self._canvas.form else 0
+            self._set_enabled(self._grid_btn, ci_count >= 2)
+        else:
+            self._set_enabled(self._grid_btn, sel >= 2)
 
         for lbl in self._size_btns:
             self._set_enabled(lbl, sel >= 2)
@@ -340,7 +344,33 @@ class DesignerToolbar(tk.Frame):
                 b.bind("<Leave>",    lambda e, b=b: b.config(bg=_BTN_BG,  fg=_BTN_FG))
                 b.bind("<Button-1>", lambda e, fn=fn: fn(1 if e.state & 0x1 else _NUDGE))
 
-        _full_btn("⊡  Make Grid", c.arrange_grid)
+        # Row / col fields
+        rc_frame = tk.Frame(inner, bg=_BG)
+        rc_frame.pack(fill="x", padx=4, pady=(4, 0))
+        _entry_cfg = dict(bg="#3c3c3c", fg=_BTN_FG, insertbackground=_BTN_FG,
+                          relief="flat", highlightthickness=1,
+                          highlightbackground=_SEP_COLOR, width=3,
+                          font=(UI_FONT, 8))
+        tk.Label(rc_frame, text="Rows", bg=_BG, fg="#888888",
+                 font=(UI_FONT, 8)).pack(side="left")
+        rows_var = tk.StringVar()
+        tk.Entry(rc_frame, textvariable=rows_var, **_entry_cfg).pack(
+            side="left", padx=(2, 8), ipady=2)
+        tk.Label(rc_frame, text="Cols", bg=_BG, fg="#888888",
+                 font=(UI_FONT, 8)).pack(side="left")
+        cols_var = tk.StringVar()
+        tk.Entry(rc_frame, textvariable=cols_var, **_entry_cfg).pack(
+            side="left", padx=(2, 0), ipady=2)
+
+        def _do_grid():
+            try:    r = int(rows_var.get())
+            except: r = None
+            try:    co = int(cols_var.get())
+            except: co = None
+            c.arrange_grid(rows=r, cols=co)
+            _dismiss()
+
+        _full_btn("⊡  Make Grid", _do_grid)
         tk.Frame(inner, bg=_SEP_COLOR, height=1).pack(fill="x", padx=4, pady=2)
         _nudge_row("H", lambda d: c.nudge_h(-d), lambda d: c.nudge_h(+d))
         _nudge_row("V", lambda d: c.nudge_v(-d), lambda d: c.nudge_v(+d))
