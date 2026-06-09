@@ -1750,6 +1750,9 @@ class DesignerCanvas(tk.Canvas):
 
     def _on_double_click_evt(self, event: tk.Event) -> None:
         if self._ci_sub_form:
+            # In CI mode: double-click navigates to the CI item's handler
+            if self._on_double_click and self._primary_id:
+                self._on_double_click(self._primary_id)
             return
         if self._primary_id and self._form:
             w = self._form.get_widget(self._primary_id)

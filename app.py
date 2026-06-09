@@ -6697,7 +6697,7 @@ class IDOL(Tk):
         )
 
     def _on_designer_double_click(self, widget_id: str) -> None:
-        """Double-click on canvas widget → jump to first event handler or flash Events tab."""
+        """Double-click on canvas widget (or CI item) → jump to first event handler."""
         from pathlib import Path as _Path
 
         form = self._design_canvas.form
@@ -6710,9 +6710,13 @@ class IDOL(Tk):
             self._props_panel.flash_events_tab()
             return
 
+        # In CI mode the sub-form name is a synthetic _ci_* name; use the original form
+        file_form = (self._design_canvas.ci_original_form
+                     if self._design_canvas.ci_mode
+                     else form)
         root = getattr(self._sidebar.explorer, "_root", None)
-        if root:
-            py_path = _Path(root) / f"{form.name}.py"
+        if root and file_form:
+            py_path = _Path(root) / f"{file_form.name}.py"
             if self._designer_dirty or not py_path.exists():
                 self.designer_generate_code()
 
@@ -6723,12 +6727,15 @@ class IDOL(Tk):
         """Double-click on a wired event row → jump to that handler in the editor."""
         from pathlib import Path as _Path
 
-        form = self._design_canvas.form
-        if not form:
+        # In CI mode the sub-form has a synthetic name; the handler lives in the real file
+        file_form = (self._design_canvas.ci_original_form
+                     if self._design_canvas.ci_mode
+                     else self._design_canvas.form)
+        if not file_form:
             return
         root = getattr(self._sidebar.explorer, "_root", None)
         if root:
-            py_path = _Path(root) / f"{form.name}.py"
+            py_path = _Path(root) / f"{file_form.name}.py"
             if self._designer_dirty or not py_path.exists():
                 self.designer_generate_code()
         self._designer_jump_to_handler(method_name)
