@@ -526,6 +526,10 @@ class DesignerCanvas(tk.Canvas):
             self._on_structure_changed()
 
     def remove_selected(self) -> None:
+        if self._ci_mode:
+            if self._ci_selected_id:
+                self.remove_canvas_item(self._ci_selected_id)
+            return
         if not self._selected_ids or self._form is None:
             return
         self.push_undo()
@@ -878,7 +882,10 @@ class DesignerCanvas(tk.Canvas):
 
     def toggle_tab_order(self) -> bool:
         self._tab_order_visible = not self._tab_order_visible
-        self.redraw()
+        if self._ci_mode:
+            self._ci_redraw()
+        else:
+            self.redraw()
         return self._tab_order_visible
 
     def _draw_tab_badges(self) -> None:
@@ -913,6 +920,21 @@ class DesignerCanvas(tk.Canvas):
             self.create_text(cx, cy, text=str(badge_num), fill="#ffffff",
                              font=(UI_FONT, 7, "bold"), tags="tab_badge")
         self.tag_raise("tab_badge")
+
+    def _draw_ci_order_badges(self, w: WidgetDescriptor) -> None:
+        """Draw z-order number badges over each CI item (amber, same style as tab badges)."""
+        wx, wy = self._abs_xy(w)
+        r = 9
+        for i, item in enumerate(w.canvas_items, 1):
+            ix = wx + item.x
+            iy = wy + item.y
+            cx, cy = ix + r + 2, iy + r + 2
+            self.create_oval(cx - r, cy - r, cx + r, cy + r,
+                             fill=_PRIMARY, outline="#ffffff", width=1,
+                             tags="ci_order_badge")
+            self.create_text(cx, cy, text=str(i), fill="#ffffff",
+                             font=(UI_FONT, 7, "bold"), tags="ci_order_badge")
+        self.tag_raise("ci_order_badge")
 
     def move_widget_to(self, widget_id: str, new_idx: int) -> None:
         """Move widget_id to new_idx in form order (tab + z order)."""
@@ -1371,6 +1393,8 @@ class DesignerCanvas(tk.Canvas):
                 if item:
                     wx, wy = self._abs_xy(w)
                     self._ci_draw_handles(item, wx, wy)
+            if self._tab_order_visible:
+                self._draw_ci_order_badges(w)
 
     def _ci_draw_overlay(self, w: WidgetDescriptor) -> None:
         """Draw dim overlay over all widgets except the CI canvas, plus mode indicator."""
