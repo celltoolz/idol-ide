@@ -1158,9 +1158,20 @@ class DesignerCanvas(tk.Canvas):
         ty  = oy - _TITLE   # title bar top
 
         if self._ci_sub_form:
-            # Sub-form: just the canvas background and grid, no title bar
+            # Sub-form: canvas background, optional bg image, then grid — no title bar
             bg = f.bg or "#2a2a2a"
             self.create_rectangle(ox, oy, x2, y2, fill=bg, outline=_CI_BORDER, width=2, tags="form_bg")
+            # Draw the canvas widget's background image if one is set
+            ci_w = self.get_ci_widget()
+            if ci_w:
+                img_path = ci_w.props.get("image", "")
+                if img_path:
+                    photo = _load_preview_image(self, img_path, f.width, f.height)
+                    if photo:
+                        self.create_image(ox, oy, anchor="nw", image=photo, tags="form_bg")
+                    else:
+                        self.create_text(ox + 4, oy + 4, text="[bg image]", anchor="nw",
+                                         fill="#ce9178", font=(UI_FONT, 7), tags="form_bg")
             if _grid_visible:
                 for gx in range(0, f.width + 1, GRID):
                     for gy in range(0, f.height + 1, GRID):

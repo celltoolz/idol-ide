@@ -4873,7 +4873,7 @@ class IDOL(Tk):
         self.after_idle(_restore_editor_focus)
 
     def _on_palette_ci_open_images(self) -> list:
-        """Open multi-select image dialog, copy to project images/, return rel paths."""
+        """Open multi-select image dialog, copy to project images/, auto-place on canvas."""
         import os, shutil
         from tkinter.filedialog import askopenfilenames
         paths = askopenfilenames(
@@ -4899,6 +4899,36 @@ class IDOL(Tk):
                 shutil.copy2(src, dest)
             rel = os.path.relpath(dest, project_dir).replace("\\", "/")
             result.append(rel)
+
+        # Auto-place each new image on the canvas with actual PIL dimensions
+        if self._design_canvas.ci_mode and result:
+            from designer.model import WidgetDescriptor
+            from designer.registry import REGISTRY
+            reg = REGISTRY.get("CanvasImage", {})
+            form = self._design_canvas.form
+            if form:
+                stagger = len(form.widgets)
+                for rel in result:
+                    abs_path = os.path.join(project_dir, rel.replace("/", os.sep))
+                    try:
+                        from PIL import Image as _PILImg
+                        with _PILImg.open(abs_path) as _img:
+                            iw, ih = _img.size
+                    except Exception:
+                        iw, ih = reg.get("default_size", (64, 64))
+                    x = max(0, min(10 + stagger * 20, form.width  - iw))
+                    y = max(0, min(10 + stagger * 20, form.height - ih))
+                    props = dict(reg.get("default_props", {}))
+                    props["image_path"] = rel
+                    desc = WidgetDescriptor(
+                        id=form.next_id("CanvasImage"),
+                        type="CanvasImage",
+                        x=x, y=y, width=iw, height=ih,
+                        props=props,
+                    )
+                    self._design_canvas.add_widget(desc)
+                    stagger += 1
+
         return result
 
     def _on_ci_image_arm(self, path: str) -> None:
