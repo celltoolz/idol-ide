@@ -368,7 +368,6 @@ class DesignerToolbar(tk.Frame):
             try:    co = int(cols_var.get())
             except: co = None
             c.arrange_grid(rows=r, cols=co)
-            _dismiss()
 
         _full_btn("⊡  Make Grid", _do_grid)
         tk.Frame(inner, bg=_SEP_COLOR, height=1).pack(fill="x", padx=4, pady=2)
