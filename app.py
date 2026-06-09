@@ -4935,6 +4935,75 @@ class IDOL(Tk):
     def _on_ci_image_arm(self, path: str) -> None:
         """Palette armed a CanvasImage tool with a specific image path."""
         self._design_canvas.set_tool_extra_props({"image_path": path})
+        try:
+            import os
+            from PIL import Image as _PILImg
+            _abs = os.path.join(self._design_canvas._project_dir, path.replace("/", os.sep))
+            with _PILImg.open(_abs) as _img:
+                _iw, _ih = _img.size
+        except Exception:
+            _iw, _ih = None, None
+        self._design_canvas.set_tool_size(_iw, _ih)
+
+    def _on_ci_image_place(self, path: str) -> None:
+        """Palette double-clicked an image — auto-place on canvas at center with PIL dims."""
+        import os
+        from designer.model import WidgetDescriptor
+        from designer.registry import REGISTRY
+        if not self._design_canvas.ci_mode:
+            return
+        reg = REGISTRY.get("CanvasImage", {})
+        project_dir = self._design_canvas._project_dir
+        form = self._design_canvas.form
+        if not form:
+            return
+        abs_path = os.path.join(project_dir, path.replace("/", os.sep))
+        try:
+            from PIL import Image as _PILImg
+            with _PILImg.open(abs_path) as _img:
+                iw, ih = _img.size
+        except Exception:
+            iw, ih = reg.get("default_size", (64, 64))
+        fx = max(0, min(form.width  // 2 - iw // 2, form.width  - iw))
+        fy = max(0, min(form.height // 2 - ih // 2, form.height - ih))
+        props = dict(reg.get("default_props", {}))
+        props["image_path"] = path
+        desc = WidgetDescriptor(
+            id=form.next_id("CanvasImage"),
+            type="CanvasImage",
+            x=fx, y=fy, width=iw, height=ih,
+            props=props,
+        )
+        self._design_canvas.add_widget(desc)
+
+    def _on_ci_image_delete(self, path: str) -> None:
+        """Full delete: remove all placed CanvasImage items for this path + update Image component."""
+        if not self._design_canvas.ci_mode:
+            return
+        form = self._design_canvas.form          # sub-form
+        orig_form = self._design_canvas.ci_original_form
+        if not form or not orig_form:
+            return
+        # Remove all CanvasImage items matching this path from the sub-form
+        to_remove = [
+            w.id for w in form.widgets
+            if w.type == "CanvasImage" and w.props.get("image_path") == path
+        ]
+        if to_remove:
+            self._design_canvas.remove_widgets(to_remove)
+        # Remove path from Image component on the original form
+        canvas_w = self._design_canvas.get_ci_widget()
+        canvas_id = canvas_w.id if canvas_w else None
+        for comp in orig_form.components:
+            if comp.type != "Image":
+                continue
+            parent = comp.props.get("parent", "None")
+            if parent in (canvas_id, "Global"):
+                paths = list(comp.props.get("paths", []))
+                if path in paths:
+                    paths.remove(path)
+                    comp.props["paths"] = paths
+                    break
 
     def _on_ci_tags_needed(self, widget_desc, event_key, on_proceed) -> None:
         """Show the CI tag editor dialog; call on_proceed() after tags are confirmed."""
@@ -5105,6 +5174,8 @@ class IDOL(Tk):
                 on_open_images=self._on_palette_ci_open_images,
                 initial_images=initial_images,
                 on_ci_image_arm=self._on_ci_image_arm,
+                on_ci_image_place=self._on_ci_image_place,
+                on_ci_image_delete=self._on_ci_image_delete,
             )
             # Rebuild selector with sub-form CI items
             sub_form = self._design_canvas.form

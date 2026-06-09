@@ -51,6 +51,8 @@ class DesignerPalette(tk.Frame):
         # CI mode state — kept for images section
         self._on_open_images: Optional[Callable[[], list]] = None
         self._on_ci_image_arm: Optional[Callable] = None
+        self._on_ci_image_place: Optional[Callable] = None
+        self._on_ci_image_delete: Optional[Callable] = None
         self._ci_image_paths: list[str] = []
         self._ci_img_armed_path: str | None = None
         self._ci_img_refs: list = []         # keep PhotoImage refs alive
@@ -217,10 +219,14 @@ class DesignerPalette(tk.Frame):
         on_open_images: Optional[Callable[[], list]] = None,
         initial_images: Optional[list] = None,
         on_ci_image_arm: Optional[Callable] = None,
+        on_ci_image_place: Optional[Callable] = None,
+        on_ci_image_delete: Optional[Callable] = None,
     ) -> None:
         """Swap palette to Canvas Item types."""
-        self._on_open_images    = on_open_images
-        self._on_ci_image_arm   = on_ci_image_arm
+        self._on_open_images     = on_open_images
+        self._on_ci_image_arm    = on_ci_image_arm
+        self._on_ci_image_place  = on_ci_image_place
+        self._on_ci_image_delete = on_ci_image_delete
         self._ci_image_paths    = list(initial_images or [])
         self._ci_img_armed_path = None
         # Rebuild the widget list with canvas item types
@@ -246,9 +252,11 @@ class DesignerPalette(tk.Frame):
         """Restore normal widget palette."""
         self._hide_ghost()
         self._ci_frame.pack_forget()
-        self._on_open_images    = None
-        self._on_ci_image_arm   = None
-        self._ci_img_armed_path = None
+        self._on_open_images     = None
+        self._on_ci_image_arm    = None
+        self._on_ci_image_place  = None
+        self._on_ci_image_delete = None
+        self._ci_img_armed_path  = None
         self._ci_image_paths    = []
         self._ci_img_refs.clear()
         # Rebuild widget list with normal types
@@ -311,16 +319,31 @@ class DesignerPalette(tk.Frame):
         else:
             th_cv.create_text(24, 18, text="?", fill=_DIM,
                               font=(UI_FONT, 9), anchor="center")
+        # Up / down reorder buttons (right side)
+        btn_frame = tk.Frame(row, bg=bg)
+        btn_frame.pack(side="right", padx=(0, 2))
+        up_btn = tk.Label(btn_frame, text="▲", bg=bg, fg=_DIM,
+                          font=(UI_FONT, 7), cursor="hand2", padx=3)
+        up_btn.pack(side="top")
+        up_btn.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_move_image(p, -1))
+        dn_btn = tk.Label(btn_frame, text="▼", bg=bg, fg=_DIM,
+                          font=(UI_FONT, 7), cursor="hand2", padx=3)
+        dn_btn.pack(side="top")
+        dn_btn.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_move_image(p, 1))
         lbl = tk.Label(row, text=fname, bg=bg, fg=_FG,
                        font=(UI_FONT, 8), anchor="w",
-                       wraplength=82, justify="left")
-        lbl.pack(side="left", fill="x", expand=True, padx=(0, 4))
+                       wraplength=70, justify="left")
+        lbl.pack(side="left", fill="x", expand=True, padx=(0, 2))
         for widget in (row, accent, th_cv, lbl):
             widget.bind("<ButtonRelease-1>", lambda e, p=path: self._ci_arm_image(p))
-            widget.bind("<Enter>",  lambda e, r=row, a=accent, l=lbl, p=path:
-                        self._ci_img_hover(r, a, l, p, True))
-            widget.bind("<Leave>",  lambda e, r=row, a=accent, l=lbl, p=path:
-                        self._ci_img_hover(r, a, l, p, False))
+            widget.bind("<Double-Button-1>", lambda e, p=path: self._ci_place_image(p))
+            widget.bind("<Button-3>",        lambda e, p=path: self._ci_right_click_image(p, e))
+            widget.bind("<Enter>",  lambda e, r=row, a=accent, l=lbl, b=btn_frame,
+                                            ub=up_btn, db=dn_btn, p=path:
+                        self._ci_img_hover(r, a, l, b, ub, db, p, True))
+            widget.bind("<Leave>",  lambda e, r=row, a=accent, l=lbl, b=btn_frame,
+                                            ub=up_btn, db=dn_btn, p=path:
+                        self._ci_img_hover(r, a, l, b, ub, db, p, False))
 
     def _load_ci_thumb(self, path: str):
         import os
@@ -344,13 +367,57 @@ class DesignerPalette(tk.Frame):
         if self._on_ci_image_arm:
             self._on_ci_image_arm(path)
 
-    def _ci_img_hover(self, row, accent, lbl, path, entering) -> None:
+    def _ci_img_hover(self, row, accent, lbl, btn_frame, up_btn, dn_btn, path, entering) -> None:
         if path == self._ci_img_armed_path:
             return
         bg = "#3e3e42" if entering else _ITEM
         row.config(bg=bg)
         accent.config(bg=bg)
         lbl.config(bg=bg)
+        btn_frame.config(bg=bg)
+        up_btn.config(bg=bg)
+        dn_btn.config(bg=bg)
+
+    def _ci_place_image(self, path: str) -> None:
+        """Double-click: arm then auto-place image on canvas."""
+        self._ci_arm_image(path)
+        if self._on_ci_image_place:
+            self._on_ci_image_place(path)
+
+    def _ci_right_click_image(self, path: str, event: tk.Event) -> None:
+        menu = tk.Menu(self, tearoff=0, bg="#252526", fg="#cccccc",
+                       activebackground="#094771", activeforeground="#ffffff",
+                       borderwidth=1, relief="solid", font=(UI_FONT, 9))
+        menu.add_command(label="Delete", command=lambda: self._ci_delete_image(path))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _ci_delete_image(self, path: str) -> None:
+        """Full delete: remove from palette list + notify app to remove from canvas+component."""
+        was_armed = (path == self._ci_img_armed_path)
+        if path in self._ci_image_paths:
+            self._ci_image_paths.remove(path)
+        if was_armed:
+            self._ci_img_armed_path = None
+            self._apply_selection(None)
+            if self._on_tool_select:
+                self._on_tool_select(None)
+        if self._on_ci_image_delete:
+            self._on_ci_image_delete(path)
+        self._rebuild_ci_images()
+
+    def _ci_move_image(self, path: str, direction: int) -> None:
+        """Move path up (direction=-1) or down (direction=1) in the list."""
+        if path not in self._ci_image_paths:
+            return
+        idx = self._ci_image_paths.index(path)
+        new_idx = idx + direction
+        if 0 <= new_idx < len(self._ci_image_paths):
+            self._ci_image_paths.pop(idx)
+            self._ci_image_paths.insert(new_idx, path)
+            self._rebuild_ci_images()
 
     def _ci_open_images(self) -> None:
         if self._on_open_images:
@@ -361,17 +428,14 @@ class DesignerPalette(tk.Frame):
             self._rebuild_ci_images()
 
     def _ci_remove_image(self) -> None:
-        """Remove the currently armed image from the palette list."""
-        if self._ci_img_armed_path in self._ci_image_paths:
-            self._ci_image_paths.remove(self._ci_img_armed_path)
-            self._ci_img_armed_path = None
-            self._rebuild_ci_images()
+        """Full delete of the currently armed image."""
+        if self._ci_img_armed_path:
+            self._ci_delete_image(self._ci_img_armed_path)
 
     def _ci_clear_images(self) -> None:
         """Remove all images from the palette list."""
-        self._ci_image_paths.clear()
-        self._ci_img_armed_path = None
-        self._rebuild_ci_images()
+        for path in list(self._ci_image_paths):
+            self._ci_delete_image(path)
 
     # ── Interaction ───────────────────────────────────────────────────────────
 

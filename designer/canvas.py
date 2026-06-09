@@ -147,6 +147,7 @@ class DesignerCanvas(tk.Canvas):
         self._ci_widget_id:     str | None    = None   # Canvas widget being edited
         self._ci_original_form: "FormModel | None" = None  # form to restore on exit
         self._tool_extra_props: dict          = {}     # extra props merged on next drop_widget
+        self._tool_size: "tuple[int,int] | None" = None  # size override for next placement
         self._ci_orig_ox:       int           = _MARGIN        # ghost: original form ox
         self._ci_orig_oy:       int           = _MARGIN + _TITLE  # ghost: original form oy
         self._ci_drawing_ghost: bool          = False  # True during ghost render pass
@@ -301,6 +302,7 @@ class DesignerCanvas(tk.Canvas):
         self._ci_widget_id = None
         self._ci_original_form = None
         self._tool_extra_props = {}
+        self._tool_size = None
         self.load_form(orig)
         if wid:
             self.select(wid)
@@ -313,6 +315,31 @@ class DesignerCanvas(tk.Canvas):
         """Set extra props to merge on the next drop_widget call (used for image_path pre-setting)."""
         self._tool_extra_props = dict(props)
 
+    def set_tool_size(self, w: int | None, h: int | None) -> None:
+        """Override the default_size used for the next tool placement (click or double-click)."""
+        if w is not None and h is not None:
+            self._tool_size: tuple[int, int] | None = (int(w), int(h))
+        else:
+            self._tool_size = None
+
+    def remove_widgets(self, ids: list[str]) -> None:
+        """Remove specific widget IDs from the sub-form and canvas without changing the selection."""
+        if not ids or self._form is None:
+            return
+        self.push_undo()
+        removed: set[str] = set(ids)
+        for wid in ids:
+            self._disconnect_widget(wid)
+            self._form.remove_widget(wid)
+            self.delete(f"widget:{wid}")
+        self.delete("handle")
+        self.delete("fhandle")
+        self._selected_ids -= removed
+        if self._primary_id in removed:
+            self._primary_id = None
+        if self._on_structure_changed:
+            self._on_structure_changed()
+
     def place_at_default(self, type_key: str) -> None:
         """Place *type_key* widget at the centre of the form and select it."""
         if self._form is None:
@@ -320,7 +347,9 @@ class DesignerCanvas(tk.Canvas):
         reg = REGISTRY.get(type_key)
         if not reg:
             return
-        w, h   = reg["default_size"]
+        _sz = getattr(self, "_tool_size", None)
+        self._tool_size = None  # consume
+        w, h   = _sz or reg["default_size"]
         usable = self._form.height - self._min_y
         fx = max(0, min(self._form.width  // 2 - w // 2, self._form.width  - w))
         fy = max(self._min_y, min(self._min_y + usable // 2 - h // 2, self._form.height - h))
@@ -2048,6 +2077,8 @@ class DesignerCanvas(tk.Canvas):
             reg = REGISTRY.get(self._active_tool)
             if not reg:
                 return
+            _tool_sz = getattr(self, "_tool_size", None)  # capture + consume
+            self._tool_size = None
             shift_held = bool(event.state & 0x0001)
             _s = (lambda v: int(v)) if shift_held else _snap
             _min_sz = 1 if shift_held else GRID * 2
@@ -2087,8 +2118,8 @@ class DesignerCanvas(tk.Canvas):
                     fy = max(self._min_y, min(fy, self._form.height - fh))
                     parent_id = None
             else:
-                # Click: drop at default size centered on click point
-                fw, fh = reg["default_size"]
+                # Click: use tool size override or registry default
+                fw, fh = _tool_sz or reg["default_size"]
                 container = self._container_at(d["start_cx"], d["start_cy"])
                 if container:
                     ax, ay = self._abs_xy(container)
