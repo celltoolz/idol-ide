@@ -5077,8 +5077,7 @@ class IDOL(Tk):
         list_outer.pack(fill="x", padx=12)
         list_cv = tk.Canvas(list_outer, bg=_ROW_BG, highlightthickness=0,
                             width=LIST_W, height=_ROW_H * LIST_VIS)
-        list_sb = tk.Scrollbar(list_outer, orient="vertical", command=list_cv.yview,
-                               width=12, troughcolor=_BG, bg=_BTN_BG)
+        list_sb = VerticalScrollbar(list_outer, command=list_cv.yview)
         list_cv.configure(yscrollcommand=list_sb.set)
         list_sb.pack(side="right", fill="y")
         list_cv.pack(side="left", fill="both", expand=True)
