@@ -4971,7 +4971,7 @@ class IDOL(Tk):
 
     def _on_designer_ci_select(self, item) -> None:
         """Canvas item deselected in CI sub-form mode → clear properties panel."""
-        if item is None:
+        if item is None and self._design_canvas.ci_mode:
             self._props_panel.clear()
 
     def _on_designer_prop_change(self, widget_id: str, key: str, value) -> None:
