@@ -4960,6 +4960,13 @@ class IDOL(Tk):
             orig_form = self._design_canvas.form
             if orig_form:
                 self._props_panel.set_form(orig_form)
+            # Re-populate properties for the canvas widget that was just exited
+            sel_id = self._design_canvas._primary_id
+            if sel_id and orig_form:
+                w = orig_form.get_widget(sel_id)
+                if w:
+                    self._props_panel.load_widget(w)
+                    self._props_panel.refresh_order(orig_form, sel_id)
         self._set_designer_dirty()
 
     def _on_designer_ci_select(self, item) -> None:
