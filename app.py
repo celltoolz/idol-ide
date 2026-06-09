@@ -5413,10 +5413,21 @@ class IDOL(Tk):
             assigned = set(_current_item_tags())
             return [t for t in avail_pool if t not in assigned]
 
-        def _select_dd(cid):
+        _from_canvas: list[bool] = [False]
+
+        def _select_dd(cid, from_canvas: bool = False):
+            if _from_canvas[0]:
+                return
             current_id[0] = cid
             dd_var.set("All items" if cid == _ALL else cid)
             _render_item(); _render_avail()
+            # Sync canvas selection when user picks from dropdown
+            if not from_canvas and cid != _ALL:
+                _from_canvas[0] = True
+                try:
+                    self._design_canvas.select(cid)
+                finally:
+                    _from_canvas[0] = False
 
         def _open_dd(e):
             menu = tk.Menu(win, tearoff=0, bg="#1e1e1e", fg=_FG,
@@ -5653,13 +5664,23 @@ class IDOL(Tk):
         win.bind("<Return>", lambda e: _on_ok())
         win.bind("<Escape>", lambda e: win.destroy())
 
+        # Register canvas→dialog selection bridge (non-modal topmost window)
+        self._item_tags_dialog_select = lambda wid: _select_dd(wid, from_canvas=True)
+
+        def _on_win_destroy():
+            self._item_tags_dialog_select = None
+
+        win.bind("<Destroy>", lambda e: _on_win_destroy() if e.widget is win else None)
+
         _render_item(); _render_avail()
         win.update_idletasks()
         pw = self.winfo_rootx() + self.winfo_width() // 2
         ph = self.winfo_rooty() + self.winfo_height() // 2
         win.update_idletasks()
         win.geometry(f"+{pw - win.winfo_width() // 2}+{ph - win.winfo_height() // 2}")
-        win.deiconify(); win.grab_set()
+        win.attributes("-topmost", True)
+        win.deiconify()
+        # No grab_set — window stays on top but canvas is still clickable
         new_tag_entry.focus_set()
 
     def _ci_palette_images(self, canvas_widget_id: str) -> list:
@@ -5893,6 +5914,11 @@ class IDOL(Tk):
         if w:
             self._props_panel.load_widget(w)
         self._props_panel.refresh_order(form, widget_id)
+        # If the Item Tags dialog is open and this is a CI item, sync its dropdown
+        if getattr(self, "_item_tags_dialog_select", None):
+            canvas_w = self._design_canvas.get_ci_widget()
+            if canvas_w and any(ci.id == widget_id for ci in canvas_w.canvas_items):
+                self._item_tags_dialog_select(widget_id)
 
     def _on_designer_deselect(self) -> None:
         """Canvas deselect → show form-level properties (or canvas widget props in CI mode)."""
