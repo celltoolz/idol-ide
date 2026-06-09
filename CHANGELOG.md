@@ -5,6 +5,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-05 to 2026-06-08] — Canvas Item Designer
+
+### Added
+- **Canvas Item Designer (CI mode)** — double-click any Canvas widget on the design canvas to enter CI mode. A synthetic `FormModel` is built from the canvas's `canvas_items` list and loaded into the existing designer, so all normal designer machinery (select, move, resize, Properties panel, Events tab, undo/redo) works on canvas items without any new infrastructure.
+- **Ghost overlay** — when CI mode is active, the surrounding form is dimmed with a `gray25` stipple overlay (four rectangles around the canvas), a `#007acc` 2 px border is drawn around the canvas, and a mode label is shown. Exiting CI mode (Escape or right-click → "Exit Canvas Edit Mode") converts the sub-form descriptors back into `CanvasItemDescriptor` objects on the original canvas widget.
+- **CI palette** — the left palette swaps to show only CI item types: `CanvasRect`, `CanvasOval`, `CanvasText`, `CanvasLine`, `CanvasImage`. An **IMAGES** section appears below listing every Image component associated with this canvas.
+- **IMAGES panel** — `[+]` adds images (copies to `project/images/`, auto-places on canvas at actual PIL dimensions); `[-]` fully deletes an image (removes from canvas AND from the Image component's `paths`); `[×]` clears all. Each image row: **click** to arm the CanvasImage placement tool; **double-click** to auto-place at center with PIL dims; **right-click** for Delete menu; **▲▼** buttons to reorder the list. Up/down reorder and palette double-click/delete images added in a follow-up pass.
+- **CI Properties panel** — selecting a CI item loads it into the Properties tab: `id` (readonly), `type` (readonly), `x`, `y`, `width`, `height`, `tags` (click opens tag editor dialog), `image_path` (click opens dropdown of available images), `fill`/`outline` (color picker), `text`/`font` (text items).
+- **CI Events tab** — same wire-and-stub flow as widget events. Supported events: `click`, `dblclick`, `rightclick`, `mousedown`, `mouseup`, `mousemove`, `mouseenter`, `mouseleave`. CI items must have at least one tag before events can be wired (enforced by the UI).
+- **Tag editor dialog** — clicking the `tags` row opens a dark-themed modal checklist of all tags in use on the canvas, with an "add new tag" entry field.
+- **`image_path` dropdown** — clicking the `image_path` row shows a dropdown of all images from Image components connected to this canvas (canvas-specific + Global images).
+- **Image component `parent` property** — Image components now have a `parent` prop (`canvas_ref` kind dropdown): `None` (reference-only, no auto-placement), `Global` (visible from every canvas's IMAGES palette), or a specific canvas widget ID. The IMAGES palette section is populated from Image components where `parent == canvas_id OR parent == "Global"`.
+- **CanvasImage auto-sync** — placing a `CanvasImage` item auto-creates or updates an Image component on the original form with `parent = canvas_id`. The Image component's `paths` list is kept in sync with placed CanvasImage items.
+- **CI double-click navigation** — double-clicking a CI item (while in CI mode) jumps to its handler in the editor; double-clicking a wired event row in the Events tab also jumps. Both use the original form's `.py` file path (not the synthetic sub-form name).
+- **CI arrow-key nudge and Delete key** — arrow keys nudge the selected CI item; Delete removes it. Shift+snap bypass works in CI mode too.
+- **Item-order badges** — tab order badges are shown on CI items in CI mode.
+- **Canvas item codegen** — `CanvasItemDescriptor.bindings: dict[str, str]` maps tk event strings to method names. Codegen emits `canvas.tag_bind(tag, event, self.method)` calls for each binding (deduplicated by tag+event across items sharing the same tag) and stub methods for each unique method name.
+- **Canvas `border` property** — Canvas widget now has a `border` prop (True/False) controlling `highlightthickness` (0 when False, 1 when True).
+- **`canvas_button` methods inline** — canvas_button handler methods now appear inline in the existing Connected event rows rather than being appended as separate rows.
+
+### Changed
+- **Paste preserves widget order** — fixed set iteration in `copy_selected` so copied widgets paste in their original z-order.
+- **Auto-save form `.py` before codegen reads it** — the form `.py` is written to disk before any codegen subprocess reads it, preventing stale-read mismatches.
+
+### Fixed
+- **Tab badges on paste** — tab order badges now appear immediately on pasted widgets.
+- **Tab badges after deletion** — badges now refresh correctly after any widget deletion.
+- **Paste offset reset after move drag** — paste cascade offset is reset when a move drag completes so the next paste lands at the correct position.
+- **Gallery and grid popup dismissal** — both the image gallery popup and the grid layout popup now dismiss when the app loses focus.
+- **CI props panel clear** — fixed `_on_designer_ci_select` clearing the properties panel immediately after CI item selection.
+- **CI properties refresh on exit** — properties panel now refreshes correctly when exiting canvas editor mode.
+- **CI widget selector** — fixed widget selector, image rendering, and Image component sync issues in the initial CI implementation.
+- **CI `_props_insert` crash** — fixed crash when inserting rows in the props panel during CI mode.
+- **CI designer jump-to-handler** — fixed `_designer_jump_to_handler` using the sub-form name instead of the original form's file path.
+
+---
+
+## [2026-06-05 to 2026-06-08] — Editor Improvements + Codegen
+
+### Added
+- **Multiline string syntax highlighting** — triple-quoted strings (`"""..."""` and `'''...'''`) are now correctly highlighted as strings across all lines. Typing `"""` or `'''` auto-inserts the matching closing triple-quote.
+- **VS Code-style comment hash alignment** — `Ctrl+/` now aligns `#` characters at the minimum indentation level of the selected lines (VS Code style), rather than inserting at column 0.
+- **Enter on folded line unfolds first** — pressing Enter while the cursor is on a folded section header now unfolds the section first, then inserts a newline after the header line (previously inserted after the last hidden line).
+- **Viewport centering on navigation** — when jumping to a handler or definition from the designer or Go to Definition, the editor scrolls so the target line is vertically centered in the viewport instead of appearing at the top.
+- **Decorator preservation in codegen** — `@property`, `@staticmethod`, `@classmethod`, and any other decorator on methods in the `# ── Functions ──` section are now preserved verbatim across code regeneration.
+
+### Fixed
+- **Multi-cursor drift on shared line** — fixed cursor position drift when two or more cursors are on the same line.
+- **Minimap scroll tracking** — fixed the minimap not tracking the editor scroll position correctly; now maps the editor's visible range to the minimap range accurately.
+- **Fold index corruption** — fixed fold index corruption that could occur after Enter, Backspace, or Delete near a fold boundary.
+
+---
+
 ## [2026-06-03 to 2026-06-04] — Image Resources + Canvas Button Builder
 
 ### Added
