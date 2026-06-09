@@ -546,6 +546,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     _list_insert_props = set(reg.get("list_insert_props", []))
     kw_parts: list[str] = []
     for k, v in w.props.items():
+        if k.startswith("_"):
+            continue  # IDOL-internal props (e.g. _ci_tags, _canvas_tags) — never tkinter kwargs
         if k in ("scrollbar", "tabs"):
             continue  # structural props — not tkinter kwargs
         if k in _all_color_props and v == "":
