@@ -16,15 +16,19 @@ class CanvasItemDescriptor:
     tags: list[str] = field(default_factory=list)
     props: dict[str, Any] = field(default_factory=dict)          # fill, outline, image_path, text, font, …
     bindings: dict[str, str] = field(default_factory=dict)       # tk event str → method name
+    binding_tags: dict[str, str] = field(default_factory=dict)   # tk event str → specific tag for tag_bind
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "id": self.id, "kind": self.kind,
             "x": self.x, "y": self.y, "width": self.width, "height": self.height,
             "tags": list(self.tags),
             "props": dict(self.props),
             "bindings": dict(self.bindings),
         }
+        if self.binding_tags:
+            d["binding_tags"] = dict(self.binding_tags)
+        return d
 
     @staticmethod
     def from_dict(d: dict) -> "CanvasItemDescriptor":
@@ -35,6 +39,7 @@ class CanvasItemDescriptor:
             tags=list(d.get("tags", [])),
             props=dict(d.get("props", {})),
             bindings=dict(d.get("bindings", {})),
+            binding_tags=dict(d.get("binding_tags", {})),
         )
 
 
@@ -424,6 +429,8 @@ def ci_to_widget(ci: "CanvasItemDescriptor") -> "WidgetDescriptor":
     """Convert a CanvasItemDescriptor to a WidgetDescriptor for sub-form editing."""
     props = dict(ci.props)
     props["_ci_tags"] = list(ci.tags)
+    if ci.binding_tags:
+        props["_ci_binding_tags"] = dict(ci.binding_tags)
     events = {_CI_TK_TO_EVENT[tk]: method
               for tk, method in ci.bindings.items()
               if tk in _CI_TK_TO_EVENT and method}
@@ -441,6 +448,7 @@ def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
     """Convert a WidgetDescriptor (from sub-form) back to a CanvasItemDescriptor."""
     props = dict(w.props)
     tags = props.pop("_ci_tags", [])
+    binding_tags = props.pop("_ci_binding_tags", {})
     bindings = {_CI_EVENT_TO_TK[ev]: method
                 for ev, method in w.events.items()
                 if ev in _CI_EVENT_TO_TK and method}
@@ -452,6 +460,7 @@ def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
         tags=list(tags),
         props=props,
         bindings=bindings,
+        binding_tags=dict(binding_tags),
     )
 
 

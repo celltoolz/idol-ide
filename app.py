@@ -5015,7 +5015,8 @@ class IDOL(Tk):
                     break
 
     def _on_ci_tags_needed(self, widget_desc, event_key, on_proceed) -> None:
-        """Show the CI tag editor dialog; call on_proceed() after tags are confirmed."""
+        """Route CI event wiring through the tag dialog, or skip if binding_tag already set."""
+        from designer.model import _CI_EVENT_TO_TK
         canvas_w = self._design_canvas.get_ci_widget()
         # Collect all unique tags already in use across CI items on this canvas
         global_tags: list[str] = []
@@ -5027,49 +5028,124 @@ class IDOL(Tk):
                         global_tags.append(t)
                         seen.add(t)
         current_tags = list(widget_desc.props.get("_ci_tags", []))
-        self._show_ci_tag_dialog(widget_desc, current_tags, global_tags, canvas_w, on_proceed)
+        # If event wiring and a binding_tag is already set for this exact event, skip dialog
+        if event_key:
+            tk_ev = _CI_EVENT_TO_TK.get(event_key, "")
+            if canvas_w and tk_ev:
+                for ci in canvas_w.canvas_items:
+                    if ci.id == widget_desc.id:
+                        if ci.binding_tags.get(tk_ev):
+                            if on_proceed:
+                                on_proceed()
+                            return
+        self._show_ci_tag_dialog(widget_desc, current_tags, global_tags, canvas_w,
+                                 on_proceed, event_key)
 
-    def _show_ci_tag_dialog(self, widget_desc, current_tags, global_tags, canvas_w, on_proceed) -> None:
-        """Modal tag-editor dialog for canvas items."""
+    def _show_ci_tag_dialog(self, widget_desc, current_tags, global_tags,
+                            canvas_w, on_proceed, event_key=None) -> None:
+        """Modal tag-editor dialog for canvas items.
+
+        event_key=None  → tags management mode (add/remove tags from _ci_tags)
+        event_key set   → event wiring mode (pick ONE tag for this event's tag_bind)
+        """
+        from designer.model import _CI_EVENT_TO_TK
         _BG = "#2d2d2d"; _FG = "#cccccc"; _ACCENT = "#0e639c"
         _ENTRY_BG = "#3c3c3c"; _BTN_BG = "#3a3a3a"
+        _wiring_mode = event_key is not None
+        tk_ev = _CI_EVENT_TO_TK.get(event_key, "") if _wiring_mode else ""
 
         win = tk.Toplevel(self)
         win.title("Canvas Item Tags")
         win.configure(bg=_BG)
         win.resizable(False, False)
         win.transient(self)
+        win.withdraw()
 
-        tk.Label(win, text="Select tags to bind events to:", bg=_BG, fg=_FG,
-                 font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(10, 4))
-
-        # ── Existing tags (global on this canvas) ──
-        list_frame = tk.Frame(win, bg=_BG)
-        list_frame.pack(fill="x", padx=12)
-
-        tag_vars: list[tuple[str, tk.BooleanVar]] = []
-        if global_tags:
-            for tag in global_tags:
-                var = tk.BooleanVar(value=tag in current_tags)
-                row = tk.Frame(list_frame, bg=_BG)
-                row.pack(fill="x", pady=1)
-                # Canvas-drawn checkbox (dark theme safe)
-                cb_cv = tk.Canvas(row, width=14, height=14, bg=_BG, highlightthickness=0)
-                cb_cv.pack(side="left", padx=(0, 6))
-                def _draw_cb(cv, v):
-                    cv.delete("all")
-                    cv.create_rectangle(1, 1, 13, 13, outline="#555", fill=_ACCENT if v.get() else _ENTRY_BG)
-                    if v.get():
-                        cv.create_text(7, 7, text="✓", fill="#fff", font=("Segoe UI", 8, "bold"))
-                def _toggle(cv=cb_cv, v=var):
-                    v.set(not v.get()); _draw_cb(cv, v)
-                _draw_cb(cb_cv, var)
-                cb_cv.bind("<ButtonRelease-1>", lambda e, cv=cb_cv, v=var: (_toggle(cv, v),))
-                tk.Label(row, text=tag, bg=_BG, fg=_FG, font=("Segoe UI", 9)).pack(side="left")
-                tag_vars.append((tag, var))
+        if _wiring_mode:
+            tk.Label(win, text=f"Choose tag for '{event_key}' binding:", bg=_BG, fg=_FG,
+                     font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(10, 4))
         else:
-            tk.Label(list_frame, text="No existing tags on this canvas.",
-                     bg=_BG, fg="#888", font=("Segoe UI", 8, "italic")).pack(anchor="w")
+            tk.Label(win, text="Tags on this canvas item:", bg=_BG, fg=_FG,
+                     font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(10, 4))
+
+        # ── Scrollable tag list ──
+        list_outer = tk.Frame(win, bg=_BG, bd=1, relief="solid",
+                              highlightbackground="#444", highlightthickness=1)
+        list_outer.pack(fill="x", padx=12)
+        list_cv = tk.Canvas(list_outer, bg=_BG, highlightthickness=0,
+                            width=230, height=120)
+        list_sb = tk.Scrollbar(list_outer, orient="vertical", command=list_cv.yview)
+        list_cv.configure(yscrollcommand=list_sb.set)
+        list_sb.pack(side="right", fill="y")
+        list_cv.pack(side="left", fill="both", expand=True)
+        list_frame = tk.Frame(list_cv, bg=_BG)
+        list_cv_win = list_cv.create_window((0, 0), window=list_frame, anchor="nw")
+        list_frame.bind("<Configure>", lambda e: (
+            list_cv.configure(scrollregion=list_cv.bbox("all")),
+            list_cv.itemconfigure(list_cv_win, width=list_cv.winfo_width()),
+        ))
+        list_cv.bind("<MouseWheel>",
+                     lambda e: list_cv.yview_scroll(-1 * (e.delta // 120), "units"))
+
+        # Management mode: show only this item's tags; Wiring mode: show all canvas tags to pick from
+        if _wiring_mode:
+            tag_list: list[str] = list(global_tags)
+            for t in current_tags:
+                if t not in tag_list:
+                    tag_list.append(t)
+        else:
+            tag_list: list[str] = list(current_tags)
+        # Radio selection var for wiring mode — default to existing binding or first tag
+        radio_var = tk.StringVar(value=current_tags[0] if current_tags else "")
+
+        def _rebuild_list():
+            for w in list_frame.winfo_children():
+                w.destroy()
+            if not tag_list:
+                tk.Label(list_frame, text="No tags yet — add one below.",
+                         bg=_BG, fg="#888", font=("Segoe UI", 8, "italic"),
+                         padx=8, pady=6).pack(anchor="w")
+                return
+            for tag in list(tag_list):
+                row = tk.Frame(list_frame, bg=_BG)
+                row.pack(fill="x", padx=4, pady=1)
+                if _wiring_mode:
+                    # Radio button (canvas-drawn)
+                    rb_cv = tk.Canvas(row, width=14, height=14, bg=_BG,
+                                      highlightthickness=0)
+                    rb_cv.pack(side="left", padx=(0, 6), pady=2)
+                    def _draw_rb(cv, t=tag):
+                        cv.delete("all")
+                        sel = (radio_var.get() == t)
+                        cv.create_oval(1, 1, 13, 13, outline="#555",
+                                       fill=_ACCENT if sel else _ENTRY_BG)
+                        if sel:
+                            cv.create_oval(4, 4, 10, 10, fill="#fff", outline="")
+                    def _pick(t=tag):
+                        radio_var.set(t)
+                        _rebuild_list()
+                    rb_cv.bind("<ButtonRelease-1>", lambda e, t=tag: _pick(t))
+                    _draw_rb(rb_cv)
+                    tk.Label(row, text=tag, bg=_BG, fg=_FG,
+                             font=("Segoe UI", 9), cursor="hand2").pack(side="left")
+                    # clicking the label also picks
+                    row.bind("<ButtonRelease-1>", lambda e, t=tag: _pick(t))
+                else:
+                    # Manage mode: show tag + × remove
+                    tk.Label(row, text=tag, bg=_BG, fg=_FG,
+                             font=("Segoe UI", 9)).pack(side="left", expand=True, fill="x")
+                    rm = tk.Label(row, text="×", bg=_BG, fg="#888",
+                                  font=("Segoe UI", 10), cursor="hand2", padx=4)
+                    rm.pack(side="right")
+                    def _remove(t=tag):
+                        if t in tag_list:
+                            tag_list.remove(t)
+                        _rebuild_list()
+                    rm.bind("<ButtonRelease-1>", lambda e, t=tag: _remove(t))
+            list_frame.update_idletasks()
+            list_cv.configure(scrollregion=list_cv.bbox("all"))
+
+        _rebuild_list()
 
         # ── Add new tag ──
         tk.Frame(win, bg="#444", height=1).pack(fill="x", padx=12, pady=8)
@@ -5084,26 +5160,13 @@ class IDOL(Tk):
 
         def _add_tag():
             tag = new_tag_var.get().strip()
-            if not tag or any(t == tag for t, _ in tag_vars):
+            if not tag or tag in tag_list:
                 return
-            var = tk.BooleanVar(value=True)
-            tag_vars.append((tag, var))
-            row = tk.Frame(list_frame, bg=_BG)
-            row.pack(fill="x", pady=1)
-            cb_cv = tk.Canvas(row, width=14, height=14, bg=_BG, highlightthickness=0)
-            cb_cv.pack(side="left", padx=(0, 6))
-            def _draw_cb(cv, v):
-                cv.delete("all")
-                cv.create_rectangle(1, 1, 13, 13, outline="#555", fill=_ACCENT if v.get() else _ENTRY_BG)
-                if v.get():
-                    cv.create_text(7, 7, text="✓", fill="#fff", font=("Segoe UI", 8, "bold"))
-            def _toggle(cv=cb_cv, v=var):
-                v.set(not v.get()); _draw_cb(cv, v)
-            _draw_cb(cb_cv, var)
-            cb_cv.bind("<ButtonRelease-1>", lambda e, cv=cb_cv, v=var: (_toggle(cv, v),))
-            tk.Label(row, text=tag, bg=_BG, fg=_FG, font=("Segoe UI", 9)).pack(side="left")
+            tag_list.append(tag)
+            if _wiring_mode:
+                radio_var.set(tag)
             new_tag_var.set("")
-            win.update_idletasks()
+            _rebuild_list()
 
         add_btn = tk.Label(add_frame, text=" Add ", bg=_BTN_BG, fg=_FG, relief="flat",
                            font=("Segoe UI", 9), cursor="hand2", padx=6, pady=2)
@@ -5117,18 +5180,37 @@ class IDOL(Tk):
         btn_frame.pack(fill="x", padx=12, pady=(0, 10))
 
         def _on_ok():
-            selected = [tag for tag, var in tag_vars if var.get()]
-            if not selected:
-                import tkinter.messagebox as _mb
-                _mb.showwarning("No Tags", "Select or add at least one tag.", parent=win)
-                return
-            widget_desc.props["_ci_tags"] = selected
-            # Sync back to CanvasItemDescriptor.tags immediately
-            if canvas_w:
-                for ci in canvas_w.canvas_items:
-                    if ci.id == widget_desc.id:
-                        ci.tags = list(selected)
-                        break
+            if _wiring_mode:
+                chosen = radio_var.get().strip()
+                if not chosen:
+                    import tkinter.messagebox as _mb
+                    _mb.showwarning("No Tag Selected",
+                                    "Select or add a tag to bind this event to.", parent=win)
+                    return
+                # Add chosen tag to this item's _ci_tags if missing
+                existing = list(widget_desc.props.get("_ci_tags", []))
+                if chosen not in existing:
+                    existing.append(chosen)
+                widget_desc.props["_ci_tags"] = existing
+                # _ci_binding_tags uses tk-event keys (same as CanvasItemDescriptor.binding_tags)
+                if tk_ev:
+                    widget_desc.props.setdefault("_ci_binding_tags", {})[tk_ev] = chosen
+                # Sync to CanvasItemDescriptor
+                if canvas_w and tk_ev:
+                    for ci in canvas_w.canvas_items:
+                        if ci.id == widget_desc.id:
+                            if chosen not in ci.tags:
+                                ci.tags.append(chosen)
+                            ci.binding_tags[tk_ev] = chosen
+                            break
+            else:
+                # Management mode: tags list is the new _ci_tags (empty is allowed)
+                widget_desc.props["_ci_tags"] = list(tag_list)
+                if canvas_w:
+                    for ci in canvas_w.canvas_items:
+                        if ci.id == widget_desc.id:
+                            ci.tags = list(tag_list)
+                            break
             self._props_panel.refresh_widget(widget_desc)
             self._set_designer_dirty()
             win.destroy()

@@ -4323,8 +4323,8 @@ class DesignerProperties(tk.Frame):
         event_key = row_iid[4:]
         if d.events.get(event_key):
             return  # already wired
-        # CI items require at least one tag before binding events
-        if "_ci_tags" in d.props and not d.props["_ci_tags"] and self._on_ci_tags_needed:
+        # CI items always route through the tag callback so the correct binding_tag is set
+        if "_ci_tags" in d.props and self._on_ci_tags_needed:
             def _proceed():
                 self._do_auto_wire(d, row_iid, event_key)
             self._on_ci_tags_needed(d, event_key, _proceed)

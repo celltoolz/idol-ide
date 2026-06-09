@@ -1454,11 +1454,12 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                     f'        self.{canvas_name}.create_line({ix}, {iy}, {x2pt}, {y2pt}'
                     f'{fill_arg}{lw_arg}, tags={tags_str})'
                 )
-            # Collect bindings by tag (deduplicate)
+            # Collect bindings — use the specific binding_tag for each event
             for ev_key, method in item.bindings.items():
                 if not method:
                     continue
-                for tag in item.tags:
+                tag = item.binding_tags.get(ev_key) or (item.tags[0] if item.tags else None)
+                if tag:
                     key = (tag, ev_key)
                     if key not in tag_event_handler:
                         tag_event_handler[key] = method
