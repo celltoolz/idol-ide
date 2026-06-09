@@ -263,10 +263,10 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
             ),
             PropDef(
                 key="parent",
-                label="canvas",
-                kind="str",
+                label="parent",
+                kind="canvas_ref",
                 default="",
-                description="Canvas widget ID this image set belongs to (e.g. canvas1). When set, these images are shown in the canvas editor for that widget.",
+                description="Canvas widget this image set belongs to. When set, these images appear in the canvas editor for that widget.",
             ),
         ),
         handler_defs=(

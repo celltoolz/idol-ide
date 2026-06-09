@@ -1029,6 +1029,7 @@ class IDOL(Tk):
             on_component_edit=self._on_comp_edit,
             on_select_component=self._on_comp_select,
             on_install_pillow=self._on_designer_install_pillow,
+            on_ci_tags_needed=self._on_ci_tags_needed,
         )
         self._props_panel.configure(width=230)
 
@@ -4935,6 +4936,150 @@ class IDOL(Tk):
         """Palette armed a CanvasImage tool with a specific image path."""
         self._design_canvas.set_tool_extra_props({"image_path": path})
 
+    def _on_ci_tags_needed(self, widget_desc, event_key, on_proceed) -> None:
+        """Show the CI tag editor dialog; call on_proceed() after tags are confirmed."""
+        canvas_w = self._design_canvas.get_ci_widget()
+        # Collect all unique tags already in use across CI items on this canvas
+        global_tags: list[str] = []
+        seen: set[str] = set()
+        if canvas_w:
+            for ci in canvas_w.canvas_items:
+                for t in ci.tags:
+                    if t not in seen:
+                        global_tags.append(t)
+                        seen.add(t)
+        current_tags = list(widget_desc.props.get("_ci_tags", []))
+        self._show_ci_tag_dialog(widget_desc, current_tags, global_tags, canvas_w, on_proceed)
+
+    def _show_ci_tag_dialog(self, widget_desc, current_tags, global_tags, canvas_w, on_proceed) -> None:
+        """Modal tag-editor dialog for canvas items."""
+        _BG = "#2d2d2d"; _FG = "#cccccc"; _ACCENT = "#0e639c"
+        _ENTRY_BG = "#3c3c3c"; _BTN_BG = "#3a3a3a"
+
+        win = tk.Toplevel(self)
+        win.title("Canvas Item Tags")
+        win.configure(bg=_BG)
+        win.resizable(False, False)
+        win.transient(self)
+
+        tk.Label(win, text="Select tags to bind events to:", bg=_BG, fg=_FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(10, 4))
+
+        # ── Existing tags (global on this canvas) ──
+        list_frame = tk.Frame(win, bg=_BG)
+        list_frame.pack(fill="x", padx=12)
+
+        tag_vars: list[tuple[str, tk.BooleanVar]] = []
+        if global_tags:
+            for tag in global_tags:
+                var = tk.BooleanVar(value=tag in current_tags)
+                row = tk.Frame(list_frame, bg=_BG)
+                row.pack(fill="x", pady=1)
+                # Canvas-drawn checkbox (dark theme safe)
+                cb_cv = tk.Canvas(row, width=14, height=14, bg=_BG, highlightthickness=0)
+                cb_cv.pack(side="left", padx=(0, 6))
+                def _draw_cb(cv, v):
+                    cv.delete("all")
+                    cv.create_rectangle(1, 1, 13, 13, outline="#555", fill=_ACCENT if v.get() else _ENTRY_BG)
+                    if v.get():
+                        cv.create_text(7, 7, text="✓", fill="#fff", font=("Segoe UI", 8, "bold"))
+                def _toggle(cv=cb_cv, v=var):
+                    v.set(not v.get()); _draw_cb(cv, v)
+                _draw_cb(cb_cv, var)
+                cb_cv.bind("<ButtonRelease-1>", lambda e, cv=cb_cv, v=var: (_toggle(cv, v),))
+                tk.Label(row, text=tag, bg=_BG, fg=_FG, font=("Segoe UI", 9)).pack(side="left")
+                tag_vars.append((tag, var))
+        else:
+            tk.Label(list_frame, text="No existing tags on this canvas.",
+                     bg=_BG, fg="#888", font=("Segoe UI", 8, "italic")).pack(anchor="w")
+
+        # ── Add new tag ──
+        tk.Frame(win, bg="#444", height=1).pack(fill="x", padx=12, pady=8)
+        tk.Label(win, text="Add new tag:", bg=_BG, fg=_FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12)
+        add_frame = tk.Frame(win, bg=_BG)
+        add_frame.pack(fill="x", padx=12, pady=(4, 0))
+        new_tag_var = tk.StringVar()
+        new_tag_entry = tk.Entry(add_frame, textvariable=new_tag_var, bg=_ENTRY_BG, fg=_FG,
+                                 insertbackground=_FG, relief="flat", font=("Segoe UI", 9))
+        new_tag_entry.pack(side="left", fill="x", expand=True)
+
+        def _add_tag():
+            tag = new_tag_var.get().strip()
+            if not tag or any(t == tag for t, _ in tag_vars):
+                return
+            var = tk.BooleanVar(value=True)
+            tag_vars.append((tag, var))
+            row = tk.Frame(list_frame, bg=_BG)
+            row.pack(fill="x", pady=1)
+            cb_cv = tk.Canvas(row, width=14, height=14, bg=_BG, highlightthickness=0)
+            cb_cv.pack(side="left", padx=(0, 6))
+            def _draw_cb(cv, v):
+                cv.delete("all")
+                cv.create_rectangle(1, 1, 13, 13, outline="#555", fill=_ACCENT if v.get() else _ENTRY_BG)
+                if v.get():
+                    cv.create_text(7, 7, text="✓", fill="#fff", font=("Segoe UI", 8, "bold"))
+            def _toggle(cv=cb_cv, v=var):
+                v.set(not v.get()); _draw_cb(cv, v)
+            _draw_cb(cb_cv, var)
+            cb_cv.bind("<ButtonRelease-1>", lambda e, cv=cb_cv, v=var: (_toggle(cv, v),))
+            tk.Label(row, text=tag, bg=_BG, fg=_FG, font=("Segoe UI", 9)).pack(side="left")
+            new_tag_var.set("")
+            win.update_idletasks()
+
+        add_btn = tk.Label(add_frame, text=" Add ", bg=_BTN_BG, fg=_FG, relief="flat",
+                           font=("Segoe UI", 9), cursor="hand2", padx=6, pady=2)
+        add_btn.pack(side="left", padx=(6, 0))
+        add_btn.bind("<ButtonRelease-1>", lambda e: _add_tag())
+        new_tag_entry.bind("<Return>", lambda e: _add_tag())
+
+        # ── Buttons ──
+        tk.Frame(win, bg="#444", height=1).pack(fill="x", padx=12, pady=8)
+        btn_frame = tk.Frame(win, bg=_BG)
+        btn_frame.pack(fill="x", padx=12, pady=(0, 10))
+
+        def _on_ok():
+            selected = [tag for tag, var in tag_vars if var.get()]
+            if not selected:
+                import tkinter.messagebox as _mb
+                _mb.showwarning("No Tags", "Select or add at least one tag.", parent=win)
+                return
+            widget_desc.props["_ci_tags"] = selected
+            # Sync back to CanvasItemDescriptor.tags immediately
+            if canvas_w:
+                for ci in canvas_w.canvas_items:
+                    if ci.id == widget_desc.id:
+                        ci.tags = list(selected)
+                        break
+            self._props_panel.refresh_widget(widget_desc)
+            self._set_designer_dirty()
+            win.destroy()
+            if on_proceed:
+                on_proceed()
+
+        def _on_cancel():
+            win.destroy()
+
+        def _make_btn(parent, text, cmd, accent=False):
+            bg = _ACCENT if accent else _BTN_BG
+            b = tk.Label(parent, text=text, bg=bg, fg="#fff", relief="flat",
+                         font=("Segoe UI", 9), cursor="hand2", padx=10, pady=4)
+            b.pack(side="right", padx=(4, 0))
+            b.bind("<ButtonRelease-1>", lambda e: cmd())
+
+        _make_btn(btn_frame, "Cancel", _on_cancel)
+        _make_btn(btn_frame, "OK", _on_ok, accent=True)
+
+        win.bind("<Return>", lambda e: _on_ok())
+        win.bind("<Escape>", lambda e: _on_cancel())
+        win.update_idletasks()
+        pw = self.winfo_rootx() + self.winfo_width() // 2
+        ph = self.winfo_rooty() + self.winfo_height() // 2
+        win.update_idletasks()
+        win.geometry(f"+{pw - win.winfo_width() // 2}+{ph - win.winfo_height() // 2}")
+        win.deiconify()
+        win.grab_set()
+
     def _on_designer_canvas_item_mode(self, widget_id: str | None) -> None:
         """Canvas entered/exited canvas-item edit mode."""
         if widget_id is not None:
@@ -6000,7 +6145,9 @@ class IDOL(Tk):
         finally:
             self._comp_selecting = False
         self._comp_tray.select(comp_id)
-        self._props_panel.load_component(comp, cdef)
+        # Pass original form so _open_comp_image_picker resolves the component correctly in CI mode
+        alt_form = form if self._design_canvas.ci_mode else None
+        self._props_panel.load_component(comp, cdef, form=alt_form)
 
     def _on_comp_deselect(self) -> None:
         if self._design_canvas.ci_mode:

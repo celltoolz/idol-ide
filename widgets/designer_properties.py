@@ -71,6 +71,7 @@ class DesignerProperties(tk.Frame):
         on_component_edit:           Optional[Callable[[str, str, str], None]] = None,
         on_select_component:         Optional[Callable[[str],           None]] = None,
         on_install_pillow:           Optional[Callable[[],              None]] = None,
+        on_ci_tags_needed:           Optional[Callable] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
@@ -89,6 +90,7 @@ class DesignerProperties(tk.Frame):
         self._on_component_edit           = on_component_edit
         self._on_select_component         = on_select_component
         self._on_install_pillow           = on_install_pillow
+        self._on_ci_tags_needed           = on_ci_tags_needed
         self._active_python: str          = __import__("sys").executable
         self._pil_available: "bool | None" = None
         self._project_dir: str            = __import__("os").getcwd()
@@ -108,6 +110,7 @@ class DesignerProperties(tk.Frame):
         self._comp_mode:      bool                      = False
         self._comp_id:        str | None                = None
         self._comp_def:       "Any | None"              = None
+        self._comp_form:      "Any | None"              = None   # override form for component lookups
         self._comp_hov_idx:   int | None                = None
         self._comp_dtitles_expanded: bool               = False
         # Widgets wired to the selected component's handlers (comp mode)
@@ -884,7 +887,7 @@ class DesignerProperties(tk.Frame):
                         result.append((f"_{comp.id}{hdef.label}", comp.id, hdef.id))
         return result
 
-    def load_component(self, descriptor, comp_def) -> None:
+    def load_component(self, descriptor, comp_def, form=None) -> None:
         """Switch the panel into component mode and show the component's properties/handlers."""
         self._exit_comp_mode()
         self._dismiss_editor()
@@ -893,6 +896,8 @@ class DesignerProperties(tk.Frame):
         self._comp_mode  = True
         self._comp_id    = descriptor.id
         self._comp_def   = comp_def
+        # Allow caller to override which form is used for component lookups (e.g. CI mode)
+        self._comp_form  = form
         self._comp_hov_idx = None
         self._set_selector(descriptor.id)
 
@@ -940,6 +945,7 @@ class DesignerProperties(tk.Frame):
         self._comp_mode              = False
         self._comp_id                = None
         self._comp_def               = None
+        self._comp_form              = None
         self._comp_hov_idx           = None
         self._comp_connections       = []
         self._comp_conn_hov_idx      = None
@@ -1960,9 +1966,10 @@ class DesignerProperties(tk.Frame):
     def _open_comp_image_picker(self, row_iid: str) -> None:
         import os, shutil
         from tkinter.filedialog import askopenfilenames
-        if not self._form or not self._comp_id:
+        lookup_form = self._comp_form or self._form
+        if not lookup_form or not self._comp_id:
             return
-        comp = self._form.get_component(self._comp_id)
+        comp = lookup_form.get_component(self._comp_id)
         if comp is None:
             return
         picked = askopenfilenames(
@@ -1976,7 +1983,8 @@ class DesignerProperties(tk.Frame):
             return
         images_dir = os.path.join(self._project_dir, "images")
         os.makedirs(images_dir, exist_ok=True)
-        rel_paths = []
+        existing = list(comp.props.get("paths", []))
+        rel_paths = list(existing)  # start with existing images
         for src in picked:
             basename = os.path.basename(src)
             dest = os.path.join(images_dir, basename)
@@ -1993,7 +2001,9 @@ class DesignerProperties(tk.Frame):
                         counter += 1
             if not os.path.exists(dest):
                 shutil.copy2(src, dest)
-            rel_paths.append(os.path.relpath(dest, self._project_dir).replace("\\", "/"))
+            rel = os.path.relpath(dest, self._project_dir).replace("\\", "/")
+            if rel not in rel_paths:
+                rel_paths.append(rel)
         comp.props["paths"] = rel_paths
         n = len(rel_paths)
         display = f"{n} image{'s' if n != 1 else ''}"
@@ -2695,6 +2705,11 @@ class DesignerProperties(tk.Frame):
                     or key in _colorize_reserved:
                 continue
             seen.add(key)
+            if key == "_ci_tags":
+                tags = d.props.get("_ci_tags", [])
+                display_val = ", ".join(tags) if tags else "(click to add tags)"
+                self._props_insert("prop___ci_tags", "tags", display_val)
+                continue
             val = d.props.get(key, defaults.get(key, ""))
             self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), _display(val))
         # Color props — always show, apply swatches
@@ -2903,6 +2918,13 @@ class DesignerProperties(tk.Frame):
             return
         if pd.kind == "image_list":
             self._open_comp_image_picker(row)
+        elif pd.kind == "canvas_ref":
+            lookup_form = self._comp_form or self._form
+            canvas_ids = [""] + [
+                w.id for w in (lookup_form.widgets if lookup_form else [])
+                if w.type == "Canvas"
+            ]
+            self._props_open_dropdown(row, canvas_ids, self._commit_comp_prop)
         elif pd.kind == "bool":
             self._props_open_dropdown(row, ["True", "False"], self._commit_comp_prop)
         else:
@@ -2938,6 +2960,26 @@ class DesignerProperties(tk.Frame):
             value = raw.lower() == "true"
         else:
             value = raw
+        # canvas_ref: warn + clear images when the parent canvas changes
+        if pd.kind == "canvas_ref":
+            lookup_form = self._comp_form or self._form
+            comp_obj = lookup_form.get_component(self._comp_id) if lookup_form else None
+            if comp_obj:
+                old_parent = comp_obj.props.get("parent", "")
+                if old_parent != value and old_parent and comp_obj.props.get("paths"):
+                    import tkinter.messagebox as _mb
+                    n = len(comp_obj.props["paths"])
+                    ok = _mb.askyesno(
+                        "Change Canvas",
+                        f"This Image component has {n} image{'s' if n != 1 else ''} linked "
+                        f"to '{old_parent}'.\n\nChanging the canvas will remove all those images "
+                        "from the component.\n\nContinue?",
+                    )
+                    if not ok:
+                        return
+                    comp_obj.props["paths"] = []
+                    if self._on_component_prop_change:
+                        self._on_component_prop_change(self._comp_id, "paths", [])
         self._props_set(row_iid, str(value))
         self._props_redraw()
         if self._on_component_prop_change:
@@ -2946,6 +2988,16 @@ class DesignerProperties(tk.Frame):
     def _dispatch_prop_click(self, row: str) -> None:
         if self._comp_mode and row.startswith("comp__"):
             self._dispatch_comp_prop_click(row)
+            return
+        # Tags row for canvas items — open tag editor
+        if row == "prop___ci_tags":
+            d = self._current_widget
+            if d is not None and self._on_ci_tags_needed:
+                def _after_tags():
+                    tags = d.props.get("_ci_tags", [])
+                    display = ", ".join(tags) if tags else "(click to add tags)"
+                    self._props_set("prop___ci_tags", display)
+                self._on_ci_tags_needed(d, None, _after_tags)
             return
         if row == "pil__warning":
             if self._on_install_pillow:
@@ -4263,6 +4315,15 @@ class DesignerProperties(tk.Frame):
         event_key = row_iid[4:]
         if d.events.get(event_key):
             return  # already wired
+        # CI items require at least one tag before binding events
+        if "_ci_tags" in d.props and not d.props["_ci_tags"] and self._on_ci_tags_needed:
+            def _proceed():
+                self._do_auto_wire(d, row_iid, event_key)
+            self._on_ci_tags_needed(d, event_key, _proceed)
+            return
+        self._do_auto_wire(d, row_iid, event_key)
+
+    def _do_auto_wire(self, d: "WidgetDescriptor", row_iid: str, event_key: str) -> None:
         default = f"_{d.id}_{event_key}"
         d.events[event_key] = default
         self._events_set(row_iid, default)
