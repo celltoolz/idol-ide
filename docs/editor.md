@@ -5,7 +5,7 @@
 - Multi-tab editing with drag reorder, hover close button, and right-click tab menu
 - Hover any tab to see its full file path as a tooltip
 - Canvas-rendered regex-rule syntax highlighting; themes are JSON files in `themes/` — no Pygments dependency
-- Line numbers with code folding — click **▼**/**▶** markers to collapse/expand blocks; `# ── Name ───` section-marker comments fold from that header to the next section header at the same indent; IDOL designer markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block; **Up/Down arrow keys skip folded blocks**
+- Line numbers with code folding — click **▼**/**▶** markers to collapse/expand blocks; `# ── Name ───` section-marker comments fold from that header to the next section header at the same indent; IDOL designer markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block; **Up/Down arrow keys skip folded blocks**; pressing **Enter** on a folded section header unfolds the section first, then inserts a newline after the header line
 - Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes
 - Insert key toggles overwrite mode — block cursor and OVR status bar indicator
 
@@ -71,9 +71,14 @@ Split tabs are saved and restored across app restarts — including dirty/unsave
 
 The ⇕ button (in the split header) syncs both panes to the same scroll position. The hardware **Scroll Lock key** also toggles it — IDOL reads the key state on startup.
 
+## Syntax Highlighting
+
+- **Canvas-rendered regex-rule engine** — themes are JSON files in `themes/`; no Pygments dependency
+- **Multiline string highlighting** — triple-quoted strings (`"""..."""` and `'''...'''`) are highlighted as strings across all lines; typing `"""` or `'''` auto-inserts the matching closing triple-quote (auto-pair)
+
 ## Code Editing Helpers
 
-- **Ctrl+/** — toggle comment on the current line or selection (adds/removes `#`)
+- **Ctrl+/** — toggle comment on the current line or selection; `#` characters are aligned at the **minimum indentation level** of the selected lines (VS Code style), not at column 0
 - **Tab / Shift+Tab** — indent or unindent the current line or selected block by the configured tab size (spaces only)
 - **Smart Home** — first press jumps to the first non-whitespace character; second press jumps to column 0 (position-based, no state needed)
 - **Word occurrence highlights** — when the cursor rests on a word, all other occurrences in the file highlight automatically; updates on arrow-key navigation too
@@ -124,6 +129,10 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 ## Find & Replace
 
 VS Code-style inline bar with case, whole word, and regex toggles. Open with `Ctrl+F`. When there is no active selection, the search field is pre-populated with the identifier under the caret (if one exists).
+
+## Navigation
+
+**Go to Definition** (`F12`, or right-click → Go to Definition) — jumps to the definition of the symbol under the caret using the LSP. When navigating to a handler from the designer (double-click widget or event row) or via Go to Definition, the editor **vertically centers the target line** in the viewport so the destination is not hidden near the top or bottom edge.
 
 ## Right-Click Context Menu
 

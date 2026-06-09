@@ -5011,6 +5011,7 @@ class IDOL(Tk):
                 if path in paths:
                     paths.remove(path)
                     comp.props["paths"] = paths
+                    self._comp_tray.refresh(orig_form.components)
                     break
 
     def _on_ci_tags_needed(self, widget_desc, event_key, on_proceed) -> None:

@@ -399,6 +399,129 @@ A multi-mode wrapper around tkinter's built-in dialog functions. Each handler is
 
 **`parent=self`** — all dialog calls pass the form as parent so focus returns to the correct window after the dialog closes.
 
+## Canvas Item Designer
+
+The **Canvas Item Designer** (CI mode) lets you place and edit canvas items directly on a `tk.Canvas` widget without leaving the designer.
+
+### Entering and Exiting CI Mode
+
+**Double-click** any Canvas widget on the design canvas to enter CI mode. The designer performs a *sub-form swap*: a synthetic `FormModel` is built from the canvas's `canvas_items` list and loaded into the existing canvas, so all normal designer machinery — select, move, resize, Properties panel, Events tab, undo/redo — works on canvas items for free.
+
+**Exit CI mode** with:
+- **Escape** — first press de-arms the active placement tool; second press exits CI mode
+- **Right-click on canvas → Exit Canvas Edit Mode**
+
+On exit, the sub-form descriptors are converted back into `CanvasItemDescriptor` objects on the original canvas widget and the full form re-renders.
+
+### Ghost Overlay
+
+While CI mode is active:
+- The surrounding form is dimmed with a `gray25` stipple overlay (four rectangles around the canvas area)
+- A `#007acc` 2 px border is drawn around the active canvas
+- A mode label ("Canvas Edit Mode") is displayed above the border
+
+No transparency tricks are used — the overlay is drawn with stippled canvas rectangles.
+
+### CI Palette
+
+The left palette swaps to show only CI item types:
+
+| Type | Description |
+|---|---|
+| `CanvasRect` | Rectangle with `fill` and `outline` props |
+| `CanvasOval` | Oval/ellipse |
+| `CanvasText` | Text item with `text` and `font` props |
+| `CanvasLine` | Line segment |
+| `CanvasImage` | Image item with `image_path` prop |
+
+**Placement modes** match the normal palette: click to arm the placement tool, then click on the canvas to place at default size; drag to set size; double-click to place immediately at the canvas center.
+
+**IMAGES section** — below the item types, an IMAGES panel lists all images associated with this canvas (from Image components where `parent == canvas_id` or `parent == "Global"`):
+
+| Control | Action |
+|---|---|
+| `[+]` | Add images — opens a file picker; copies to `project/images/`; auto-places on canvas at actual PIL dimensions |
+| `[-]` | Full-delete the selected image — removes it from the canvas AND from the Image component's `paths` list |
+| `[×]` | Clear all images from this canvas |
+| Click an image row | Arms the CanvasImage placement tool for that image |
+| Double-click an image row | Auto-places the image at the canvas center with PIL dimensions |
+| Right-click an image row | Delete menu |
+| `▲` / `▼` buttons | Reorder the list |
+
+### Properties and Events Integration
+
+Selecting a CI item loads it into the existing **Properties** and **Events** tabs — no separate panel.
+
+**Properties tab fields:**
+
+| Field | Notes |
+|---|---|
+| `id` | Readonly — auto-numbered (e.g. `ci_rect1`) |
+| `type` | Readonly — item kind |
+| `x`, `y` | Position within the canvas |
+| `width`, `height` | Item dimensions |
+| `tags` | Click to open the tag editor dialog |
+| `image_path` | CanvasImage only — click to open an image dropdown |
+| `fill`, `outline` | Color picker (rect, oval, line) |
+| `text`, `font` | Text items only |
+
+**Events tab** — same wire-and-stub flow as widget events. Supported events: `click`, `dblclick`, `rightclick`, `mousedown`, `mouseup`, `mousemove`, `mouseenter`, `mouseleave`.
+
+> **Note:** A CI item must have at least one tag assigned before events can be wired. The UI enforces this.
+
+### Tags and the Tag Editor
+
+Click the **`tags`** property row to open the **Tag Editor** — a dark-themed modal dialog showing:
+- A checklist of all tags currently in use on this canvas (check to assign to the selected item)
+- An "add new tag" entry field for creating a new tag
+
+Tags are what connect canvas items to `tag_bind` calls in generated code. Items that share a tag all respond to the same event binding.
+
+### Image Component `parent` Property
+
+Image components now have a **`parent`** property (shown as a `canvas_ref` kind dropdown in the Properties panel):
+
+| Value | Behavior |
+|---|---|
+| `None` | Reference only — image is available in code but not auto-placed; not shown in any canvas's IMAGES palette |
+| `Global` | Shared by all canvases on the form — appears in every canvas's IMAGES palette |
+| `<canvas_id>` | Associated with a specific canvas — appears only in that canvas's IMAGES palette |
+
+When a `CanvasImage` item is placed in CI mode, an Image component is **auto-created** (or updated) on the original form with `parent = canvas_id`. The Image component's `paths` list stays in sync with placed CanvasImage items.
+
+### Code Generation
+
+CI items produce two kinds of generated code in `_build_ui`:
+
+**`tag_bind` calls** — for every `(tag, event)` pair in the canvas items' bindings, deduplicated across items that share a tag:
+
+```python
+self.canvas1.tag_bind("my_tag", "<Button-1>",        self._my_tag_click)
+self.canvas1.tag_bind("my_tag", "<Enter>",            self._my_tag_enter)
+self.canvas1.tag_bind("my_tag", "<ButtonRelease-1>",  self._my_tag_mouseup)
+```
+
+**Stub methods** — one stub per unique method name across all bindings:
+
+```python
+def _my_tag_click(self, event):
+    pass  # TODO
+
+def _my_tag_enter(self, event):
+    pass  # TODO
+```
+
+Stubs are generated in the `# ── Events ──` section and bodies survive regeneration just like widget event stubs.
+
+### Double-Click Navigation from CI Items
+
+- **Double-click a CI item** (while in CI mode) — auto-generates code if dirty, then jumps to the first handler for that item in the editor
+- **Double-click a wired event row** in the Events tab — jumps directly to that handler
+
+Both use the original form's `.py` file path (not the synthetic sub-form name) so navigation lands in the correct file.
+
+---
+
 ## Double-Click Navigation
 
 Double-clicking a widget with events:
