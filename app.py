@@ -1030,6 +1030,7 @@ class IDOL(Tk):
             on_select_component=self._on_comp_select,
             on_install_pillow=self._on_designer_install_pillow,
             on_ci_tags_needed=self._on_ci_tags_needed,
+            on_ci_image_paths_needed=self._ci_image_paths_for_props,
         )
         self._props_panel.configure(width=230)
 
@@ -4932,6 +4933,13 @@ class IDOL(Tk):
 
         return result
 
+    def _ci_image_paths_for_props(self) -> list:
+        """Return available image paths for the current CI canvas (used by image_path dropdown)."""
+        canvas_w = self._design_canvas.get_ci_widget()
+        if canvas_w:
+            return self._ci_palette_images(canvas_w.id)
+        return []
+
     def _on_ci_image_arm(self, path: str) -> None:
         """Palette armed a CanvasImage tool with a specific image path."""
         self._design_canvas.set_tool_extra_props({"image_path": path})
@@ -5414,6 +5422,17 @@ class IDOL(Tk):
 
     def _on_designer_widget_changed(self, descriptor) -> None:
         self._set_designer_dirty()
+        # In CI mode, keep canvas_items in sync so codegen sees current positions
+        if self._design_canvas.ci_mode:
+            from designer.model import widget_to_ci, _CI_TYPE_TO_KIND
+            orig_form = self._design_canvas._ci_original_form
+            canvas_w  = self._design_canvas.get_ci_widget()
+            form      = self._design_canvas.form
+            if orig_form and canvas_w and form:
+                canvas_w.canvas_items = [
+                    widget_to_ci(wd) for wd in form.widgets
+                    if wd.type in _CI_TYPE_TO_KIND
+                ]
         if len(self._design_canvas.selected_ids) > 1:
             form = self._design_canvas.form
             descriptors = [

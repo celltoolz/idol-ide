@@ -72,6 +72,7 @@ class DesignerProperties(tk.Frame):
         on_select_component:         Optional[Callable[[str],           None]] = None,
         on_install_pillow:           Optional[Callable[[],              None]] = None,
         on_ci_tags_needed:           Optional[Callable] = None,
+        on_ci_image_paths_needed:    Optional[Callable[[], list]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#252526", **kwargs)
@@ -91,6 +92,7 @@ class DesignerProperties(tk.Frame):
         self._on_select_component         = on_select_component
         self._on_install_pillow           = on_install_pillow
         self._on_ci_tags_needed           = on_ci_tags_needed
+        self._on_ci_image_paths_needed    = on_ci_image_paths_needed
         self._active_python: str          = __import__("sys").executable
         self._pil_available: "bool | None" = None
         self._project_dir: str            = __import__("os").getcwd()
@@ -3052,6 +3054,11 @@ class DesignerProperties(tk.Frame):
             if key == "image":
                 if self._current_widget:
                     self._open_image_picker(row)
+                return
+            if key == "image_path" and self._on_ci_image_paths_needed:
+                paths = self._on_ci_image_paths_needed()
+                if paths:
+                    self._props_open_dropdown(row, paths, self._commit_prop)
                 return
             if isinstance(d_ref.props.get(key), list):
                 if self._current_widget:
