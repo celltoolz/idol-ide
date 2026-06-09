@@ -72,6 +72,7 @@ class DesignerProperties(tk.Frame):
         on_select_component:         Optional[Callable[[str],           None]] = None,
         on_install_pillow:           Optional[Callable[[],              None]] = None,
         on_ci_tags_needed:           Optional[Callable] = None,
+        on_canvas_tags_needed:       Optional[Callable] = None,
         on_ci_image_paths_needed:    Optional[Callable[[], list]] = None,
         **kwargs,
     ) -> None:
@@ -92,6 +93,7 @@ class DesignerProperties(tk.Frame):
         self._on_select_component         = on_select_component
         self._on_install_pillow           = on_install_pillow
         self._on_ci_tags_needed           = on_ci_tags_needed
+        self._on_canvas_tags_needed       = on_canvas_tags_needed
         self._on_ci_image_paths_needed    = on_ci_image_paths_needed
         self._active_python: str          = __import__("sys").executable
         self._pil_available: "bool | None" = None
@@ -2712,6 +2714,11 @@ class DesignerProperties(tk.Frame):
                 display_val = ", ".join(tags) if tags else "(click to add tags)"
                 self._props_insert("prop___ci_tags", "tags", display_val)
                 continue
+            if key == "_canvas_tags":
+                tags = d.props.get("_canvas_tags", [])
+                display_val = f"{len(tags)} tag{'s' if len(tags) != 1 else ''}" if tags else "(click to manage)"
+                self._props_insert("prop___canvas_tags", "tags", display_val)
+                continue
             val = d.props.get(key, defaults.get(key, ""))
             self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), _display(val))
         # Color props — always show, apply swatches
@@ -2991,6 +2998,17 @@ class DesignerProperties(tk.Frame):
     def _dispatch_prop_click(self, row: str) -> None:
         if self._comp_mode and row.startswith("comp__"):
             self._dispatch_comp_prop_click(row)
+            return
+        # Tags pool row for canvas widget — open canvas tags pool manager
+        if row == "prop___canvas_tags":
+            d = self._current_widget
+            if d is not None and self._on_canvas_tags_needed:
+                def _after_canvas_tags():
+                    tags = d.props.get("_canvas_tags", [])
+                    n = len(tags)
+                    display = f"{n} tag{'s' if n != 1 else ''}" if tags else "(click to manage)"
+                    self._props_set("prop___canvas_tags", display)
+                self._on_canvas_tags_needed(d, _after_canvas_tags)
             return
         # Tags row for canvas items — open tag editor
         if row == "prop___ci_tags":
