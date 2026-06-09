@@ -181,6 +181,7 @@ _CHANGE_EVENTS  = ["change"]
 
 _WIDGET_EVENTS  = _MOUSE_EVENTS + _FOCUS_EVENTS + _KEY_EVENTS + _CHANGE_EVENTS
 _SIMPLE_EVENTS  = _MOUSE_EVENTS + _FOCUS_EVENTS
+_CI_EVENTS      = _MOUSE_EVENTS   # canvas items: mouse only (tag_bind, no focus/key)
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -444,35 +445,35 @@ REGISTRY: dict[str, dict] = {
         "default_size": (64, 64),
         "default_props": {"fill": "#4a4a4a", "outline": "#888888", "_ci_tags": []},
         "color_props": ["fill", "outline"],
-        "events": [], "draw_preview": _draw_ci_rect_preview,
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_rect_preview,
     },
     "CanvasOval": {
         "label": "Oval", "is_canvas_item": True,
         "default_size": (64, 64),
         "default_props": {"fill": "#4a4a4a", "outline": "#888888", "_ci_tags": []},
         "color_props": ["fill", "outline"],
-        "events": [], "draw_preview": _draw_ci_oval_preview,
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_oval_preview,
     },
     "CanvasText": {
         "label": "Text", "is_canvas_item": True,
         "default_size": (64, 20),
         "default_props": {"text": "Text", "fill": "#ffffff", "font": "", "_ci_tags": []},
         "color_props": ["fill"],
-        "events": [], "draw_preview": _draw_ci_text_preview,
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_text_preview,
     },
     "CanvasLine": {
         "label": "Line", "is_canvas_item": True,
         "default_size": (50, 0),
         "default_props": {"fill": "#888888", "linewidth": 1, "_ci_tags": []},
         "color_props": ["fill"],
-        "events": [], "draw_preview": _draw_ci_line_preview,
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_line_preview,
     },
     "CanvasImage": {
         "label": "Image", "is_canvas_item": True,
         "default_size": (64, 64),
         "default_props": {"image_path": "", "_ci_tags": []},
         "image_path_prop": True,
-        "events": [], "draw_preview": _draw_ci_image_preview,
+        "events": _CI_EVENTS, "draw_preview": _draw_ci_image_preview,
     },
 }
 

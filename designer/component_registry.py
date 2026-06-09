@@ -261,6 +261,13 @@ COMPONENT_REGISTRY: dict[str, ComponentDef] = {
                 default=[],
                 description="Image file(s) — click to pick one or more files. Single file → self.name, multiple → self.name = {stem: PhotoImage, ...}",
             ),
+            PropDef(
+                key="parent",
+                label="canvas",
+                kind="str",
+                default="",
+                description="Canvas widget ID this image set belongs to (e.g. canvas1). When set, these images are shown in the canvas editor for that widget.",
+            ),
         ),
         handler_defs=(
             ComponentHandlerDef(

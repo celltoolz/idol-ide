@@ -5080,6 +5080,20 @@ class IDOL(Tk):
     ) -> None:
         """Event panel edit — model already mutated by properties panel."""
         self._set_designer_dirty()
+        # In CI mode, mirror the event change into the CanvasItemDescriptor's bindings
+        if self._design_canvas.ci_mode:
+            from designer.model import _CI_EVENT_TO_TK
+            canvas_w = self._design_canvas.get_ci_widget()
+            if canvas_w:
+                for ci in canvas_w.canvas_items:
+                    if ci.id == widget_id:
+                        tk_ev = _CI_EVENT_TO_TK.get(event_key)
+                        if tk_ev:
+                            if handler:
+                                ci.bindings[tk_ev] = handler
+                            else:
+                                ci.bindings.pop(tk_ev, None)
+                        break
 
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
@@ -5228,10 +5242,12 @@ class IDOL(Tk):
             return
         if existing is None:
             comp = ComponentDescriptor(id=comp_id, type="Image",
-                                       props={"paths": unique_paths})
+                                       props={"paths": unique_paths,
+                                              "parent": canvas_widget.id})
             form.components.append(comp)
         else:
             existing.props["paths"] = unique_paths
+            existing.props.setdefault("parent", canvas_widget.id)
         self._comp_tray.refresh(form.components)
 
     def _sync_all_ci_image_components(self, form) -> None:
@@ -5966,7 +5982,10 @@ class IDOL(Tk):
         win.grab_set()
 
     def _on_comp_select(self, comp_id: str) -> None:
-        form = self._design_canvas.form
+        # In CI mode the sub-form has no components; look on the original form
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         comp = form.get_component(comp_id)
@@ -5984,6 +6003,9 @@ class IDOL(Tk):
         self._props_panel.load_component(comp, cdef)
 
     def _on_comp_deselect(self) -> None:
+        if self._design_canvas.ci_mode:
+            self._props_panel.clear()
+            return
         form = self._design_canvas.form
         if form:
             self._props_panel.load_form(form)
@@ -6048,7 +6070,10 @@ class IDOL(Tk):
         if prop_key == "__name__":
             self._on_comp_rename(comp_id, value)
             return
-        form = self._design_canvas.form
+        # In CI mode components live on the original form, not the sub-form
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         comp = form.get_component(comp_id)
@@ -6057,6 +6082,9 @@ class IDOL(Tk):
         comp.props[prop_key] = value
         if prop_key == "paths":
             self._comp_tray.refresh(form.components)
+            # In CI mode also refresh the palette Images section with the new paths
+            if self._design_canvas.ci_mode:
+                self._designer_palette.refresh_ci_images(list(value))
         self._set_designer_dirty()
 
     def _on_comp_connect(self, comp_id: str, handler_id: str) -> None:

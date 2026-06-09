@@ -406,17 +406,34 @@ _CI_KIND_TO_TYPE = {
 }
 _CI_TYPE_TO_KIND = {v: k for k, v in _CI_KIND_TO_TYPE.items()}
 
+# Logical event name → tk binding string for canvas items (subset of codegen._BINDINGS)
+_CI_EVENT_TO_TK: dict[str, str] = {
+    "click":      "<Button-1>",
+    "dblclick":   "<Double-Button-1>",
+    "rightclick": "<Button-3>",
+    "mousedown":  "<ButtonPress>",
+    "mouseup":    "<ButtonRelease>",
+    "mousemove":  "<Motion>",
+    "mouseenter": "<Enter>",
+    "mouseleave": "<Leave>",
+}
+_CI_TK_TO_EVENT: dict[str, str] = {v: k for k, v in _CI_EVENT_TO_TK.items()}
+
 
 def ci_to_widget(ci: "CanvasItemDescriptor") -> "WidgetDescriptor":
     """Convert a CanvasItemDescriptor to a WidgetDescriptor for sub-form editing."""
     props = dict(ci.props)
     props["_ci_tags"] = list(ci.tags)
+    events = {_CI_TK_TO_EVENT[tk]: method
+              for tk, method in ci.bindings.items()
+              if tk in _CI_TK_TO_EVENT and method}
     return WidgetDescriptor(
         id=ci.id,
         type=_CI_KIND_TO_TYPE[ci.kind],
         x=ci.x, y=ci.y,
         width=ci.width, height=ci.height,
         props=props,
+        events=events,
     )
 
 
@@ -424,6 +441,9 @@ def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
     """Convert a WidgetDescriptor (from sub-form) back to a CanvasItemDescriptor."""
     props = dict(w.props)
     tags = props.pop("_ci_tags", [])
+    bindings = {_CI_EVENT_TO_TK[ev]: method
+                for ev, method in w.events.items()
+                if ev in _CI_EVENT_TO_TK and method}
     return CanvasItemDescriptor(
         id=w.id,
         kind=_CI_TYPE_TO_KIND[w.type],
@@ -431,6 +451,7 @@ def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
         width=w.width, height=w.height,
         tags=list(tags),
         props=props,
+        bindings=bindings,
     )
 
 

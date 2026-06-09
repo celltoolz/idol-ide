@@ -233,6 +233,10 @@ class DesignerCanvas(tk.Canvas):
         return self._ci_sub_form
 
     @property
+    def ci_original_form(self) -> "FormModel | None":
+        return self._ci_original_form
+
+    @property
     def ci_widget_id(self) -> str | None:
         return self._ci_widget_id
 
