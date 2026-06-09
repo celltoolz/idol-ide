@@ -5196,7 +5196,8 @@ class IDOL(Tk):
             selected_ids = list(self._design_canvas.selected_ids)
             if widget_desc.id not in selected_ids:
                 selected_ids = [widget_desc.id]
-            self._show_item_tags_dialog(widget_desc, selected_ids, available,
+            pool = list(canvas_w.props.get("_canvas_tags", [])) if canvas_w else []
+            self._show_item_tags_dialog(widget_desc, selected_ids, pool,
                                         canvas_w, on_proceed)
 
     def _show_ci_wiring_dialog(self, widget_desc, current_tags, available_tags,
@@ -5363,7 +5364,6 @@ class IDOL(Tk):
         _ROW_BG  = "#2d2d2d"; _ROW_HV = "#37373d"
         _BORDER  = "#3c3c3c"; _ENTRY_BG = "#3c3c3c"; _BTN_BG = "#3a3a3a"
         _RM_FG   = "#888888"; _RM_HV = "#e05050"
-        _ADD_FG  = "#888888"; _ADD_HV = "#4ec94e"
         _ROW_H   = 26; LIST_W = 280; VIS = 3
         _ALL     = "__all__"
 
@@ -5483,9 +5483,9 @@ class IDOL(Tk):
                                          outline="")
                 item_cv.create_text(10, y0 + _ROW_H // 2, text=tag,
                                     fill=_FG, font=("Segoe UI", 9), anchor="w")
-                item_cv.create_text(LIST_W - 12, y0 + _ROW_H // 2, text="×",
+                item_cv.create_text(LIST_W - 12, y0 + _ROW_H // 2, text="−",
                                     fill=_RM_HV if hov_item_rm[0] == i else _RM_FG,
-                                    font=("Segoe UI", 11, "bold"), anchor="e")
+                                    font=("Segoe UI", 14, "bold"), anchor="e")
                 if i < len(tags) - 1:
                     item_cv.create_line(8, y1, LIST_W - 8, y1, fill="#333")
 
@@ -5541,7 +5541,7 @@ class IDOL(Tk):
         avail_cv.bind("<MouseWheel>",
                       lambda e: avail_cv.yview_scroll(-1 * (e.delta // 120), "units"))
 
-        hov_avail: list = [None]; hov_avail_plus: list = [None]
+        hov_avail: list = [None]; hov_avail_rm: list = [None]
 
         def _render_avail():
             tags = _avail_for_current()
@@ -5563,9 +5563,10 @@ class IDOL(Tk):
                                           outline="")
                 avail_cv.create_text(10, y0 + _ROW_H // 2, text=tag,
                                      fill=_FG, font=("Segoe UI", 9), anchor="w")
-                avail_cv.create_text(LIST_W - 12, y0 + _ROW_H // 2, text="+",
-                                     fill=_ADD_HV if hov_avail_plus[0] == i else _ADD_FG,
-                                     font=("Segoe UI", 12, "bold"), anchor="e")
+                # × on right = remove from pool (red on hover)
+                avail_cv.create_text(LIST_W - 12, y0 + _ROW_H // 2, text="×",
+                                     fill=_RM_HV if hov_avail_rm[0] == i else _RM_FG,
+                                     font=("Segoe UI", 11, "bold"), anchor="e")
                 if i < len(tags) - 1:
                     avail_cv.create_line(8, y1, LIST_W - 8, y1, fill="#333")
 
@@ -5587,19 +5588,28 @@ class IDOL(Tk):
 
         def _on_avail_motion(e):
             i = _avail_row_at(e.y)
-            plus = i if (i is not None and avail_cv.canvasx(e.x) >= LIST_W - 24) else None
-            if hov_avail[0] != i or hov_avail_plus[0] != plus:
-                hov_avail[0] = i; hov_avail_plus[0] = plus; _render_avail()
+            rm = i if (i is not None and avail_cv.canvasx(e.x) >= LIST_W - 24) else None
+            if hov_avail[0] != i or hov_avail_rm[0] != rm:
+                hov_avail[0] = i; hov_avail_rm[0] = rm; _render_avail()
 
         def _on_avail_leave(e):
-            if hov_avail[0] is not None or hov_avail_plus[0] is not None:
-                hov_avail[0] = None; hov_avail_plus[0] = None; _render_avail()
+            if hov_avail[0] is not None or hov_avail_rm[0] is not None:
+                hov_avail[0] = None; hov_avail_rm[0] = None; _render_avail()
 
         def _on_avail_click(e):
             i = _avail_row_at(e.y)
             if i is None: return
             tags = _avail_for_current()
-            if i < len(tags): _add_from_avail(tags[i])
+            if i >= len(tags): return
+            if avail_cv.canvasx(e.x) >= LIST_W - 24:
+                # × = remove tag from pool entirely
+                tag = tags[i]
+                if tag in avail_pool: avail_pool.remove(tag)
+                hov_avail[0] = None; hov_avail_rm[0] = None
+                _render_item(); _render_avail()
+            else:
+                # clicking the row body = add to item
+                _add_from_avail(tags[i])
 
         avail_cv.bind("<Motion>", _on_avail_motion)
         avail_cv.bind("<Leave>", _on_avail_leave)
