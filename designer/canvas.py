@@ -146,6 +146,8 @@ class DesignerCanvas(tk.Canvas):
         self._ci_sub_form:      bool          = False  # True while editing canvas items
         self._ci_widget_id:     str | None    = None   # Canvas widget being edited
         self._ci_original_form: "FormModel | None" = None  # form to restore on exit
+        self._ci_scale_x:       float         = 1.0   # display scale applied on enter (un-applied on exit)
+        self._ci_scale_y:       float         = 1.0
         self._tool_extra_props: dict          = {}     # extra props merged on next drop_widget
         self._tool_size: "tuple[int,int] | None" = None  # size override for next placement
         self._ci_orig_ox:       int           = _MARGIN        # ghost: original form ox
@@ -282,6 +284,11 @@ class DesignerCanvas(tk.Canvas):
         if "_ci_orig_w" not in w.props:
             w.props["_ci_orig_w"] = w.width
             w.props["_ci_orig_h"] = w.height
+        # Scale items from original dimensions to current canvas display dimensions.
+        _orig_w = w.props["_ci_orig_w"]
+        _orig_h = w.props["_ci_orig_h"]
+        self._ci_scale_x = w.width  / _orig_w if _orig_w else 1.0
+        self._ci_scale_y = w.height / _orig_h if _orig_h else 1.0
         sub = FormModel(
             name=f"_ci_{widget_id}",
             width=w.width,
@@ -289,6 +296,12 @@ class DesignerCanvas(tk.Canvas):
             bg=w.props.get("bg", "") or "#2a2a2a",
         )
         sub.widgets = [ci_to_widget(ci) for ci in w.canvas_items]
+        if self._ci_scale_x != 1.0 or self._ci_scale_y != 1.0:
+            for wd in sub.widgets:
+                wd.x      = round(wd.x      * self._ci_scale_x)
+                wd.y      = round(wd.y      * self._ci_scale_y)
+                wd.width  = max(1, round(wd.width  * self._ci_scale_x))
+                wd.height = max(1, round(wd.height * self._ci_scale_y))
         self.load_form(sub)
         if self._on_canvas_item_mode:
             self._on_canvas_item_mode(widget_id)
@@ -301,9 +314,21 @@ class DesignerCanvas(tk.Canvas):
         orig = self._ci_original_form
         w = orig.get_widget(self._ci_widget_id)
         if w is not None and self._form:
-            w.canvas_items = [widget_to_ci(wdesc) for wdesc in self._form.widgets
-                              if wdesc.type in ("CanvasRect","CanvasOval","CanvasText","CanvasLine","CanvasImage")]
+            _sx = self._ci_scale_x
+            _sy = self._ci_scale_y
+            w.canvas_items = []
+            for wdesc in self._form.widgets:
+                if wdesc.type not in ("CanvasRect","CanvasOval","CanvasText","CanvasLine","CanvasImage"):
+                    continue
+                if _sx != 1.0 or _sy != 1.0:
+                    wdesc.x      = round(wdesc.x      / _sx)
+                    wdesc.y      = round(wdesc.y      / _sy)
+                    wdesc.width  = max(1, round(wdesc.width  / _sx))
+                    wdesc.height = max(1, round(wdesc.height / _sy))
+                w.canvas_items.append(widget_to_ci(wdesc))
         self._ci_sub_form = False
+        self._ci_scale_x  = 1.0
+        self._ci_scale_y  = 1.0
         wid = self._ci_widget_id
         self._ci_widget_id = None
         self._ci_original_form = None
