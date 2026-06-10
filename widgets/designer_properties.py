@@ -1868,10 +1868,10 @@ class DesignerProperties(tk.Frame):
         self._props_hov_idx = None
 
     def _props_insert(self, iid: str, label: str, value: str,
-                      kind: str = "normal") -> None:
+                      kind: str = "normal", orig: "str | None" = None) -> None:
         """kind: 'header' | 'normal' | 'readonly'"""
         row: dict = {"iid": iid, "label": label, "value": value, "kind": kind,
-                     "swatch": None, "warn": False, "link": False}
+                     "swatch": None, "warn": False, "link": False, "orig": orig}
         self._props_row_map[iid] = len(self._props_rows)
         self._props_rows.append(row)
 
@@ -2180,9 +2180,16 @@ class DesignerProperties(tk.Frame):
                                    fill="#ff6b6b", font=(UI_FONT, 9),
                                    anchor="w", tags=f"pr{i}")
                 else:
-                    cv.create_text(split_x + 8, mid, text=val,
-                                   fill=_ORD_FG, font=(UI_FONT, 9),
-                                   anchor="w", tags=f"pr{i}")
+                    _vtid = cv.create_text(split_x + 8, mid, text=val,
+                                           fill=_ORD_FG, font=(UI_FONT, 9),
+                                           anchor="w", tags=f"pr{i}")
+                    if row.get("orig"):
+                        _tb = cv.bbox(_vtid)
+                        if _tb:
+                            cv.create_text(_tb[2] + 10, mid,
+                                           text=f"(original: {row['orig']})",
+                                           fill="#e8a838", font=(UI_FONT, 8),
+                                           anchor="w", tags=f"pr{i}")
 
     def _props_redraw_row(self, idx: int) -> None:
         """Redraw a single row in-place (no full delete)."""
@@ -2241,9 +2248,16 @@ class DesignerProperties(tk.Frame):
                                fill="#ff6b6b", font=(UI_FONT, 9),
                                anchor="w", tags=f"pr{idx}")
             else:
-                cv.create_text(split_x + 8, mid, text=val,
-                               fill=_ORD_FG, font=(UI_FONT, 9),
-                               anchor="w", tags=f"pr{idx}")
+                _vtid = cv.create_text(split_x + 8, mid, text=val,
+                                       fill=_ORD_FG, font=(UI_FONT, 9),
+                                       anchor="w", tags=f"pr{idx}")
+                if row.get("orig"):
+                    _tb = cv.bbox(_vtid)
+                    if _tb:
+                        cv.create_text(_tb[2] + 10, mid,
+                                       text=f"(original: {row['orig']})",
+                                       fill="#e8a838", font=(UI_FONT, 8),
+                                       anchor="w", tags=f"pr{idx}")
 
     # ── Order tab internals ───────────────────────────────────────────────────
 
@@ -2685,7 +2699,17 @@ class DesignerProperties(tk.Frame):
         self._props_insert("widget__name", "name", d.id)
         # Geometry
         for key in ("x", "y", "width", "height"):
-            self._props_insert(f"geo__{key}", key, str(getattr(d, key)))
+            val = str(getattr(d, key))
+            orig = None
+            if d.type == "Canvas" and key == "width":
+                _cw = d.props.get("_ci_orig_w")
+                if _cw is not None and _cw != d.width:
+                    orig = str(_cw)
+            elif d.type == "Canvas" and key == "height":
+                _ch = d.props.get("_ci_orig_h")
+                if _ch is not None and _ch != d.height:
+                    orig = str(_ch)
+            self._props_insert(f"geo__{key}", key, val, orig=orig)
         # Parent container (read-only)
         parent_val = d.parent_id if d.parent_id else "(form)"
         self._props_insert("geo__parent", "parent", parent_val, kind="readonly")
@@ -2716,6 +2740,8 @@ class DesignerProperties(tk.Frame):
                     or key in _colorize_reserved:
                 continue
             seen.add(key)
+            if key in ("_ci_orig_w", "_ci_orig_h"):
+                continue
             if key == "_ci_tags":
                 tags = d.props.get("_ci_tags", [])
                 display_val = ", ".join(tags) if tags else "(click to add tags)"
