@@ -6012,17 +6012,29 @@ class IDOL(Tk):
 
     def _on_designer_widget_changed(self, descriptor) -> None:
         self._set_designer_dirty()
-        # In CI mode, keep canvas_items in sync so codegen sees current positions
+        # In CI mode, keep canvas_items in sync so codegen sees current positions.
+        # Sub-form widgets are at display-scaled positions; un-scale back to original
+        # dimensions before storing so codegen always uses the design baseline.
         if self._design_canvas.ci_mode:
             from designer.model import widget_to_ci, _CI_TYPE_TO_KIND
             orig_form = self._design_canvas._ci_original_form
             canvas_w  = self._design_canvas.get_ci_widget()
             form      = self._design_canvas.form
+            _sx = self._design_canvas._ci_scale_x
+            _sy = self._design_canvas._ci_scale_y
             if orig_form and canvas_w and form:
-                canvas_w.canvas_items = [
-                    widget_to_ci(wd) for wd in form.widgets
-                    if wd.type in _CI_TYPE_TO_KIND
-                ]
+                items = []
+                for wd in form.widgets:
+                    if wd.type not in _CI_TYPE_TO_KIND:
+                        continue
+                    ci = widget_to_ci(wd)
+                    if _sx != 1.0 or _sy != 1.0:
+                        ci.x      = round(ci.x      / _sx)
+                        ci.y      = round(ci.y      / _sy)
+                        ci.width  = max(1, round(ci.width  / _sx))
+                        ci.height = max(1, round(ci.height / _sy))
+                    items.append(ci)
+                canvas_w.canvas_items = items
         if len(self._design_canvas.selected_ids) > 1:
             form = self._design_canvas.form
             descriptors = [
