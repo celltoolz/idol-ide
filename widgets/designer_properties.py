@@ -948,7 +948,7 @@ class DesignerProperties(tk.Frame):
             if _mi.command_handler in _methods:
                 self._events_insert(
                     f"comp_wire__mi__{_mi.name}", "command", _mi.command_handler,
-                    kind="comp_wire", conn_widget=f"menu: {_mi.name}")
+                    kind="comp_wire", conn_widget=f"__mi__{_mi.name}")
         self._events_redraw()
 
     def refresh_comp_connections(self) -> None:
@@ -1267,7 +1267,8 @@ class DesignerProperties(tk.Frame):
                 self._show_hint(hint)
             elif self._events_rows[idx].get("kind") == "comp_wire":
                 cw = self._events_rows[idx].get("conn_widget", "")
-                self._show_hint(f"connected to: {cw}" if cw else "connected component")
+                label = (f"menu: {cw[6:]}" if cw.startswith("__mi__") else cw)
+                self._show_hint(f"connected to: {label}  ···  click to edit wire" if label else "connected component")
             else:
                 self._clear_hint()
         else:
@@ -4120,12 +4121,13 @@ class DesignerProperties(tk.Frame):
         self._ev_btn_iid = None
         self._ev_clear_btn.config(text="×")
         self._ev_clear_btn.place_forget()
-        # comp_wire rows: ··· navigates to the handler rather than clearing
+        # comp_wire rows: ··· opens the Connect Widget Events dialog for this wire
         idx = self._events_row_map.get(row)
         if idx is not None and self._events_rows[idx].get("kind") == "comp_wire":
-            handler = self._events_rows[idx]["value"].strip()
-            if handler and self._on_navigate_handler:
-                self._on_navigate_handler(handler)
+            widget_id = self._events_rows[idx].get("conn_widget", "")
+            ev_key    = self._events_rows[idx]["label"]
+            if self._comp_id and self._on_component_edit and widget_id:
+                self._on_component_edit(self._comp_id, widget_id, ev_key)
             return
         self._events_set(row, "")
         self._commit_event(row, "")
