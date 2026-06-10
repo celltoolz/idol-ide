@@ -337,6 +337,8 @@ def _is_valid_canvas_tag(tag: str) -> bool:
     """Return True if tag is safe to use as a Tkinter canvas tag name."""
     if not tag or " " in tag:
         return False
+    if tag.startswith("_"):
+        return False  # system-reserved prefix (_bg and future internal tags)
     try:
         int(tag)
         return False  # purely numeric — tkinter interprets as item ID
@@ -5087,22 +5089,37 @@ class IDOL(Tk):
                      lambda e: list_cv.yview_scroll(-1 * (e.delta // 120), "units"))
 
         tag_list: list[str] = list(canvas_w.props.get("_canvas_tags", []))
+        # Protected system tags shown at top (greyed, no remove button)
+        protected_tags: list[str] = ["_bg"] if canvas_w.props.get("image") else []
+        n_prot = len(protected_tags)
         hover_iid: list = [None]
         hover_rm:  list = [None]
 
         def _render():
             list_cv.delete("all")
-            total_h = max(_ROW_H * len(tag_list), 1)
+            total = n_prot + len(tag_list)
+            total_h = max(_ROW_H * total, 1)
             list_cv.configure(scrollregion=(0, 0, LIST_W, total_h),
-                              height=_ROW_H * max(1, min(len(tag_list), LIST_VIS)))
+                              height=_ROW_H * max(1, min(total or 1, LIST_VIS)))
+            # Protected tags — greyed, no × button
+            for i, tag in enumerate(protected_tags):
+                y0 = i * _ROW_H; y1 = y0 + _ROW_H
+                list_cv.create_rectangle(0, y0, LIST_W, y1, fill="#272727", outline="")
+                list_cv.create_text(10, y0 + _ROW_H // 2, text=tag,
+                                    fill="#666666", font=("Segoe UI", 9), anchor="w")
+                list_cv.create_text(LIST_W - 10, y0 + _ROW_H // 2, text="system",
+                                    fill="#555555", font=("Segoe UI", 7, "italic"), anchor="e")
+                list_cv.create_line(8, y1, LIST_W - 8, y1, fill="#333")
+            # User tags
             if not tag_list:
-                list_cv.configure(height=_ROW_H)
-                list_cv.create_text(LIST_W // 2, _ROW_H // 2,
+                if n_prot == 0:
+                    list_cv.configure(height=_ROW_H)
+                list_cv.create_text(LIST_W // 2, (n_prot + 0.5) * _ROW_H,
                                     text="No tags yet — add one below",
                                     fill="#666", font=("Segoe UI", 8, "italic"), anchor="center")
                 return
             for i, tag in enumerate(tag_list):
-                y0 = i * _ROW_H; y1 = y0 + _ROW_H
+                y0 = (n_prot + i) * _ROW_H; y1 = y0 + _ROW_H
                 list_cv.create_rectangle(0, y0, LIST_W, y1,
                                          fill=_ROW_HV if hover_iid[0] == i else _ROW_BG,
                                          outline="")
@@ -5115,9 +5132,13 @@ class IDOL(Tk):
                     list_cv.create_line(8, y1, LIST_W - 8, y1, fill="#333")
 
         def _row_at(y):
-            if not tag_list: return None
-            y_doc = list_cv.canvasy(y); i = int(y_doc // _ROW_H)
-            return i if 0 <= i < len(tag_list) else None
+            # Returns index into tag_list only (protected rows return None)
+            y_doc = list_cv.canvasy(y)
+            idx = int(y_doc // _ROW_H)
+            user_i = idx - n_prot
+            if user_i < 0 or user_i >= len(tag_list):
+                return None
+            return user_i
 
         def _on_motion(e):
             i = _row_at(e.y)

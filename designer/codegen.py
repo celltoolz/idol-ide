@@ -675,9 +675,10 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
             _place_parts.append(f"height={w.height}")
         lines.append(f"        self.{w.id}.place({', '.join(_place_parts)})")
         if w.type == "Canvas" and w.props.get("image"):
+            _ci_bg_tag = ', tags="_bg"' if w.canvas_items else ""
             lines.append(
                 f'        self.{w.id}.create_image(0, 0, anchor="nw",'
-                f' image=self._img_{w.id})'
+                f' image=self._img_{w.id}{_ci_bg_tag})'
             )
 
     # list_insert_props — populate widget with insert() calls after place()/pack()
@@ -713,11 +714,39 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
         a = w.anchor
         if a == "all":
             new_w, new_h = "e.width", "e.height"
+            sx_expr, sy_expr = f"e.width / {w.width}", f"e.height / {w.height}"
         elif a in ("top", "bottom"):
             new_w, new_h = "e.width", str(w.height)
+            sx_expr, sy_expr = f"e.width / {w.width}", "1.0"
         else:  # left, right
             new_w, new_h = str(w.width), "e.height"
+            sx_expr, sy_expr = "1.0", f"e.height / {w.height}"
         fn = f"_img_resize_{w.id}"
+
+        # For a Canvas with CI items, emit closure variable declarations before the def
+        # so the resize handler can access item positions/images populated later.
+        _has_ci = w.type == "Canvas" and bool(w.canvas_items)
+        if _has_ci and form is not None:
+            import os as _os
+            # ALL image paths from the canvas's Image component (keyed by (img_key, comp_id))
+            # so every button-state image is resized, not just the ones used as initial images.
+            _ci_paths_dict: dict[tuple, str] = {}
+            for comp in form.components:
+                if comp.type == "Image" and comp.props.get("parent") == w.id:
+                    _cpaths = comp.props.get("paths", [])
+                    for _ipath in _cpaths:
+                        _ikey = (_os.path.splitext(_os.path.basename(_ipath))[0]
+                                 if len(_cpaths) > 1 else "")
+                        _ci_paths_dict[(_ikey, comp.id)] = _ipath.replace("\\", "/")
+                    break
+            if _ci_paths_dict:
+                lines.append(f"        _{w.id}_ci_paths = {{")
+                for (_ikey, _cid), _ipath in _ci_paths_dict.items():
+                    lines.append(f"            ({repr(_ikey)}, {repr(_cid)}): {repr(_ipath)},")
+                lines.append(f"        }}")
+            lines.append(f"        _{w.id}_item_coords = {{}}  # iid → orig coord tuple")
+            lines.append(f"        _{w.id}_item_imgs   = {{}}  # iid → (img_key, comp_id)")
+
         lines.append(f"        def {fn}(e):")
         lines.append(f"            if e.width < 4 or e.height < 4:")
         lines.append(f"                return")
@@ -726,8 +755,40 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
         lines.append(f"                .resize(({new_w}, {new_h}), Image.LANCZOS)")
         lines.append(f"            )")
         if w.type == "Canvas":
-            lines.append(f'            self.{w.id}.delete("all")')
-            lines.append(f'            self.{w.id}.create_image(0, 0, anchor="nw", image=self._img_{w.id})')
+            if _has_ci:
+                lines.append(f'            self.{w.id}.delete("_bg")')
+                lines.append(f'            self.{w.id}.create_image(0, 0, anchor="nw",'
+                              f' image=self._img_{w.id}, tags="_bg")')
+                lines.append(f'            self.{w.id}.tag_lower("_bg")')
+                lines.append(f"            _sx, _sy = {sx_expr}, {sy_expr}")
+                # Resize all canvas-item images from disk (natural size × scale factor)
+                if _ci_paths_dict:
+                    lines.append(f"            _done: set = set()")
+                    lines.append(f"            for (_ik, _cid), _p in _{w.id}_ci_paths.items():")
+                    lines.append(f"                if _ik not in _done:")
+                    lines.append(f"                    _orig = Image.open(os.path.join(os.path.dirname(__file__), _p))")
+                    lines.append(f"                    _ow, _oh = _orig.size")
+                    lines.append(f"                    _resized = ImageTk.PhotoImage(")
+                    lines.append(f"                        _orig.resize((max(1, round(_ow * _sx)), max(1, round(_oh * _sy))), Image.LANCZOS)")
+                    lines.append(f"                    )")
+                    lines.append(f"                    if _ik:")
+                    lines.append(f"                        getattr(self, _cid)[_ik] = _resized")
+                    lines.append(f"                    else:")
+                    lines.append(f"                        setattr(self, _cid, _resized)")
+                    lines.append(f"                    _done.add(_ik)")
+                # Move all items and re-apply current images
+                lines.append(f"            for _iid, _oc in _{w.id}_item_coords.items():")
+                lines.append(f"                self.{w.id}.coords(")
+                lines.append(f"                    _iid,")
+                lines.append(f"                    *(round(c * (_sx if j % 2 == 0 else _sy))")
+                lines.append(f"                      for j, c in enumerate(_oc)))")
+                if _ci_paths_dict:
+                    lines.append(f"            for _iid, (_ik, _cid) in _{w.id}_item_imgs.items():")
+                    lines.append(f"                self.{w.id}.itemconfigure(")
+                    lines.append(f"                    _iid, image=(getattr(self, _cid)[_ik] if _ik else getattr(self, _cid)))")
+            else:
+                lines.append(f'            self.{w.id}.delete("all")')
+                lines.append(f'            self.{w.id}.create_image(0, 0, anchor="nw", image=self._img_{w.id})')
         else:
             lines.append(f"            self.{w.id}.configure(image=self._img_{w.id})")
         lines.append(f'        self.{w.id}.bind("<Configure>", {fn}, add="+")')
@@ -1381,6 +1442,17 @@ def _ci_image_ref(form: FormModel, img_path: str) -> str:
     return _img_ref(comp_id, stem if len(comp_paths) > 1 else "")
 
 
+def _ci_comp_and_key(form: FormModel, img_path: str) -> "tuple[str | None, str]":
+    """Return (comp_id, img_key) for a CI image path. img_key='' for single-image comps."""
+    import os as _os
+    for comp in form.components:
+        if comp.type == "Image" and img_path in comp.props.get("paths", []):
+            comp_paths = comp.props.get("paths", [])
+            stem = _os.path.splitext(_os.path.basename(img_path))[0]
+            return comp.id, (stem if len(comp_paths) > 1 else "")
+    return None, ""
+
+
 def _canvas_items_build_lines(form: FormModel) -> list[str]:
     """Return indented _build_ui lines for canvas items created via the Canvas Item Designer."""
     lines: list[str] = []
@@ -1396,63 +1468,107 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
             continue
         canvas_name = w.id
         lines.append(f"        # {canvas_name} items")
+        # Scalable: canvas has bg image + size-changing anchor → capture item IDs for resize handler
+        _scalable = bool(w.props.get("image") and w.anchor in _SIZE_ANCHORS)
         # Group tag_binds by (tag, event) to deduplicate across items sharing a tag
         tag_event_handler: dict[tuple[str, str], str] = {}
         for item in w.canvas_items:
             ix, iy = item.x, item.y
             anchor  = item.props.get("anchor", "nw")
+            tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
             if item.kind == "image":
                 img_path = item.props.get("image_path", "")
                 img_ref  = _ci_image_ref(form, img_path)
-                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
-                lines.append(
-                    f'        self.{canvas_name}.create_image({ix}, {iy}, image={img_ref},'
-                    f' anchor="{anchor}", tags={tags_str})'
-                )
+                if _scalable:
+                    _iid_var = f"_ci_{item.id}"
+                    lines.append(
+                        f'        {_iid_var} = self.{canvas_name}.create_image({ix}, {iy}, image={img_ref},'
+                        f' anchor="{anchor}", tags={tags_str})'
+                    )
+                    lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy})")
+                    _cid, _ikey = _ci_comp_and_key(form, img_path)
+                    if _cid:
+                        lines.append(
+                            f"        _{canvas_name}_item_imgs[{_iid_var}] ="
+                            f" ({repr(_ikey)}, {repr(_cid)})"
+                        )
+                else:
+                    lines.append(
+                        f'        self.{canvas_name}.create_image({ix}, {iy}, image={img_ref},'
+                        f' anchor="{anchor}", tags={tags_str})'
+                    )
             elif item.kind == "rectangle":
                 fill    = item.props.get("fill", "")
                 outline = item.props.get("outline", "")
-                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
                 x2, y2 = ix + item.width, iy + item.height
                 fill_arg    = f', fill="{fill}"'    if fill    else ""
                 outline_arg = f', outline="{outline}"' if outline else ""
-                lines.append(
-                    f'        self.{canvas_name}.create_rectangle({ix}, {iy}, {x2}, {y2}'
-                    f'{fill_arg}{outline_arg}, tags={tags_str})'
-                )
+                if _scalable:
+                    _iid_var = f"_ci_{item.id}"
+                    lines.append(
+                        f'        {_iid_var} = self.{canvas_name}.create_rectangle({ix}, {iy}, {x2}, {y2}'
+                        f'{fill_arg}{outline_arg}, tags={tags_str})'
+                    )
+                    lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2}, {y2})")
+                else:
+                    lines.append(
+                        f'        self.{canvas_name}.create_rectangle({ix}, {iy}, {x2}, {y2}'
+                        f'{fill_arg}{outline_arg}, tags={tags_str})'
+                    )
             elif item.kind == "oval":
                 fill    = item.props.get("fill", "")
                 outline = item.props.get("outline", "")
-                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
                 x2, y2 = ix + item.width, iy + item.height
                 fill_arg    = f', fill="{fill}"'    if fill    else ""
                 outline_arg = f', outline="{outline}"' if outline else ""
-                lines.append(
-                    f'        self.{canvas_name}.create_oval({ix}, {iy}, {x2}, {y2}'
-                    f'{fill_arg}{outline_arg}, tags={tags_str})'
-                )
+                if _scalable:
+                    _iid_var = f"_ci_{item.id}"
+                    lines.append(
+                        f'        {_iid_var} = self.{canvas_name}.create_oval({ix}, {iy}, {x2}, {y2}'
+                        f'{fill_arg}{outline_arg}, tags={tags_str})'
+                    )
+                    lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2}, {y2})")
+                else:
+                    lines.append(
+                        f'        self.{canvas_name}.create_oval({ix}, {iy}, {x2}, {y2}'
+                        f'{fill_arg}{outline_arg}, tags={tags_str})'
+                    )
             elif item.kind == "text":
                 text    = item.props.get("text", "")
                 fill    = item.props.get("fill", "")
                 font    = item.props.get("font", "")
-                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
                 fill_arg = f', fill="{fill}"' if fill else ""
                 font_arg = f', font={repr(font)}' if font else ""
-                lines.append(
-                    f'        self.{canvas_name}.create_text({ix}, {iy}, anchor="nw",'
-                    f' text={repr(text)}{fill_arg}{font_arg}, tags={tags_str})'
-                )
+                if _scalable:
+                    _iid_var = f"_ci_{item.id}"
+                    lines.append(
+                        f'        {_iid_var} = self.{canvas_name}.create_text({ix}, {iy}, anchor="nw",'
+                        f' text={repr(text)}{fill_arg}{font_arg}, tags={tags_str})'
+                    )
+                    lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy})")
+                else:
+                    lines.append(
+                        f'        self.{canvas_name}.create_text({ix}, {iy}, anchor="nw",'
+                        f' text={repr(text)}{fill_arg}{font_arg}, tags={tags_str})'
+                    )
             elif item.kind == "line":
                 fill = item.props.get("fill", "")
                 lw   = item.props.get("linewidth", 1)
                 x2pt, y2pt = ix + item.width, iy + item.height
-                tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
                 fill_arg = f', fill="{fill}"' if fill else ""
                 lw_arg   = f', width={lw}' if lw and lw != 1 else ""
-                lines.append(
-                    f'        self.{canvas_name}.create_line({ix}, {iy}, {x2pt}, {y2pt}'
-                    f'{fill_arg}{lw_arg}, tags={tags_str})'
-                )
+                if _scalable:
+                    _iid_var = f"_ci_{item.id}"
+                    lines.append(
+                        f'        {_iid_var} = self.{canvas_name}.create_line({ix}, {iy}, {x2pt}, {y2pt}'
+                        f'{fill_arg}{lw_arg}, tags={tags_str})'
+                    )
+                    lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2pt}, {y2pt})")
+                else:
+                    lines.append(
+                        f'        self.{canvas_name}.create_line({ix}, {iy}, {x2pt}, {y2pt}'
+                        f'{fill_arg}{lw_arg}, tags={tags_str})'
+                    )
             # Collect bindings — use the specific binding_tag for each event
             for ev_key, method in item.bindings.items():
                 if not method:
