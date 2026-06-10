@@ -920,9 +920,8 @@ class DesignerProperties(tk.Frame):
             self._insert_dialog_titles_section(descriptor)
         self._props_redraw()
 
-        # Events tab: empty for components
-        self._events_clear()
-        self._events_redraw()
+        # Events tab: show wired widget/menu event connections for this component
+        self._refresh_comp_events()
 
         # Draw component handlers + connected-widget section in the Handlers tab
         self._handlers_defs     = []
@@ -931,11 +930,33 @@ class DesignerProperties(tk.Frame):
         self._comp_conn_hov_idx = None
         self._handlers_redraw()
 
+    def _refresh_comp_events(self) -> None:
+        """Rebuild the Events tab for the active component from current widget wires."""
+        _form = self._comp_form or self._form
+        if not self._comp_mode or not self._comp_id or not _form or not self._comp_def:
+            return
+        self._events_clear()
+        _cid = self._comp_id
+        _methods = {f"_{_cid}{hd.label}" for hd in self._comp_def.handler_defs}
+        for _w in _form.widgets:
+            for _ev, _meth in _w.events.items():
+                if _meth in _methods:
+                    self._events_insert(
+                        f"comp_wire__{_w.id}__{_ev}", _ev, _meth,
+                        kind="comp_wire", conn_widget=_w.id)
+        for _mi in _form.menu_items:
+            if _mi.command_handler in _methods:
+                self._events_insert(
+                    f"comp_wire__mi__{_mi.name}", "command", _mi.command_handler,
+                    kind="comp_wire", conn_widget=f"menu: {_mi.name}")
+        self._events_redraw()
+
     def refresh_comp_connections(self) -> None:
         """Re-collect and redraw after a component wire is added or removed."""
         if self._comp_mode and self._comp_id:
             self._comp_connections = self._collect_comp_connections(self._comp_id)
             self._handlers_redraw()
+            self._refresh_comp_events()
             # Refresh props so Dialog Titles section picks up new wires/titles
             comp_obj = self._form.get_component(self._comp_id) if self._form else None
             if comp_obj and self._comp_def:
@@ -1101,10 +1122,10 @@ class DesignerProperties(tk.Frame):
         self._events_hov_idx = None
 
     def _events_insert(self, iid: str, label: str, value: str,
-                       kind: str = "event") -> None:
-        """kind: 'event' | 'guide'"""
+                       kind: str = "event", conn_widget: str = "") -> None:
+        """kind: 'event' | 'guide' | 'comp_wire'"""
         row: dict = {"iid": iid, "label": label, "value": value,
-                     "kind": kind, "warn": False}
+                     "kind": kind, "warn": False, "conn_widget": conn_widget}
         self._events_row_map[iid] = len(self._events_rows)
         self._events_rows.append(row)
 
@@ -1244,6 +1265,9 @@ class DesignerProperties(tk.Frame):
             hint = _EVENT_DESCRIPTIONS.get(ev_name, ("", ""))[1]
             if hint:
                 self._show_hint(hint)
+            elif self._events_rows[idx].get("kind") == "comp_wire":
+                cw = self._events_rows[idx].get("conn_widget", "")
+                self._show_hint(f"connected to: {cw}" if cw else "connected component")
             else:
                 self._clear_hint()
         else:
@@ -1269,6 +1293,10 @@ class DesignerProperties(tk.Frame):
         val = self._events_rows[idx]["value"].strip()
         if val:
             self._ev_wire_btn.place_forget()
+            if self._events_rows[idx].get("kind") == "comp_wire":
+                self._ev_clear_btn.config(text="···")
+            else:
+                self._ev_clear_btn.config(text="×")
             self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
             self._ev_clear_btn.lift()
             self._ev_btn_iid = iid
@@ -1307,7 +1335,7 @@ class DesignerProperties(tk.Frame):
         dest = self.winfo_containing(event.x_root, event.y_root)
         if dest is self._events_cv:
             return
-        self._ev_clear_btn.config(fg="#888888")
+        self._ev_clear_btn.config(text="×", fg="#888888")
         self._ev_wire_btn.config(fg="#555555")
         self._ev_clear_btn.place_forget()
         self._ev_wire_btn.place_forget()
@@ -4090,7 +4118,15 @@ class DesignerProperties(tk.Frame):
         if not row:
             return
         self._ev_btn_iid = None
+        self._ev_clear_btn.config(text="×")
         self._ev_clear_btn.place_forget()
+        # comp_wire rows: ··· navigates to the handler rather than clearing
+        idx = self._events_row_map.get(row)
+        if idx is not None and self._events_rows[idx].get("kind") == "comp_wire":
+            handler = self._events_rows[idx]["value"].strip()
+            if handler and self._on_navigate_handler:
+                self._on_navigate_handler(handler)
+            return
         self._events_set(row, "")
         self._commit_event(row, "")
 
