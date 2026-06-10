@@ -267,6 +267,16 @@ class DesignerProperties(tk.Frame):
         self._ev_clear_btn.bind("<Leave>",    self._on_ev_btn_leave)
         self._ev_clear_btn.bind("<Button-1>", self._on_ev_clear_click)
 
+        # Floating … edit button for comp_wire rows — mirrors _comp_edit_btn styling
+        self._ev_edit_btn = tk.Label(
+            self._events_cv, text="…",
+            bg="#3a3a3a", fg="#555555",
+            font=(UI_FONT, 9), cursor="hand2", padx=3,
+        )
+        self._ev_edit_btn.bind("<Enter>",        lambda e: self._ev_edit_btn.config(fg="#cccccc"))
+        self._ev_edit_btn.bind("<Leave>",        self._on_ev_btn_leave)
+        self._ev_edit_btn.bind("<ButtonRelease-1>", self._on_ev_edit_click)
+
         self._ev_wire_btn = tk.Label(
             self._events_cv, text="✦",
             bg="#3a3a3a", fg="#555555",
@@ -1273,6 +1283,7 @@ class DesignerProperties(tk.Frame):
                 self._clear_hint()
         else:
             self._ev_clear_btn.place_forget()
+            self._ev_edit_btn.place_forget()
             self._ev_wire_btn.place_forget()
             self._clear_hint()
 
@@ -1280,12 +1291,14 @@ class DesignerProperties(tk.Frame):
         iid = self._events_rows[idx]["iid"]
         if iid == "ev__learn_guide":
             self._ev_clear_btn.place_forget()
+            self._ev_edit_btn.place_forget()
             self._ev_wire_btn.place_forget()
             self._ev_btn_iid = None
             return
         bbox = self._events_bbox(iid)
         if not bbox:
             self._ev_clear_btn.place_forget()
+            self._ev_edit_btn.place_forget()
             self._ev_wire_btn.place_forget()
             self._ev_btn_iid = None
             return
@@ -1295,14 +1308,18 @@ class DesignerProperties(tk.Frame):
         if val:
             self._ev_wire_btn.place_forget()
             if self._events_rows[idx].get("kind") == "comp_wire":
-                self._ev_clear_btn.config(text="···")
+                self._ev_clear_btn.place_forget()
+                self._ev_edit_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+                self._ev_edit_btn.lift()
             else:
+                self._ev_edit_btn.place_forget()
                 self._ev_clear_btn.config(text="×")
-            self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
-            self._ev_clear_btn.lift()
+                self._ev_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
+                self._ev_clear_btn.lift()
             self._ev_btn_iid = iid
         else:
             self._ev_clear_btn.place_forget()
+            self._ev_edit_btn.place_forget()
             can_wire = (
                 (iid.startswith("ev__")      and self._current_widget is not None) or
                 (iid.startswith("form_ev__") and self._form is not None)
@@ -1322,23 +1339,27 @@ class DesignerProperties(tk.Frame):
 
     def _on_event_canvas_leave(self, event: tk.Event) -> None:
         dest = self.winfo_containing(event.x_root, event.y_root)
-        if dest in (self._ev_clear_btn, self._ev_wire_btn):
+        if dest in (self._ev_clear_btn, self._ev_edit_btn, self._ev_wire_btn):
             return
         if self._events_hov_idx is not None:
             old = self._events_hov_idx
             self._events_hov_idx = None
             self._events_redraw_row(old)
         self._ev_clear_btn.place_forget()
+        self._ev_edit_btn.place_forget()
         self._ev_wire_btn.place_forget()
         self._clear_hint()
 
     def _on_ev_btn_leave(self, event: tk.Event) -> None:
+        # Always reset colors immediately (mirrors _on_handler_btn_leave pattern)
+        self._ev_clear_btn.config(text="×", fg="#888888")
+        self._ev_edit_btn.config(fg="#555555")
+        self._ev_wire_btn.config(fg="#555555")
         dest = self.winfo_containing(event.x_root, event.y_root)
         if dest is self._events_cv:
             return
-        self._ev_clear_btn.config(text="×", fg="#888888")
-        self._ev_wire_btn.config(fg="#555555")
         self._ev_clear_btn.place_forget()
+        self._ev_edit_btn.place_forget()
         self._ev_wire_btn.place_forget()
         if self._events_hov_idx is not None:
             old = self._events_hov_idx
@@ -4119,18 +4140,23 @@ class DesignerProperties(tk.Frame):
         if not row:
             return
         self._ev_btn_iid = None
-        self._ev_clear_btn.config(text="×")
         self._ev_clear_btn.place_forget()
-        # comp_wire rows: ··· opens the Connect Widget Events dialog for this wire
+        self._events_set(row, "")
+        self._commit_event(row, "")
+
+    def _on_ev_edit_click(self, event: tk.Event) -> None:
+        self._ev_clearing = True
+        row = self._ev_btn_iid
+        if not row:
+            return
+        self._ev_btn_iid = None
+        self._ev_edit_btn.place_forget()
         idx = self._events_row_map.get(row)
         if idx is not None and self._events_rows[idx].get("kind") == "comp_wire":
             widget_id = self._events_rows[idx].get("conn_widget", "")
             ev_key    = self._events_rows[idx]["label"]
             if self._comp_id and self._on_component_edit and widget_id:
                 self._on_component_edit(self._comp_id, widget_id, ev_key)
-            return
-        self._events_set(row, "")
-        self._commit_event(row, "")
 
     def _on_ev_wire_click(self, event: tk.Event) -> None:
         self._ev_clearing = True
