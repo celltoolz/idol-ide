@@ -276,6 +276,12 @@ class DesignerCanvas(tk.Canvas):
         self._ci_original_form = self._form
         self._ci_widget_id = widget_id
         self._ci_sub_form = True
+        # Record original canvas dimensions the first time CI mode is entered.
+        # These become the codegen resize-handler reference so that designer
+        # resizes don't corrupt the scale baseline.
+        if "_ci_orig_w" not in w.props:
+            w.props["_ci_orig_w"] = w.width
+            w.props["_ci_orig_h"] = w.height
         sub = FormModel(
             name=f"_ci_{widget_id}",
             width=w.width,
@@ -1489,16 +1495,23 @@ class DesignerCanvas(tk.Canvas):
 
     def _draw_ci_items_preview(self, w: "WidgetDescriptor", wx: int, wy: int, tag: str) -> None:
         """Draw canvas items on a Canvas widget in normal (non-CI-edit) designer view."""
+        # Visual-only scale: items store original positions; scale to current canvas size for display.
+        _orig_cw = w.props.get("_ci_orig_w", w.width)
+        _orig_ch = w.props.get("_ci_orig_h", w.height)
+        _sx = w.width / _orig_cw if _orig_cw else 1.0
+        _sy = w.height / _orig_ch if _orig_ch else 1.0
         for item in w.canvas_items:
-            ix  = wx + item.x
-            iy  = wy + item.y
-            ix2 = ix + item.width
-            iy2 = iy + item.height
+            dw = max(1, round(item.width  * _sx))
+            dh = max(1, round(item.height * _sy))
+            ix  = wx + round(item.x * _sx)
+            iy  = wy + round(item.y * _sy)
+            ix2 = ix + dw
+            iy2 = iy + dh
             ptag = (tag, f"ci_preview:{item.id}")
             if item.kind == "image":
                 img_path = item.props.get("image_path", "")
-                if img_path and item.width > 0 and item.height > 0:
-                    photo = _load_preview_image(self, img_path, item.width, item.height)
+                if img_path and dw > 0 and dh > 0:
+                    photo = _load_preview_image(self, img_path, dw, dh)
                     if photo:
                         self.create_image(ix, iy, anchor="nw", image=photo, tags=ptag)
                         continue
@@ -1524,7 +1537,7 @@ class DesignerCanvas(tk.Canvas):
                                  fill=item.props.get("fill", "#ffffff"),
                                  font=fnt if fnt else (UI_FONT, 9), tags=ptag)
             elif item.kind == "line":
-                self.create_line(ix, iy, ix + item.width, iy + item.height,
+                self.create_line(ix, iy, ix + dw, iy + dh,
                                  fill=item.props.get("fill", "#888888"),
                                  width=item.props.get("linewidth", 1), tags=ptag)
 
@@ -1699,7 +1712,6 @@ class DesignerCanvas(tk.Canvas):
             handle_name = fhandle_tag.split(":", 1)[1]
             if self._form:
                 self.push_undo()
-                _ci_anchors = {"all", "top", "bottom", "left", "right"}
                 self._drag = {
                     "mode":     "form_resize",
                     "handle":   handle_name,
@@ -1718,14 +1730,6 @@ class DesignerCanvas(tk.Canvas):
                         for w in self._form.widgets
                         if w.anchor and w.anchor not in ("", "top_left") and w.parent_id
                         if (p := self._form.get_widget(w.parent_id)) is not None
-                    },
-                    # Original CI item positions for canvases that resize with the form
-                    "orig_ci_geoms": {
-                        w.id: {ci.id: (ci.x, ci.y, ci.width, ci.height)
-                               for ci in w.canvas_items}
-                        for w in self._form.widgets
-                        if w.type == "Canvas" and w.canvas_items
-                        and w.anchor in _ci_anchors
                     },
                 }
             return
@@ -1886,22 +1890,6 @@ class DesignerCanvas(tk.Canvas):
                                 geom, widget.anchor, orig_fw, orig_fh, f.width, f.height)
                         widget.x, widget.y = nx, ny
                         widget.width, widget.height = max(GRID, nww), max(GRID, nwh)
-                        # Scale CI items when their canvas resizes
-                        if widget.type == "Canvas" and widget.canvas_items:
-                            _ci_orig = d.get("orig_ci_geoms", {}).get(widget.id)
-                            if _ci_orig:
-                                _orig_cw, _orig_ch = geom[2], geom[3]
-                                _new_cw, _new_ch = widget.width, widget.height
-                                _sx = _new_cw / _orig_cw if _orig_cw else 1.0
-                                _sy = _new_ch / _orig_ch if _orig_ch else 1.0
-                                for _ci in widget.canvas_items:
-                                    _og = _ci_orig.get(_ci.id)
-                                    if _og:
-                                        _ox, _oy, _ow, _oh = _og
-                                        _ci.x = round(_ox * _sx)
-                                        _ci.y = round(_oy * _sy)
-                                        _ci.width  = max(1, round(_ow * _sx))
-                                        _ci.height = max(1, round(_oh * _sy))
 
             self.delete("all")
             self._draw_form()

@@ -712,15 +712,17 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
             and w.type in ("Label", "Button", "Canvas"):
         rel_fwd = w.props["image"].replace("\\", "/")
         a = w.anchor
+        _ci_orig_w = w.props.get("_ci_orig_w", w.width)
+        _ci_orig_h = w.props.get("_ci_orig_h", w.height)
         if a == "all":
             new_w, new_h = "e.width", "e.height"
-            sx_expr, sy_expr = f"e.width / {w.width}", f"e.height / {w.height}"
+            sx_expr, sy_expr = f"e.width / {_ci_orig_w}", f"e.height / {_ci_orig_h}"
         elif a in ("top", "bottom"):
             new_w, new_h = "e.width", str(w.height)
-            sx_expr, sy_expr = f"e.width / {w.width}", "1.0"
+            sx_expr, sy_expr = f"e.width / {_ci_orig_w}", "1.0"
         else:  # left, right
             new_w, new_h = str(w.width), "e.height"
-            sx_expr, sy_expr = "1.0", f"e.height / {w.height}"
+            sx_expr, sy_expr = "1.0", f"e.height / {_ci_orig_h}"
         fn = f"_img_resize_{w.id}"
 
         # For a Canvas with CI items, emit closure variable declarations before the def
@@ -1470,10 +1472,17 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
         lines.append(f"        # {canvas_name} items")
         # Scalable: canvas has bg image + size-changing anchor → capture item IDs for resize handler
         _scalable = bool(w.props.get("image") and w.anchor in _SIZE_ANCHORS)
+        # Original design dimensions for pre-scaling initial item positions
+        _ci_orig_w = w.props.get("_ci_orig_w", w.width)
+        _ci_orig_h = w.props.get("_ci_orig_h", w.height)
         # Group tag_binds by (tag, event) to deduplicate across items sharing a tag
         tag_event_handler: dict[tuple[str, str], str] = {}
         for item in w.canvas_items:
             ix, iy = item.x, item.y
+            # Pre-scaled display coords: place items at their correct initial display position
+            # so the first <Configure> only needs to rescale images, not reposition.
+            _dix = round(ix * w.width / _ci_orig_w) if _scalable else ix
+            _diy = round(iy * w.height / _ci_orig_h) if _scalable else iy
             anchor  = item.props.get("anchor", "nw")
             tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
             if item.kind == "image":
@@ -1482,7 +1491,7 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                 if _scalable:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
-                        f'        {_iid_var} = self.{canvas_name}.create_image({ix}, {iy}, image={img_ref},'
+                        f'        {_iid_var} = self.{canvas_name}.create_image({_dix}, {_diy}, image={img_ref},'
                         f' anchor="{anchor}", tags={tags_str})'
                     )
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy})")
@@ -1501,12 +1510,14 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                 fill    = item.props.get("fill", "")
                 outline = item.props.get("outline", "")
                 x2, y2 = ix + item.width, iy + item.height
+                _dx2 = round((ix + item.width) * w.width / _ci_orig_w) if _scalable else x2
+                _dy2 = round((iy + item.height) * w.height / _ci_orig_h) if _scalable else y2
                 fill_arg    = f', fill="{fill}"'    if fill    else ""
                 outline_arg = f', outline="{outline}"' if outline else ""
                 if _scalable:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
-                        f'        {_iid_var} = self.{canvas_name}.create_rectangle({ix}, {iy}, {x2}, {y2}'
+                        f'        {_iid_var} = self.{canvas_name}.create_rectangle({_dix}, {_diy}, {_dx2}, {_dy2}'
                         f'{fill_arg}{outline_arg}, tags={tags_str})'
                     )
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2}, {y2})")
@@ -1519,12 +1530,14 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                 fill    = item.props.get("fill", "")
                 outline = item.props.get("outline", "")
                 x2, y2 = ix + item.width, iy + item.height
+                _dx2 = round((ix + item.width) * w.width / _ci_orig_w) if _scalable else x2
+                _dy2 = round((iy + item.height) * w.height / _ci_orig_h) if _scalable else y2
                 fill_arg    = f', fill="{fill}"'    if fill    else ""
                 outline_arg = f', outline="{outline}"' if outline else ""
                 if _scalable:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
-                        f'        {_iid_var} = self.{canvas_name}.create_oval({ix}, {iy}, {x2}, {y2}'
+                        f'        {_iid_var} = self.{canvas_name}.create_oval({_dix}, {_diy}, {_dx2}, {_dy2}'
                         f'{fill_arg}{outline_arg}, tags={tags_str})'
                     )
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2}, {y2})")
@@ -1542,7 +1555,7 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                 if _scalable:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
-                        f'        {_iid_var} = self.{canvas_name}.create_text({ix}, {iy}, anchor="nw",'
+                        f'        {_iid_var} = self.{canvas_name}.create_text({_dix}, {_diy}, anchor="nw",'
                         f' text={repr(text)}{fill_arg}{font_arg}, tags={tags_str})'
                     )
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy})")
@@ -1555,12 +1568,14 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                 fill = item.props.get("fill", "")
                 lw   = item.props.get("linewidth", 1)
                 x2pt, y2pt = ix + item.width, iy + item.height
+                _dx2pt = round((ix + item.width) * w.width / _ci_orig_w) if _scalable else x2pt
+                _dy2pt = round((iy + item.height) * w.height / _ci_orig_h) if _scalable else y2pt
                 fill_arg = f', fill="{fill}"' if fill else ""
                 lw_arg   = f', width={lw}' if lw and lw != 1 else ""
                 if _scalable:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
-                        f'        {_iid_var} = self.{canvas_name}.create_line({ix}, {iy}, {x2pt}, {y2pt}'
+                        f'        {_iid_var} = self.{canvas_name}.create_line({_dix}, {_diy}, {_dx2pt}, {_dy2pt}'
                         f'{fill_arg}{lw_arg}, tags={tags_str})'
                     )
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2pt}, {y2pt})")
