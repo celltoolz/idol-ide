@@ -1074,7 +1074,7 @@ class DesignerCanvas(tk.Canvas):
             y += rh + gap
         self._commit_alignment()
 
-    def arrange_grid(self, rows: "int | None" = None, cols: "int | None" = None) -> None:
+    def arrange_grid(self, rows: "int | None" = None, cols: "int | None" = None) -> "tuple[int,int] | None":
         """Snap selected widgets into a uniform grid using their existing layout.
 
         In CI mode with fewer than 2 items selected, all canvas items are used.
@@ -1148,6 +1148,7 @@ class DesignerCanvas(tk.Canvas):
             w.x = start_x + sum(col_widths[:col])  + col  * GRID
             w.y = start_y + sum(row_heights[:r])   + r    * GRID
         self._commit_alignment()
+        return (n_rows, n_cols)
 
     def nudge_h(self, delta: int) -> None:
         """Shift each column right (+) or left (−) by delta per column index."""
