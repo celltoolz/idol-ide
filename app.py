@@ -5854,8 +5854,25 @@ class IDOL(Tk):
                 self._design_canvas.redraw()
                 self._props_panel.load_form(form)
             return
-        if key in ("__variable__", "__anchor__"):
+        if key == "__variable__":
             return  # model already mutated by properties panel; no canvas redraw needed
+        if key == "__anchor__":
+            # When a size anchor is cleared on a Canvas that was resized while anchored,
+            # restore the canvas to its original CI design dimensions and remove the
+            # orig props so the annotation disappears.
+            if widget_id != "__multi__" and not value:
+                w = form.get_widget(widget_id)
+                if w and w.type == "Canvas":
+                    _orig_w = w.props.get("_ci_orig_w")
+                    _orig_h = w.props.get("_ci_orig_h")
+                    if _orig_w is not None and _orig_h is not None:
+                        w.width  = _orig_w
+                        w.height = _orig_h
+                        w.props.pop("_ci_orig_w", None)
+                        w.props.pop("_ci_orig_h", None)
+                        self._design_canvas.redraw()
+                        self._props_panel.load_widget(w)
+            return
         if key == "__tab__":
             self._design_canvas.redraw()
             sel = next(iter(self._design_canvas.selected_ids), None)
