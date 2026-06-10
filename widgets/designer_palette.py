@@ -123,14 +123,20 @@ class DesignerPalette(tk.Frame):
                               font=(UI_FONT, 10), cursor="hand2", padx=4)
         _clear_lbl.pack(side="right", padx=(0, 4))
         _clear_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_clear_images())
+        _clear_lbl.bind("<Enter>", lambda e: _clear_lbl.config(fg="#ff6b6b"))
+        _clear_lbl.bind("<Leave>", lambda e: _clear_lbl.config(fg="#888888"))
         _remove_lbl = tk.Label(_img_hdr, text="−", bg=_BG, fg="#888888",
                                font=(UI_FONT, 11, "bold"), cursor="hand2", padx=4)
         _remove_lbl.pack(side="right")
         _remove_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_remove_image())
+        _remove_lbl.bind("<Enter>", lambda e: _remove_lbl.config(fg="#ff6b6b"))
+        _remove_lbl.bind("<Leave>", lambda e: _remove_lbl.config(fg="#888888"))
         _open_lbl = tk.Label(_img_hdr, text="+", bg=_BG, fg="#569cd6",
                              font=(UI_FONT, 11, "bold"), cursor="hand2", padx=4)
         _open_lbl.pack(side="right")
         _open_lbl.bind("<ButtonRelease-1>", lambda e: self._ci_open_images())
+        _open_lbl.bind("<Enter>", lambda e: _open_lbl.config(fg="#aad4f5"))
+        _open_lbl.bind("<Leave>", lambda e: _open_lbl.config(fg="#569cd6"))
 
         _img_area = tk.Frame(self._ci_frame, bg=_BG)
         _img_area.pack(fill="both", expand=True)
@@ -434,6 +440,11 @@ class DesignerPalette(tk.Frame):
 
     def _ci_clear_images(self) -> None:
         """Remove all images from the palette list."""
+        if not self._ci_image_paths:
+            return
+        from tkinter import messagebox
+        if not messagebox.askyesno("Clear All", "Remove all items from the canvas image list?"):
+            return
         for path in list(self._ci_image_paths):
             self._ci_delete_image(path)
 
