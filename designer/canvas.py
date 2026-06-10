@@ -1699,6 +1699,7 @@ class DesignerCanvas(tk.Canvas):
             handle_name = fhandle_tag.split(":", 1)[1]
             if self._form:
                 self.push_undo()
+                _ci_anchors = {"all", "top", "bottom", "left", "right"}
                 self._drag = {
                     "mode":     "form_resize",
                     "handle":   handle_name,
@@ -1717,6 +1718,14 @@ class DesignerCanvas(tk.Canvas):
                         for w in self._form.widgets
                         if w.anchor and w.anchor not in ("", "top_left") and w.parent_id
                         if (p := self._form.get_widget(w.parent_id)) is not None
+                    },
+                    # Original CI item positions for canvases that resize with the form
+                    "orig_ci_geoms": {
+                        w.id: {ci.id: (ci.x, ci.y, ci.width, ci.height)
+                               for ci in w.canvas_items}
+                        for w in self._form.widgets
+                        if w.type == "Canvas" and w.canvas_items
+                        and w.anchor in _ci_anchors
                     },
                 }
             return
@@ -1877,6 +1886,22 @@ class DesignerCanvas(tk.Canvas):
                                 geom, widget.anchor, orig_fw, orig_fh, f.width, f.height)
                         widget.x, widget.y = nx, ny
                         widget.width, widget.height = max(GRID, nww), max(GRID, nwh)
+                        # Scale CI items when their canvas resizes
+                        if widget.type == "Canvas" and widget.canvas_items:
+                            _ci_orig = d.get("orig_ci_geoms", {}).get(widget.id)
+                            if _ci_orig:
+                                _orig_cw, _orig_ch = geom[2], geom[3]
+                                _new_cw, _new_ch = widget.width, widget.height
+                                _sx = _new_cw / _orig_cw if _orig_cw else 1.0
+                                _sy = _new_ch / _orig_ch if _orig_ch else 1.0
+                                for _ci in widget.canvas_items:
+                                    _og = _ci_orig.get(_ci.id)
+                                    if _og:
+                                        _ox, _oy, _ow, _oh = _og
+                                        _ci.x = round(_ox * _sx)
+                                        _ci.y = round(_oy * _sy)
+                                        _ci.width  = max(1, round(_ow * _sx))
+                                        _ci.height = max(1, round(_oh * _sy))
 
             self.delete("all")
             self._draw_form()
