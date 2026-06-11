@@ -4623,7 +4623,7 @@ _PROP_HINTS: dict[str, str] = {
     # Canvas-specific
     "highlightthickness": "Focus-highlight ring width in pixels (0 = none); click × to omit entirely and let tkinter use its default",
     "bd":                 "Canvas border (bd) width in pixels (0 = none); click × to omit entirely and let tkinter use its default",
-    "sizing":             "sizable — widget fills its placed bounds; fit image — widget auto-sizes to the natural dimensions of the background image",
+    "sizing":             "sizable — widget fills its placed bounds and can be resized; fit image — widget locks to the natural dimensions of the background image (resize handles disabled)",
     # Scrollbar
     "scrollbar":          "Attach a scrollbar: None, Vertical, Horizontal, or Both",
     # Notebook tabs

@@ -1603,6 +1603,12 @@ class DesignerCanvas(tk.Canvas):
 
     # ── Selection handles ─────────────────────────────────────────────────────
 
+    @staticmethod
+    def _is_resize_locked(w: WidgetDescriptor) -> bool:
+        """Canvas widgets in 'fit image' sizing mode are locked to the image's
+        natural dimensions — no resize handles are drawn for them."""
+        return w.type == "Canvas" and w.props.get("sizing") == "fit image"
+
     def _draw_handles(self, w: WidgetDescriptor, color: str = _PRIMARY) -> None:
         x, y = self._abs_xy(w)
         hw = w.width
@@ -1613,6 +1619,10 @@ class DesignerCanvas(tk.Canvas):
         self.create_rectangle(x - 1, y - 1, x + hw + 1, y + hh + 1,
                                outline=color, width=1, dash=(4, 3),
                                fill="", tags="handle")
+
+        # Resize-locked widgets (Canvas 'fit image') show only the border.
+        if self._is_resize_locked(w):
+            return
 
         for name in _HANDLES:
             cx, cy = _handle_center(x, y, hw, hh, name)

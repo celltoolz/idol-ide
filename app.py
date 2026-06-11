@@ -5890,8 +5890,10 @@ class IDOL(Tk):
             else:
                 if w.type == "Canvas":
                     if key == "image" and value:
-                        # Auto-fit canvas to the image's natural size
+                        # Size the canvas to the image's natural dimensions, but
+                        # leave it sizable so the user can still resize it.
                         self._canvas_fit_to_image(w, value)
+                        w.props["sizing"] = "sizable"
                     elif key == "sizing" and value == "fit image":
                         img = w.props.get("image", "")
                         if img:
@@ -5909,7 +5911,6 @@ class IDOL(Tk):
             with _PIL_Image.open(img_path) as img:
                 widget.width  = img.width
                 widget.height = img.height
-            widget.props["sizing"] = "fit image"
         except Exception:
             pass
 
