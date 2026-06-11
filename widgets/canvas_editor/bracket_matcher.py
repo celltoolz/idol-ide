@@ -8,16 +8,22 @@ the bracket constants from `.constants`. No canvas, no render attributes,
 no host-method calls. Render calls `_find_bracket_pair()` once per paint
 and outlines the returned pair.
 
-NOTE: currently matches only `()[]{}` — quote match-highlighting is added
-in a follow-up commit (same-line parity-based `_scan_quote`). The scanner
-is string/comment-unaware by design, matching existing bracket fidelity.
+Matches `()[]{}` via a directional depth scan and `'` / `"` via same-line
+parity (`_match_quote`). The scanner is string/comment-unaware by design,
+matching existing bracket fidelity (a delimiter inside a string or comment
+still highlights).
+
+Known limitation: triple-quoted delimiters (`'''` / `\"\"\"`) are paired as
+adjacent same-line quotes by parity, not as triple-to-triple; quotes are
+never matched across lines.
 """
 from __future__ import annotations
 
 from .constants import (
-    _ALL_BRACKETS,
     _BRACKET_CLOSE_TO_OPEN,
     _BRACKET_OPEN_TO_CLOSE,
+    _MATCH_CHARS,
+    _QUOTES,
 )
 
 
@@ -42,6 +48,10 @@ class BracketMatcherMixin:
                 m = self._scan_backward(r, c, ch, _BRACKET_CLOSE_TO_OPEN[ch])
                 if m is not None:
                     return (m, (r, c))
+            elif ch in _QUOTES:
+                pair = self._match_quote(r, c, ch)
+                if pair is not None:
+                    return pair
         return None
 
     def _bracket_candidates(self) -> list[tuple[int, int]]:
@@ -50,12 +60,12 @@ class BracketMatcherMixin:
             return out
         line = self.lines[self.cur_line]
         # Char AT cursor (if any)
-        if 0 <= self.cur_col < len(line) and line[self.cur_col] in _ALL_BRACKETS:
+        if 0 <= self.cur_col < len(line) and line[self.cur_col] in _MATCH_CHARS:
             out.append((self.cur_line, self.cur_col))
         # Char immediately before cursor (more common — cursor sits right
         # after a typed-or-clicked bracket). Guard against cur_col
         # dangling past the end after a destructive edit.
-        if 0 < self.cur_col <= len(line) and line[self.cur_col - 1] in _ALL_BRACKETS:
+        if 0 < self.cur_col <= len(line) and line[self.cur_col - 1] in _MATCH_CHARS:
             out.append((self.cur_line, self.cur_col - 1))
         return out
 
@@ -87,4 +97,37 @@ class BracketMatcherMixin:
                     if depth == 0:
                         return (r, c)
                     depth -= 1
+        return None
+
+    def _quote_cols(self, line: str, q: str) -> list[int]:
+        """Columns of every UNESCAPED `q` on `line`, left to right.
+        Backslash-escaping handled the same way as the tokenizer
+        (_comment_start / _scan_triple_state): skip the char after `\\`."""
+        cols = []
+        i, n = 0, len(line)
+        while i < n:
+            ch = line[i]
+            if ch == "\\":
+                i += 2          # skip escaped char
+                continue
+            if ch == q:
+                cols.append(i)
+            i += 1
+        return cols
+
+    def _match_quote(self, r: int, c: int, q: str):
+        """Match a quote of type `q` at (r, c) to its same-line partner by
+        parity. Even index in the unescaped-quote list ⇒ opener (partner is
+        the next quote); odd ⇒ closer (partner is the previous). Returns
+        ((openL, openC), (closeL, closeC)) or None when the quote is escaped
+        or has no same-line partner."""
+        cols = self._quote_cols(self.lines[r], q)
+        if c not in cols:
+            return None                       # the quote at c is escaped
+        idx = cols.index(c)
+        if idx % 2 == 0:                      # opener
+            if idx + 1 < len(cols):
+                return ((r, c), (r, cols[idx + 1]))
+        else:                                 # closer
+            return ((r, cols[idx - 1]), (r, c))
         return None

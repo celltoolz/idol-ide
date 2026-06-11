@@ -22,3 +22,10 @@ _CLOSERS = set(_PAIRS.values())
 _BRACKET_OPEN_TO_CLOSE = {"(": ")", "[": "]", "{": "}"}
 _BRACKET_CLOSE_TO_OPEN = {v: k for k, v in _BRACKET_OPEN_TO_CLOSE.items()}
 _ALL_BRACKETS = set(_BRACKET_OPEN_TO_CLOSE) | set(_BRACKET_CLOSE_TO_OPEN)
+
+# Quote chars (opener == closer) — match-highlighted by same-line parity
+# in bracket_matcher.py, not by the directional depth scan.
+_QUOTES = {q for q, cl in _PAIRS.items() if q == cl}
+# Chars that trigger match-highlight candidate detection (brackets + quotes).
+# Kept separate from _ALL_BRACKETS so that set stays semantically brackets-only.
+_MATCH_CHARS = _ALL_BRACKETS | _QUOTES
