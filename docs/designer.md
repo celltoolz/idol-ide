@@ -97,7 +97,7 @@ Right-side panel with a **control selector dropdown** at the top and Property/Va
 
 ### Font Picker
 
-The `font` property row opens a font chooser dialog pre-populated with the widget's current family, size, and style. Supports bold, italic, underline, and overstrike. The result is written back as a string tkinter accepts natively (e.g. `"Arial 12 bold"`).
+The `font` property row opens a font chooser dialog pre-populated with the widget's current family, size, and style. Supports bold, italic, underline, and overstrike. The chosen font is stored as a `"Family size style"` string (e.g. `"Arial 12 bold"`) and emitted in generated code as a font **tuple** — `('Segoe UI', 12, 'bold')` — so multi-word family names (Segoe UI, Times New Roman, …) are valid; a bare spaced-family string would otherwise be parsed by Tk as a list and crash with `expected integer`.
 
 ### Color Picker
 Background and Foreground properties open `tkinter.colorchooser`. The row tints immediately and the canvas widget updates live. Non-input widgets (Button, Label, Frame, etc.) start with no explicit background color, inheriting the OS default. Input widgets (Entry, Text, Listbox) default to white. A `×` button appears on hover to clear a color back to the OS default.

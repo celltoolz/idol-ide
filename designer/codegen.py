@@ -540,6 +540,13 @@ def _font_tuple_literal(spec: str) -> "str | None":
 def _prop_str(key: str, val: Any) -> str:
     """Format one kwarg for the widget constructor."""
     emit_key = _PROP_RENAMES.get(key, key)
+    # Fonts must be emitted as a tuple — a bare "Family size" string with a
+    # spaced family (e.g. "Segoe UI 12") is parsed by Tk as a list and raises
+    # "expected integer". _font_tuple_literal yields ('Segoe UI', 12, 'bold').
+    if key == "font" and isinstance(val, str) and val.strip():
+        lit = _font_tuple_literal(val)
+        if lit:
+            return f"{emit_key}={lit}"
     if key in ("char_width", "char_height") and isinstance(val, str):
         try:
             return f"{emit_key}={int(val)}"
