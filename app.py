@@ -5899,8 +5899,15 @@ class IDOL(Tk):
                         if img:
                             self._canvas_fit_to_image(w, img)
                 self._design_canvas.update_widget(w)
-                if w.type == "Canvas" and key in ("image", "sizing"):
-                    self._props_panel.load_widget(w)
+                if w.type == "Canvas":
+                    if key in ("image", "sizing"):
+                        self._props_panel.load_widget(w)
+                    elif key in ("width", "height") and (
+                        "_ci_orig_w" in w.props or "_ci_orig_h" in w.props
+                    ):
+                        # Refresh so the "(original: …)" annotation clears when
+                        # the user types the original width/height back in.
+                        self._props_panel.load_widget(w)
 
     def _canvas_fit_to_image(self, widget, rel_path: str) -> None:
         """Resize a Canvas widget to its image's natural pixel dimensions."""
