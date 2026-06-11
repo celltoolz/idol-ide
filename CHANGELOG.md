@@ -5,6 +5,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-08 to 2026-06-10] — Canvas Item Tags, Scaling & Font Fixes
+
+### Added
+- **Canvas-item tag system (two dialogs)** — tags now live in a per-canvas pool (`_canvas_tags`). **Canvas Tags** (Dialog A) manages the available pool (add/remove, protected `_bg` shown greyed); **Item Tags** (Dialog B) assigns pool tags to specific item(s) via a dropdown that picks one item or **All items**. Both are canvas-drawn with scrollable, hover-highlighted lists and a custom `VerticalScrollbar`. Pressing **Enter** in the tag entry adds a tag without closing the dialog; canvas selection and the item dropdown stay in sync bidirectionally; wiring a canvas-item event opens Dialog B in radio "wiring mode" to pick a single tag.
+- **Proportional canvas-item scaling** — canvas items track the canvas through both a **design-time resize** (initial coords pre-scaled from the captured original size) and a **runtime stretch** (a `<Configure>` handler repositions/resizes every item when the canvas has a size-changing anchor), independent of whether a background image is set. The `<Configure>` handler also rescales **text font size** and **line thickness** by a uniform factor. The background image uses a protected `_bg` tag so item rescaling never disturbs it.
+- **Canvas `sizing` property** — `sizable` (fills placed bounds, freely resizable) or `fit image` (locks the canvas to the natural dimensions of its background image; resize handles disabled). Setting an image defaults sizing to `sizable`.
+- **Grid panel row/column inputs** — the Make Grid popup now takes explicit row/col counts and works in Canvas Item mode; the panel stays open after Make Grid and back-fills auto-detected row/col values.
+- **Component connections in the Events tab** — selecting a non-visual component lists its wired widget-event connections (`comp_wire` rows) with a dedicated edit button and a `···` button that opens the Connect Widget Events dialog.
+
+### Changed
+- **Fonts emitted as tuples everywhere** — both widget `font=` kwargs (`_prop_str`) and canvas `create_text` calls now emit `('Family', size, 'style')` tuples via `_parse_font_spec` / `_font_tuple_literal`. A bare `"Segoe UI 12 bold"` string is parsed by Tk as a list and crashes the generated app with `expected integer`; multi-word family names (Segoe UI, Times New Roman, …) now work for all widgets and canvas text.
+- **Canvas border split into integer props** — the old True/False `border` prop became `highlightthickness` + `bd` ints; a freshly dropped Canvas defaults both to `0` (no highlight ring).
+- **Codegen skips leading-underscore props** — IDOL-internal props (e.g. `_ci_orig_w`, `_canvas_tags`) are no longer passed as tkinter kwargs.
+- **Canvas item editor polish** — hover effects on the `+`/`−`/`×` buttons; a confirmation prompt before "clear all".
+
+### Fixed
+- **CI image palette paths dropped on restart** — images associated with a canvas now survive a session reload.
+- **Canvas-item position sync** — un-scale item positions correctly in the live codegen sync-back; scale items on CI-mode enter/exit and when the form is resized in the designer; restore the original canvas size when its anchor is cleared; clear the amber "(original: w × h)" annotation when the original size is re-entered.
+- **CI validation** — canvas tag names are validated; the Order tab behaves correctly in the CI deselect state.
+- **Terminal REPL** — fixed `^L` being echoed in the Python REPL on session start and a double-prompt on launch.
+
 ## [2026-06-05 to 2026-06-08] — Canvas Item Designer
 
 ### Added

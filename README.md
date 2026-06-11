@@ -56,7 +56,9 @@ For Git features: install [Git](https://git-scm.com)
 
 The only Python IDE with a **VB6-style visual form designer** built in. Drag-and-drop canvas, 16 widget types, live property editing, variable binding, menu builder, and clean class-based code generation — all in a Tkinter project.
 
-→ **[Full designer docs](docs/designer.md)**
+Beyond widgets, the designer ships **non-visual components** (Timer, CommonDialog, Socket, Image) you drop into a component tray, and a catalog-driven **Handlers** system that wires component actions and form events to widgets with a click — no boilerplate. There's also a **Canvas Item Designer** for placing shapes, text, and images directly on a Canvas widget.
+
+→ **[Full designer docs](docs/designer.md)** — covers components, handlers, and the canvas item editor in detail
 
 ### Editor
 

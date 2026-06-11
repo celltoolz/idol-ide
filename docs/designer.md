@@ -138,6 +138,14 @@ Label, Button, and Canvas widgets support an `image` property. Click the row to 
 - **PIL warning row** — if Pillow is not installed in the active project interpreter, an amber **⚠ click to install Pillow** row appears below the `image` row; clicking it streams `pip install pillow` into the Output panel and removes the warning on success
 - **Anchor-aware resize** — when the widget has a size-changing anchor (`all`, `top`, `bottom`, `left`, `right`), codegen emits a `<Configure>` binding that reloads the `PhotoImage` at the new widget dimensions so the image scales live with the window
 
+### Canvas Widget Properties
+
+The **Canvas** widget (the drawing surface — distinct from the design canvas) has a few extra properties:
+
+- **`sizing`** — `sizable` (default): the canvas fills its placed bounds and can be resized freely. `fit image`: the canvas locks to the natural pixel dimensions of its background image and resize handles are disabled. Setting a background image defaults `sizing` to `sizable`; choosing **fit image** snaps the widget to the image size.
+- **`highlightthickness`** and **`bd`** — integer border controls (the old True/False `border` prop was split into these two). Both default to `0` so a freshly dropped Canvas has no highlight ring or border.
+- **Canvas items** — shapes, text, lines, and images placed inside the canvas are managed in the [Canvas Item Designer](#canvas-item-designer) (double-click the canvas), not the Properties panel.
+
 ### Form Properties
 Click the canvas background to inspect the form: title, size, background color, border style (Sizable / Fixed / None), maximize box, and **always on top** (pins the window above all other windows). Border style and maximize box stay in sync automatically.
 
@@ -170,6 +178,8 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 **Form events** — clicking the canvas background and switching to the Events tab exposes form-level events: load, activate, deactivate, unload, resize. Wiring them generates `.bind()` calls and stubs the handler methods.
 
 **Handler picker** — every event handler cell has a ▾ button that opens a scrollable popup listing all handlers already defined on the form. Hover a row to preview the name in the entry field. Useful for reusing an existing handler across multiple events. The Menu Editor Command field has the same picker.
+
+**Component connections in the Events tab** — when a non-visual component is selected, the Events tab lists the widget events its handlers are wired to (`comp_wire` rows). Each wired row has a dedicated **edit** button, and a `···` button opens the **Connect Widget Events** dialog to add or re-target a connection without leaving the tab.
 
 ## Handlers Tab
 
@@ -469,13 +479,14 @@ Selecting a CI item loads it into the existing **Properties** and **Events** tab
 
 > **Note:** A CI item must have at least one tag assigned before events can be wired. The UI enforces this.
 
-### Tags and the Tag Editor
+### Tags and the Tag Editors
 
-Click the **`tags`** property row to open the **Tag Editor** — a dark-themed modal dialog showing:
-- A checklist of all tags currently in use on this canvas (check to assign to the selected item)
-- An "add new tag" entry field for creating a new tag
+Tags are what connect canvas items to `tag_bind` calls in generated code — items that share a tag all respond to the same event binding. Tags live in a **per-canvas pool** (stored on the canvas widget as `_canvas_tags`); items then draw their tags from that pool. Two dark-themed dialogs manage this, both canvas-drawn with scrollable hover-highlighted lists:
 
-Tags are what connect canvas items to `tag_bind` calls in generated code. Items that share a tag all respond to the same event binding.
+- **Canvas Tags** (Dialog A) — manages the available-tags *pool* for the canvas: add new tags, remove unused ones. Protected system tags (e.g. `_bg` on a canvas with a background image) appear greyed at the top and can't be removed. The `×` remove button only highlights red when the mouse is directly over it.
+- **Item Tags** (Dialog B) — assigns pool tags to specific item(s). A dropdown at the top picks which item to edit (or **All items**); the top list shows the item's current tags (`×` to remove), the bottom list shows pool tags not yet on the item (`+` to add). Typing a new tag and pressing **Enter** adds it to both the item and the pool without closing the dialog. Selecting items on the canvas and in the dropdown stays in sync bidirectionally.
+
+Tag names are validated (no spaces or characters that would break a `tag_bind` call). When wiring a canvas-item event, the Item Tags dialog opens in **wiring mode** — a radio selection of a single pool tag for that event's `tag_bind`.
 
 ### Image Component `parent` Property
 
