@@ -16,3 +16,9 @@ from __future__ import annotations
 _PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
 # All openers and closers — used for skip-over-closer detection.
 _CLOSERS = set(_PAIRS.values())
+
+# Bracket pairs for match-highlighting (no quotes — same char on both
+# sides would defeat the depth-counting scan in bracket_matcher.py).
+_BRACKET_OPEN_TO_CLOSE = {"(": ")", "[": "]", "{": "}"}
+_BRACKET_CLOSE_TO_OPEN = {v: k for k, v in _BRACKET_OPEN_TO_CLOSE.items()}
+_ALL_BRACKETS = set(_BRACKET_OPEN_TO_CLOSE) | set(_BRACKET_CLOSE_TO_OPEN)
