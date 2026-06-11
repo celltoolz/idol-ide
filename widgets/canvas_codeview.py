@@ -17,7 +17,6 @@ from __future__ import annotations
 import re
 import tkinter as tk
 import tkinter.font as tkfont
-from typing import Callable
 
 from .breadcrumb_bar import BreadcrumbBar
 from .scrollbar import HorizontalScrollbar, VerticalScrollbar
