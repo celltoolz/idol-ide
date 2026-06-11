@@ -513,6 +513,11 @@ def _my_tag_enter(self, event):
 
 Stubs are generated in the `# ── Events ──` section and bodies survive regeneration just like widget event stubs.
 
+**Resize scaling** — canvas items track the canvas through both kinds of resize, whether or not the canvas has a background image:
+
+- *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size, so the running app looks like the designer.
+- *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes, lines, and item images scale with the canvas; text font size and line thickness stay fixed.
+
 ### Double-Click Navigation from CI Items
 
 - **Double-click a CI item** (while in CI mode) — auto-generates code if dirty, then jumps to the first handler for that item in the editor

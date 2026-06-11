@@ -380,6 +380,9 @@ Inline design surface for placing and configuring tkinter canvas items directly 
 `_canvas_items_build_lines(form)` in `codegen.py`:
 - Iterates all Canvas widgets that have `canvas_items`; emits `create_image/rectangle/oval/text/line()` calls with positional args and props kwargs (fill, outline, text, font, width, tags tuple) at the end of `_build_ui`
 - `tag_bind()` calls are **deduplicated** across items sharing a tag — each `(tag, event)` pair emits exactly one `tag_bind` call even if multiple items share the tag
+- **Resize scaling (decoupled from bg image).** Items are stored in the canvas's `_ci_orig_w/h` coordinate space (the dimensions captured on first CI-mode entry). Two independent scaling behaviors, neither requiring a background image:
+  - *Design-time resize* — initial item coords are **always** pre-scaled `coord * w.width / _ci_orig_w` so a canvas resized in the designer after items were placed renders the items at the matching position/size at runtime (no-op when the canvas hasn't been resized since placement).
+  - *Runtime stretch* — when the canvas has a size-changing `anchor` (`_runtime`), `_canvas_items_build_lines` captures each item's iid into `_{canvas}_item_coords` (orig-space coords) and the `<Configure>` handler in `_widget_lines` rescales/repositions every item by `e.width / _ci_orig_w`. The handler is emitted whenever a canvas has items **and** a stretch anchor, independent of `image`; bg-image reload lines (`self._img_*`, `delete("_bg")` + recreate) are gated separately on `_has_bg_img`, and disk-reload of item images only runs for Image-component-backed `image` items. Shape/text/line items scale by bbox coords; text font size and line width are not rescaled.
 
 `_canvas_items_handler_methods(form, bodies)`:
 - Emits user handler stub methods for every unique method name referenced in `item.bindings`

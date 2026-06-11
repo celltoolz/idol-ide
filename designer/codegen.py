@@ -707,10 +707,15 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 f'        self.{w.id}.bind("{binding}", self.{method_name})'
             )
 
-    # Image resize binding — only when the widget has an image and a size-changing anchor
-    if w.props.get("image") and w.anchor in _SIZE_ANCHORS \
-            and w.type in ("Label", "Button", "Canvas"):
-        rel_fwd = w.props["image"].replace("\\", "/")
+    # Resize binding — fires when the widget stretches (size-changing anchor).
+    # Emitted for image widgets (reload the bg image at the new size) and for
+    # Canvas widgets carrying canvas items (rescale the items), independently —
+    # a shape-only canvas with no bg image still gets an item-rescaling handler.
+    _is_canvas = w.type == "Canvas"
+    _has_ci = _is_canvas and bool(w.canvas_items)
+    _has_bg_img = bool(w.props.get("image")) and w.type in ("Label", "Button", "Canvas")
+    if w.anchor in _SIZE_ANCHORS and (_has_bg_img or _has_ci):
+        rel_fwd = w.props["image"].replace("\\", "/") if _has_bg_img else ""
         a = w.anchor
         _ci_orig_w = w.props.get("_ci_orig_w", w.width)
         _ci_orig_h = w.props.get("_ci_orig_h", w.height)
@@ -727,7 +732,6 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
 
         # For a Canvas with CI items, emit closure variable declarations before the def
         # so the resize handler can access item positions/images populated later.
-        _has_ci = w.type == "Canvas" and bool(w.canvas_items)
         if _has_ci and form is not None:
             import os as _os
             # ALL image paths from the canvas's Image component (keyed by (img_key, comp_id))
@@ -752,16 +756,18 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
         lines.append(f"        def {fn}(e):")
         lines.append(f"            if e.width < 4 or e.height < 4:")
         lines.append(f"                return")
-        lines.append(f"            self._img_{w.id} = ImageTk.PhotoImage(")
-        lines.append(f'                Image.open(os.path.join(os.path.dirname(__file__), "{rel_fwd}"))')
-        lines.append(f"                .resize(({new_w}, {new_h}), Image.LANCZOS)")
-        lines.append(f"            )")
+        if _has_bg_img:
+            lines.append(f"            self._img_{w.id} = ImageTk.PhotoImage(")
+            lines.append(f'                Image.open(os.path.join(os.path.dirname(__file__), "{rel_fwd}"))')
+            lines.append(f"                .resize(({new_w}, {new_h}), Image.LANCZOS)")
+            lines.append(f"            )")
         if w.type == "Canvas":
             if _has_ci:
-                lines.append(f'            self.{w.id}.delete("_bg")')
-                lines.append(f'            self.{w.id}.create_image(0, 0, anchor="nw",'
-                              f' image=self._img_{w.id}, tags="_bg")')
-                lines.append(f'            self.{w.id}.tag_lower("_bg")')
+                if _has_bg_img:
+                    lines.append(f'            self.{w.id}.delete("_bg")')
+                    lines.append(f'            self.{w.id}.create_image(0, 0, anchor="nw",'
+                                  f' image=self._img_{w.id}, tags="_bg")')
+                    lines.append(f'            self.{w.id}.tag_lower("_bg")')
                 lines.append(f"            _sx, _sy = {sx_expr}, {sy_expr}")
                 # Resize all canvas-item images from disk (natural size × scale factor)
                 if _ci_paths_dict:
@@ -1470,25 +1476,31 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
             continue
         canvas_name = w.id
         lines.append(f"        # {canvas_name} items")
-        # Scalable: canvas has bg image + size-changing anchor → capture item IDs for resize handler
-        _scalable = bool(w.props.get("image") and w.anchor in _SIZE_ANCHORS)
-        # Original design dimensions for pre-scaling initial item positions
+        # Items are stored in the canvas's _ci_orig_w/h coordinate space. Initial
+        # positions are ALWAYS pre-scaled to the current (possibly designer-resized)
+        # canvas size so a design-time resize matches at runtime — this is a no-op
+        # when the canvas hasn't been resized since the items were placed.
         _ci_orig_w = w.props.get("_ci_orig_w", w.width)
         _ci_orig_h = w.props.get("_ci_orig_h", w.height)
+        # Runtime rescaling: when the canvas stretches at runtime (size-changing
+        # anchor) we capture item IDs + original coords so the <Configure> handler
+        # can reposition/resize them — independent of whether a bg image is set.
+        _runtime = w.anchor in _SIZE_ANCHORS
         # Group tag_binds by (tag, event) to deduplicate across items sharing a tag
         tag_event_handler: dict[tuple[str, str], str] = {}
         for item in w.canvas_items:
             ix, iy = item.x, item.y
-            # Pre-scaled display coords: place items at their correct initial display position
-            # so the first <Configure> only needs to rescale images, not reposition.
-            _dix = round(ix * w.width / _ci_orig_w) if _scalable else ix
-            _diy = round(iy * w.height / _ci_orig_h) if _scalable else iy
+            # Pre-scaled display coords: place items at their correct initial display
+            # position for the current canvas size (no-op when not resized). When the
+            # canvas also stretches at runtime, the first <Configure> only rescales.
+            _dix = round(ix * w.width / _ci_orig_w)
+            _diy = round(iy * w.height / _ci_orig_h)
             anchor  = item.props.get("anchor", "nw")
             tags_str = repr(tuple(item.tags)) if len(item.tags) > 1 else (repr(item.tags[0]) if item.tags else repr(item.id))
             if item.kind == "image":
                 img_path = item.props.get("image_path", "")
                 img_ref  = _ci_image_ref(form, img_path)
-                if _scalable:
+                if _runtime:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
                         f'        {_iid_var} = self.{canvas_name}.create_image({_dix}, {_diy}, image={img_ref},'
@@ -1503,18 +1515,18 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                         )
                 else:
                     lines.append(
-                        f'        self.{canvas_name}.create_image({ix}, {iy}, image={img_ref},'
+                        f'        self.{canvas_name}.create_image({_dix}, {_diy}, image={img_ref},'
                         f' anchor="{anchor}", tags={tags_str})'
                     )
             elif item.kind == "rectangle":
                 fill    = item.props.get("fill", "")
                 outline = item.props.get("outline", "")
                 x2, y2 = ix + item.width, iy + item.height
-                _dx2 = round((ix + item.width) * w.width / _ci_orig_w) if _scalable else x2
-                _dy2 = round((iy + item.height) * w.height / _ci_orig_h) if _scalable else y2
+                _dx2 = round((ix + item.width) * w.width / _ci_orig_w)
+                _dy2 = round((iy + item.height) * w.height / _ci_orig_h)
                 fill_arg    = f', fill="{fill}"'    if fill    else ""
                 outline_arg = f', outline="{outline}"' if outline else ""
-                if _scalable:
+                if _runtime:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
                         f'        {_iid_var} = self.{canvas_name}.create_rectangle({_dix}, {_diy}, {_dx2}, {_dy2}'
@@ -1523,18 +1535,18 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2}, {y2})")
                 else:
                     lines.append(
-                        f'        self.{canvas_name}.create_rectangle({ix}, {iy}, {x2}, {y2}'
+                        f'        self.{canvas_name}.create_rectangle({_dix}, {_diy}, {_dx2}, {_dy2}'
                         f'{fill_arg}{outline_arg}, tags={tags_str})'
                     )
             elif item.kind == "oval":
                 fill    = item.props.get("fill", "")
                 outline = item.props.get("outline", "")
                 x2, y2 = ix + item.width, iy + item.height
-                _dx2 = round((ix + item.width) * w.width / _ci_orig_w) if _scalable else x2
-                _dy2 = round((iy + item.height) * w.height / _ci_orig_h) if _scalable else y2
+                _dx2 = round((ix + item.width) * w.width / _ci_orig_w)
+                _dy2 = round((iy + item.height) * w.height / _ci_orig_h)
                 fill_arg    = f', fill="{fill}"'    if fill    else ""
                 outline_arg = f', outline="{outline}"' if outline else ""
-                if _scalable:
+                if _runtime:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
                         f'        {_iid_var} = self.{canvas_name}.create_oval({_dix}, {_diy}, {_dx2}, {_dy2}'
@@ -1543,7 +1555,7 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2}, {y2})")
                 else:
                     lines.append(
-                        f'        self.{canvas_name}.create_oval({ix}, {iy}, {x2}, {y2}'
+                        f'        self.{canvas_name}.create_oval({_dix}, {_diy}, {_dx2}, {_dy2}'
                         f'{fill_arg}{outline_arg}, tags={tags_str})'
                     )
             elif item.kind == "text":
@@ -1552,7 +1564,7 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                 font    = item.props.get("font", "")
                 fill_arg = f', fill="{fill}"' if fill else ""
                 font_arg = f', font={repr(font)}' if font else ""
-                if _scalable:
+                if _runtime:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
                         f'        {_iid_var} = self.{canvas_name}.create_text({_dix}, {_diy}, anchor="nw",'
@@ -1561,18 +1573,18 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy})")
                 else:
                     lines.append(
-                        f'        self.{canvas_name}.create_text({ix}, {iy}, anchor="nw",'
+                        f'        self.{canvas_name}.create_text({_dix}, {_diy}, anchor="nw",'
                         f' text={repr(text)}{fill_arg}{font_arg}, tags={tags_str})'
                     )
             elif item.kind == "line":
                 fill = item.props.get("fill", "")
                 lw   = item.props.get("linewidth", 1)
                 x2pt, y2pt = ix + item.width, iy + item.height
-                _dx2pt = round((ix + item.width) * w.width / _ci_orig_w) if _scalable else x2pt
-                _dy2pt = round((iy + item.height) * w.height / _ci_orig_h) if _scalable else y2pt
+                _dx2pt = round((ix + item.width) * w.width / _ci_orig_w)
+                _dy2pt = round((iy + item.height) * w.height / _ci_orig_h)
                 fill_arg = f', fill="{fill}"' if fill else ""
                 lw_arg   = f', width={lw}' if lw and lw != 1 else ""
-                if _scalable:
+                if _runtime:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
                         f'        {_iid_var} = self.{canvas_name}.create_line({_dix}, {_diy}, {_dx2pt}, {_dy2pt}'
@@ -1581,7 +1593,7 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2pt}, {y2pt})")
                 else:
                     lines.append(
-                        f'        self.{canvas_name}.create_line({ix}, {iy}, {x2pt}, {y2pt}'
+                        f'        self.{canvas_name}.create_line({_dix}, {_diy}, {_dx2pt}, {_dy2pt}'
                         f'{fill_arg}{lw_arg}, tags={tags_str})'
                     )
             # Collect bindings — use the specific binding_tag for each event
