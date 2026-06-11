@@ -499,6 +499,44 @@ def _uses_ttk(form: FormModel) -> bool:
     )
 
 
+def _parse_font_spec(spec: str) -> "tuple[str, int | None, list[str]]":
+    """Parse a 'Family size style…' font string into (family, size, styles).
+
+    Family may contain spaces (e.g. 'Segoe UI'); size is the first integer
+    token; trailing tokens are recognized styles. Returns size=None when no
+    integer token is present (caller then omits size / skips scaling).
+    """
+    toks = str(spec).split()
+    size_idx = next((i for i, t in enumerate(toks) if t.lstrip("-").isdigit()), None)
+    if size_idx is None:
+        return (" ".join(toks), None, [])
+    family = " ".join(toks[:size_idx])
+    styles = [s for s in toks[size_idx + 1:]
+              if s in ("bold", "italic", "underline", "overstrike", "roman", "normal")]
+    return (family, int(toks[size_idx]), styles)
+
+
+def _font_tuple_literal(spec: str) -> "str | None":
+    """Return a Python font-tuple literal for a font spec, or None if empty.
+
+    Always emits the tuple form `('Family', size, 'style', …)` so multi-word
+    family names (e.g. 'Segoe UI') are valid — a bare string with a spaced
+    family is parsed by Tk as a list and raises 'expected integer'.
+    """
+    if not spec:
+        return None
+    family, size, styles = _parse_font_spec(spec)
+    if not family:
+        return None
+    parts: list = [family]
+    if size is not None:
+        parts.append(size)
+    parts.extend(styles)
+    # repr(tuple(...)) always yields a valid tuple literal (trailing comma when
+    # single-element) so a spaced family name never collapses back to a string.
+    return repr(tuple(parts))
+
+
 def _prop_str(key: str, val: Any) -> str:
     """Format one kwarg for the widget constructor."""
     emit_key = _PROP_RENAMES.get(key, key)
@@ -714,6 +752,12 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     _is_canvas = w.type == "Canvas"
     _has_ci = _is_canvas and bool(w.canvas_items)
     _has_bg_img = bool(w.props.get("image")) and w.type in ("Label", "Button", "Canvas")
+    # Text font size and line thickness rescale by a uniform factor on stretch.
+    # Font scaling needs a parseable size (no size → nothing to scale from).
+    _ci_has_font = _has_ci and any(
+        it.kind == "text" and _parse_font_spec(it.props.get("font", ""))[1] is not None
+        for it in w.canvas_items)
+    _ci_has_line = _has_ci and any(it.kind == "line" for it in w.canvas_items)
     if w.anchor in _SIZE_ANCHORS and (_has_bg_img or _has_ci):
         rel_fwd = w.props["image"].replace("\\", "/") if _has_bg_img else ""
         a = w.anchor
@@ -752,6 +796,10 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 lines.append(f"        }}")
             lines.append(f"        _{w.id}_item_coords = {{}}  # iid → orig coord tuple")
             lines.append(f"        _{w.id}_item_imgs   = {{}}  # iid → (img_key, comp_id)")
+            if _ci_has_font:
+                lines.append(f"        _{w.id}_item_fonts = {{}}  # iid → orig font spec")
+            if _ci_has_line:
+                lines.append(f"        _{w.id}_item_lws   = {{}}  # iid → orig line width")
 
         lines.append(f"        def {fn}(e):")
         lines.append(f"            if e.width < 4 or e.height < 4:")
@@ -794,6 +842,16 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                     lines.append(f"            for _iid, (_ik, _cid) in _{w.id}_item_imgs.items():")
                     lines.append(f"                self.{w.id}.itemconfigure(")
                     lines.append(f"                    _iid, image=(getattr(self, _cid)[_ik] if _ik else getattr(self, _cid)))")
+                # Rescale text font size and line thickness by the uniform factor
+                if _ci_has_font or _ci_has_line:
+                    lines.append(f"            _s = (_sx * _sy) ** 0.5")
+                if _ci_has_font:
+                    lines.append(f"            for _iid, (_fam, _bsz, _sty) in _{w.id}_item_fonts.items():")
+                    lines.append(f"                self.{w.id}.itemconfigure(")
+                    lines.append(f"                    _iid, font=(_fam, max(1, round(_bsz * _s)), *_sty))")
+                if _ci_has_line:
+                    lines.append(f"            for _iid, _bw in _{w.id}_item_lws.items():")
+                    lines.append(f"                self.{w.id}.itemconfigure(_iid, width=max(1, round(_bw * _s)))")
             else:
                 lines.append(f'            self.{w.id}.delete("all")')
                 lines.append(f'            self.{w.id}.create_image(0, 0, anchor="nw", image=self._img_{w.id})')
@@ -1562,8 +1620,10 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                 text    = item.props.get("text", "")
                 fill    = item.props.get("fill", "")
                 font    = item.props.get("font", "")
+                _font_lit = _font_tuple_literal(font)
+                _fam, _fsz, _fsty = _parse_font_spec(font)
                 fill_arg = f', fill="{fill}"' if fill else ""
-                font_arg = f', font={repr(font)}' if font else ""
+                font_arg = f', font={_font_lit}' if _font_lit else ""
                 if _runtime:
                     _iid_var = f"_ci_{item.id}"
                     lines.append(
@@ -1571,6 +1631,9 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                         f' text={repr(text)}{fill_arg}{font_arg}, tags={tags_str})'
                     )
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy})")
+                    if _fsz is not None:
+                        lines.append(f"        _{canvas_name}_item_fonts[{_iid_var}] = "
+                                     f"({repr(_fam)}, {_fsz}, {tuple(_fsty)!r})")
                 else:
                     lines.append(
                         f'        self.{canvas_name}.create_text({_dix}, {_diy}, anchor="nw",'
@@ -1591,6 +1654,7 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
                         f'{fill_arg}{lw_arg}, tags={tags_str})'
                     )
                     lines.append(f"        _{canvas_name}_item_coords[{_iid_var}] = ({ix}, {iy}, {x2pt}, {y2pt})")
+                    lines.append(f"        _{canvas_name}_item_lws[{_iid_var}] = {lw if lw else 1}")
                 else:
                     lines.append(
                         f'        self.{canvas_name}.create_line({_dix}, {_diy}, {_dx2pt}, {_dy2pt}'

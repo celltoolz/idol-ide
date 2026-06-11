@@ -516,7 +516,7 @@ Stubs are generated in the `# ── Events ──` section and bodies survive r
 **Resize scaling** — canvas items track the canvas through both kinds of resize, whether or not the canvas has a background image:
 
 - *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size, so the running app looks like the designer.
-- *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes, lines, and item images scale with the canvas; text font size and line thickness stay fixed.
+- *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes, lines, and item images scale with the canvas; **text font size and line thickness scale too**, by a uniform factor (the geometric mean of the horizontal and vertical scale, `(_sx * _sy) ** 0.5`) so they grow proportionally on both single- and dual-axis stretches.
 
 ### Double-Click Navigation from CI Items
 
