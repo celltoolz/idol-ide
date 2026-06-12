@@ -87,14 +87,6 @@ from utils.theme_loader import list_themes as _list_themes, load_theme as _load_
 _DEFAULT_THEME = "monokai-bright"
 
 _FONT_FAMILY, _FONT_SIZE = "Consolas", 11
-# Gutter layout — base values for the default font (Consolas 11).
-# At runtime every CanvasCodeView instance computes _compute_gutter()
-# so the zones scale with the chosen font size.
-_DEBUG_W   = 16
-_LINENUM_R = _DEBUG_W + 30
-_FOLD_X    = _LINENUM_R + 4
-_GUTTER_W  = _FOLD_X + 14
-_TEXT_X    = _GUTTER_W + 12
 _BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
 _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
 
@@ -643,7 +635,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
         compare against.
 
         Subtracts:
-          • `_TEXT_X` — gutter (line numbers + fold markers) on the
+          • `_text_x` — gutter (line numbers + fold markers) on the
             left, never available for text.
           • `_MINIMAP_W` — minimap strip on the right, but ONLY when
             the minimap is currently visible. With it hidden, the
@@ -681,10 +673,10 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
     @property
     def _text_x0(self) -> int:
         """Text-area x origin with horizontal scroll applied. Use this
-        instead of `_TEXT_X` for ANY canvas item that should scroll
+        instead of `_text_x` for ANY canvas item that should scroll
         horizontally with the buffer (tokens, selection, find-match,
         diagnostics, cursor, indent guides). Gutter / minimap /
-        sticky-band positions stay fixed to `_TEXT_X` because they
+        sticky-band positions stay fixed to `_text_x` because they
         aren't part of the scrollable text region."""
         return self._text_x - self._scroll_x
 
@@ -1182,7 +1174,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
             # Gutter content (breakpoint, git stripe, line number, fold
             # marker) is drawn AT THE END of this row block — after the
             # tokens — so it overpaints any glyph that scrolled left of
-            # `_TEXT_X` when `_scroll_x > 0`. See the gutter-mask block
+            # `_text_x` when `_scroll_x > 0`. See the gutter-mask block
             # near the caret draw at the bottom of the row loop.
 
             # Find/Replace match highlights are painted by
@@ -1300,7 +1292,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
                                       fill=self._palette["caret"], width=1)
 
             # Gutter overlay — paints OVER any token / indent guide that
-            # scrolled left of `_TEXT_X`, then redraws the gutter content
+            # scrolled left of `_text_x`, then redraws the gutter content
             # (git stripe, breakpoint, line number, fold marker) on top.
             # Without this, horizontally scrolled long lines bleed the
             # start of each line into the line-number column.
