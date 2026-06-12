@@ -17,9 +17,26 @@ from __future__ import annotations
 import re
 import tkinter as tk
 import tkinter.font as tkfont
-from typing import Callable
 
 from .breadcrumb_bar import BreadcrumbBar
+from .canvas_editor.constants import (
+    _CLOSERS,
+    _FONT_FAMILY,
+    _FONT_SIZE,
+    _MINIMAP_W,
+    _PAIRS,
+)
+from .canvas_editor.tokenizer import TokenizerMixin
+from .canvas_editor.fold import (
+    FoldMixin,
+    _IDOL_BEGIN_RE,
+    _IDOL_END_RE,
+    _SECTION_MARKER,
+)
+from .canvas_editor.multicursor import MultiCursorMixin
+from .canvas_editor.bracket_matcher import BracketMatcherMixin
+from .canvas_editor.minimap import MinimapMixin
+from .canvas_editor.autocomplete import AutocompleteMixin
 from .scrollbar import HorizontalScrollbar, VerticalScrollbar
 
 
@@ -77,15 +94,6 @@ from utils.theme_loader import list_themes as _list_themes, load_theme as _load_
 
 _DEFAULT_THEME = "monokai-bright"
 
-_FONT_FAMILY, _FONT_SIZE = "Consolas", 11
-# Gutter layout — base values for the default font (Consolas 11).
-# At runtime every CanvasCodeView instance computes _compute_gutter()
-# so the zones scale with the chosen font size.
-_DEBUG_W   = 16
-_LINENUM_R = _DEBUG_W + 30
-_FOLD_X    = _LINENUM_R + 4
-_GUTTER_W  = _FOLD_X + 14
-_TEXT_X    = _GUTTER_W + 12
 _BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
 _BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
 
@@ -99,36 +107,11 @@ _GIT_HUNK_COLORS = {
     "deleted":  "#f14c4c",
 }
 
-# A "# ── Name ─────" section marker — foldable like a block opener.
-# Matches IDOL/widgets/linenums.py:_SECTION_MARKER.
-_SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
-# IDOL designer codegen pair markers — fold the entire BEGIN…END block.
-_IDOL_BEGIN_RE  = re.compile(r"^\s*# ─{2,}\s+IDOL(?::[^:]+)?:BEGIN")
-_IDOL_END_RE    = re.compile(r"^\s*# ─{2,}\s+IDOL(?::[^:]+)?:END")
 # Lines that sticky-scroll pins: only class/def/async def, mirroring
 # IDOL/widgets/sticky_scroll.py:_SCOPE_RE. Generic block openers
 # (if/for/while/with) are foldable but not pinned — they'd clutter
 # the band on deeply-nested code.
 _SCOPE_HEADER_RE = re.compile(r"^(\s*)(?:class\s|def\s|async\s+def\s)")
-
-# Characters that auto-pair when typed. Maps opener → closer.
-_PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
-# All openers and closers — used for skip-over-closer detection.
-_CLOSERS = set(_PAIRS.values())
-# Bracket pairs for matching (no quotes — same char on both sides).
-_BRACKET_OPEN_TO_CLOSE = {"(": ")", "[": "]", "{": "}"}
-_BRACKET_CLOSE_TO_OPEN = {v: k for k, v in _BRACKET_OPEN_TO_CLOSE.items()}
-_ALL_BRACKETS = set(_BRACKET_OPEN_TO_CLOSE) | set(_BRACKET_CLOSE_TO_OPEN)
-# Identifier char class for word-occurrence highlighting.
-_WORD_RE = re.compile(r"\w+")
-
-# Minimap layout — embedded `tk.Text` at font size 1, mirroring IDOL's
-# peer-text minimap. Canvas `create_text` can't render legible glyphs
-# below ~4-5px; a Text widget rasterizes properly at size 1.
-_MINIMAP_W         = 90   # IDOL parity (widgets/minimap.py:WIDTH)
-_MINIMAP_FONT_SIZE = 1
-_PREVIEW_LINES     = 14   # rows shown in the hover zoom preview
-_PREVIEW_W         = 420  # min width of the hover preview Toplevel
 
 # Right-side breathing room for the text viewport. `_font.measure()`
 # returns advance width, not visible-glyph width — italics + some
@@ -144,17 +127,6 @@ _HEX_COLOR_RE = re.compile(
 )
 
 
-def _lighten(hex_color: str, amount: int = 18) -> str:
-    """Brighten a `#rrggbb` color by *amount* per channel. Used for the
-    1-px frame around the minimap hover preview Toplevel."""
-    try:
-        h = hex_color.lstrip("#")
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"#{min(255, r + amount):02x}{min(255, g + amount):02x}{min(255, b + amount):02x}"
-    except Exception:
-        return hex_color
-
-
 def _extract_hex_color(token_text: str) -> str | None:
     """If *token_text* is a quoted hex-color literal (e.g. `"#FF00AA"`),
     return the hex color as `#RRGGBB`. Otherwise None."""
@@ -167,7 +139,7 @@ def _extract_hex_color(token_text: str) -> str | None:
     return f"#{digits}"
 
 
-class CanvasCodeView(tk.Frame):
+class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcherMixin, MinimapMixin, AutocompleteMixin, tk.Frame):
     """Canvas-rendered code editor.
 
     Indices follow the same convention throughout: 0-indexed line and
@@ -648,7 +620,7 @@ class CanvasCodeView(tk.Frame):
         compare against.
 
         Subtracts:
-          • `_TEXT_X` — gutter (line numbers + fold markers) on the
+          • `_text_x` — gutter (line numbers + fold markers) on the
             left, never available for text.
           • `_MINIMAP_W` — minimap strip on the right, but ONLY when
             the minimap is currently visible. With it hidden, the
@@ -686,10 +658,10 @@ class CanvasCodeView(tk.Frame):
     @property
     def _text_x0(self) -> int:
         """Text-area x origin with horizontal scroll applied. Use this
-        instead of `_TEXT_X` for ANY canvas item that should scroll
+        instead of `_text_x` for ANY canvas item that should scroll
         horizontally with the buffer (tokens, selection, find-match,
         diagnostics, cursor, indent guides). Gutter / minimap /
-        sticky-band positions stay fixed to `_TEXT_X` because they
+        sticky-band positions stay fixed to `_text_x` because they
         aren't part of the scrollable text region."""
         return self._text_x - self._scroll_x
 
@@ -958,88 +930,6 @@ class CanvasCodeView(tk.Frame):
         # quoted string; "'" or '"' = line starts inside one with that quote char.
         self._ml_state: list[str | None] = []
 
-        # Tokenizer rules. Each rule is (regex, category_name). The category
-        # is resolved against the active theme's `tokens` map at render time,
-        # so a `set_theme()` recolors without rebuilding rules.
-        #
-        # Order matters: earlier rules claim text, later rules only see
-        # segments still at default fg. Comments and strings MUST come
-        # before keywords so words like `if` inside a string don't get
-        # keyword-colored.
-        self._rules = [
-            # Strings BEFORE comments — `#.*` would otherwise eat hex
-            # color strings (`bg="#FFFFFF"`) by matching from the `#`
-            # to end of line, swallowing the rest of the statement.
-            # Triple-quoted patterns come first so ''' isn't parsed as
-            # '' (empty) + ' (open). The (?:'''|$) close allows the
-            # pattern to match unclosed triples on the opening line of
-            # a multiline string (continuation lines are handled by
-            # _tokenize via _ml_state / _tokenize_in_triple).
-            (re.compile(
-                r"'''[^'\\]*(?:(?:\\.|'{1,2}(?!'))[^'\\]*)*(?:'''|$)"
-                r'|"""[^"\\]*(?:(?:\\.|"{1,2}(?!"))[^"\\]*)*(?:"""|$)'
-                r"|'(?:\\.|[^'\\])*'"
-                r'|"(?:\\.|[^"\\])*"'
-            ), "string"),
-            (re.compile(r"#.*"),                                  "comment"),
-            (re.compile(r"@\w+(?:\.\w+)*"),                       "decorator"),
-            (re.compile(r"(?<=\bclass\s)\w+"),                    "type"),
-            # def names — dunders (Python protocol methods like __init__)
-            # go to "function" so themes can paint them differently from
-            # user-defined methods, which go to "method".
-            (re.compile(r"(?<=\bdef\s)__\w+__"),                  "function"),
-            (re.compile(r"(?<=\bdef\s)\w+"),                      "method"),
-            (re.compile(
-                r"\b(class|def|import|from|as|lambda|global|nonlocal)\b"
-            ),                                                    "keyword_decl"),
-            (re.compile(
-                r"\b(if|else|elif|return|for|while|try|except|finally|raise|"
-                r"yield|pass|break|continue|with|in|is|not|and|or|async|"
-                r"await|assert|del)\b"
-            ),                                                    "keyword_flow"),
-            (re.compile(r"\b(True|False|None)\b"),                "constant"),
-            (re.compile(r"\b(self|cls)\b"),                       "self_cls"),
-            (re.compile(
-                r"\b(int|str|float|bool|list|dict|set|tuple|bytes|bytearray|"
-                r"complex|frozenset|object|type|Exception|BaseException|"
-                r"ValueError|TypeError|KeyError|IndexError|AttributeError|"
-                r"FileNotFoundError|StopIteration|RuntimeError|"
-                r"NotImplementedError|ArithmeticError|ZeroDivisionError|"
-                r"OSError|IOError|LookupError|NameError|"
-                r"UnicodeDecodeError|UnicodeEncodeError)\b"
-            ),                                                    "type"),
-            (re.compile(
-                r"\b(print|len|range|super|abs|min|max|sum|sorted|reversed|"
-                r"enumerate|zip|map|filter|any|all|open|hasattr|getattr|"
-                r"setattr|callable|input|format|chr|ord|hex|oct|bin|round|"
-                r"divmod|pow|iter|next|repr|isinstance|issubclass|delattr|"
-                r"vars|dir|id|globals|locals|exec|eval|compile|"
-                r"breakpoint|help|memoryview|slice|staticmethod|classmethod|"
-                r"property)\b"
-            ),                                                    "function"),
-            # Constructor / class call-sites — any PascalCase (or ALL_CAPS)
-            # identifier followed by `(`. Placed before the dot-method rule
-            # so `tk.Label(...)` colors `Label` as a type, not a method.
-            (re.compile(r"\b[A-Z]\w*(?=\s*\()"),                  "type"),
-            # Method calls after a dot — dunders (e.g. `__init__` in
-            # `super().__init__()`) go to "function", regular method calls
-            # (e.g. `self._build_ui()`) go to "method". Mirrors the def-name
-            # split so themes can color the two consistently.
-            (re.compile(r"(?<=\.)__\w+__(?=\s*\()"),              "function"),
-            (re.compile(r"(?<=\.)\w+(?=\s*\()"),                  "method"),
-            # Keyword arguments — identifier directly followed by `=`
-            # (not `==`, not after `.`). Catches `text=...`, `bg=...`
-            # in calls like `tk.Label(text="hi", bg="#fff")`. Skips
-            # `x = 1` style assignments because those have spaces
-            # around `=` by convention.
-            (re.compile(r"(?<!\.)\b\w+(?==(?!=))"),               "parameter"),
-            (re.compile(r"\b(?:0[xX][\dA-Fa-f]+|\d+(?:\.\d+)?)\b"), "number"),
-            # Punctuation — themes that want a Monokai-style pink can
-            # color it via the "punctuation" category. Themes that don't
-            # define "punctuation" leave it at default fg.
-            (re.compile(r"[(){}\[\],.:;]"),                       "punctuation"),
-        ]
-
     def _wire_events(self) -> None:
         c = self.canvas
         c.bind("<Configure>",        lambda _: self.render())
@@ -1269,7 +1159,7 @@ class CanvasCodeView(tk.Frame):
             # Gutter content (breakpoint, git stripe, line number, fold
             # marker) is drawn AT THE END of this row block — after the
             # tokens — so it overpaints any glyph that scrolled left of
-            # `_TEXT_X` when `_scroll_x > 0`. See the gutter-mask block
+            # `_text_x` when `_scroll_x > 0`. See the gutter-mask block
             # near the caret draw at the bottom of the row loop.
 
             # Find/Replace match highlights are painted by
@@ -1387,7 +1277,7 @@ class CanvasCodeView(tk.Frame):
                                       fill=self._palette["caret"], width=1)
 
             # Gutter overlay — paints OVER any token / indent guide that
-            # scrolled left of `_TEXT_X`, then redraws the gutter content
+            # scrolled left of `_text_x`, then redraws the gutter content
             # (git stripe, breakpoint, line number, fold marker) on top.
             # Without this, horizontally scrolled long lines bleed the
             # start of each line into the line-number column.
@@ -1459,411 +1349,6 @@ class CanvasCodeView(tk.Frame):
         self._push_scroll_fractions()
         self._refresh_breadcrumb()
 
-    # ── Minimap ───────────────────────────────────────────────────────────────
-    # The minimap is a real `tk.Text` widget embedded in the canvas via
-    # `create_window`. Font size 1 gives the same crisp glyph rasterization
-    # IDOL's textbox minimap (widgets/minimap.py) gets — `create_text` on a
-    # canvas can't render below ~4-5px. Token tags are mirrored from the
-    # active theme so colors match the editor.
-
-    def _build_minimap(self) -> None:
-        """Create the embedded minimap Text widget + hover-preview state.
-        Called once from `_build_ui`."""
-        self._mm_text = tk.Text(
-            self.canvas,
-            bd=0, highlightthickness=0,
-            state="disabled", wrap="none",
-            cursor="arrow", takefocus=False,
-            font=(_FONT_FAMILY, _MINIMAP_FONT_SIZE),
-            padx=2, pady=0,
-            spacing1=0, spacing2=0, spacing3=0,
-        )
-        # `place()` (not create_window) so the canvas's `delete("all")` in
-        # render() can't unmap the widget. Track the last place args to
-        # avoid redundant geometry calls on every render.
-        self._mm_last_place: tuple[int, int, int, int] | None = None
-        self._mm_lines_cache: list[str] = []
-        self._mm_last_theme: str | None = None
-        # Host-toggleable visibility (View → "Show Minimap"). Mirrors
-        # the legacy CodeView.show_minimap / hide_minimap contract.
-        self._mm_visible: bool = True
-
-        # Hover preview Toplevel — lazily created in `_mm_show_preview`.
-        self._mm_preview: tk.Toplevel | None = None
-        self._mm_preview_text: tk.Text | None = None
-        self._mm_preview_after: str | None = None
-        self._mm_last_preview_line: int = -1
-
-        # Elide tag — hides minimap lines that are folded in the editor.
-        self._mm_text.tag_configure("mm_elide", elide=True)
-        self._mm_last_folded: frozenset = frozenset()
-
-        self._mm_text.bind("<ButtonPress-1>", self._on_mm_press)
-        self._mm_text.bind("<B1-Motion>",     self._on_mm_drag)
-        self._mm_text.bind("<Motion>",        self._on_mm_hover)
-        self._mm_text.bind("<Leave>",         self._on_mm_leave)
-        self._mm_text.bind("<MouseWheel>",    self._on_mm_wheel)
-        self._mm_text.bind("<Button-4>",      self._on_mm_wheel)
-        self._mm_text.bind("<Button-5>",      self._on_mm_wheel)
-
-    def show_minimap(self) -> None:
-        """Make the minimap visible. Idempotent."""
-        if not self._mm_visible:
-            self._mm_visible = True
-            self.render()
-
-    def hide_minimap(self) -> None:
-        """Hide the minimap and reclaim its column. Idempotent."""
-        if self._mm_visible:
-            self._mm_visible = False
-            self._mm_text.place_forget()
-            self._mm_last_place = None
-            self.render()
-
-    def _update_minimap(self) -> None:
-        """Reposition/resize the embedded widget, rebuild content if the
-        buffer changed, refresh tag colors on theme switch, and sync the
-        scroll position with the editor viewport. Called from `render`."""
-        c = self.canvas
-        cw, ch = c.winfo_width(), c.winfo_height()
-        mm_x = cw - _MINIMAP_W
-        # Hide when the user toggled it off, or when the canvas is too
-        # narrow to host both editor + minimap.
-        if not self._mm_visible or mm_x < self._text_x + 20 or ch < 2:
-            if self._mm_last_place is not None:
-                self._mm_text.place_forget()
-                self._mm_last_place = None
-            return
-        cur = (mm_x, 0, _MINIMAP_W, ch)
-        if cur != self._mm_last_place:
-            self._mm_text.place(x=mm_x, y=0,
-                                width=_MINIMAP_W, height=ch)
-            self._mm_text.lift()  # ensure widget sits above canvas items
-            self._mm_last_place = cur
-        if self._mm_last_theme != self._theme_name:
-            self._mm_apply_palette()
-            self._mm_last_theme = self._theme_name
-        # Cheap fast path: if buffer is unchanged, list-compare bails on
-        # the first differing entry (or instantly when nothing changed).
-        cur_folded = frozenset(self.folded)
-        if self._mm_lines_cache != self.lines:
-            self._mm_rebuild_content()
-            self._mm_apply_folds(cur_folded)
-        elif cur_folded != self._mm_last_folded:
-            self._mm_apply_folds(cur_folded)
-        self._mm_sync_scroll()
-
-    def _mm_apply_palette(self) -> None:
-        """Push the active palette + token colors onto the minimap widget."""
-        p = self._palette
-        bg = p.get("minimap_bg", p["bg"])
-        self._mm_text.configure(
-            bg=bg, fg=p["fg"],
-            insertbackground=bg,
-            selectbackground=bg, selectforeground=p["fg"],
-        )
-        for cat, (color, _italic) in self._token_style.items():
-            self._mm_text.tag_configure(f"tok_{cat}", foreground=color)
-
-    def _mm_rebuild_content(self) -> None:
-        """Insert every line into the minimap with token tags applied.
-        Called only when `self.lines` differs from the cached snapshot."""
-        pt = self._mm_text
-        pt.configure(state="normal")
-        pt.delete("1.0", "end")
-        total = len(self.lines)
-        for i, line in enumerate(self.lines, start=1):
-            col = 0
-            for txt, cat in self._tokenize(line, i - 1):
-                pt.insert("end", txt)
-                if cat is not None:
-                    pt.tag_add(f"tok_{cat}",
-                               f"{i}.{col}", f"{i}.{col + len(txt)}")
-                col += len(txt)
-            if i < total:
-                pt.insert("end", "\n")
-        pt.configure(state="disabled")
-        self._mm_lines_cache = list(self.lines)
-
-    def _mm_apply_folds(self, cur_folded: frozenset) -> None:
-        """Elide minimap lines that are hidden by the editor's fold state."""
-        pt = self._mm_text
-        pt.tag_remove("mm_elide", "1.0", "end")
-        if cur_folded:
-            skip = None
-            for i, line in enumerate(self.lines):
-                if skip is not None:
-                    if skip == -1:
-                        lnum = i + 1
-                        pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                        if _IDOL_END_RE.match(line):
-                            skip = None
-                        continue
-                    if skip <= -2:
-                        si = -(skip + 2)
-                        if line.strip():
-                            ind = len(line) - len(line.lstrip())
-                            if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                                skip = None  # terminating line is not elided
-                            else:
-                                lnum = i + 1
-                                pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                                continue
-                        else:
-                            lnum = i + 1
-                            pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                            continue
-                    else:
-                        ind = len(line) - len(line.lstrip())
-                        if line.strip() and ind <= skip:
-                            skip = None
-                        else:
-                            lnum = i + 1
-                            pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                            continue
-                if i in cur_folded:
-                    if _IDOL_BEGIN_RE.match(line):
-                        skip = -1
-                    elif _SECTION_MARKER.match(line):
-                        skip = -(len(line) - len(line.lstrip()) + 2)
-                    else:
-                        skip = len(line) - len(line.lstrip())
-        self._mm_last_folded = cur_folded
-
-    def _mm_sync_scroll(self) -> None:
-        """Move the minimap's yview so it tracks the editor scroll proportionally.
-
-        The old approach used top_phys/n which clamped the minimap to its bottom
-        while the editor still had rows to scroll — because yview_moveto(frac)
-        positions frac of the document at the minimap TOP, so fracs above
-        (1 - mm_visible_fraction) are silently clamped.
-
-        Fix: normalise the editor's scroll position to 0→1 over its own scrollable
-        range, then map that onto 0→mm_max_top so the minimap reaches its bottom
-        exactly when the editor reaches its bottom.
-        """
-        if not self.lines:
-            return
-        try:
-            total   = max(1, self._visual_row_count())
-            visible = max(1, self.canvas.winfo_height() // self._line_h)
-
-            editor_max_top = max(0.0, 1.0 - visible / total)
-            if editor_max_top == 0.0:
-                self._mm_text.yview_moveto(0.0)
-                return
-
-            editor_norm = max(0.0, min(1.0, (self.scroll_y / total) / editor_max_top))
-
-            mm_top, mm_bot = self._mm_text.yview()
-            mm_max_top = max(0.0, 1.0 - (mm_bot - mm_top))
-
-            self._mm_text.yview_moveto(editor_norm * mm_max_top)
-        except Exception:
-            pass
-
-    # ── Minimap interaction ───────────────────────────────────────────────────
-
-    def _on_mm_press(self, event):
-        # Focus the canvas so keyboard input still goes to the editor
-        # after a minimap click.
-        self.canvas.focus_set()
-        self._mm_hide_preview()
-        self._mm_scroll_to(event.y)
-        return "break"
-
-    def _on_mm_drag(self, event):
-        self._mm_scroll_to(event.y)
-        return "break"
-
-    def _mm_scroll_to(self, widget_y: int) -> None:
-        """Translate a y-coord inside the minimap into a main-editor
-        scroll position, centering the clicked line in the viewport."""
-        try:
-            idx = self._mm_text.index(f"@0,{widget_y}")
-            phys = max(0, min(len(self.lines) - 1, int(idx.split(".")[0]) - 1))
-        except Exception:
-            return
-        # Convert physical line → visual row (account for folds).
-        v = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            if i == phys:
-                break
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-            v += 1
-        h = self.canvas.winfo_height()
-        v_rows = max(1, h // self._line_h)
-        self.scroll_y = max(0, v - v_rows // 2)
-        self.render()
-
-    def _on_mm_wheel(self, event):
-        if getattr(event, "num", 0) == 4:
-            self._scroll(-3)
-        elif getattr(event, "num", 0) == 5:
-            self._scroll(+3)
-        else:
-            self._scroll(-3 if event.delta > 0 else +3)
-        # Refresh preview so the centered line tracks the new scroll pos.
-        if self._mm_preview is not None:
-            self._mm_last_preview_line = -1
-            try:
-                idx = self._mm_text.index(f"@0,{event.y}")
-                self._mm_show_preview(int(idx.split(".")[0]), event.y_root)
-            except Exception:
-                pass
-        return "break"
-
-    # ── Minimap hover zoom-box ────────────────────────────────────────────────
-
-    def _on_mm_hover(self, event):
-        try:
-            idx = self._mm_text.index(f"@0,{event.y}")
-            line = int(idx.split(".")[0])
-        except Exception:
-            return
-        if line == self._mm_last_preview_line and self._mm_preview is not None:
-            self._mm_reposition_preview(event.y_root)
-            return
-        if self._mm_preview_after:
-            self.after_cancel(self._mm_preview_after)
-        self._mm_preview_after = self.after(
-            16, lambda ln=line, y=event.y_root: self._mm_show_preview(ln, y)
-        )
-
-    def _on_mm_leave(self, _event):
-        if self._mm_preview_after:
-            self.after_cancel(self._mm_preview_after)
-        self._mm_preview_after = self.after(120, self._mm_hide_preview)
-
-    def _mm_show_preview(self, center_line: int, mouse_y_root: int) -> None:
-        n = len(self.lines)
-        if n == 0:
-            return
-        half  = _PREVIEW_LINES // 2
-        first = max(1, center_line - half)
-        last  = min(n, first + _PREVIEW_LINES - 1)
-        first = max(1, last - _PREVIEW_LINES + 1)
-
-        if self._mm_preview is None:
-            self._mm_preview = tk.Toplevel(self)
-            self._mm_preview.overrideredirect(True)
-            self._mm_preview.attributes("-topmost", True)
-            self._mm_preview.withdraw()
-            outer = tk.Frame(self._mm_preview, padx=1, pady=1)
-            outer.pack(fill="both", expand=True)
-            self._mm_preview_text = tk.Text(
-                outer, bd=0, highlightthickness=0,
-                state="disabled", wrap="none", takefocus=False,
-                padx=8, pady=4,
-                font=(_FONT_FAMILY, _FONT_SIZE),
-            )
-            self._mm_preview_text.pack(fill="both", expand=True)
-            self._mm_preview_text.bind("<Enter>", lambda _e: (
-                self.after_cancel(self._mm_preview_after)
-                if self._mm_preview_after else None
-            ))
-            self._mm_preview_text.bind("<Leave>", lambda _e: self._mm_hide_preview())
-            # Italic variant for comment-like tokens
-            self._mm_preview_text_italic_font = tkfont.Font(
-                family=_FONT_FAMILY, size=_FONT_SIZE, slant="italic"
-            )
-
-        pt = self._mm_preview_text
-        p  = self._palette
-        pt.configure(
-            bg=p["bg"], fg=p["fg"],
-            insertbackground=p["bg"],
-            selectbackground=p["select_bg"],
-        )
-        # 1-px frame in a lighter shade of the editor bg
-        outer = pt.master  # type: ignore[union-attr]
-        outer.configure(bg=_lighten(p["bg"], 35))
-        self._mm_preview.configure(bg=_lighten(p["bg"], 35))
-
-        # Apply token tag colors + italic for the categories that want it
-        for cat, (color, italic) in self._token_style.items():
-            if italic:
-                pt.tag_configure(f"tok_{cat}", foreground=color,
-                                 font=self._mm_preview_text_italic_font)
-            else:
-                pt.tag_configure(f"tok_{cat}", foreground=color)
-
-        pt.configure(state="normal", height=_PREVIEW_LINES)
-        pt.delete("1.0", "end")
-        for ln in range(first, last + 1):
-            line = self.lines[ln - 1] if 0 <= ln - 1 < n else ""
-            col = 0
-            preview_row = ln - first + 1
-            for txt, cat in self._tokenize(line, ln - 1):
-                pt.insert("end", txt)
-                if cat is not None:
-                    pt.tag_add(f"tok_{cat}",
-                               f"{preview_row}.{col}",
-                               f"{preview_row}.{col + len(txt)}")
-                col += len(txt)
-            if ln < last:
-                pt.insert("end", "\n")
-        pt.configure(state="disabled")
-
-        # Position to the LEFT of the minimap, vertically centered on mouse.
-        cw = self.canvas.winfo_width()
-        pw = max(_PREVIEW_W, int(cw * 0.75))
-        ph = self._mm_preview.winfo_reqheight() or _PREVIEW_LINES * 16
-        mm_x_root = self._mm_text.winfo_rootx()
-        px = mm_x_root - pw - 9
-        screen_h = self._mm_preview.winfo_screenheight()
-        py = max(0, min(mouse_y_root - ph // 2, screen_h - ph))
-
-        self._mm_last_preview_line = center_line
-        self._mm_preview.geometry(f"{pw}x{ph}+{px}+{py}")
-        self._mm_preview.deiconify()
-
-    def _mm_reposition_preview(self, mouse_y_root: int) -> None:
-        if self._mm_preview is None:
-            return
-        pw = self._mm_preview.winfo_width()
-        ph = self._mm_preview.winfo_height()
-        px = self._mm_text.winfo_rootx() - pw - 9
-        screen_h = self._mm_preview.winfo_screenheight()
-        py = max(0, min(mouse_y_root - ph // 2, screen_h - ph))
-        self._mm_preview.geometry(f"{pw}x{ph}+{px}+{py}")
-
-    def _mm_hide_preview(self) -> None:
-        if self._mm_preview_after:
-            self.after_cancel(self._mm_preview_after)
-            self._mm_preview_after = None
-        self._mm_last_preview_line = -1
-        if self._mm_preview is not None:
-            self._mm_preview.withdraw()
-
     def _draw_sticky_headers(self) -> None:
         """Update the embedded sticky-scroll canvas. Only redraws content
         when the header set or theme changes — typical scroll-within-block
@@ -1930,32 +1415,6 @@ class CanvasCodeView(tk.Frame):
             # the raw Tcl `raise` to put the band above sibling widgets.
             sc.tk.call('raise', sc._w)
             self._sticky_last_place = cur
-
-    def _line_is_foldable(self, i: int) -> bool:
-        """A line opens a foldable block when it is a `# ── …` section
-        marker OR ends with a block-opening token (`:`, `(`, `[`, `{`)
-        AND has at least one more-indented line directly below.
-        Mirrors IDOL/widgets/linenums.py:_get_fold_range first-line
-        check — without it we mis-marked any line followed by an
-        indented continuation as foldable (chained method calls,
-        multi-line expressions, etc.)."""
-        if not (0 <= i < len(self.lines)):
-            return False
-        line = self.lines[i]
-        if _IDOL_END_RE.match(line):
-            return False
-        if _SECTION_MARKER.match(line):
-            return True
-        if not line.rstrip().endswith((":", "(", "[", "{")):
-            return False
-        if i + 1 >= len(self.lines):
-            return False
-        nl = self.lines[i + 1]
-        if not nl.strip():
-            return False
-        ci = len(line) - len(line.lstrip())
-        ni = len(nl) - len(nl.lstrip())
-        return ni > ci
 
     # ── Find/Replace highlight rendering ─────────────────────────────────────
     # Matches are stored as `((start_line, start_col), (end_line, end_col))`
@@ -2054,69 +1513,6 @@ class CanvasCodeView(tk.Frame):
                 if indent == 0:
                     break
         return headers
-
-    def _find_bracket_pair(self) -> tuple[tuple[int, int], tuple[int, int]] | None:
-        """If the cursor is on (or immediately after) a bracket, return
-        ((opener_line, opener_col), (closer_line, closer_col)) for the
-        matching pair. Otherwise None."""
-        # Look at char AT cursor first, then char immediately BEFORE cursor —
-        # matches VS Code-style "cursor on either side of a bracket counts".
-        for r, c in self._bracket_candidates():
-            ch = self.lines[r][c]
-            if ch in _BRACKET_OPEN_TO_CLOSE:
-                m = self._scan_forward(r, c, ch, _BRACKET_OPEN_TO_CLOSE[ch])
-                if m is not None:
-                    return ((r, c), m)
-            elif ch in _BRACKET_CLOSE_TO_OPEN:
-                m = self._scan_backward(r, c, ch, _BRACKET_CLOSE_TO_OPEN[ch])
-                if m is not None:
-                    return (m, (r, c))
-        return None
-
-    def _bracket_candidates(self) -> list[tuple[int, int]]:
-        out = []
-        if not (0 <= self.cur_line < len(self.lines)):
-            return out
-        line = self.lines[self.cur_line]
-        # Char AT cursor (if any)
-        if 0 <= self.cur_col < len(line) and line[self.cur_col] in _ALL_BRACKETS:
-            out.append((self.cur_line, self.cur_col))
-        # Char immediately before cursor (more common — cursor sits right
-        # after a typed-or-clicked bracket). Guard against cur_col
-        # dangling past the end after a destructive edit.
-        if 0 < self.cur_col <= len(line) and line[self.cur_col - 1] in _ALL_BRACKETS:
-            out.append((self.cur_line, self.cur_col - 1))
-        return out
-
-    def _scan_forward(self, r0, c0, opener, closer):
-        depth = 0
-        for r in range(r0, len(self.lines)):
-            line = self.lines[r]
-            start = c0 + 1 if r == r0 else 0
-            for c in range(start, len(line)):
-                ch = line[c]
-                if ch == opener:
-                    depth += 1
-                elif ch == closer:
-                    if depth == 0:
-                        return (r, c)
-                    depth -= 1
-        return None
-
-    def _scan_backward(self, r0, c0, closer, opener):
-        depth = 0
-        for r in range(r0, -1, -1):
-            line = self.lines[r]
-            end = c0 - 1 if r == r0 else len(line) - 1
-            for c in range(end, -1, -1):
-                ch = line[c]
-                if ch == closer:
-                    depth += 1
-                elif ch == opener:
-                    if depth == 0:
-                        return (r, c)
-                    depth -= 1
-        return None
 
     def _cursor_word_start_col(self) -> int | None:
         """Return the start column of the word the cursor is on, or
@@ -2247,227 +1643,7 @@ class CanvasCodeView(tk.Frame):
                 break
         return x
 
-    def _comment_start(self, line: str) -> int | None:
-        """Return the index of the first # that opens a real comment.
-
-        Skips # characters that appear inside single- or double-quoted
-        strings so `bg="#FFFFFF"` is not misread as a comment while
-        `# print(f"hello")` has its entire content treated as a comment."""
-        in_str: str | None = None
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            if in_str:
-                if ch == "\\":
-                    i += 2          # skip escaped character
-                    continue
-                if ch == in_str:
-                    in_str = None
-            elif ch in ('"', "'"):
-                in_str = ch
-            elif ch == "#":
-                return i
-            i += 1
-        return None
-
-    _DIFF_META_PREFIXES = ("+++", "---", "diff ", "index ", "new file",
-                           "deleted file", "Binary", "similarity",
-                           "rename from", "rename to", "old mode", "new mode")
-
-    def _tokenize_diff(self, line: str):
-        """Whole-line tokenizer for unified diff / patch files."""
-        if line.startswith(self._DIFF_META_PREFIXES):
-            return [(line, "diff_meta")]
-        if line.startswith("+"):
-            return [(line, "diff_add")]
-        if line.startswith("-"):
-            return [(line, "diff_remove")]
-        if line.startswith("@@"):
-            m = re.match(r"(@@ [^@]+ @@)(.*)", line)
-            if m:
-                segs = [(m.group(1), "diff_hunk")]
-                if m.group(2):
-                    segs.append((m.group(2), "diff_meta"))
-                return segs
-            return [(line, "diff_hunk")]
-        return [(line, None)]
-
-    @staticmethod
-    def _scan_triple_state(lines: list[str]) -> list[str | None]:
-        """Return a per-line list of triple-quoted string states.
-
-        Each element is None (line starts outside any triple-quoted string)
-        or the quote character ("'" or '"') if the line starts inside one.
-        Used by _tokenize to colour continuation lines as strings."""
-        state: list[str | None] = []
-        current: str | None = None  # quote char while inside a triple string
-        for line in lines:
-            state.append(current)
-            i = 0
-            n = len(line)
-            while i < n:
-                ch = line[i]
-                if current:
-                    if ch == "\\":
-                        i += 2
-                        continue
-                    if line[i:i + 3] == current * 3:
-                        current = None
-                        i += 3
-                        continue
-                else:
-                    if ch == "#":
-                        break  # rest is a comment
-                    if ch in ('"', "'") and line[i:i + 3] in ("'''", '"""'):
-                        current = ch
-                        i += 3
-                        continue
-                    if ch in ('"', "'"):
-                        q = ch
-                        i += 1
-                        while i < n:
-                            c2 = line[i]
-                            if c2 == "\\":
-                                i += 2
-                                continue
-                            if c2 == q:
-                                i += 1
-                                break
-                            i += 1
-                        continue
-                i += 1
-        return state
-
-    def _tokenize_in_triple(self, line: str, quote_char: str):
-        """Tokenize a line that starts inside a triple-quoted string.
-
-        Colours everything up to (and including) the closing triple-quote
-        as "string", then hands the remainder back to _tokenize."""
-        triple = quote_char * 3
-        end_idx = line.find(triple)
-        if end_idx == -1:
-            return [(line, "string")] if line else []
-        segs: list = [(line[:end_idx + 3], "string")]
-        rest = line[end_idx + 3:]
-        if rest:
-            segs.extend(self._tokenize(rest))
-        return [s for s in segs if s[0]]
-
-    def _tokenize(self, line: str, line_idx: int | None = None):
-        """Return a list of (text, category_or_None) segments.
-
-        Category None means default fg. Categories are resolved to actual
-        colors at render time so the active theme picks the palette.
-
-        Comments are handled up-front via _comment_start so that string
-        tokens inside a comment (e.g. `# print("x")`) are not coloured
-        as strings — the whole tail is treated as a comment. Non-comment
-        rules run only on the code portion that precedes the `#`."""
-        if self.language == "diff":
-            return self._tokenize_diff(line)
-        # Continuation lines of a multiline triple-quoted string.
-        if line_idx is not None and line_idx < len(self._ml_state):
-            triple_q = self._ml_state[line_idx]
-            if triple_q is not None:
-                return self._tokenize_in_triple(line, triple_q)
-        comment_at = self._comment_start(line)
-        code_part   = line[:comment_at] if comment_at is not None else line
-        segments: list = [(code_part, None)] if code_part else []
-        for pat, category in self._rules:
-            if category == "comment":
-                continue          # handled via _comment_start above
-            new_segs = []
-            for text, cur_cat in segments:
-                if cur_cat is not None:
-                    new_segs.append((text, cur_cat))
-                    continue
-                last = 0
-                for m in pat.finditer(text):
-                    s, e = m.span()
-                    if s > last:
-                        new_segs.append((text[last:s], None))
-                    new_segs.append((text[s:e], category))
-                    last = e
-                if last < len(text):
-                    new_segs.append((text[last:], None))
-            segments = new_segs
-        if comment_at is not None:
-            segments.append((line[comment_at:], "comment"))
-        return [seg for seg in segments if seg[0]]
-
     # ── Coordinate helpers ────────────────────────────────────────────────────
-
-    def _visual_to_physical(self, v_row: int) -> int:
-        cur_v = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            if cur_v == v_row:
-                return i
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-            cur_v += 1
-        return len(self.lines) - 1
-
-    def _visual_row_count(self) -> int:
-        n = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            n += 1
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-        return n
 
     def _row_from_y(self, y: int) -> int:
         v_row = self.scroll_y + max(0, y // self._line_h)
@@ -2593,230 +1769,6 @@ class CanvasCodeView(tk.Frame):
 
     # ── Mouse handlers ────────────────────────────────────────────────────────
 
-    def mc_count(self) -> int:
-        """Total cursor count (primary + secondaries). 0 when no secondaries."""
-        return len(self._mc_cursors) + 1 if self._mc_cursors else 0
-
-    def _on_alt_click(self, event):
-        """Alt+click — add or remove a secondary cursor."""
-        self.canvas.focus_set()
-        if event.x < self._gutter_w:
-            return "break"
-        row, col = self._coords_from_pixel(event.x, event.y)
-        # Remove if already there
-        for i, mc in enumerate(self._mc_cursors):
-            if mc == (row, col):
-                self._mc_cursors.pop(i)
-                self._mc_anchors.pop(i)
-                self.render()
-                return "break"
-        # Don't duplicate the primary cursor
-        if (row, col) != (self.cur_line, self.cur_col):
-            self._mc_cursors.append((row, col))
-            self._mc_anchors.append(None)
-        self._reset_blink()
-        self.render()
-        return "break"
-
-    def _draw_mc_selections(self, line_idx: int, line_text: str,
-                            y: int, canvas_w: int) -> None:
-        """Draw selection highlight for each secondary cursor that has an anchor."""
-        sel_color = self._palette["select_bg"]
-        for (mc_l, mc_c), mc_anchor in zip(self._mc_cursors, self._mc_anchors):
-            if mc_anchor is None:
-                continue
-            a, b = mc_anchor, (mc_l, mc_c)
-            s, e = (a, b) if a <= b else (b, a)
-            if not (s[0] <= line_idx <= e[0]):
-                continue
-            if s[0] == e[0]:
-                c1, c2 = s[1], e[1]
-            elif line_idx == s[0]:
-                c1, c2 = s[1], len(line_text)
-            elif line_idx == e[0]:
-                c1, c2 = 0, e[1]
-            else:
-                c1, c2 = 0, len(line_text)
-            x1 = self._text_x0 + self._font.measure(line_text[:c1])
-            x2 = self._text_x0 + self._font.measure(line_text[:c2])
-            if s[0] < line_idx < e[0]:
-                x2 = canvas_w
-            if x1 < x2:
-                self.canvas.create_rectangle(x1, y, x2, y + self._line_h,
-                                             fill=sel_color, outline="")
-
-    def _mc_apply_key(self, keysym: str, char: str,
-                      shift: bool, ctrl: bool) -> None:
-        """Mirror a keystroke to all secondary cursors, bottom-to-top."""
-        if not self._mc_cursors:
-            return
-        order = sorted(
-            range(len(self._mc_cursors)),
-            key=lambda i: (-self._mc_cursors[i][0], -self._mc_cursors[i][1]),
-        )
-        for idx in order:
-            mc_l, mc_c = self._mc_cursors[idx]
-            mc_anchor  = self._mc_anchors[idx]
-
-            if keysym == "BackSpace":
-                if mc_anchor is not None:
-                    s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
-                    mc_l, mc_c = self._mc_delete_range(s[0], s[1], e[0], e[1])
-                    mc_anchor = None
-                elif mc_l > 0 or mc_c > 0:
-                    ln = self.lines[mc_l]
-                    if mc_c > 0:
-                        prev_ch = ln[mc_c - 1]
-                        next_ch = ln[mc_c] if mc_c < len(ln) else ""
-                        if prev_ch in _PAIRS and _PAIRS[prev_ch] == next_ch:
-                            self.lines[mc_l] = ln[:mc_c - 1] + ln[mc_c + 1:]
-                            mc_c -= 1
-                        else:
-                            self.lines[mc_l] = ln[:mc_c - 1] + ln[mc_c:]
-                            mc_c -= 1
-                    else:
-                        prev = self.lines[mc_l - 1]
-                        mc_c = len(prev)
-                        self.lines[mc_l - 1] = prev + self.lines[mc_l]
-                        del self.lines[mc_l]
-                        mc_l -= 1
-
-            elif keysym == "Delete":
-                if mc_anchor is not None:
-                    s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
-                    mc_l, mc_c = self._mc_delete_range(s[0], s[1], e[0], e[1])
-                    mc_anchor = None
-                else:
-                    ln = self.lines[mc_l]
-                    if mc_c < len(ln):
-                        self.lines[mc_l] = ln[:mc_c] + ln[mc_c + 1:]
-                    elif mc_l + 1 < len(self.lines):
-                        self.lines[mc_l] = ln + self.lines[mc_l + 1]
-                        del self.lines[mc_l + 1]
-
-            elif keysym == "Return":
-                if mc_anchor is not None:
-                    s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
-                    mc_l, mc_c = self._mc_delete_range(s[0], s[1], e[0], e[1])
-                    mc_anchor = None
-                ln = self.lines[mc_l]
-                indent = " " * (len(ln) - len(ln.lstrip()))
-                if ln[:mc_c].rstrip().endswith(":"):
-                    indent += "    "
-                self.lines[mc_l] = ln[:mc_c]
-                self.lines.insert(mc_l + 1, indent + ln[mc_c:])
-                mc_l += 1
-                mc_c = len(indent)
-
-            elif keysym == "Tab":
-                if mc_anchor is not None:
-                    s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
-                    mc_l, mc_c = self._mc_delete_range(s[0], s[1], e[0], e[1])
-                    mc_anchor = None
-                ln = self.lines[mc_l]
-                sp = " " * self.tab_size
-                self.lines[mc_l] = ln[:mc_c] + sp + ln[mc_c:]
-                mc_c += self.tab_size
-
-            elif keysym == "char" and char.isprintable():
-                if mc_anchor is not None:
-                    s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
-                    mc_l, mc_c = self._mc_delete_range(s[0], s[1], e[0], e[1])
-                    mc_anchor = None
-                mc_l, mc_c = self._mc_insert_char(mc_l, mc_c, char)
-
-            elif keysym in ("Left", "Right", "Up", "Down",
-                            "Home", "End", "Prior", "Next"):
-                if shift and mc_anchor is None:
-                    mc_anchor = (mc_l, mc_c)
-                elif not shift:
-                    if mc_anchor is not None and keysym in ("Left", "Right"):
-                        s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
-                        mc_l, mc_c = (s if keysym == "Left" else e)
-                        mc_anchor = None
-                    else:
-                        mc_anchor = None
-                    if keysym not in ("Left", "Right") or True:
-                        mc_l, mc_c = self._mc_move(mc_l, mc_c, keysym, ctrl)
-                else:
-                    mc_l, mc_c = self._mc_move(mc_l, mc_c, keysym, ctrl)
-
-            self._mc_cursors[idx] = (mc_l, max(0, mc_c))
-            self._mc_anchors[idx] = mc_anchor
-
-        if keysym not in ("Left", "Right", "Up", "Down",
-                          "Home", "End", "Prior", "Next"):
-            self._fire_change()
-
-    def _mc_shift_same_line(self, line: int, col_threshold: int, delta: int) -> None:
-        """Shift secondary cursor/anchor columns when the primary cursor
-        edited the same line. Any secondary position on *line* at column
-        >= *col_threshold* is moved by *delta* (positive = insertion,
-        negative = deletion). Must be called BEFORE _mc_apply_key so the
-        secondary cursors start from the correct post-edit columns."""
-        for i in range(len(self._mc_cursors)):
-            mc_l, mc_c = self._mc_cursors[i]
-            if mc_l == line and mc_c >= col_threshold:
-                self._mc_cursors[i] = (mc_l, max(0, mc_c + delta))
-            anch = self._mc_anchors[i]
-            if anch is not None and anch[0] == line and anch[1] >= col_threshold:
-                self._mc_anchors[i] = (anch[0], max(0, anch[1] + delta))
-
-    def _mc_delete_range(self, sl: int, sc: int,
-                         el: int, ec: int) -> tuple[int, int]:
-        """Delete the range [sl,sc)→[el,ec) from self.lines."""
-        if sl == el:
-            ln = self.lines[sl]
-            self.lines[sl] = ln[:sc] + ln[ec:]
-        else:
-            head = self.lines[sl][:sc]
-            tail = self.lines[el][ec:]
-            self.lines[sl] = head + tail
-            del self.lines[sl + 1: el + 1]
-        return sl, sc
-
-    def _mc_insert_char(self, line: int, col: int,
-                        char: str) -> tuple[int, int]:
-        """Insert char at (line, col) with bracket pairing. Return new pos."""
-        ln = self.lines[line]
-        next_ch = ln[col] if col < len(ln) else ""
-        if char in _CLOSERS and next_ch == char:
-            return line, col + 1
-        if char in _PAIRS and not next_ch.isalnum() and next_ch != "_":
-            self.lines[line] = ln[:col] + char + _PAIRS[char] + ln[col:]
-            return line, col + 1
-        self.lines[line] = ln[:col] + char + ln[col:]
-        return line, col + 1
-
-    def _mc_move(self, line: int, col: int,
-                 keysym: str, ctrl: bool) -> tuple[int, int]:
-        """Move a secondary cursor one step. Returns new (line, col)."""
-        if keysym == "Left":
-            if col > 0:
-                col -= 1
-            elif line > 0:
-                line -= 1
-                col = len(self.lines[line])
-        elif keysym == "Right":
-            if col < len(self.lines[line]):
-                col += 1
-            elif line + 1 < len(self.lines):
-                line += 1
-                col = 0
-        elif keysym in ("Up", "Prior"):
-            line = max(0, line - (1 if keysym == "Up" else 10))
-            col = min(col, len(self.lines[line]))
-        elif keysym in ("Down", "Next"):
-            line = min(len(self.lines) - 1, line + (1 if keysym == "Down" else 10))
-            col = min(col, len(self.lines[line]))
-        elif keysym == "Home":
-            ln = self.lines[line]
-            first_nw = len(ln) - len(ln.lstrip())
-            col = 0 if col == first_nw else first_nw
-        elif keysym == "End":
-            col = len(self.lines[line])
-        return line, col
-
     def _on_click(self, event):
         self.canvas.focus_set()
         self._hide_autocomplete()
@@ -2873,14 +1825,6 @@ class CanvasCodeView(tk.Frame):
         self._reset_blink()
         self.render()
         return "break"
-
-    def _hit_fold_dots(self, x: float, y: float) -> int | None:
-        """Return the physical line index of the fold-dots indicator at
-        the given canvas coords, or None."""
-        for x1, y1, x2, y2, row in self._fold_dot_rects:
-            if x1 <= x <= x2 and y1 <= y <= y2:
-                return row
-        return None
 
     def _on_motion(self, event):
         """Per-zone cursor swap + breakpoint ghost-dot tracking.
@@ -3450,47 +2394,6 @@ class CanvasCodeView(tk.Frame):
             self.cur_col = len(parts[-1])
         self._fire_change()
 
-    def _shift_folds(self, after: int, delta: int = 1) -> None:
-        """Shift fold indices strictly after `after` by `delta`.
-
-        Call with delta=+1 after inserting a line at after+1, or delta=-1
-        after deleting a line that was at after+1.  Indices equal to `after`
-        are never moved (the line at `after` itself didn't shift).
-        """
-        if self.folded:
-            self.folded = {f + delta if f > after else f for f in self.folded}
-
-    def _fold_end(self, start: int) -> int:
-        """Return the physical index of the last hidden line in a fold at `start`.
-
-        Mirrors the skip logic in _visual_to_physical so the two stay in sync.
-        """
-        line = self.lines[start]
-        if _IDOL_BEGIN_RE.match(line):
-            for i in range(start + 1, len(self.lines)):
-                if _IDOL_END_RE.match(self.lines[i]):
-                    return i
-            return len(self.lines) - 1
-        if _SECTION_MARKER.match(line):
-            si = len(line) - len(line.lstrip())
-            last = start
-            for i in range(start + 1, len(self.lines)):
-                ln = self.lines[i]
-                if ln.strip():
-                    ind = len(ln) - len(ln.lstrip())
-                    if ind < si or (ind == si and _SECTION_MARKER.match(ln)):
-                        return last
-                last = i
-            return last
-        base_ind = len(line) - len(line.lstrip())
-        last = start
-        for i in range(start + 1, len(self.lines)):
-            ln = self.lines[i]
-            if ln.strip() and len(ln) - len(ln.lstrip()) <= base_ind:
-                return last
-            last = i
-        return last
-
     def _insert_newline(self) -> None:
         self._push_undo("")
         if self.sel_anchor:
@@ -3659,215 +2562,12 @@ class CanvasCodeView(tk.Frame):
         self._ensure_visible()
         self.render()
 
-    # ── Autocomplete ─────────────────────────────────────────────────────────
-
-    _AC_KEYWORDS = (
-        "False None True and as assert async await break class continue "
-        "def del elif else except finally for from global if import in is "
-        "lambda nonlocal not or pass raise return try while with yield"
-    ).split()
-    _AC_BUILTINS = (
-        "abs all any bool bytes callable chr classmethod compile complex "
-        "dict dir divmod enumerate eval exec filter float format "
-        "frozenset getattr globals hasattr hash hex id input int isinstance "
-        "issubclass iter len list locals map max memoryview min next object "
-        "oct open ord pow print property range repr reversed round set "
-        "setattr slice sorted staticmethod str sum super tuple type vars "
-        "zip self cls"
-    ).split()
-
-    def _current_prefix(self) -> str:
-        """Return the identifier prefix immediately before the cursor."""
-        line = self.lines[self.cur_line]
-        c = self.cur_col
-        start = c
-        while start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_"):
-            start -= 1
-        return line[start:c]
-
-    def _buffer_word_items(self, prefix: str,
-                           trigger_char: str | None) -> list[str]:
-        """Synchronous fallback when no `on_completion_request` host hook
-        is wired. Returns [] on `.` trigger — dumping every identifier in
-        the buffer as member candidates would be noise; real member
-        completion needs an LSP."""
-        if trigger_char == ".":
-            return []
-        words: set[str] = set(self._AC_KEYWORDS) | set(self._AC_BUILTINS)
-        for line in self.lines:
-            for m in _WORD_RE.findall(line):
-                if len(m) >= 2 and not m[0].isdigit():
-                    words.add(m)
-        return sorted(
-            {w for w in words if w != prefix and w.startswith(prefix)},
-            key=lambda w: w.lower(),
-        )[:30]
-
-    def _maybe_show_autocomplete(self) -> None:
-        """Decide whether to show, narrow, or hide the autocomplete popup.
-
-        Triggers:
-          • prefix is ≥1 char of an identifier — normal completion, or
-          • char immediately before the prefix is `.` — member access.
-
-        Completion source is async-friendly via `on_completion_request`
-        (host supplies items via callback). A sequence number guards
-        against a stale LSP response overwriting a fresher request.
-        """
-        prefix = self._current_prefix()
-        line = self.lines[self.cur_line]
-        prefix_start = self.cur_col - len(prefix)
-        is_member = (prefix_start > 0
-                     and line[prefix_start - 1] == ".")
-        if not is_member and len(prefix) < 1:
-            self._hide_autocomplete()
-            return
-        trigger = "." if is_member else None
-        self._ac_seq += 1
-        seq = self._ac_seq
-
-        def deliver(items, _prefix=prefix, _seq=seq):
-            if _seq != self._ac_seq:
-                return  # stale — newer request superseded this one
-            # If the user typed/deleted between request and response,
-            # the prefix may no longer match — the new request will
-            # handle it.
-            if self._current_prefix() != _prefix:
-                return
-            items = sorted(
-                {w for w in items if w != _prefix and w.startswith(_prefix)},
-                key=lambda w: w.lower(),
-            )[:30]
-            if not items:
-                self._hide_autocomplete()
-                return
-            self._ac_items = items
-            self._ac_prefix = _prefix
-            self._show_autocomplete_popup()
-
-        if self.on_completion_request is not None:
-            try:
-                self.on_completion_request(prefix, trigger, deliver)
-            except Exception:
-                deliver([])
-        else:
-            deliver(self._buffer_word_items(prefix, trigger))
-
-    def _show_autocomplete_popup(self) -> None:
-        # Geometry — anchor under the typed prefix.
-        line = self.lines[self.cur_line]
-        col = self.cur_col - len(self._ac_prefix)
-        cx = self._text_x0 + self._measure_to_col(line, col)
-        cy = (self._visual_row_of(self.cur_line) - self.scroll_y + 1) * self._line_h
-        rx = self.canvas.winfo_rootx() + cx
-        ry = self.canvas.winfo_rooty() + cy
-
-        if self._ac_top is None:
-            self._ac_top = tk.Toplevel(self)
-            self._ac_top.overrideredirect(True)
-            self._ac_top.attributes("-topmost", True)
-            self._ac_listbox = tk.Listbox(
-                self._ac_top,
-                bg="#252526", fg="#cccccc",
-                selectbackground="#094771", selectforeground="#ffffff",
-                font=(_FONT_FAMILY, 10),
-                relief="flat", borderwidth=1,
-                highlightthickness=0,
-                activestyle="none",
-                width=24, height=8,
-            )
-            self._ac_listbox.pack(fill="both", expand=True)
-            self._ac_listbox.bind("<ButtonRelease-1>",
-                                  lambda _: self._accept_autocomplete())
-            self._ac_listbox.bind("<Double-Button-1>",
-                                  lambda _: self._accept_autocomplete())
-        self._ac_listbox.delete(0, "end")
-        for it in self._ac_items:
-            self._ac_listbox.insert("end", it)
-        self._ac_listbox.selection_set(0)
-        self._ac_listbox.activate(0)
-        self._ac_top.geometry(f"+{rx}+{ry}")
-        self._ac_top.deiconify()
-
-    def _hide_autocomplete(self) -> None:
-        if self._ac_top is not None:
-            self._ac_top.withdraw()
-        self._ac_items = []
-        self._ac_prefix = ""
-
     def _on_canvas_focus_out(self, _event) -> None:
         self.render()
         # Close autocomplete when the editor loses focus (user clicked away,
         # switched tabs, etc.). Use after() so a listbox click can fire
         # _accept_autocomplete before the popup is withdrawn.
         self.after(50, self._ac_dismiss_if_unfocused)
-
-    def _ac_dismiss_if_unfocused(self) -> None:
-        if self._ac_top is None or self._ac_top.state() != "normal":
-            return
-        focused = self.focus_get()
-        if focused is not self.canvas and focused is not self._ac_listbox:
-            self._hide_autocomplete()
-
-    def _ac_select(self, delta: int) -> None:
-        if not self._ac_items or self._ac_listbox is None:
-            return
-        cur = self._ac_listbox.curselection()
-        idx = (cur[0] if cur else 0) + delta
-        idx = max(0, min(len(self._ac_items) - 1, idx))
-        self._ac_listbox.selection_clear(0, "end")
-        self._ac_listbox.selection_set(idx)
-        self._ac_listbox.activate(idx)
-        self._ac_listbox.see(idx)
-
-    def _accept_autocomplete(self) -> None:
-        if not self._ac_items or self._ac_listbox is None:
-            return
-        cur = self._ac_listbox.curselection()
-        idx = cur[0] if cur else 0
-        choice = self._ac_items[idx]
-        suffix = choice[len(self._ac_prefix):]
-        if suffix:
-            self._insert_text(suffix)
-        self._hide_autocomplete()
-        self.render()
-
-    def _visual_row_of(self, line_idx: int) -> int:
-        v = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            if i == line_idx:
-                return v
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-            v += 1
-        return v
 
     # ── Tier 1 multi-line actions ─────────────────────────────────────────────
 

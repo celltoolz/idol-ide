@@ -6,7 +6,7 @@
 - Hover any tab to see its full file path as a tooltip
 - Canvas-rendered regex-rule syntax highlighting; themes are JSON files in `themes/` — no Pygments dependency
 - Line numbers with code folding — click **▼**/**▶** markers to collapse/expand blocks; `# ── Name ───` section-marker comments fold from that header to the next section header at the same indent; IDOL designer markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block; **Up/Down arrow keys skip folded blocks**; pressing **Enter** on a folded section header unfolds the section first, then inserts a newline after the header line
-- Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes
+- Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes. When the cursor touches a bracket or quote, its matching partner is highlighted as you move — quotes are matched within the same line by counting quotes to tell openers from closers, and escaped quotes (`\"`) are skipped
 - Insert key toggles overwrite mode — block cursor and OVR status bar indicator
 
 ## Font

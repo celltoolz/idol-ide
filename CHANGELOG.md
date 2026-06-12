@@ -5,6 +5,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-11] — Editor Engine Decomposition (P3 audit)
+
+### Added
+- **Quote match highlighting** — placing the cursor on a quote now highlights its matching
+  partner, alongside the existing bracket-pair highlight. Quotes are matched within the same
+  line by a parity scan (opener and closer are the same character, so depth counting can't
+  work); escaped quotes (`\"`) are ignored.
+
+### Changed
+- **Editor engine decomposed into six mixins** — tokenizer (syntax highlighting), folding,
+  multi-cursor, bracket/quote matcher, minimap, and autocomplete each moved from
+  `canvas_codeview.py` into single-responsibility modules in `widgets/canvas_editor/`. All
+  editor state remains host-owned; mixins never import the host or each other.
+- **Shared editing constants** extracted to `canvas_editor/constants.py` — auto-pair table,
+  bracket/quote sets, editor font, minimap width — one definition instead of per-module copies.
+- `canvas_codeview.py` shrank from ~3,900 to 2,690 lines (includes removal of dead gutter
+  layout constants).
+
+### Removed
+- Dead, no-longer-imported editor modules: `editor/bracket_matcher.py`,
+  `editor/key_handler.py`, `editor/multi_cursor.py`.
+- `widgets/minimap.py` — the minimap now lives in the canvas editor's mixin package.
+
+## [2026-06-11] — Maintenance: docs rewrite and memory cleanup (P4/P5)
+
+### Changed
+- **CONTRIBUTING.md rewritten** for the post-audit codebase — current architecture tables,
+  the canvas-editor mixin package and its import rules, and the Definition of Done.
+- `CLAUDE.md` converted from UTF-16 LE to UTF-8.
+
 ## [2026-06-08 to 2026-06-10] — Canvas Item Tags, Scaling & Font Fixes
 
 ### Added

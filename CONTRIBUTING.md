@@ -46,11 +46,16 @@ utils/ollama_client.py   →    widgets/ai_chat_panel.py
 ### The strict import rule
 
 ```
-main.py      → can import app.py only
-app.py       → can import anything
-widgets/     → can import from editor/, utils/ — NEVER the reverse
-editor/      → can import from utils/ — NO widget imports, NO subprocess in utils/
-utils/       → NO widget imports, NO subprocess calls, NO editor/ imports
+main.py                → can import app.py only
+app.py                 → can import anything
+widgets/               → can import from editor/, utils/ — NEVER the reverse
+widgets/canvas_editor/ → mixins import canvas_editor/constants.py only — never
+                         canvas_codeview.py, never each other. One sanctioned
+                         exception: the fold-marker regexes in fold.py are
+                         shared vocabulary, imported by minimap.py and
+                         canvas_codeview.py
+editor/                → can import from utils/ — NO widget imports, NO subprocess in utils/
+utils/                 → NO widget imports, NO subprocess calls, NO editor/ imports
 ```
 
 Violations of this rule are bugs, not style issues.
@@ -68,10 +73,6 @@ These modules have no Tkinter widget imports.
 | `lsp_client.py` | Transport layer — spawns pylsp subprocess, speaks JSON-RPC 2.0 over stdin/stdout, routes responses to main thread via `after_fn`. Knows nothing about LSP semantics. |
 | `lsp_manager.py` | Protocol layer — does the `initialize` handshake, sends `textDocument/did*` notifications, handles hover/definition/diagnostics, converts paths ↔ URIs. Built on top of `LspClient`. |
 | `git_manager.py` | Git engine — all subprocess git calls on daemon threads, fires results back via `after_fn`. Owns diff/hunk parsing, file status parsing, `STATUS_COLORS`/`GUTTER_COLORS`. No UI. |
-| `bracket_matcher.py` | Bracket matching logic |
-| `completion.py` | Completion logic |
-| `key_handler.py` | Keybinding dispatch logic |
-| `multi_cursor.py` | Multi-cursor state and operations |
 | `pip_manager.py` | Subprocess backend for pip install/uninstall/list — runs on daemon threads, delivers results via `after_fn`. Tracks active interpreter via `set_python(exe)`. |
 | `project_manager.py` | Interpreter discovery and project scaffolding — finds installed Python versions, creates venvs, scaffolds starter files. Daemon-threaded. |
 | `script_runner.py` | Runs Python scripts as subprocesses — pushes `(line, tag)` tuples to a thread-safe queue; sends `None` sentinel on completion. Accepts `python_path` to use the active interpreter. |
@@ -107,15 +108,49 @@ no widget imports, no stateful objects.
 Every file is a Tkinter widget or panel. Imports from `editor/` and `utils/` for data,
 never runs subprocesses or owns protocol logic itself.
 
-Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`, `clipboard_history.py`,
-`canvas_codeview.py`, `command_palette.py`, `completion_popup.py`, `debug_panel.py`, `designer_palette.py`,
+Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`,
+`canvas_codeview.py` (+ the `canvas_editor/` mixin package, below), `clipboard_history.py`,
+`command_palette.py`, `completion_popup.py`, `debug_panel.py`,
 `explorer.py`, `find_replace.py`, `guide_window.py`, `learning_manager.py`,
-`learning_panel.py`, `minimap.py`, `notebook.py`, `outline.py`,
+`learning_panel.py`, `notebook.py`, `outline.py`,
 `output.py`, `package_manager.py`, `problems_panel.py`, `project_wizard.py`, `references.py`,
-`sidebar.py`, `source_control.py`, `statusbar.py`, `styled_checkbox.py`, `terminal.py`,
-`welcome.py`
+`scrollbar.py`, `sidebar.py`, `source_control.py`, `statusbar.py`, `styled_checkbox.py`,
+`terminal.py`, `welcome.py`
 
-`canvas_codeview.py` — IDOL's sole editor engine. Renders text directly on a `tk.Canvas` (no `tk.Text` widget, no pygments). All state lives in `self.lines: list[str]`; cursor + selection are plain `(line, col)` tuples; tokenization is a regex-rule pass driven by `_rules` in `_init_state`. Themes are loaded from `themes/*.json` via `utils/theme_loader.py` — swap by calling `set_theme(id)`. The internal layout grids in: breadcrumb (row 0), find/replace strip (row 1, reserved), main `tk.Canvas` (row 2 col 0) + `VerticalScrollbar` (row 2 col 1), `HorizontalScrollbar` (row 3 col 0). Embedded inside the canvas: line-number / fold / breakpoint gutter, sticky scope-header band (own canvas, place'd at top), minimap (embedded `tk.Text` at font size 1, place'd on the right). Public API: `get_text/set_text`, `get_line/line_count`, `get_cursor/set_cursor`, `get_selection/set_selection/clear_selection/selected_text`, `insert/delete_selection/delete_range/replace_range`, `scroll_to_line/ensure_visible/visible_range`, `set_diagnostics/set_breakpoints/set_git_hunks/set_runtime_error_line/set_debug_line/set_filepath/set_theme`. Host hooks: `on_change`, `on_cursor_move`, `on_lines_changed`, `on_copy`, `on_completion_request`, `on_breakpoint_toggle`, and the `on_request_*` family used by the right-click menu. **Multi-cursor state**: `_mc_cursors: list[tuple[int,int]]` (secondary positions) and `_mc_anchors: list[tuple[int,int]|None]` (secondary selection anchors); Alt+click in `_on_alt_click`; edits via `_mc_apply_key`; `mc_count()` public helper.
+Designer-side widgets (the UI layer of `designer/`, documented in the designer table below):
+`designer_palette.py`, `designer_properties.py`, `designer_connector.py`,
+`designer_component_tray.py`, `designer_img_button_builder.py`, `form_list_panel.py`,
+`handler_options_editor.py`
+
+`canvas_codeview.py` — IDOL's sole editor engine (`CanvasCodeView`). Renders text directly on a `tk.Canvas` (no `tk.Text` widget, no pygments). All state lives in `self.lines: list[str]`; cursor + selection are plain `(line, col)` tuples. Themes are loaded from `themes/*.json` via `utils/theme_loader.py` — swap by calling `set_theme(id)`. The internal layout grids in: breadcrumb (row 0), find/replace strip (row 1, reserved), main `tk.Canvas` (row 2 col 0) + `VerticalScrollbar` (row 2 col 1), `HorizontalScrollbar` (row 3 col 0). Embedded inside the canvas: line-number / fold / breakpoint gutter, sticky scope-header band (own canvas, place'd at top), and the minimap. Public API: `get_text/set_text`, `get_line/line_count`, `get_cursor/set_cursor`, `get_selection/set_selection/clear_selection/selected_text`, `insert/delete_selection/delete_range/replace_range`, `scroll_to_line/ensure_visible/visible_range`, `set_diagnostics/set_breakpoints/set_git_hunks/set_runtime_error_line/set_debug_line/set_filepath/set_theme`. Host hooks: `on_change`, `on_cursor_move`, `on_lines_changed`, `on_copy`, `on_completion_request`, `on_breakpoint_toggle`, and the `on_request_*` family used by the right-click menu. What remains in this file: rendering/paint, scrolling, the gutter, the sticky scope band, primary-cursor editing + undo/redo, selection, and input bindings. Tokenization, folding, multi-cursor, bracket/quote match highlighting, the minimap, and autocomplete are mixins in `widgets/canvas_editor/` (below).
+
+#### `widgets/canvas_editor/` — editor mixin package
+
+`CanvasCodeView` is decomposed into six single-responsibility mixins (the P3 decomposition):
+
+```python
+class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin,
+                     BracketMatcherMixin, MinimapMixin, AutocompleteMixin,
+                     tk.Frame):
+```
+
+All editor state is **host-owned**: every attribute a mixin touches is initialized in
+`CanvasCodeView._init_state`. Mixins operate on the host instance (`self.lines`,
+`self.cur_line`, …) and keep no parallel state of their own. Only `canvas_codeview.py`
+imports from this package.
+
+| File | Role |
+|---|---|
+| `constants.py` | Shared editing constants — auto-pair table (`_PAIRS`, `_CLOSERS`), bracket-match sets (`_BRACKET_OPEN_TO_CLOSE`, `_BRACKET_CLOSE_TO_OPEN`, `_ALL_BRACKETS`), quote sets (`_QUOTES`, `_MATCH_CHARS`), editor font (`_FONT_FAMILY`, `_FONT_SIZE`), minimap width (`_MINIMAP_W`). Imports nothing internal — the safe leaf every module can import with no circular-import risk. |
+| `tokenizer.py` | `TokenizerMixin` — regex-rule syntax highlighting: the `PYTHON_RULES` table, comment/string scanners, per-line triple-quote state scan. Pure logic; reads `self.language` to pick the diff vs. python path. |
+| `fold.py` | `FoldMixin` — block folding + fold-aware coordinate mapping. Also exports the fold-marker regexes (`_SECTION_MARKER`, `_IDOL_BEGIN_RE`, `_IDOL_END_RE`) — shared vocabulary imported back by `minimap.py` and `canvas_codeview.py`. |
+| `multicursor.py` | `MultiCursorMixin` — Alt+Click secondary cursors; mirrors the primary editing ops (insert / delete / newline / tab / bracket-pair / move) onto every secondary cursor, applied bottom-to-top. State (`_mc_cursors: list[tuple[int,int]]`, `_mc_anchors: list[tuple[int,int]|None]`) is host-owned; `mc_count()` public helper. |
+| `bracket_matcher.py` | `BracketMatcherMixin` — bracket + quote match highlighting. Brackets matched by a directional depth scan; quotes by a same-line parity scan (opener == closer defeats depth counting). Pure: reads only `self.lines` / `cur_line` / `cur_col` and the constants; render calls `_find_bracket_pair()` once per paint and outlines the returned pair. |
+| `minimap.py` | `MinimapMixin` — embedded `tk.Text` minimap at font size 1, `place()`'d on the right edge; fold-aware (folded lines hidden in the minimap too); token tags mirrored from the active theme; hover zoom preview. |
+| `autocomplete.py` | `AutocompleteMixin` — completion popup (lazily created `Toplevel` + `Listbox`; `render()` never touches it). Items come from the host's `on_completion_request` hook (LSP, wired by app.py) when set, else the synchronous buffer-word fallback (`_buffer_word_items`); an `_ac_seq` sequence number guards against stale async responses. |
+
+Import rules for this package are in the strict-import-rule block above: mixins import
+`constants.py` only, with fold's marker regexes as the one sanctioned exception.
 
 `styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state, custom colors, and font sizes. Used in `project_wizard.py`.
 
@@ -196,6 +231,7 @@ Follows the same two-layer pattern: pure logic modules (`model`, `registry`, `co
 | `widgets/designer_img_button_builder.py` | `ImageButtonBuilder` modal `Toplevel` — opened by `_open_img_button_builder` in `app.py` when the user clicks ⚡ on an Image component's `canvas_button` handler (bypasses the standard `ComponentConnector`). Left column: canvas picker combobox (existing Canvas widgets + `＋ Create New Canvas`), Normal/Hover/Pressed image key comboboxes (populated from the component's `paths` stems; hover and pressed show `(none)` sentinel for optional), X/Y position entries, tag name entry, canvas-drawn auto-size checkbox (checks PIL dimensions of all paths and resizes the target Canvas widget). Right column: live preview `tk.Canvas` that loads actual `PhotoImage`s and responds to `<Button-1>`/`<ButtonRelease-1>`/`<Enter>`/`<Leave>` so you can test all three image states before confirming. Constructor params: `comp_id`, `paths`, `canvas_ids`, `project_dir`, `on_confirm(config_dict)`, `on_create_canvas() → str` (creates a new Canvas widget and returns its id), optional `preset_canvas_id`, optional `edit_config` (pre-fills from existing canvas_button dict). `_commit` creates the canvas (if sentinel is still selected), reads all fields, computes auto-size dimensions via `_get_max_image_size()`, and calls `on_confirm`. `_NONE_KEY = "(none)"` sentinel for optional image keys. |
 | `widgets/designer_connector.py` | `ComponentConnector` modal Toplevel — used for both form handlers and component handlers. Left listbox: widgets with events (from `REGISTRY`) **plus** connectable menu items (non-cascade `kind="command"` items at `indent > 0`) when `menu_items` is supplied; right listbox: events for the selected widget, or just `"command"` for menu items; optional primary `options` combobox (e.g. dialog type picker) and optional `secondary_options` combobox (e.g. Populate widget picker); `wire_body_resolver` for live preview; optional `show_title_entry`/`show_extra_entry` with configurable labels for per-handler dialog titles and extra fields; `wire_label` param renames the Wire button (e.g. `"Update"` for the edit dialog); `preselect_widget_id`/`preselect_event_key` pre-select an existing binding (suppresses overwrite warning for same slot); `stub_checker(method_name) → bool` callback suppresses the "already wired" warning when the existing handler body is just `pass`; Wire button calls `on_wire(widget_id, event_key, option)` — caller routes to `widget.events[ev]`, `menu_item.command_handler`, or `form.handler_wires`. |
 | `widgets/handler_options_editor.py` | `HandlerOptionsEditor` dark-themed `Toplevel` — pick a named mode for a handler stub or connected-wire body. Two-line rows: bold option name line 1, orange body description line 2 (full canvas width, no truncation). `is_wire=False` edits `form.handler_options[handler_id]` (controls stub body); `is_wire=True` edits `HandlerWire.option` (controls widget-event body). Accepts `override_options`/`override_bodies` to bypass the static HandlerDef lists — used when options are dynamic (e.g. the close-mode picker for `_open_dialog` reads `hdef.secondary_options` and `hdef.edit_bodies`). |
+| `widgets/form_list_panel.py` | FORMS tree panel in the designer's left column — main forms (`⬜`), linked dialogs (`⧉`), "Unlinked" section; click to switch canvas, drag dialog onto main form to link, hover `×` to unlink/delete, missing forms in red with right-click remove; `+` button and ▶ main-form indicator in the header. |
 
 **Designer layout (when active):**
 ```
@@ -238,6 +274,7 @@ Any future static data files belong here, not inside package directories.
 - **Ollama for local AI, not cloud.** The AI chat panel targets `qwen2.5-coder:7b` running locally. Don't add cloud API calls to the AI panel without explicit discussion.
 - **pylsp for LSP.** Server selection is in `lsp_manager.py`. Don't change the LSP server without discussion.
 - **PTY terminal.** Real PTY via `pty` module (Unix) or `winpty` (Windows). Don't replace with `subprocess.PIPE`.
+- **Editor mixins operate on host-owned state.** `CanvasCodeView` is decomposed into single-responsibility mixins (`widgets/canvas_editor/`) — every attribute is initialized in `_init_state`; mixins never import the host or each other. Shared editing constants (auto-pair table, bracket/quote sets, editor font, minimap width) live in `canvas_editor/constants.py` — never duplicate them per-module.
 
 ### Designer-specific decisions
 
@@ -282,8 +319,9 @@ Any future static data files belong here, not inside package directories.
 
 Implemented and stable:
 - Multi-tab editing with session persistence (dirty tracking, restore hardening); **CRC dirty tracking** — undo/redo clears the dirty flag automatically when content returns to the last-saved state
-- Regex-rule syntax highlighting (canvas-rendered, no pygments); **fold markers** — `▼/▶` gutter glyphs; `# ── Name ───` section headers fold to the next section header at the same indent; IDOL codegen markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block regardless of indentation; Up/Down arrow skips folded blocks; Ctrl+/ comment toggle; word occurrence highlights on cursor move
-- **Multi-cursor** — Alt+Click adds/removes secondary cursors; all `|` carets blink in sync with the primary; edits applied bottom-to-top; secondary selections rendered in `select_bg`; Escape clears; `mc_count()` public helper. Implemented entirely in `canvas_codeview.py` using `_mc_cursors: list[tuple[int,int]]` and `_mc_anchors: list[tuple[int,int]|None]`
+- Regex-rule syntax highlighting (canvas-rendered, no pygments); **fold markers** — `▼/▶` gutter glyphs; `# ── Name ───` section headers fold to the next section header at the same indent; IDOL codegen markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block regardless of indentation; Up/Down arrow skips folded blocks; Ctrl+/ comment toggle; word occurrence highlights on cursor move (tokenizer in `canvas_editor/tokenizer.py`)
+- **Bracket & quote match highlighting** — matching bracket pair outlined on cursor move via a directional depth scan; quote pairs matched by a same-line parity scan (opener == closer, so depth counting can't work); render calls `_find_bracket_pair()` once per paint (`canvas_editor/bracket_matcher.py`)
+- **Multi-cursor** — Alt+Click adds/removes secondary cursors; all `|` carets blink in sync with the primary; edits applied bottom-to-top; secondary selections rendered in `select_bg`; Escape clears; `mc_count()` public helper. Implemented in `widgets/canvas_editor/multicursor.py` (`MultiCursorMixin`) operating on host-owned `_mc_cursors: list[tuple[int,int]]` and `_mc_anchors: list[tuple[int,int]|None]`
 - pylsp **hover docs re-wired** for canvas codeview — `<Motion>`/`<Leave>` bound on `cv.canvas` in `_new_tab` and `_new_tab_in`; `_do_hover` uses `cv._coords_from_pixel(mx, my)` instead of `tk.Text.index()`; popup positioned from `cv.canvas.winfo_rootx()`
 - **Smart Home key** — first press goes to first non-whitespace; second press goes to column 0 (position-based, no state needed)
 - **Center-on-navigate** — outline and references panel navigation centers the target line in the editor
@@ -294,7 +332,7 @@ Implemented and stable:
 - **Interpreter statusbar segment** — shows active Python version; click to open interpreter picker popup; selection persists per project root in `~/.idol/settings.json`; venv activation (from terminal toolbar or project wizard) shown as `(.venv) Python x.x.x` and re-activated automatically on next launch
 - **Git ahead/behind statusbar** — live `↑N ↓N` badge in statusbar showing unpushed/unpulled commit counts relative to the remote tracking branch
 - **Fix Encoding nav pill** — non-ASCII paste into an ASCII file surfaces a yellow pill in the breadcrumb bar offering to re-open the file with UTF-8 encoding; pill dismissed once file is saved with the new encoding
-- Sticky scroll; **minimap** — embedded in the canvas editor (not a separate widget), fold-aware (folded lines are hidden in the minimap too), hover zoom preview
+- Sticky scroll; **minimap** — embedded in the canvas editor (not a separate widget), fold-aware (folded lines are hidden in the minimap too), hover zoom preview (`canvas_editor/minimap.py`)
 - **View → Change Font** — font chooser (family, size, bold/italic) wired to all open canvas tabs; selection persists across restart via `~/.idol/settings.json`
 - **Breadcrumb bar** — path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
 - **Line move & duplicate** — Alt+Up/Down moves current line or selected block; Shift+Alt+Down duplicates below (cursor follows); Shift+Alt+Up duplicates below (cursor stays on original)
@@ -307,7 +345,7 @@ Implemented and stable:
 - Git integration: staging, unstaging, commit, push, diff view, health panel (smart warnings + fix wizard), Add to .gitignore
 - **Git guides** — install guide (Windows/macOS/Linux), identity guide (git config + GitHub account + `gh auth login`), remote guide, first commit guide
 - **Commit History panel** — last 50 commits, file diff on click, filter bar, load more
-- Integrated PTY terminal (pyte VT100 screen buffer) with venv detection (activate/deactivate/switch toolbar)
+- Integrated PTY terminal (pyte VT100 screen buffer) with venv detection (activate/deactivate/switch toolbar); live-buffer reflow on column resize (VS Code style)
 - **Terminal debug mode** — launch debugpy in terminal, attach DAP client
 - **Output panel** — copy button and right-click context menu; inline stdin bar for `input()` support
 - **Run Line / Run Selection** — right-click to execute in output panel
@@ -328,10 +366,27 @@ Implemented and stable:
   rows (rect + text) with hover via `itemconfigure`, keyboard nav, pin/unpin (right-click), and
   search filter; `on_copy` callback on the canvas editor delivers text directly on Ctrl+C
 - **Undo / Redo on the canvas editor** — 200-entry stack on `self.lines` + cursor + selection state; consecutive same-type edits (char insert, backspace, forward-delete) coalesce into one step; all mutation paths push a snapshot (insert, newline, delete, cut, paste, comment toggle, line move/duplicate, indent, unindent); `Ctrl+Z`/`Ctrl+Y` wired as key bindings and `<<Undo>>`/`<<Redo>>` virtual events; Edit menu items dim when stack is empty
-- **Shift+Tab unindent** — removes up to `tab_size` leading spaces from the current line or every line in the selection
+- **Tab / Shift+Tab on selection** — Tab indents all selected lines (`tab_size` spaces, cursor + anchor adjusted); Shift+Tab removes up to `tab_size` leading spaces from the current line or every line in the selection
 - **Ghost sash — sidebar** — sidebar's custom Frame-based horizontal sashes use a 2 px `#007acc`
   ghost overlay during drag; actual resize fires on `ButtonRelease` only; also restores the
   missing `<ButtonPress-1>` binding that was never wired to `_sash_press`
+
+### GUI Designer — shipped summary
+
+Dated, per-session shipping notes live in `CHANGELOG.md`; full feature detail in
+`docs/designer.md`; per-file implementation detail in the `designer/` table above.
+Current shipped state:
+
+- **Design canvas** — drag/drop with snap grid (Shift bypasses for 1 px precision on move/resize/draw/form-resize), resize handles, multi-select rubber band (primary amber with handles, secondaries blue), copy/paste with cascade offset, arrow-key nudge (8 px, Shift+arrow 1 px), bring-to-front/send-to-back with z-order preservation, draw-to-size placement, palette drag-and-drop + multi-placement mode, smart placement cursors, container parenting (Frame/LabelFrame/Notebook with tab grouping, cascade delete, draw-inside, drag-out reparent), grid visibility toggle, form recenter, undo/redo (50 snapshots), alignment/distribute/same-size toolbar with state-aware button dimming
+- **Properties panel** — canvas-rendered Properties/Events/Order tabs (zero widget teardown); inline editors: text, enum overlay dropdowns with hover hints, color swatches + chooser, font chooser, list editor, validate rows (`--vcmd`/`--args`/`--ivcmd`), state-conditional color rows; variable bindings + variable picker; anchoring (3×3 picker, live repositioning, Shift suppresses); multi-select editing (shared-prop intersection; font/list editors blocked by design); Order tab drag-to-reorder with Notebook tab grouping
+- **Events & Handlers** — catalog-driven Handlers tab (Available/Connected split; ⚡ wire, × disconnect, … options editor) powered entirely by `HANDLER_CATALOG` — adding a handler is one `HandlerDef` entry, zero `app.py` changes; `ComponentConnector` for widget/event/menu-item picking; `HandlerOptionsEditor` for mode variants; double-click navigation to handlers; `command` constructor-kwarg events; form events (load/activate/deactivate/unload/resize)
+- **Menu Builder** — VB6-style editor (caption/name/shortcut, check/radio items with variables, separators, `&` access keys, indent arrows); live menu bar strip on canvas with handler navigation; full `tk.Menu` codegen including variable declarations and shortcut bindings; menu items wirable directly to component handlers
+- **Multi-form projects** — FORMS tree (main forms, linked dialogs, unlink/delete, missing-form detection in red); dialog codegen as `tk.Toplevel` subclasses with reuse-on-deiconify openers; Set as Main (▶ run-entry sync); auto-enter Designer mode on project open; Explorer right-click `.form.json` → Open in Designer; designer session persistence (active state, form names, main form, sash widths); Save Form + Save/Don't Save/Cancel exit prompt; dual dirty flags (`_designer_dirty` codegen / `_designer_forms_dirty` JSON)
+- **Components (non-visual)** — palette COMPONENTS section + chip tray below canvas (rename/delete; Image chips show thumbnails with hover gallery); **Timer** (`self.after` loop), **CommonDialog** (file/dir/color/input/messagebox with per-handler titles, target-widget file read/write, selective imports, `parent=self`), **Socket** (TCP server/client with mode-gated props and handlers, setup dialog with Connect/Chat/File-Transfer scaffold kits, length-prefixed framing via `struct`), **Image** (named references, multi-file groups, `canvas_button` builder with live 3-state preview and auto-size)
+- **Image support** — `image` prop on Label/Button/Canvas; files copied to `<project>/images/` (conflict-safe naming, forward-slash relative paths); design-time PIL previews with cache; Pillow-missing warning row with one-click install; anchor-aware runtime reload on resize; form background image
+- **Canvas Item Designer** — double-click a Canvas widget to place image/rectangle/oval/text/line items inline (dimmed overlay, amber selection, 8 resize handles, Esc to exit); per-item props/events in the Properties panel; codegen with `tag_bind` dedup, design-time pre-scaling + runtime stretch scaling (fonts and line widths scale by geometric mean), fonts always emitted as tuples (multi-word family fix)
+- **Codegen guarantees** — `IDOL:BEGIN/END`, `IDOL:IMPORTS`, `IDOL:DIALOG_IMPORTS`, `IDOL:COMPONENTS` marker blocks; event bodies, helper methods, user imports, user `__init__` zones, and leading comments all survive regeneration; SHA-256 manual-edit detection; silent debounced auto-generation (1.5 s); Run-while-dirty prompt
+- **Cross-platform polish** — labels-as-buttons and canvas-drawn checkboxes everywhere, X11 saved-iid hover pattern, Linux mousewheel bindings, `UI_FONT`, custom scrollbars throughout, `grab_set()` ordering, macOS fullscreen + Linux maximize session restore
 
 ## Planned / In Progress
 
@@ -339,266 +394,26 @@ Implemented and stable:
 
 ---
 
-### Designer — Canvas Item Designer — SHIPPED (2026-06-08)
+## Definition of Done
 
-Inline design surface for placing and configuring tkinter canvas items directly inside a Canvas widget on the designer.
+**A feature is not done until its documentation ships in the same commit. No exceptions.**
+"Code now, docs later" is not done — the docs change is part of the feature. A commit
+that adds or changes behavior without the matching doc updates is incomplete.
 
-#### Entry / Exit
-- **Double-click** a Canvas widget on the design canvas → enters Canvas Item edit mode (same as double-clicking enters code for other widgets, but for Canvas widgets it opens the item editor)
-- **Right-click → "Edit Canvas Items"** when a single Canvas widget is selected
-- **Escape** exits item edit mode (first Escape de-arms any active placement tool; second Escape exits the mode)
-- **Right-click → "Exit Canvas Edit Mode"** from within item edit mode
-
-#### Visual design surface
-- The Canvas widget itself becomes the active editing area; surrounding form is dimmed with a `gray25` stipple overlay (4 rectangles around the widget bounds, no transparency tricks)
-- Blue `#007acc` 2 px border on the active canvas widget; mode label `"Canvas Items: {id}  (Esc to exit)"` drawn at the top of the overlay
-- Canvas items rendered at their stored `(x, y)` relative to the widget's top-left corner; selection highlighted in amber `#e8a844`
-- 8 amber resize handles (corners + edge midpoints) when an item is selected; drag-to-resize with optional Shift-snap bypass
-- Gray tag-name label shown at the top-left of each item for easy identification
-
-#### Item types supported
-`image`, `rectangle`, `oval`, `text`, `line` — added via right-click context menu "Add Item" cascade or by arming a tool and clicking inside the canvas
-
-#### Drag and resize
-- Click to select an item; drag selected item to move; drag a handle to resize
-- Snap grid honours the existing canvas snap state; Shift bypasses snap (1 px precision)
-- Drag state stored in `_ci_drag: dict` — modes `"move"` and one of 8 named handles
-
-#### Properties panel integration
-- Selecting a canvas item loads it into the existing Properties/Events tabs via `load_canvas_item(item, canvas_widget_id)` on `DesignerProperties`
-- **Properties**: kind (readonly), id (readonly), x, y, width, height, tags (comma-separated string), kind-specific props: `image_path` (image items — file picker copies to `images/`), `fill`/`outline` (rectangle/oval/text — color picker), `text`/`font` (text items), `linewidth` (line items)
-- **Events**: `<Button-1>` (mousedown), `<ButtonRelease-1>` (mouseup), `<Enter>` (mouseenter), `<Leave>` (mouseleave), `<B1-Motion>` (drag) — each maps to a method name on the form class
-- Image picker (`_open_ci_image_picker`) copies the selected file to `<project>/images/` (conflict-safe `_1/_2` suffix naming) and stores the relative path in `item.props["image_path"]`
-- Color picker opens `tkinter.colorchooser` for `fill` / `outline` props
-
-#### Data model
-- `CanvasItemDescriptor` dataclass in `designer/model.py` — `id`, `kind`, `x`, `y`, `width`, `height`, `tags: list[str]`, `props: dict[str, Any]`, `bindings: dict[str, str]` (event → method name); `to_dict` / `from_dict` for persistence
-- `WidgetDescriptor.canvas_items: list[CanvasItemDescriptor]` — only serialized when non-empty; existing `.form.json` files load without change (backward-compatible)
-- `WidgetDescriptor.next_item_id(kind)` auto-numbers new items using kind-based prefixes: `ci_img`, `ci_rect`, `ci_oval`, `ci_text`, `ci_line`
-
-#### Code generation
-`_canvas_items_build_lines(form)` in `codegen.py`:
-- Iterates all Canvas widgets that have `canvas_items`; emits `create_image/rectangle/oval/text/line()` calls with positional args and props kwargs (fill, outline, text, font, width, tags tuple) at the end of `_build_ui`
-- `tag_bind()` calls are **deduplicated** across items sharing a tag — each `(tag, event)` pair emits exactly one `tag_bind` call even if multiple items share the tag
-- **Resize scaling (decoupled from bg image).** Items are stored in the canvas's `_ci_orig_w/h` coordinate space (the dimensions captured on first CI-mode entry). Two independent scaling behaviors, neither requiring a background image:
-  - *Design-time resize* — initial item coords are **always** pre-scaled `coord * w.width / _ci_orig_w` so a canvas resized in the designer after items were placed renders the items at the matching position/size at runtime (no-op when the canvas hasn't been resized since placement).
-  - *Runtime stretch* — when the canvas has a size-changing `anchor` (`_runtime`), `_canvas_items_build_lines` captures each item's iid into `_{canvas}_item_coords` (orig-space coords) and the `<Configure>` handler in `_widget_lines` rescales/repositions every item by `e.width / _ci_orig_w`. The handler is emitted whenever a canvas has items **and** a stretch anchor, independent of `image`; bg-image reload lines (`self._img_*`, `delete("_bg")` + recreate) are gated separately on `_has_bg_img`, and disk-reload of item images only runs for Image-component-backed `image` items. Shapes/lines/images scale by bbox coords; **text font size and line width also scale** by a uniform factor `_s = (_sx * _sy) ** 0.5` (geometric mean) — originals captured in `_{canvas}_item_fonts` (parsed `(family, size, styles)`) and `_{canvas}_item_lws`.
-  - *Font emission (all fonts)* — `_parse_font_spec(spec)` splits a `"Family size styles"` string (family may contain spaces) and `_font_tuple_literal(spec)` emits `repr(tuple(...))` so fonts are always emitted as a proper **tuple** (`('Segoe UI', 12, 'bold')`); a bare spaced-family string is parsed by Tk as a list and raises `expected integer`. Used by **both** `create_text` (canvas items) **and** `_prop_str` (every widget `font=` kwarg) — multi-word family fonts (Segoe UI, Times New Roman, …) previously crashed the generated app for all widgets, not just canvas text.
-
-`_canvas_items_handler_methods(form, bodies)`:
-- Emits user handler stub methods for every unique method name referenced in `item.bindings`
-- Preserves body from `bodies` dict (same extraction mechanism as all other event stubs)
-
-#### `app.py` wiring
-- `on_canvas_item_mode=self._on_designer_canvas_item_mode` — called when CI mode is entered (`widget_id`) or exited (`None`); exits CI mode in the properties panel on `None`
-- `on_ci_select=self._on_designer_ci_select` — called when an item is selected or deselected; routes to `props_panel.load_canvas_item(item, widget_id)` or `props_panel.clear()`
-- `_on_designer_prop_change` handles `widget_id == "__canvas_item__"` by calling `update_canvas_item(ci_item)` to redraw without pushing an undo step
-
----
-
-### Designer — Image Support & Socket Component — SHIPPED (2026-05-26)
-
-#### Image support (Label, Button, Canvas)
-
-- **`image` prop** on Label, Button, and the new Canvas widget — click the property row to open a file picker; the selected file is copied into `<project>/images/` (conflict-safe `_1/_2` suffix naming); path stored as a forward-slash relative string so generated code is cross-platform
-- **Canvas design-time preview** — `_img_cache: dict[str, ImageTk.PhotoImage]` on `DesignerCanvas` keyed by `"{resolved_path}:{w}:{h}"`; `_load_preview_image` uses `Image.resize((w,h), LANCZOS)` to fill widget bounds exactly; Button images inset 2px (`w-4, h-4` at `x+2, y+2`) to match the native raised border; text is hidden when an image is set (WYSIWYG — text is invisible at runtime too); `[img]` badge shown when the file can't be loaded
-- **`_project_dir` on both `DesignerCanvas` and `DesignerProperties`** — `set_project_dir(path)` called from `_on_explorer_root_change`; resolves relative image paths against the open project instead of IDOL's own CWD; `DesignerCanvas.set_project_dir` also clears the image cache and redraws
-- **PIL warning row** — `_check_pil_async` spawns a daemon thread running `subprocess.run([python, "-c", "import PIL"])`; if Pillow is absent, an amber `warn_link` row is inserted below the `image` row; click calls `on_install_pillow` → `_on_designer_install_pillow` in `app.py` → `PipManager.run_operation(["install", "pillow"], ...)` with streaming output in the Output panel; row removed on success
-- **Image codegen** — `_has_images(form)` / `_image_load_lines(form)` emit `import os`, `from PIL import Image, ImageTk`, and `self._img_{id} = ImageTk.PhotoImage(...)` inside the IDOL:BEGIN block; `image` kwarg swapped for `image=self._img_{id}` reference; Canvas widgets get `create_image(0,0,anchor="nw",...)` post-place; `compound` skipped when empty
-- **Anchor-aware resize** — widgets with `image` set and a size-changing anchor (`_SIZE_ANCHORS = {"all","top","bottom","left","right"}`) get a `<Configure>` binding that reloads the `PhotoImage` at the new widget dimensions; only the resizing axis uses `event.width`/`event.height`; the fixed axis uses the design-time pixel value
-
-#### Socket non-visual component
-
-- **`Socket` ComponentDef** in `component_registry.py` — icon `⬡`, `default_name="sock"`, `codegen_imports=["import socket","import threading"]`; 11 PropDefs (7 shared + 2 server-only + 2 client-only); 16 ComponentHandlerDefs; new `applies_to_modes: tuple[str,...]` field on `ComponentHandlerDef` gates handlers to "server" or "client" mode
-- **Setup dialog** — modal `Toplevel` shown when Socket is dropped from the palette (not after); Server/Client radio + Host/Port fields + 3 scaffold checkboxes; scaffold widget IDs stored as `_scaffold_*` hidden props so codegen can reference them at generation time
-- **Scaffold kits:**
-  - *Connect/Disconnect* — `btn_connect` (toggle) wired to `_toggle_connect`; `lbl_status` updated by pre-filled `on_connect` / `on_disconnect` bodies
-  - *Chat* — `txt_chat` (Text+scrollbar), `ent_message`, `btn_send` wired to `_quick_send`; `on_receive_text` pre-filled to append to txt_chat; `_quick_send` echoes `[You] text` in the log
-  - *File Transfer* — `pb_transfer`, `lbl_file`, `btn_send_file` wired to `_pick_and_send_file`; framing protocol activated; `struct` import added; `pb_transfer` updates chunk-by-chunk on send and receive
-- **Codegen** — `toggle_connect` handler emits: toggle wrapper + `_start`/`_connect` + `_accept_loop` (server) + `_recvall` (framing) + `_recv_loop` as companion methods in one block; `start`/`connect` are direct-wire alternatives; framing: `struct.pack('>Q',size)` prepended to every send when `_scaffold_pb_transfer` set; `recv_loop` reads 8-byte header then reads payload in chunks updating Progressbar; `conn.settimeout(None)` set after connect so recv blocks indefinitely (prevent 5-second auto-disconnect); all `on_*` callbacks have scaffold-aware pre-filled bodies; `quick_send` and `pick_and_send_file` are registered as `has_connector=False` handler_defs (prevents stub generation, contributes to `comp_methods` exclusion set)
-- **Properties panel** — `_comp_connectable_handlers()` applies `applies_to_modes` filtering; `_insert_comp_prop_rows()` skips server-only/client-only props for the wrong mode; `_collect_comp_connections` filters callback stubs by mode
-
-## Designer — Shipped (Phase 2)
-
-- Drag/drop canvas with snap grid, resize handles, multi-select rubber band, copy/paste with cascade-offset drift reset, arrow-key nudge (1 px), bring-to-front/send-to-back, z-order preservation on every mutation
-- Properties panel: inline editor, color picker with live canvas preview, variable binding (StringVar/IntVar/DoubleVar/BooleanVar), border style / maximize box dropdowns
-- **Control selector dropdown** at top of properties panel — lists all widgets + form; selecting navigates canvas
-- **State property** with conditional state-color rows (`readonlybackground`, `disabledbackground`, `disabledforeground`) that appear only when state is readonly/disabled; auto-fills default colors on state change
-- **Validate support** for Entry/Spinbox — `validatecommand` / `--args` / `invalidcommand` rows; `--args` dropdown with common substitution code presets (`%P`, `%P, %S`, etc.)
-- **Red `name_warn` tag** on event handler names and vcmd method names that don't start with `_`
-- **Hover interactions** — blue `#569cd6` highlight on all rows in both Properties and Events tabs; `×` clear button on hover for color/optional props and wired event handlers; status-bar hints (grey, wrapping, defers to timed errors) describe each property/event on hover; ✦ auto-wire button on hover for unwired event rows
-- Events tab: click event name to auto-wire handler; edit handler name inline; `? Events` guide row opens paginated GuideWindow
-- **`command` event** at top of Events tab for Button, Checkbutton, Radiobutton, Scale, Spinbox — generates `command=self.method` constructor kwarg (not `.bind()`)
-- **`comboselected` event** for Combobox — generates `.bind("<<ComboboxSelected>>", ...)`
-- **Double-click widget** → auto-generates code if dirty, then switches to editor and navigates to first event handler; double-click with no events → switches to Events tab
-- **Menu Builder** — VB6-style `MenuEditor` dialog (Caption/Name/Shortcut, Enabled/Visible, Type combobox, Variable picker, Command, Value fields, indent arrows, Insert/Delete/Next, preview listbox, hover hint bar below OK/Cancel); `menu bar` row in form properties opens it; live menu bar strip rendered on canvas below the title bar; clicking a top-level name opens a native dropdown; clicking a leaf command item or a check/radiobutton item with a `command_handler` navigates to its handler; codegen emits full `tk.Menu` hierarchy including `add_checkbutton`/`add_radiobutton` with variable/value/command kwargs, auto-stubs leaf command methods and check/radio command handlers, emits `BooleanVar`/`StringVar` declarations for menu variables, and emits `self.bind("<event>", handler)` for every item that has both a shortcut and a handler
-- **Variable picker** — `VariablePickerEntry` (Entry + ▾ button) opens a dark-themed popup listing all form-level variables (from widget bindings and menu check/radio items) as `name (VarType)` rows; live-filters as the user types; used in both the properties panel (`var__name` row) and the Menu Editor Variable field; `collect_form_variables(form)` gathers variables in definition order, deduped
-- **Inline overlay dropdown** for all enum props — `tk.Frame` overlay (not `tk.Menu`) with item width sized to content and per-item hover hints shown in status bar; covers state, validate, border_style, maximize_box, type, colorize, justify, relief, orient
-- **Menu bar widget shift** — adding a menu bar shifts all top-level widgets down 20 px and increases form height; removing shifts up 20 px and shrinks form height
-- **Persist designer sash widths** — palette and properties panel widths saved to `session.json` under `designer_palette_width`/`designer_props_width`; applied via `configure(width=)` before adding panes to avoid timing issues
-- **Widget containment** — Frame and LabelFrame act as parent containers; dropping a widget onto one auto-parents it (coords relative to container content area, matching tkinter's placement); drag out of a container to reparent to the form or another container; `parent` row in properties is read-only (drag to reparent); codegen uses container as parent arg; LabelFrame applies 17 px label-area offset
-- **Inline list editor** for array-type props (e.g. Combobox `values`) — floating panel with existing items + `×` remove buttons; Entry at bottom: Enter adds item, entry stays focused for rapid entry; Escape dismisses
-- Code generation: `IDOL:BEGIN/END` markers preserve user `__init__` zones; `IDOL:IMPORTS:BEGIN/END` markers preserve user imports; helper methods and event bodies survive regeneration
-- Manual-edits detection via SHA-256 checksum (warning on Generate Code, not on mode-switch)
-- Dirty tracking: Run prompts to generate first; double-click auto-generates silently
-- Default bg/fg on new widgets; auto state-color defaults on state change
-- bg/fg color props for all applicable widget types, reflected live on canvas
-- **Relief rendering** — `_relief_border` helper draws raised/sunken/groove/ridge/solid/flat borders live on the canvas for Button, Label, Entry, Text, Listbox, Frame, LabelFrame, and Spinbox; reads the `relief` and `borderwidth` props; Frame keeps its dashed design-time indicator when relief is flat
-- **Draw-to-size placement** — after arming a palette tool, drag on the canvas to draw the widget's bounding box; placed at drawn size (grid-snapped, min 2×GRID) on mouseup; plain click drops at default size; container parenting works in both modes
-- **Palette drag-and-drop** — drag a widget type directly from the palette onto the canvas; ghost label follows cursor; releases outside canvas cancel silently; `on_drag_drop` callback in `DesignerPalette` → `canvas.drop_widget(type_key, cx, cy)`
-- **Double-click palette widget** → place at form centre (default size)
-- **Font property** — `font` row opens `tkfontchooser` dialog pre-populated with the current value; writes result back as `"Family size bold italic"` string; supports bold, italic, underline, overstrike
-- **Handler picker** — `HandlerPickerEntry` (Entry + ▾ button) in the Events tab and Menu Editor Command field; opens a scrollable popup listing all handlers defined on the form; hover row to preview name in entry; max 10 visible with mousewheel scroll; smart positioning (right-aligned, flips above when maximised)
-- **Form events** — load / activate / deactivate / unload / resize in the Events tab; codegen emits `.bind()` calls and stubs the handler methods
-- **Double-click wired event row** → auto-generates code if dirty, then jumps to that handler in the editor; double-clicking the property name column in the Properties panel does the same
-- **Preserve leading comments** in event handler bodies — comment lines before the first non-comment line of a handler are extracted and re-injected on regeneration
-- ~~Unified codegen prompt~~ — removed; code generation is now always silent (auto-gen + Run silently regenerate; manual edits are always preserved)
-- **Scrollbar property** for Listbox and Text — adds `yscrollcommand` wiring and a paired `ttk.Scrollbar` in codegen
-- **Separator item** in Menu Editor — Separator button adds a menu separator row; rendered as `---` in the listbox preview; codegen emits `add_separator()`
-- **& access-key in captions** — `&File` renders as `File` with underline=0; codegen emits `underline=N` kwarg; display_caption strips the `&` for canvas rendering
-
-### Widget Anchoring + Alignment Toolbar — SHIPPED (2026-05-07)
-
-- **Widget anchoring** — `anchor` property per widget; 3×3 picker grid in Properties; `× clear` on hover; codegen emits `_apply_anchor_layout()` which repositions/resizes anchored widgets relative to the form at runtime
-- **Live anchor repositioning** — widgets with anchors reposition and resize in real time as the form is dragged on the canvas, matching the runtime behavior of `_apply_anchor_layout()`; **Shift+resize suppresses anchors** so widgets stay frozen while the form is dragged
-- **Anchor hint** — hovering the anchor row shows a description + "Hold Shift while resizing to ignore all anchors"; anchor picker popup shows the Shift note at the bottom
-- **Alignment Toolbar** — right-aligned strip in the designer toolbar with four clusters: (1) Align L/R/T/B, Center H/V; (2) Distribute H/V equal spacing (grid-aware: clusters into rows/columns, assigns uniform positions); (3) Same Width / Same Height; (4) Undo ↶ / Redo ↷ / Copy ⧉ / Paste ⎘
-- **Toolbar button states** — all buttons disable (dim to #555555, ignore clicks) when their action doesn't currently apply: alignment/distribute/size require ≥2/3 selected; undo/redo track stack depth; copy requires selection; paste requires clipboard
-- **Undo/Redo** — snapshot-based history (max 50); `push_undo()` called before every mutation; Ctrl+Z/Y; toolbar buttons; right-click menu Undo/Redo at top
-- **Multi-select properties** — intersection of all selected widgets' shared props shown; blank for mixed values; full editing via dropdown/color/text; font and list editors blocked in multi-select by design
-- **Primary selection** in amber (#e8a844) with full resize handles; secondary selections show blue border only; resize delta propagates to all selected widgets
-- **Canvas scrollbars** — custom `VerticalScrollbar`/`HorizontalScrollbar` (from `widgets/scrollbar.py`) on canvas with `_MARGIN` padding and all-platform mousewheel support (Windows/macOS via `<MouseWheel>`; Linux via `<Button-4>`/`<Button-5>`; Shift variants for horizontal scroll)
-- **Edit menu context-aware** — Undo/Redo/Cut/Copy/Paste/Select All route to designer when in designer mode; Find & Replace is greyed out in designer mode and re-enabled on editor switch
-
-### Designer Polish Session — SHIPPED (2026-05-07 continued)
-
-- **Multi-placement mode** — single click on a palette widget keeps the tool armed; each canvas click places another widget of that type; Escape / click outside canvas / Pointer tool de-arms
-- **Smart placement cursor** — crosshair over empty form area (will place), arrow over unselected widget (click selects + de-arms), fleur over selected widget(s) (click selects + de-arms, drag moves immediately without second click)
-- **Form resize handles** — N/NW/NE handles now appear above the title bar instead of overlapping the form content
-- **Ghost sash fix** — `ttk.PanedWindow` (editor/output vertical sash) now correctly detects sash hits using `sashpos()` proximity instead of unreliable `identify()` — fixes ghost drag line on Windows
-- **Grid layout popup** — ⊡ toolbar button opens a `Toplevel` with Make Grid + H/V nudge controls; H/V nudge buttons step by 8px, or 1px when Shift is held
-- **Form recenter** — form recenters on canvas after a form resize drag (mouse-up)
-- **Events guide on second double-click** — double-clicking a widget that has no wired events a second time opens the Events GuideWindow
-
-### Designer — Linux / Cross-Platform Polish — SHIPPED (2026-05-10)
-
-- **`grab_set()` ordering** — `designer_new_form()` and `MenuEditor.__init__` now call `grab_set()` after `update_idletasks()` so the window is fully mapped; fixes "can't grab window" errors on Linux/X11
-- **`StyledCheckbox`** (`widgets/styled_checkbox.py`) — reusable Unicode-glyph checkbox extracted from `project_wizard.py`; identical appearance on all platforms
-- **X11 saved-iid pattern** — `_prop_clear_iid`/`_ev_btn_iid` fields in `designer_properties.py`; fixes clear button and ✦ wire button on Linux (spurious `<Leave>` events cleared hover-index before clicks fired)
-- **Form `bg` clearable** — `form__bg` added to clearable props; `load_form` no longer substitutes a placeholder when `bg` is empty; clearing the form bg restores the OS default
-- **Empty bg defaults** — non-input widget registry entries (`"bg": ""`) so generated code doesn't hardcode Windows-gray `bg` on new widgets; OS default background used instead
-- **Tkinter clipboard** — editor copy uses `clipboard_clear()` + `clipboard_append()`; `pyperclip` removed from `requirements.txt`
-- **Linux mousewheel on designer canvas** — `<Button-4>`/`<Button-5>` and `<Shift-Button-4>`/`<Shift-Button-5>` added to `canvas.py`
-- **Cross-platform UI font** (`utils/ui_font.py`) — `UI_FONT` constant (`"Segoe UI"` / `"Helvetica Neue"` / `"DejaVu Sans"` per platform) used in place of hardcoded `"Segoe UI"` across all widget files
-
-### Designer Phase 4 — Notebook, Scrollbars & Polish (2026-05-11)
-
-- **ttk.Notebook widget** — first-class container in the designer; canvas renders a tab strip matching the native ttk.Notebook look (active tab raised, inactive tabs dimmer, no white fill); each child carries a `widget.tab` string; switching tabs on the canvas selects the Notebook and shows/hides children; `<<NotebookTabChanged>>` event in Events tab; codegen emits full Notebook hierarchy; `is_notebook` flag in registry used by canvas, Order panel, and `_should_render` guard (inactive-tab children never bleed through on form resize or move)
-- **Order panel — Notebook tab grouping** — Notebook children appear indented under teal tab-header rows in `tabs` property order; drag a child across a header to reassign its tab; badge numbering scoped per tab
-- **Draw inside containers** — drawing a new widget while the cursor is over a Frame/LabelFrame auto-parents it and clamps to container bounds; same for Notebook active tab's content area
-- **Container cascade delete** — deleting a Frame/LabelFrame/Notebook removes all descendant widgets
-- **Arrow-key nudge rework** — default nudge is now 8 px (matches snap grid); Shift+arrow gives 1 px fine nudge; nudge respects the snap-to-grid toggle
-- **Debounced auto-codegen** — any canvas or property change schedules a codegen run 1.5 s later; rapid edits coalesce into a single run
-- **Menu editor polish** — `tk.Label` + hover bindings replace all `tk.Button` instances (labels-as-buttons pattern); `tk.Checkbutton` replaced with canvas-drawn dark checkboxes; Caption→Name autofill on Tab
-- **var_picker** — ▾ button replaced with `tk.Label` (labels-as-buttons)
-- **Custom IDOL scrollbars throughout** — all `ttk.Scrollbar` instances in IDOL's own UI replaced with `VerticalScrollbar`/`HorizontalScrollbar` from `widgets/scrollbar.py`; editor scrollbars 16 px wide; all panel scrollbars 12 px; up/down arrow buttons removed; `command=` accepted in constructor; `autohide=True` uses `grid_remove()`/`grid()` to hide when content fits
-- **macOS fullscreen persist** — fullscreen state saved to `session.json`; restored via `wm_attributes("-fullscreen", True)` with a 500 ms sash delay; removed from Known Bugs
-- **Linux maximize session** — maximize state saved via a `<Configure>`-tracked `_window_maximized` flag (reading `attributes("-zoomed")` at close time is unreliable on X11); on restore when `window_maximized=False`, `_force_normal` fires at 300 ms with 4 retries to override WM session management; a visible flash remains (WM re-maximizes asynchronously) — accepted limitation, **do not** attempt `withdraw()`/`deiconify()` here as it makes the flash worse
-
----
-
-### Designer — CommonDialog Component & Menu Item Wiring — SHIPPED (2026-05-20/2026-05-21)
-
-#### CommonDialog component
-
-- **Handlers** — `_show_open` (askopenfilename), `_show_save` (asksaveasfilename), `_choose_dir` (askdirectory), `_ask_open_file` (read file → populate target widget), `_ask_save_file` (write file from target widget), `_choose_color` (askcolor), `_ask_input` (simpledialog string/integer/float), `_messagebox` (askyesno/askokcancel/askretrycancel/askquestion); all `has_connector=True` with `applies_to_widgets=("Button", "Label")`
-- **Callbacks** — `_on_file_selected`, `_on_file_opened` (when no target widget), `_on_color_selected`, `_on_input_result`, `_on_messagebox_result`; `has_connector=False`, appear in Connected Components once any sibling is wired
-- **`ask_input` connector** — primary combobox picks type (string/integer/float); stored in `comp.props["ask_input_type"]`
-- **`messagebox` connector** — primary combobox picks dialog function; Message entry + Title entry; stored as `comp.props["messagebox_type"/"messagebox_message"/"messagebox_title"]`; info/warning/error types excluded (triggered manually, not from a button click)
-- **Per-handler dialog titles** — Title entry in connector for every file/color/input handler; stored in `comp.props[f"{handler_id}_title"]`; emitted as `self._cd1_show_open_title or None` (suppresses blank title)
-- **`parent=self`** — all dialog calls pass `parent=self` so focus returns to the originating window, not the main form
-- **Selective imports** — `_collect_component_imports()` only emits `from tkinter import filedialog/colorchooser/simpledialog/messagebox` for the handler types that are actually wired
-- **File-object handlers** — `_ask_open_file`/`_ask_save_file` connector secondary combobox picks a target Entry/Text/Listbox widget (or `"(none)"`); content read/written automatically; `_on_file_opened` fires when no target
-- **… edit button** — wired Connected Component rows show a `…` floating button; opens `ComponentConnector` pre-populated with the existing widget+event; `wire_label="Update"`; old binding cleared if widget or event changes; overwrite warning suppressed for the same slot
-
-#### Menu item wiring
-
-- **Connector shows menu items** — non-cascade `kind="command"` items at `indent > 0` appear at the bottom of the left listbox as `{name}  (MenuItem)`; selecting one shows only `"command"` in the event pane
-- **Wire stores method directly** — `item.command_handler` is set to the full component method name (e.g. `_cd1_show_open`); codegen emits `command=self._cd1_show_open` for leaf items when `command_handler` starts with `_`
-- **Stub-checker warning suppression** — `stub_checker(method_name) → bool` callback reads the generated `.py` file and checks if the method body is just `pass`; if so the "already wired" overwrite warning is hidden
-- **Connected Components panel** — menu item connections displayed as `{item_name}.command`; × to disconnect clears `item.command_handler`; … to edit re-opens connector pre-selecting the menu item
-
-#### Other designer UX (this window)
-
-- **Auto-enter Designer mode** — creating a new GUI project or opening an existing project whose last active form was in Designer mode restores Designer automatically; encoding pill cleared on mode switch
-- **Explorer context menu** — right-click a `.form.json` file → "Open in Designer" switches to the designer for that form
-- **Delete forms** — `×` button on non-linked form/dialog rows in the Forms panel deletes the form (with confirmation); linked dialogs still show `×` as "Unlink"
-- **Canvas editor** — Tab with active selection indents all selected lines (adds `tab_size` spaces to each line's start, adjusts cursor + anchor); right-click preserves the current selection; member autocomplete Shift-dismiss fixed; `on_bad_paste` hook detects non-ASCII paste characters
-- **Terminal** — live-buffer reflow on column resize (VS Code style): expands/wraps all existing lines when the terminal column width changes, keeping visible content in sync with the pyte screen buffer
-
----
-
-### Designer — Handlers System & Components Panel (2026-05-16 / 2026-05-18)
-
-#### Components Panel (Timer) — SHIPPED (2026-05-16)
-
-- **Component tray** — horizontal 36px chip strip below canvas; one chip per `ComponentDescriptor`; right-click → Rename / Delete; empty-state label when no components
-- **Palette COMPONENTS section** — click-to-add; one row per `COMPONENT_REGISTRY` entry
-- **Timer component** — `self.after()` periodic callback (no threading); props: Interval (ms), Enabled; handlers: `_tick` (always wired to form init), `_start` (⚡ connectable), `_stop` (⚡ connectable)
-- **Component mode in Properties panel** — selecting a tray chip hides Events + Order tabs, shows PropDef rows and ComponentHandlerDef rows; ⚡ button fires `on_component_connect`
-- **Component codegen** — `IDOL:COMPONENTS:BEGIN/END` block inside second `IDOL:BEGIN` block initializes state variables and starts enabled timers; component handler methods emitted after widget event stubs; bodies preserved across regen by existing `extract_event_bodies()` mechanism
-- **Wiring storage** — `widget.events[event_key] = "_comp_id_handler_label"` (same slot as all other event wiring; codegen/persistence handle it automatically)
-
-#### Handlers Tab Redesign — SHIPPED (2026-05-18)
-
-- **Available / Connected split** — no checkboxes; Available shows unwired/disabled handlers, Connected shows wired/enabled handlers with target label; sections driven entirely by `HANDLER_CATALOG`
-- **⚡ button (Available)** — connectable handlers open `ComponentConnector` to pick widget + event; non-connectable handlers enable immediately
-- **× button (Connected)** — disconnects a wire or disables the handler
-- **… button (Connected)** — opens `HandlerOptionsEditor` for handlers with `options` or `secondary_options` (e.g. change close mode on a wired `_open_dialog` row)
-- **`HandlerOptionsEditor`** (`widgets/handler_options_editor.py`) — two-line rows (bold option name + orange description below); `is_wire` flag controls whether it edits `form.handler_options` or `HandlerWire.option`; `override_options`/`override_bodies` for dynamic option lists
-- **Widget-selected mode** — only connectable handlers compatible with the widget type shown in Available; Connected shows only wires targeting this specific widget; `multi_wire` handlers stay in Available after wiring
-- **Available Components sub-section** — foldable (▶/▼ header, collapsed by default); shows **all** connectable component handlers regardless of whether already wired (handlers are reusable); ⚡ button opens `ComponentConnector`; floating buttons corrected for canvas scroll offset; present in both widget-selected and form-selected views
-- **`_open_dialog` handler** — `generates_stub=False` (no standalone method emitted); `multi_wire=True` (stays in Available for multiple targets); `dynamic_wire_body="self._open_{option}()"` resolves dialog name at wire time; two-dropdown connector (Dialog + Mode); wiring auto-updates the linked dialog's `_on_close` handler_option
-- **`_on_close` / `_on_escape` options** — renamed to `"hide (withdraw)"` / `"destroy (exit)"` with backward-compat prefix matching via `_resolve_option()`
-- **Single source of truth** — `HandlerDef` fields drive all behavior; `connector_options_source`, `edit_bodies`, and `wire_side_effects` eliminate all handler-specific `if handler_id ==` branches from `app.py`; adding a new handler requires only a `HandlerDef` entry in `handlers.py`
-
----
-
-### Designer — Session, Set as Main & FORMS Improvements — SHIPPED (2026-05-25)
-
-- **Set as Main** — right-click or double-click a main form row in the FORMS panel to designate it as the entry point; writes `main.py` with a `# Generated by IDOL Designer` marker, pins the file as the ▶ run entry in the statusbar, and shows **▶ FormName** in teal in the FORMS panel header; `_designer_main_form` persisted in session
-- **▶ indicator sync** — `_effective_designer_main()` in `app.py` computes the display form from the active run entry (detected via IDOL marker + `from X import X` regex, or direct stem match), active tab in Active Tab mode, and `_designer_main_form` as fallback; `_set_run_entry` and `_on_tab_changed` both trigger a form list refresh; designer re-entry also refreshes when no entry is pinned
-- **Session persistence** — designer state saved/restored across restarts: `designer_was_active`, `designer_form_names`, `designer_main_form` in `session.json`; `_enter_designer_mode` always sets `_designer_project_type = "gui"`; `designer_close_form` clears `_designer_form_names`, `_designer_missing_dialogs`, `_designer_main_form` on teardown; session restore gates form-name restore + `_enter_designer_mode` call behind `designer_was_active = True`
-- **Auto-load linked dialogs** — `_open_form_json_in_designer` and the Explorer "Open in Designer" path both scan the source directory for linked dialog `.form.json` files and copy + load them alongside the parent form; overwrite prompt when a file already exists in CWD
-- **Open .py on form load** — switching to a form in the designer opens the companion `.py` as an editor tab; prefers the CWD copy over the source directory
-- **Missing forms shown in red** — session-restored form names that can no longer be found on disk render red in the FORMS tree with a tooltip; tracked in `_designer_missing_dialogs`; removable via right-click
-- **FORMS tree X behavior** — X on a main form row removes it (and linked dialogs) from the designer with a confirmation prompt; X on a linked dialog row unlinks it first; canvas clears (`delete("all")`) when the last form is removed
-- **Wizard creates GUI project → ▶ indicator** — `_on_project_created` sets `_designer_main_form` so the ▶ indicator appears immediately after wizard completion; project_wizard.py adds the `# Generated by IDOL Designer` marker to the generated `main.py`
-
-### Designer Phase 3 — SHIPPED (2026-05-08 / 2026-05-09)
-
-- **Tab Order panel** — Order tab in Properties panel shows all widgets as a canvas-rendered numbered list; drag rows to reorder (tab focus sequence = z-order); `⇥` toolbar button toggles numbered blue badges on canvas widgets; permanent hint in status bar when Order tab is active
-- **Multi-form designer** — project can contain multiple forms (main windows + dialogs); FORMS tree in left panel shows hierarchy (`⬜` main, `⧉` linked dialog, "Unlinked" section); click any row to switch canvas; `+` button and `Designer → New Form…` dialog (name, type, optional link-to-parent); drag dialog row onto a main form row to link; hover `×` to unlink; canvas scroll offset correctly accounted for in resize handles and rubber-band selection
-- **Dialog codegen** — dialogs generate `tk.Toplevel` subclasses; `WM_DELETE_WINDOW` wired to `_on_close(self.withdraw)` (preserved stub); parent form stores instance as `self.dlg_DialogName` (created once in `__init__`, reused via `deiconify()`); `_open_DialogName()` opener stub auto-generated on parent; `IDOL:DIALOG_IMPORTS` block fully auto-managed from link state; dialogs generated before main forms so imports resolve
-- **Handlers tab** — catalog-driven panel listing every method the designer can generate for the selected widget (event callbacks + utility methods like `_set_always_on_top`); checkbox column (x ≤ 28 px) toggles wiring; double-click checked row navigates to handler; double-click unchecked row enables it; hint bar describes hovered handler; refreshes on any selection change
-- **Canvas-rendered Properties, Events, and Order tabs** — all three tabs rebuilt as canvas-primitive renderers with a custom dark scrollbar; zero widget teardown on refresh; hover highlights, `×` buttons, and inline editors all implemented via canvas item `itemconfigure`
-- **`always_on_top` form property** — boolean flag in `FormModel`; Properties panel checkbox; codegen emits `self.wm_attributes("-topmost", True)`; `_set_always_on_top` utility handler in Handlers catalog
-- **Handler/event navigation** — Events tab name column single-click does nothing (only value-column click opens picker); double-click on any wired Events row navigates to that handler; Handlers tab double-click navigate/enable behavior; `_handlers_dbl_pending` flag prevents the second `ButtonRelease-1` Tkinter fires after a double-click from incorrectly toggling the checkbox
-- **Titlebar click selects form** — clicking the form title bar tag selects the form and shows its resize handles; root fix: "titlebar" was incorrectly in the `_topmost_at` skip list alongside "grid"/"shadow"; `select_form()` guards `_on_deselect` with `was_selected` so re-clicking an already-selected title bar doesn't re-fire side effects
-- **Shift+snap bypass** — holding Shift disables snap-to-grid across all four operations: widget move, widget resize, form resize, and widget draw (all at 1px precision, minimum draw size drops to 1px); snap toolbar button dims immediately on `<KeyPress-Shift>` and restores on `<KeyRelease-Shift>` via `on_snap_state_changed` → `toolbar.refresh_snap()`; snap-bypass lambdas cast to `int()` (raw `canvasx`/`canvasy` floats caused `range()` TypeError)
-- **Save Form + exit prompt** — `Designer → Save Form` writes all open form JSONs immediately; menu item enabled when `_designer_forms_dirty` is set; on exit, if any form has unsaved changes a Save/Don't Save/Cancel dialog replaces silent autosave; `Generate Code` also saves form JSON and clears both dirty flags as a side effect
-- **Dirty flag separation** — `_designer_dirty` (codegen tracking) and `_designer_forms_dirty` (JSON save tracking) both set via `_set_designer_dirty()` helper but cleared independently
-
----
-
-## Keeping Docs Current
-
-**Rule: every feature change ships with a docs change. No exceptions.**
+A change is done when:
+1. The code works — manually verified (run the feature's checklist)
+2. This file is updated (rules below)
+3. The matching `docs/` page is updated (table below)
+4. `README.md`, `CHANGELOG.md`, and `ROADMAP.md` are updated where applicable
 
 ### This file (`CONTRIBUTING.md`)
-- When you add a file to `editor/`, `utils/`, `widgets/`, or `designer/`, add a row to the relevant table
+- When you add a file to `editor/`, `utils/`, `widgets/`, `widgets/canvas_editor/`, or `designer/`, add a row to the relevant table
 - When a planned feature ships, move it from **Planned / In Progress** to **Current Feature State**
 - When a key technical decision changes (threading model, import rules, etc.), update the relevant section
+- Do **not** add dated "SHIPPED" sections here — dated shipping history belongs in `CHANGELOG.md`
+
+### `CHANGELOG.md`
+- Every shipped feature gets a dated entry — per-session shipping detail lives there; this file keeps only the current-state summary
 
 ### `README.md`
 - Keep feature summaries (3–5 bullets per section) accurate — update wording if behavior changes
@@ -639,3 +454,5 @@ Each file in `docs/` maps to a feature area. When you change a feature, update t
 - Don't suggest rewriting in a different GUI framework
 - Don't create a third file for a feature that already has a backend and a widget — extend the existing pair
 - Don't add top-level files to root unless they are genuine entry points or project config
+- Don't import from `widgets/canvas_editor/` anywhere except `canvas_codeview.py`; don't let mixins import the host or each other
+- Don't add dated "SHIPPED" changelog sections to this file — shipping history goes in `CHANGELOG.md`

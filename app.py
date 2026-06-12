@@ -10,7 +10,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
-from tkinter.messagebox import showinfo, showerror, askyesnocancel, askyesno
+from tkinter.messagebox import showerror, askyesnocancel, askyesno
 
 from tkfontchooser import askfont
 from tkinter.colorchooser import askcolor
@@ -24,15 +24,11 @@ from widgets.find_replace import FindReplaceBar
 from widgets.statusbar import StatusBar
 from widgets.command_palette import CommandPalette
 from widgets.breadcrumb_bar import BreadcrumbBar
-from editor.bracket_matcher import BracketMatcher
-from editor.key_handler import KeyHandler
-from editor.multi_cursor import MultiCursor
 from widgets.completion_popup import CompletionPopup
 from editor.lsp_manager import (
     LspManager,
     detect_server,
     uri_to_path,
-    path_to_uri,
     SEV_ERROR,
     SEV_WARNING,
 )
@@ -59,7 +55,6 @@ from widgets.designer_connector import ComponentConnector
 from widgets.form_list_panel import FormListPanel
 from designer.canvas import DesignerCanvas
 from designer.component_registry import (
-    COMPONENT_REGISTRY,
     get_component_def,
     default_props,
 )
@@ -389,13 +384,10 @@ class IDOL(Tk):
         self._temp_files: dict[str, str] = {}  # tab_id → temp file path
         self._indent_sizes: dict[str, int] = {}
         self._codeviews: dict[str, CanvasCodeView] = {}
-        self._key_handlers: dict[str, KeyHandler] = {}
-        self._multi_cursors: dict[str, MultiCursor] = {}
         self._breadcrumbs: dict[str, BreadcrumbBar] = {}
 
         self._editor_font: tuple | None = None  # (family, size, weight, slant)
 
-        self._bracket_matcher = BracketMatcher()
         self._find_replace: FindReplaceBar | None = None
 
         # LSP
@@ -1767,9 +1759,7 @@ class IDOL(Tk):
         self._clean_crcs.pop(tab_id, None)
         self._indent_sizes.pop(tab_id, None)
         self._codeviews.pop(tab_id, None)
-        self._key_handlers.pop(tab_id, None)
         self._breadcrumbs.pop(tab_id, None)
-        mc = self._multi_cursors.pop(tab_id, None)
         # Delete any temp file for this tab — user explicitly chose to close it
         _tmp = self._temp_files.pop(tab_id, None)
         if _tmp:
@@ -1777,8 +1767,6 @@ class IDOL(Tk):
                 Path(_tmp).unlink(missing_ok=True)
             except Exception:
                 pass
-        if mc:
-            mc.clear()
         if closed_path and closed_path.endswith(".py"):
             for srv in self._each_lsp():
                 srv.close_file(closed_path)
@@ -1815,10 +1803,9 @@ class IDOL(Tk):
         self._encoding_pill.pack_forget()
         self._update_title()
         self._statusbar.set_indent(self._indent_sizes.get(tab_id, 4))
-        # Reflect overwrite state of the new tab's handler
-        handler = self._key_handlers.get(tab_id)
-        ovr = handler.overwrite if handler else False
-        self._statusbar.set_overwrite(ovr)
+        # Overwrite-mode indicator: permanently False until a replacement
+        # for the removed KeyHandler is wired in (codebase audit cleanup).
+        self._statusbar.set_overwrite(False)
         cv = self._codeviews.get(tab_id)
         if cv is None:
             # Non-editor tab (Welcome, Package Manager, etc.) — theme sidebar from loader
@@ -2128,14 +2115,11 @@ class IDOL(Tk):
         if tab_id is None:
             return
         cv = self._codeviews.get(tab_id)
-        handler = self._key_handlers.get(tab_id)
         if cv:
             if hasattr(cv, "tab_size"):
                 cv.tab_size = size
             else:
                 cv.configure(tabs=Font(font=cv.cget("font")).measure(" " * size))
-        if handler:
-            handler.tab_size = size
         self._indent_sizes[tab_id] = size
 
     # ── LSP ───────────────────────────────────────────────────────────────────
@@ -3186,9 +3170,7 @@ class IDOL(Tk):
         if cv is None:
             return
         line, col = cv.index("insert").split(".")
-        mc = self._multi_cursors.get(self._current_tab_id)
-        cursors = mc.count() if mc and mc.active else 1
-        self._statusbar.set_position(int(line), int(col), cursors)
+        self._statusbar.set_position(int(line), int(col), 1)
 
     def _start_highlight_loop(self) -> None:
         self._highlight_active_line()
@@ -3201,9 +3183,7 @@ class IDOL(Tk):
             # for the status bar / breadcrumb sync below.
             cline, ccol = cv.get_cursor()
             line, col = cline + 1, ccol
-            mc = self._multi_cursors.get(self._current_tab_id)
-            cursors = mc.count() if mc and mc.active else 1
-            self._statusbar.set_position(int(line), int(col), cursors)
+            self._statusbar.set_position(int(line), int(col), 1)
             # Update breadcrumb (re-renders only when line changes)
             tab_id = self._current_tab_id
             crumb = self._breadcrumbs.get(tab_id)
@@ -3681,12 +3661,8 @@ class IDOL(Tk):
             self._clean_crcs.pop(tab_id, None)
             self._indent_sizes.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
-            self._key_handlers.pop(tab_id, None)
             self._breadcrumbs.pop(tab_id, None)
             self._temp_files.pop(tab_id, None)
-            mc = self._multi_cursors.pop(tab_id, None)
-            if mc:
-                mc.clear()
             if closed_path and closed_path.endswith(".py"):
                 for srv in self._each_lsp():
                     srv.close_file(closed_path)
@@ -8360,7 +8336,6 @@ class IDOL(Tk):
             extract_helper_methods as _helpers,
             extract_user_imports as _user_imports,
             load as _load,
-            was_modified as _modified,
         )
 
         json_path = _Path(root) / f"{form.name}.form.json"
@@ -8579,12 +8554,6 @@ class IDOL(Tk):
         self._indent_sizes.pop(tab_id, None)
         self._breadcrumbs.pop(tab_id, None)
         self._codeviews.pop(tab_id, None)
-        kh = self._key_handlers.pop(tab_id, None)
-        if kh:
-            kh.detach()
-        mc = self._multi_cursors.pop(tab_id, None)
-        if mc:
-            mc.clear()
         # Don't close LSP file — it may still be open in the other pane
         try:
             idx = list(nb.tabs()).index(tab_id)
@@ -8813,12 +8782,6 @@ class IDOL(Tk):
             self._indent_sizes.pop(tab_id, None)
             self._breadcrumbs.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
-            kh = self._key_handlers.pop(tab_id, None)
-            if kh:
-                kh.detach()
-            mc = self._multi_cursors.pop(tab_id, None)
-            if mc:
-                mc.clear()
             _tmp = self._temp_files.pop(tab_id, None)
             if _tmp:
                 try:
