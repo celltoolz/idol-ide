@@ -29,3 +29,12 @@ _QUOTES = {q for q, cl in _PAIRS.items() if q == cl}
 # Chars that trigger match-highlight candidate detection (brackets + quotes).
 # Kept separate from _ALL_BRACKETS so that set stays semantically brackets-only.
 _MATCH_CHARS = _ALL_BRACKETS | _QUOTES
+
+# Editor font — family + size shared by the main canvas font, the minimap
+# (canvas_editor/minimap.py), and assorted tooltip/preview widgets.
+_FONT_FAMILY = "Consolas"
+_FONT_SIZE   = 11
+
+# Minimap column width (px). Shared: the minimap widget, the text-viewport
+# width reservation, and the sticky-scroll band clip.
+_MINIMAP_W = 90   # IDOL parity (widgets/minimap.py:WIDTH)
