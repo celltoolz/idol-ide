@@ -20,9 +20,12 @@ import tkinter.font as tkfont
 
 from .breadcrumb_bar import BreadcrumbBar
 from .canvas_editor.constants import (
+    _BREAKPOINT_COLOR,
+    _BREAKPOINT_GHOST_COLOR,
     _CLOSERS,
     _FONT_FAMILY,
     _FONT_SIZE,
+    _GIT_HUNK_COLORS,
     _MINIMAP_W,
     _PAIRS,
 )
@@ -93,19 +96,6 @@ def language_from_path(path: str | None) -> str:
 from utils.theme_loader import list_themes as _list_themes, load_theme as _load_theme
 
 _DEFAULT_THEME = "monokai-bright"
-
-_BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
-_BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
-
-# Git-diff gutter stripe palette — mirrors widgets/linenums.py's
-# `_GUTTER_COLORS`. Kind names come from `editor/git_manager.py`'s
-# hunk-classification: "added" (new lines), "modified" (edited lines),
-# "deleted" (lines removed — shown as a marker on the survivor below).
-_GIT_HUNK_COLORS = {
-    "added":    "#4ec994",
-    "modified": "#c5a028",
-    "deleted":  "#f14c4c",
-}
 
 # Lines that sticky-scroll pins: only class/def/async def, mirroring
 # IDOL/widgets/sticky_scroll.py:_SCOPE_RE. Generic block openers

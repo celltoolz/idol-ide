@@ -37,3 +37,18 @@ _FONT_SIZE   = 11
 # Minimap column width (px). Shared: the minimap widget, the text-viewport
 # width reservation, and the sticky-scroll band clip.
 _MINIMAP_W = 90   # IDOL parity (canvas_editor/minimap.py:WIDTH)
+
+# ── Gutter palette ────────────────────────────────────────────────────────────
+# Breakpoint dot colors drawn in the gutter's debug zone.
+_BREAKPOINT_COLOR       = "#f14c4c"   # bright red, matches IDOL linenums.py
+_BREAKPOINT_GHOST_COLOR = "#6b2020"   # dim red — hover preview
+
+# Git-diff gutter stripe palette — mirrors widgets/linenums.py's
+# `_GUTTER_COLORS`. Kind names come from `editor/git_manager.py`'s
+# hunk-classification: "added" (new lines), "modified" (edited lines),
+# "deleted" (lines removed — shown as a marker on the survivor below).
+_GIT_HUNK_COLORS = {
+    "added":    "#4ec994",
+    "modified": "#c5a028",
+    "deleted":  "#f14c4c",
+}
