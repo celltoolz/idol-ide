@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-16] — Gutter Pass A: GutterMixin extraction
+
+### Changed
+- **Gutter drawing extracted into `GutterMixin`** (`canvas_editor/gutter.py`) — the gutter's
+  layout math (`_compute_gutter`), full-height background fill, per-row content (git stripe,
+  breakpoint dot, line number, fold marker), and a shared line-number helper now live in their
+  own mixin. The sticky-scroll band reuses the same line-number helper. Behavior is unchanged;
+  gutter click/motion hit-testing stays in `canvas_codeview.py`'s mouse handlers.
+- **Gutter color constants moved to `canvas_editor/constants.py`** — `_BREAKPOINT_COLOR`,
+  `_BREAKPOINT_GHOST_COLOR`, and `_GIT_HUNK_COLORS` now live alongside the other shared editor
+  constants so the new mixin can import them without reaching into `canvas_codeview.py`.
+
 ## [2026-06-11] — Editor Engine Decomposition (P3 audit)
 
 ### Added
