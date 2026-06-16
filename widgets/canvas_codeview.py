@@ -20,12 +20,9 @@ import tkinter.font as tkfont
 
 from .breadcrumb_bar import BreadcrumbBar
 from .canvas_editor.constants import (
-    _BREAKPOINT_COLOR,
-    _BREAKPOINT_GHOST_COLOR,
     _CLOSERS,
     _FONT_FAMILY,
     _FONT_SIZE,
-    _GIT_HUNK_COLORS,
     _MINIMAP_W,
     _PAIRS,
 )
@@ -36,6 +33,7 @@ from .canvas_editor.fold import (
     _IDOL_END_RE,
     _SECTION_MARKER,
 )
+from .canvas_editor.gutter import GutterMixin
 from .canvas_editor.multicursor import MultiCursorMixin
 from .canvas_editor.bracket_matcher import BracketMatcherMixin
 from .canvas_editor.minimap import MinimapMixin
@@ -129,7 +127,7 @@ def _extract_hex_color(token_text: str) -> str | None:
     return f"#{digits}"
 
 
-class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcherMixin, MinimapMixin, AutocompleteMixin, tk.Frame):
+class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, BracketMatcherMixin, MinimapMixin, AutocompleteMixin, tk.Frame):
     """Canvas-rendered code editor.
 
     Indices follow the same convention throughout: 0-indexed line and
@@ -708,19 +706,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
         pass  # app.py's 25 ms _highlight_active_line loop owns all crumb updates
 
     # ── Setup ─────────────────────────────────────────────────────────────────
-
-    def _compute_gutter(self) -> None:
-        """Recompute font-aware gutter layout. Call after any font change."""
-        cw = self._char_w
-        self._debug_w   = 16
-        # Right edge of line-number column: enough for 4 digits + small margin.
-        self._linenum_r = self._debug_w + max(30, cw * 4)
-        # Left edge of fold glyph: small gap after line numbers.
-        self._fold_x    = self._linenum_r + max(4, cw // 2)
-        # Right edge of gutter: fold glyph + one char width of clearance.
-        self._gutter_w  = self._fold_x + max(14, cw + 4)
-        # Where text begins: small gap after the gutter rectangle.
-        self._text_x    = self._gutter_w + max(8, cw)
+    # `_compute_gutter` (gutter layout math) lives in GutterMixin.
 
     def _build_ui(self) -> None:
         self._font = tkfont.Font(family=_FONT_FAMILY, size=_FONT_SIZE)
@@ -959,8 +945,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
         if w < 2 or h < 2:
             return
 
-        c.create_rectangle(0, 0, self._gutter_w, h,
-                           fill=self._palette["gutter_bg"], outline="")
+        self._draw_gutter_background(c, h)
 
         # Fresh per-render hit-test list for the clickable "···"
         # indicators drawn after each folded line.
@@ -1266,38 +1251,10 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
                         c.create_line(mcx, y + 1, mcx, y + self._line_h - 1,
                                       fill=self._palette["caret"], width=1)
 
-            # Gutter overlay — paints OVER any token / indent guide that
-            # scrolled left of `_text_x`, then redraws the gutter content
-            # (git stripe, breakpoint, line number, fold marker) on top.
-            # Without this, horizontally scrolled long lines bleed the
-            # start of each line into the line-number column.
-            c.create_rectangle(0, y, self._text_x, y + self._line_h,
-                               fill=self._palette["gutter_bg"], outline="")
-            git_kind = self._git_hunk_map.get(i)
-            if git_kind:
-                gcolor = _GIT_HUNK_COLORS.get(git_kind)
-                if gcolor:
-                    c.create_rectangle(0, y, 3, y + self._line_h,
-                                       fill=gcolor, outline="")
-            if i in self._breakpoints or i == self._hover_breakpoint_line:
-                cy_bp = y + self._line_h // 2
-                cx_bp = self._debug_w // 2
-                r_bp  = min(self._debug_w // 2 - 1, max(4, self._line_h // 3))
-                fill_bp = (_BREAKPOINT_COLOR if i in self._breakpoints
-                           else _BREAKPOINT_GHOST_COLOR)
-                c.create_oval(cx_bp - r_bp, cy_bp - r_bp,
-                              cx_bp + r_bp, cy_bp + r_bp,
-                              fill=fill_bp, outline="")
-            gut_fg = (self._palette["gutter_fg_active"]
-                      if i == self.cur_line else self._palette["gutter_fg"])
-            cy = y + self._line_h // 2
-            c.create_text(self._linenum_r, cy, text=str(i + 1),
-                          anchor="e", fill=gut_fg, font=self._font)
-            if self._line_is_foldable(i):
-                glyph = "▶" if i in self.folded else "▼"
-                c.create_text(self._fold_x, cy, text=glyph, anchor="w",
-                              fill=self._palette["gutter_fg"],
-                              font=self._font)
+            # Gutter content (overlay mask, git stripe, breakpoint, line
+            # number, fold marker) — drawn AFTER the tokens so it overpaints
+            # any glyph that scrolled left of `_text_x` when `_scroll_x > 0`.
+            self._draw_gutter_row(c, i, y)
 
             if i in self.folded:
                 if _IDOL_BEGIN_RE.match(line):
@@ -1370,16 +1327,12 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, MultiCursorMixin, BracketMatcher
             for idx, hi in enumerate(headers):
                 y = idx * self._line_h
                 line = self.lines[hi]
-                # Gutter slice
+                # Gutter slice — background fill + shared line-number draw.
                 sc.create_rectangle(
                     0, y, self._gutter_w, y + self._line_h,
                     fill=self._palette["gutter_bg"], outline="",
                 )
-                sc.create_text(
-                    self._linenum_r, y + self._line_h // 2,
-                    text=str(hi + 1), anchor="e",
-                    fill=self._palette["gutter_fg"], font=self._font,
-                )
+                self._draw_gutter_number(sc, y, hi)
                 # Tokenize + render header line
                 x = self._text_x
                 fg = self._palette["fg"]
