@@ -5,10 +5,9 @@ module (and by canvas_codeview.py itself). Imports nothing internal, so
 any canvas_editor module can import it without risking a circular import
 against canvas_codeview.py (which imports the mixins at module load).
 
-Currently holds the auto-pair table used by both primary editing
-(canvas_codeview.py) and secondary-cursor editing (multicursor.py). The
-bracket-matching constants will join here when bracket_matcher is
-extracted.
+Contains the auto-pair table used by both primary editing (canvas_codeview.py)
+and secondary-cursor editing (multicursor.py), as well as the bracket-matching
+constants extracted from bracket_matcher.
 """
 from __future__ import annotations
 
@@ -37,4 +36,4 @@ _FONT_SIZE   = 11
 
 # Minimap column width (px). Shared: the minimap widget, the text-viewport
 # width reservation, and the sticky-scroll band clip.
-_MINIMAP_W = 90   # IDOL parity (widgets/minimap.py:WIDTH)
+_MINIMAP_W = 90   # IDOL parity (canvas_editor/minimap.py:WIDTH)

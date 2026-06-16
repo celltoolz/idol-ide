@@ -5,7 +5,7 @@ inherited by `CanvasCodeView`.
 
 The minimap is a real `tk.Text` widget embedded in the canvas via `place()`.
 Font size 1 gives the same crisp glyph rasterization IDOL's textbox minimap
-(widgets/minimap.py) gets — `create_text` on a canvas can't render below
+(canvas_editor/minimap.py) gets — `create_text` on a canvas can't render below
 ~4-5px. Token tags are mirrored from the active theme so colors match.
 
 Unlike the gutter, the minimap is NOT painted inline in render(): it owns
