@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-17] — Autocomplete popup theming
+
+### Changed
+- **The autocomplete popup now follows the active theme.** Its colors were hardcoded dark
+  (`#252526` / `#cccccc` / `#094771` / white), so the dropdown stayed dark-blue on light themes.
+  It now pulls `sticky_bg` / `fg` / `select_bg` from the active palette (selected-row text uses
+  `fg`, not white, so it stays readable on light themes' pale `select_bg`). Colors are reapplied
+  on every show, so switching themes updates the cached popup too.
+
 ## [2026-06-17] — Multi-cursor shifted selection (Shift+Home/End et al.)
 
 ### Fixed
