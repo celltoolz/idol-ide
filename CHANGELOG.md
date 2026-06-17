@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   stored structurally (`list[dict]`); legacy plain-string column lists auto-migrate on load.
   A **tree heading** prop sets the `#0` tree-column heading. Codegen emits column ids in
   `columns=(…)` plus per-column `heading()` / `column(width=, anchor=, stretch=)` calls.
+- **Row Editor dialog** for the Treeview `rows` prop — seed rows inserted at startup. The grid is
+  derived from the current columns (a `(tree)` cell for the `#0` label when shown, then one cell per
+  data column); add / reorder / remove rows. Rows are stored as `{text, values}` dicts and drive the
+  canvas preview (falling back to placeholder rows when empty). Codegen emits an
+  `insert("", "end", text=…, values=(…))` call per row (`text=` only when the tree column is shown).
 
 ## [2026-06-17] — Canvas item events bind to the tag, not the instance
 

@@ -371,6 +371,7 @@ REGISTRY: dict[str, dict] = {
                               {"id": "col2", "heading": "Column 2",
                                "width": 120, "anchor": "w", "stretch": True},
                           ],
+                          "rows": [],
                           "tree_heading": "",
                           "show": "tree headings",
                           "selectmode": "browse",
@@ -564,6 +565,21 @@ def normalize_tree_columns(cols) -> list[dict]:
         seen.add(cid)
         out.append({"id": cid, "heading": heading,
                     "width": width, "anchor": anchor, "stretch": stretch})
+    return out
+
+
+def normalize_tree_rows(rows) -> list[dict]:
+    """Coerce a Treeview ``rows`` value into a list of ``{text, values}`` dicts.
+
+    ``text`` is the ``#0`` tree-column label; ``values`` are the data-column cells.
+    Non-dict entries are dropped; all cells are coerced to strings.
+    """
+    out: list[dict] = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        out.append({"text": str(r.get("text", "")),
+                    "values": [str(v) for v in (r.get("values") or [])]})
     return out
 
 

@@ -27,7 +27,7 @@ import tkinter as tk
 from typing import Callable, Optional
 
 from .model import CanvasItemDescriptor, FormModel, WidgetDescriptor
-from .registry import REGISTRY, normalize_tree_columns
+from .registry import REGISTRY, normalize_tree_columns, normalize_tree_rows
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -2893,20 +2893,32 @@ def _draw_treeview(c, x, y, x2, y2, text, props):
                 c.create_text(cxl + 5, y + head_h // 2, text=label, anchor="w",
                               fill="#333333", font=(UI_FONT, 8, "bold"))
 
-    # Sample rows
+    # Data rows: render the user's seed rows when present, else placeholder rows.
+    data_rows = normalize_tree_rows(props.get("rows"))
     row_h = 18
-    for r in range(3):
+    n_show = max(3, len(data_rows)) if data_rows else 3
+    for r in range(n_show):
         ry = y + head_h + r * row_h
         if ry + row_h > y2:
             break
         if r == 0:
             c.create_rectangle(x + 1, ry, x2 - 1, ry + row_h, fill="#0078d4", outline="")
         fg = "#ffffff" if r == 0 else "#555555"
+        rowdata = data_rows[r] if r < len(data_rows) else None
         for i, (label, _) in enumerate(display):
             cxl = edges[i]
-            cell = f"Item {r+1}" if (treecol and i == 0) else "cell"
-            c.create_text(cxl + 5, ry + row_h // 2, text=cell, anchor="w",
-                          fill=fg, font=(UI_FONT, 8))
+            if rowdata is not None:
+                if treecol and i == 0:
+                    cell = rowdata["text"]
+                else:
+                    di = (i - 1) if treecol else i
+                    vals = rowdata["values"]
+                    cell = vals[di] if 0 <= di < len(vals) else ""
+            else:
+                cell = f"Item {r+1}" if (treecol and i == 0) else "cell"
+            if cell:
+                c.create_text(cxl + 5, ry + row_h // 2, text=cell, anchor="w",
+                              fill=fg, font=(UI_FONT, 8))
 
 
 def _draw_notebook_canvas(c, x, y, x2, y2, props, tag, nb_id, active_tab):

@@ -2811,6 +2811,10 @@ class DesignerProperties(tk.Frame):
                 self._props_insert("prop__columns", "columns",
                                    _tree_columns_display(d.props.get("columns")))
                 continue
+            if key == "rows" and d.type == "Treeview":
+                self._props_insert("prop__rows", "rows",
+                                   _tree_rows_display(d.props.get("rows")))
+                continue
             if key == "tree_heading" and d.type == "Treeview" \
                     and "tree" not in d.props.get("show", "tree headings"):
                 continue  # #0 heading is irrelevant when the tree column is hidden
@@ -3227,6 +3231,10 @@ class DesignerProperties(tk.Frame):
                 if self._current_widget:
                     self._open_treeview_columns_editor(row)
                 return
+            if key == "rows" and d_ref.type == "Treeview":
+                if self._current_widget:
+                    self._open_treeview_rows_editor(row)
+                return
             if isinstance(d_ref.props.get(key), list):
                 if self._current_widget:
                     if key == "tabs":
@@ -3616,6 +3624,22 @@ class DesignerProperties(tk.Frame):
                 self._on_prop_change(d.id, "columns", cols)
 
         TreeviewColumnEditor(self, d.props.get("columns"), _save)
+
+    def _open_treeview_rows_editor(self, row: str) -> None:
+        """Open the Treeview Row Editor dialog for the `rows` prop."""
+        d = self._current_widget
+        if d is None:
+            return
+        from designer.treeview_row_editor import TreeviewRowEditor
+
+        def _save(rows: list[dict]) -> None:
+            d.props["rows"] = rows
+            self._props_set(row, _tree_rows_display(rows))
+            if self._on_prop_change:
+                self._on_prop_change(d.id, "rows", rows)
+
+        TreeviewRowEditor(self, d.props.get("columns"), d.props.get("rows"),
+                          d.props.get("show", "tree headings"), _save)
 
     def _open_list_editor(self, row: str) -> None:
         """Inline list editor for array-type props (e.g. Combobox values).
@@ -4894,6 +4918,13 @@ def _tree_columns_display(cols) -> str:
     from designer.registry import normalize_tree_columns
     norm = normalize_tree_columns(cols)
     return ", ".join(c["heading"] for c in norm) if norm else "(no columns)"
+
+
+def _tree_rows_display(rows) -> str:
+    """Summary string for a Treeview's `rows` prop."""
+    from designer.registry import normalize_tree_rows
+    n = len(normalize_tree_rows(rows))
+    return f"{n} row{'s' if n != 1 else ''}" if n else "(no rows)"
 
 
 def _display(val: Any) -> str:

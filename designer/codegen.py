@@ -12,7 +12,7 @@ import textwrap
 from typing import Any
 
 from .model import FormModel, WidgetDescriptor
-from .registry import REGISTRY, normalize_tree_columns
+from .registry import REGISTRY, normalize_tree_columns, normalize_tree_rows
 
 # tkinter binding string for each event key
 _BINDINGS: dict[str, str] = {
@@ -752,6 +752,21 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 f'        self.{w.id}.column({cid!r}, width={col["width"]},'
                 f' anchor={col["anchor"]!r}, stretch={bool(col["stretch"])})'
             )
+        # Seed rows — insert() at root; text is the #0 label, values the columns.
+        show_tree = "tree" in w.props.get("show", "tree headings")
+        ncols = len(_tree_cols)
+        for r in normalize_tree_rows(w.props.get("rows")):
+            vals = (r["values"] + [""] * ncols)[:ncols]
+            has_text = show_tree and bool(r["text"])
+            has_vals = any(vals)
+            if not has_text and not has_vals:
+                continue
+            args = ['""', '"end"']
+            if has_text:
+                args.append(f'text={r["text"]!r}')
+            if ncols:
+                args.append(f'values={tuple(vals)!r}')
+            lines.append(f'        self.{w.id}.insert({", ".join(args)})')
 
     # list_insert_props — populate widget with insert() calls after place()/pack()
     for prop_key in reg.get("list_insert_props", []):
