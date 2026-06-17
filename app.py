@@ -3164,14 +3164,6 @@ class IDOL(Tk):
 
     # ── Active-line highlight loop ────────────────────────────────────────────
 
-    def _update_cursor_status(self) -> None:
-        """Immediately refresh the status bar cursor count."""
-        cv = self._current_codeview
-        if cv is None:
-            return
-        line, col = cv.index("insert").split(".")
-        self._statusbar.set_position(int(line), int(col), 1)
-
     def _start_highlight_loop(self) -> None:
         self._highlight_active_line()
 
@@ -3183,7 +3175,7 @@ class IDOL(Tk):
             # for the status bar / breadcrumb sync below.
             cline, ccol = cv.get_cursor()
             line, col = cline + 1, ccol
-            self._statusbar.set_position(int(line), int(col), 1)
+            self._statusbar.set_position(int(line), int(col), cv.mc_count())
             # Update breadcrumb (re-renders only when line changes)
             tab_id = self._current_tab_id
             crumb = self._breadcrumbs.get(tab_id)
@@ -3966,19 +3958,13 @@ class IDOL(Tk):
 
     def view_fold_all(self) -> None:
         cv = self._current_codeview
-        if not cv:
-            return
-        for i in range(len(cv.lines)):
-            if cv._line_is_foldable(i):
-                cv.folded.add(i)
-        cv.render()
+        if cv:
+            cv.fold_all()
 
     def view_unfold_all(self) -> None:
         cv = self._current_codeview
-        if not cv:
-            return
-        cv.folded.clear()
-        cv.render()
+        if cv:
+            cv.unfold_all()
 
     def _refresh_nav_bar(self) -> None:
         """Sync nav bar toggle button colors with current view state."""

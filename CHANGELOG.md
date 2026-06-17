@@ -5,6 +5,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-17] — Autocomplete popup theming
+
+### Changed
+- **The autocomplete popup now follows the active theme.** Its colors were hardcoded dark
+  (`#252526` / `#cccccc` / `#094771` / white), so the dropdown stayed dark-blue on light themes.
+  It now pulls `sticky_bg` / `fg` / `select_bg` from the active palette (selected-row text uses
+  `fg`, not white, so it stays readable on light themes' pale `select_bg`). Colors are reapplied
+  on every show, so switching themes updates the cached popup too.
+
+## [2026-06-17] — Multi-cursor shifted selection (Shift+Home/End et al.)
+
+### Fixed
+- **Shift+movement now extends every secondary cursor's selection on the first press.**
+  `_mc_apply_key`'s shifted branch dropped the anchor but skipped the actual move on the first
+  keystroke, so a secondary cursor lagged one press behind the primary — most visibly,
+  **Shift+Home / Shift+End** appeared to do nothing. The shifted path now anchors (if needed)
+  and always advances, matching the primary cursor in `canvas_codeview._on_key`. Affects
+  Shift + Left/Right/Up/Down/Home/End/PageUp/PageDown for all secondary cursors; non-shift
+  collapse-to-edge and plain movement are unchanged.
+
+## [2026-06-17] — Public fold API
+
+### Changed
+- **`fold_all()` / `unfold_all()` are now public `CanvasCodeView` methods** (on `FoldMixin`).
+  `app.py`'s View → Fold All / Unfold All commands previously reached into editor internals
+  (`cv.lines`, `cv._line_is_foldable`, `cv.folded`, `cv.render`); they now call the public API,
+  matching how the gutter and command palette drive the editor. No behavior change.
+
+## [2026-06-17] — Status bar multi-cursor count
+
+### Fixed
+- **Status bar now shows the live multi-cursor count** — the cursor-count argument was
+  hardcoded to `1`, so the documented `N cursors` indicator never appeared. The active-line
+  loop now passes `cv.mc_count()`, so adding secondary cursors (Alt+Click) updates the status
+  bar to `Ln x, Col y  |  N cursors`. The count was lost when the old `_multi_cursors` dict was
+  removed in the P2 decomposition.
+
+### Removed
+- Dead `IDOL._update_cursor_status` — uncalled, and broken (it called `cv.index("insert")`, a
+  `tk.Text` API the canvas editor doesn't implement). The 25 ms active-line loop already keeps
+  the status bar current.
+
+## [2026-06-17] — Fold-walk dedup: `iter_visible`
+
+### Changed
+- **One fold-skip walk instead of seven** — the inline loop that maps physical lines onto the
+  visible rows (skipping folded blocks) is now a single `iter_visible(lines, folded)` generator
+  in `canvas_editor/constants.py`. `FoldMixin._visual_to_physical`/`_visual_row_count`/
+  `_visual_row_of` became thin adapters over it; `canvas_codeview.py` (`scroll_to_line`,
+  `_ensure_visible`) and `minimap.py` (fold elision + scroll sync) now reuse those helpers
+  instead of carrying their own copies. The render loop keeps its own walk — it has an extra
+  `skip_close_char` bracket-inclusion rule the others don't. Behavior verified identical across
+  53k+ checks over every fold-state subset of representative documents.
+- **Fold-marker regexes moved to `constants.py`** — `_SECTION_MARKER`, `_IDOL_BEGIN_RE`, and
+  `_IDOL_END_RE` now live in the constants leaf alongside `iter_visible` (which needs them).
+  This retires the previous cross-mixin import exception: every fold-aware module now imports
+  the shared vocabulary from `constants.py`, not from `fold.py`.
+
 ## [2026-06-16] — Gutter Pass A: GutterMixin extraction
 
 ### Changed

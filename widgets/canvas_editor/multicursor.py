@@ -161,18 +161,22 @@ class MultiCursorMixin:
 
             elif keysym in ("Left", "Right", "Up", "Down",
                             "Home", "End", "Prior", "Next"):
-                if shift and mc_anchor is None:
-                    mc_anchor = (mc_l, mc_c)
-                elif not shift:
-                    if mc_anchor is not None and keysym in ("Left", "Right"):
-                        s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
-                        mc_l, mc_c = (s if keysym == "Left" else e)
-                        mc_anchor = None
-                    else:
-                        mc_anchor = None
-                    if keysym not in ("Left", "Right") or True:
-                        mc_l, mc_c = self._mc_move(mc_l, mc_c, keysym, ctrl)
+                if shift:
+                    # Extend the secondary selection: drop an anchor on the
+                    # first shifted move, then always advance the cursor —
+                    # matching the primary path in canvas_codeview._on_key.
+                    # (Previously the first shifted move only set the anchor
+                    # and never moved, so e.g. Shift+Home appeared dead.)
+                    if mc_anchor is None:
+                        mc_anchor = (mc_l, mc_c)
+                    mc_l, mc_c = self._mc_move(mc_l, mc_c, keysym, ctrl)
+                elif mc_anchor is not None and keysym in ("Left", "Right"):
+                    # Collapse an existing selection to its near/far edge.
+                    s, e = (mc_anchor, (mc_l, mc_c)) if mc_anchor <= (mc_l, mc_c) else ((mc_l, mc_c), mc_anchor)
+                    mc_l, mc_c = (s if keysym == "Left" else e)
+                    mc_anchor = None
                 else:
+                    mc_anchor = None
                     mc_l, mc_c = self._mc_move(mc_l, mc_c, keysym, ctrl)
 
             self._mc_cursors[idx] = (mc_l, max(0, mc_c))

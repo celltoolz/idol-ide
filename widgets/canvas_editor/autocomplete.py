@@ -32,8 +32,9 @@ class AutocompleteMixin:
     """Completion popup + offline fallback, mixed into CanvasCodeView.
 
     Reads host state (`self.lines`, `self.cur_line`, `self.cur_col`,
-    `self.canvas`, `self.scroll_y`, `self._line_h`, the `_ac_*` attrs,
-    `self.on_completion_request`) and calls host/cross-mixin methods
+    `self.canvas`, `self.scroll_y`, `self._line_h`, `self._palette`, the
+    `_ac_*` attrs, `self.on_completion_request`) and calls host/cross-mixin
+    methods
     (`self._measure_to_col`, `self._visual_row_of`, `self._insert_text`,
     `self.render`)."""
 
@@ -144,8 +145,6 @@ class AutocompleteMixin:
             self._ac_top.attributes("-topmost", True)
             self._ac_listbox = tk.Listbox(
                 self._ac_top,
-                bg="#252526", fg="#cccccc",
-                selectbackground="#094771", selectforeground="#ffffff",
                 font=(_FONT_FAMILY, 10),
                 relief="flat", borderwidth=1,
                 highlightthickness=0,
@@ -157,6 +156,16 @@ class AutocompleteMixin:
                                   lambda _: self._accept_autocomplete())
             self._ac_listbox.bind("<Double-Button-1>",
                                   lambda _: self._accept_autocomplete())
+        # Theme the popup from the active palette on every show, so it
+        # follows set_theme even though the Toplevel is cached after first use.
+        # selectforeground uses fg (not white) so the selected row stays
+        # readable on light themes' pale select_bg.
+        self._ac_listbox.configure(
+            bg=self._palette.get("sticky_bg", self._palette["bg"]),
+            fg=self._palette["fg"],
+            selectbackground=self._palette["select_bg"],
+            selectforeground=self._palette["fg"],
+        )
         self._ac_listbox.delete(0, "end")
         for it in self._ac_items:
             self._ac_listbox.insert("end", it)
