@@ -4,6 +4,7 @@ import tkinter as tk
 from typing import Callable
 
 from .registry import normalize_tree_columns
+from .toolbar import _add_tooltip
 from widgets.styled_checkbox import StyledCheckbox
 from utils.ui_font import UI_FONT
 
@@ -16,8 +17,11 @@ _BTN_BG   = "#3a3a3a"
 _ENTRY_BG = "#3c3c3c"
 _BORDER   = "#3c3c3c"
 
-_ANCHOR_CYCLE = ["w", "center", "e"]
-_ANCHOR_LABEL = {"w": "left", "center": "center", "e": "right"}
+_ANCHOR_VALUES = ["w", "center", "e"]
+_ANCHOR_LABEL  = {"w": "left", "center": "center", "e": "right"}
+
+# Grid column index per field — headers and cells share these so they align.
+_C_ID, _C_HEAD, _C_WIDTH, _C_ANCHOR, _C_STRETCH, _C_UP, _C_DOWN, _C_DEL = range(8)
 
 
 class TreeviewColumnEditor(tk.Toplevel):
@@ -44,32 +48,30 @@ class TreeviewColumnEditor(tk.Toplevel):
                  text="Leave ID blank to auto-derive it from the heading.",
                  bg=_BG, fg=_FG_DIM, font=(UI_FONT, 8)).pack(anchor="w", padx=14)
 
-        # Header labels
-        hdr = tk.Frame(self, bg=_BG)
-        hdr.pack(fill="x", padx=14, pady=(10, 2))
-        for text, w in (("ID", 10), ("Heading", 20), ("Width", 7),
-                        ("Anchor", 8), ("Stretch", 8), ("", 8)):
-            tk.Label(hdr, text=text, bg=_BG, fg=_FG_DIM, font=(UI_FONT, 8, "bold"),
-                     width=w, anchor="w").pack(side="left", padx=(0, 4))
-
-        # Rows container
-        self._rows_frame = tk.Frame(self, bg=_BG)
-        self._rows_frame.pack(fill="x", padx=14)
+        # One grid hosts both the header row and the data rows so columns align.
+        self._grid = tk.Frame(self, bg=_BG)
+        self._grid.pack(fill="x", padx=14, pady=(10, 2))
+        for col, text in ((_C_ID, "ID"), (_C_HEAD, "Heading"), (_C_WIDTH, "Width"),
+                          (_C_ANCHOR, "Anchor"), (_C_STRETCH, "Stretch")):
+            tk.Label(self._grid, text=text, bg=_BG, fg=_FG_DIM,
+                     font=(UI_FONT, 8, "bold"), anchor="w").grid(
+                         row=0, column=col, sticky="w", padx=(0, 8), pady=(0, 3))
 
         for col in normalize_tree_columns(columns):
             self._add_row(col)
         if not self._rows:
             self._add_row(None)
+        self._regrid()
 
         # Add-column button
         add = tk.Label(self, text="  ＋ Add Column  ", bg=_BTN_BG, fg=_FG,
                        font=(UI_FONT, 9), cursor="hand2", padx=4, pady=3)
         add.pack(anchor="w", padx=14, pady=(8, 4))
-        add.bind("<ButtonRelease-1>", lambda e: self._add_row(None))
+        add.bind("<ButtonRelease-1>", lambda e: (self._add_row(None), self._regrid()))
 
         tk.Frame(self, bg=_BORDER, height=1).pack(fill="x", padx=14, pady=(6, 0))
 
-        # OK / Cancel
+        # Save / Cancel
         btns = tk.Frame(self, bg=_BG)
         btns.pack(fill="x", padx=14, pady=(8, 12))
         self._make_btn(btns, "Cancel", self.destroy)
@@ -83,56 +85,68 @@ class TreeviewColumnEditor(tk.Toplevel):
     # ── Row management ─────────────────────────────────────────────────────────
 
     def _add_row(self, col: "dict | None") -> None:
-        rf = tk.Frame(self._rows_frame, bg=_BG)
-        rf.pack(fill="x", pady=1)
-
-        id_e = self._entry(rf, width=10)
+        g = self._grid
+        id_e = self._entry(g, width=10)
         id_e.insert(0, col["id"] if col else "")
-        head_e = self._entry(rf, width=20)
+        head_e = self._entry(g, width=20)
         head_e.insert(0, col["heading"] if col else f"Column {len(self._rows) + 1}")
-        width_e = self._entry(rf, width=7)
+        width_e = self._entry(g, width=6)
         width_e.insert(0, str(col["width"]) if col else "120")
 
         anchor_var = tk.StringVar(value=(col["anchor"] if col else "w"))
-        anchor_btn = tk.Label(rf, bg=_ENTRY_BG, fg=_FG, font=(UI_FONT, 8),
-                              width=8, anchor="w", cursor="hand2", padx=4, pady=2)
-        anchor_btn.pack(side="left", padx=(0, 4))
-        def _cycle(_=None, v=anchor_var, b=anchor_btn):
-            nxt = _ANCHOR_CYCLE[(_ANCHOR_CYCLE.index(v.get()) + 1) % len(_ANCHOR_CYCLE)]
-            v.set(nxt)
-            b.config(text=_ANCHOR_LABEL[nxt])
-        anchor_btn.config(text=_ANCHOR_LABEL[anchor_var.get()])
-        anchor_btn.bind("<ButtonRelease-1>", _cycle)
+        anchor_btn = tk.Label(g, bg=_ENTRY_BG, fg=_FG, font=(UI_FONT, 9),
+                              anchor="w", cursor="hand2", padx=6, pady=3,
+                              relief="solid", bd=1, width=8)
+
+        def _set_anchor(val, v=anchor_var, b=anchor_btn):
+            v.set(val)
+            b.config(text=f"{_ANCHOR_LABEL[val]}  ▾")
+
+        def _open_anchor_menu(_=None, b=anchor_btn, setter=_set_anchor):
+            m = tk.Menu(self, tearoff=0, bg=_BG2, fg=_FG,
+                        activebackground=_ACCENT, activeforeground="#ffffff",
+                        font=(UI_FONT, 9), bd=0)
+            for val in _ANCHOR_VALUES:
+                m.add_command(label=_ANCHOR_LABEL[val],
+                              command=lambda vv=val: setter(vv))
+            m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+        _set_anchor(anchor_var.get())
+        anchor_btn.bind("<Button-1>", _open_anchor_menu)
 
         stretch_var = tk.BooleanVar(value=(col["stretch"] if col else True))
-        stretch_holder = tk.Frame(rf, bg=_BG, width=64)
-        stretch_holder.pack(side="left", padx=(0, 4))
-        stretch_holder.pack_propagate(False)
-        StyledCheckbox(stretch_holder, "", stretch_var, bg=_BG).pack(side="left")
+        stretch_cb = StyledCheckbox(g, "", stretch_var, bg=_BG)
 
-        actions = tk.Frame(rf, bg=_BG)
-        actions.pack(side="left")
-        row = {"frame": rf, "id": id_e, "heading": head_e, "width": width_e,
-               "anchor": anchor_var, "stretch": stretch_var}
-        for glyph, cmd in (("↑", lambda r=row: self._move(r, -1)),
-                           ("↓", lambda r=row: self._move(r, +1)),
-                           ("×", lambda r=row: self._remove(r))):
-            lbl = tk.Label(actions, text=glyph, bg=_BG, fg=_FG_DIM,
-                           font=(UI_FONT, 10), cursor="hand2", width=2)
-            lbl.pack(side="left")
-            lbl.bind("<ButtonRelease-1>", lambda e, c=cmd: c())
-            lbl.bind("<Enter>", lambda e, w=lbl: w.config(fg=_ACCENT))
-            lbl.bind("<Leave>", lambda e, w=lbl: w.config(fg=_FG_DIM))
+        up = self._action(g, "↑", "Move column up")
+        down = self._action(g, "↓", "Move column down")
+        delete = self._action(g, "×", "Remove column")
 
+        row = {"id": id_e, "heading": head_e, "width": width_e,
+               "anchor": anchor_var, "stretch": stretch_var,
+               "anchor_btn": anchor_btn, "stretch_cb": stretch_cb,
+               "up": up, "down": down, "del": delete}
+        up.bind("<ButtonRelease-1>", lambda e, r=row: self._move(r, -1))
+        down.bind("<ButtonRelease-1>", lambda e, r=row: self._move(r, +1))
+        delete.bind("<ButtonRelease-1>", lambda e, r=row: self._remove(r))
         self._rows.append(row)
-        self._resize()
+
+    def _regrid(self) -> None:
+        """(Re)place every row's widgets in the shared grid, in list order."""
+        cells = (("id", _C_ID), ("heading", _C_HEAD), ("width", _C_WIDTH),
+                 ("anchor_btn", _C_ANCHOR), ("stretch_cb", _C_STRETCH),
+                 ("up", _C_UP), ("down", _C_DOWN), ("del", _C_DEL))
+        for idx, row in enumerate(self._rows, start=1):
+            for key, col in cells:
+                row[key].grid(row=idx, column=col, sticky="w", padx=(0, 8), pady=1)
 
     def _remove(self, row: dict) -> None:
         if len(self._rows) <= 1:
             return  # keep at least one column
-        row["frame"].destroy()
+        for key in ("id", "heading", "width", "anchor_btn", "stretch_cb",
+                    "up", "down", "del"):
+            row[key].destroy()
         self._rows.remove(row)
-        self._resize()
+        self._regrid()
 
     def _move(self, row: dict, delta: int) -> None:
         i = self._rows.index(row)
@@ -140,10 +154,7 @@ class TreeviewColumnEditor(tk.Toplevel):
         if not (0 <= j < len(self._rows)):
             return
         self._rows[i], self._rows[j] = self._rows[j], self._rows[i]
-        for r in self._rows:
-            r["frame"].pack_forget()
-        for r in self._rows:
-            r["frame"].pack(fill="x", pady=1)
+        self._regrid()
 
     # ── Save ───────────────────────────────────────────────────────────────────
 
@@ -170,12 +181,18 @@ class TreeviewColumnEditor(tk.Toplevel):
     # ── Widget helpers ───────────────────────────────────────────────────────
 
     def _entry(self, parent, width: int) -> tk.Entry:
-        e = tk.Entry(parent, width=width, bg=_ENTRY_BG, fg=_FG,
-                     insertbackground=_FG, relief="flat",
-                     font=(UI_FONT, 9), highlightthickness=1,
-                     highlightbackground=_BORDER, highlightcolor=_ACCENT)
-        e.pack(side="left", padx=(0, 4), ipady=2)
-        return e
+        return tk.Entry(parent, width=width, bg=_ENTRY_BG, fg=_FG,
+                        insertbackground=_FG, relief="flat",
+                        font=(UI_FONT, 9), highlightthickness=1,
+                        highlightbackground=_BORDER, highlightcolor=_ACCENT)
+
+    def _action(self, parent, glyph: str, tip: str) -> tk.Label:
+        lbl = tk.Label(parent, text=glyph, bg=_BG, fg=_FG_DIM,
+                       font=(UI_FONT, 11), cursor="hand2", width=2)
+        lbl.bind("<Enter>", lambda e, w=lbl: w.config(fg=_ACCENT))
+        lbl.bind("<Leave>", lambda e, w=lbl: w.config(fg=_FG_DIM))
+        _add_tooltip(lbl, tip)
+        return lbl
 
     def _make_btn(self, parent, text, cmd, accent=False) -> None:
         b = tk.Label(parent, text=text, bg=_ACCENT if accent else _BTN_BG,
@@ -184,15 +201,16 @@ class TreeviewColumnEditor(tk.Toplevel):
         b.pack(side="right", padx=(6, 0))
         b.bind("<ButtonRelease-1>", lambda e: cmd())
 
-    def _resize(self) -> None:
-        self.update_idletasks()
-
     def _center(self, parent) -> None:
         self.update_idletasks()
+        rw, rh = self.winfo_reqwidth(), self.winfo_reqheight()
         try:
-            px = parent.winfo_rootx() + parent.winfo_width() // 2
-            py = parent.winfo_rooty() + parent.winfo_height() // 2
-            self.geometry(f"+{px - self.winfo_reqwidth() // 2}"
-                          f"+{max(0, py - self.winfo_reqheight() // 2)}")
+            px = parent.winfo_rootx() + parent.winfo_width() // 2 - rw // 2
+            py = parent.winfo_rooty() + parent.winfo_height() // 2 - rh // 2
         except Exception:
-            pass
+            px, py = 200, 200
+        # Clamp inside the screen so a maximized parent can't push us off-edge
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        px = max(0, min(px, sw - rw))
+        py = max(0, min(py, sh - rh))
+        self.geometry(f"+{px}+{py}")
