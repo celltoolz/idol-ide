@@ -5,6 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-17] — Multi-cursor shifted selection (Shift+Home/End et al.)
+
+### Fixed
+- **Shift+movement now extends every secondary cursor's selection on the first press.**
+  `_mc_apply_key`'s shifted branch dropped the anchor but skipped the actual move on the first
+  keystroke, so a secondary cursor lagged one press behind the primary — most visibly,
+  **Shift+Home / Shift+End** appeared to do nothing. The shifted path now anchors (if needed)
+  and always advances, matching the primary cursor in `canvas_codeview._on_key`. Affects
+  Shift + Left/Right/Up/Down/Home/End/PageUp/PageDown for all secondary cursors; non-shift
+  collapse-to-edge and plain movement are unchanged.
+
 ## [2026-06-17] — Public fold API
 
 ### Changed

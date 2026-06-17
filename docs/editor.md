@@ -123,6 +123,7 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 
 - All cursors use the same blinking `|` caret — they all blink in sync with the primary
 - Typing, Backspace, Delete, Enter, Tab, and Shift+Tab apply to every cursor simultaneously (edits are processed bottom-to-top so earlier positions are not shifted by earlier edits)
+- Movement keys (arrows, Home, End, Page Up/Down) move every cursor; holding **Shift** extends each cursor's own selection — including **Shift+Home** (to first non-whitespace, then column 0) and **Shift+End**
 - Secondary text selections render in the active theme's selection color
 - The status bar shows a live `N cursors` count while multiple cursors are active
 - **Escape** clears all secondary cursors
