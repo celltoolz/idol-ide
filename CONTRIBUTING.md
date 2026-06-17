@@ -50,10 +50,11 @@ main.py                → can import app.py only
 app.py                 → can import anything
 widgets/               → can import from editor/, utils/ — NEVER the reverse
 widgets/canvas_editor/ → mixins import canvas_editor/constants.py only — never
-                         canvas_codeview.py, never each other. One sanctioned
-                         exception: the fold-marker regexes in fold.py are
-                         shared vocabulary, imported by minimap.py and
-                         canvas_codeview.py
+                         canvas_codeview.py, never each other. Shared fold
+                         vocabulary (the marker regexes + the iter_visible
+                         walk) lives in constants.py, so no exception is
+                         needed — every fold-aware module imports it from the
+                         leaf
 editor/                → can import from utils/ — NO widget imports, NO subprocess in utils/
 utils/                 → NO widget imports, NO subprocess calls, NO editor/ imports
 ```
@@ -142,9 +143,9 @@ imports from this package.
 
 | File | Role |
 |---|---|
-| `constants.py` | Shared editing constants — auto-pair table (`_PAIRS`, `_CLOSERS`), bracket-match sets (`_BRACKET_OPEN_TO_CLOSE`, `_BRACKET_CLOSE_TO_OPEN`, `_ALL_BRACKETS`), quote sets (`_QUOTES`, `_MATCH_CHARS`), editor font (`_FONT_FAMILY`, `_FONT_SIZE`), minimap width (`_MINIMAP_W`), and the gutter palette (`_BREAKPOINT_COLOR`, `_BREAKPOINT_GHOST_COLOR`, `_GIT_HUNK_COLORS`). Imports nothing internal — the safe leaf every module can import with no circular-import risk. |
+| `constants.py` | Shared editing constants — auto-pair table (`_PAIRS`, `_CLOSERS`), bracket-match sets (`_BRACKET_OPEN_TO_CLOSE`, `_BRACKET_CLOSE_TO_OPEN`, `_ALL_BRACKETS`), quote sets (`_QUOTES`, `_MATCH_CHARS`), editor font (`_FONT_FAMILY`, `_FONT_SIZE`), minimap width (`_MINIMAP_W`), the gutter palette (`_BREAKPOINT_COLOR`, `_BREAKPOINT_GHOST_COLOR`, `_GIT_HUNK_COLORS`), and the shared fold vocabulary — the marker regexes (`_SECTION_MARKER`, `_IDOL_BEGIN_RE`, `_IDOL_END_RE`) plus the `iter_visible(lines, folded)` generator (the single source of truth for the fold-skip walk; `FoldMixin._visual_row_of`/`_visual_to_physical`/`_visual_row_count` are thin adapters over it). Imports nothing internal — the safe leaf every module can import with no circular-import risk. |
 | `tokenizer.py` | `TokenizerMixin` — regex-rule syntax highlighting: the `PYTHON_RULES` table, comment/string scanners, per-line triple-quote state scan. Pure logic; reads `self.language` to pick the diff vs. python path. |
-| `fold.py` | `FoldMixin` — block folding + fold-aware coordinate mapping. Also exports the fold-marker regexes (`_SECTION_MARKER`, `_IDOL_BEGIN_RE`, `_IDOL_END_RE`) — shared vocabulary imported back by `minimap.py` and `canvas_codeview.py`. |
+| `fold.py` | `FoldMixin` — block folding + fold-aware coordinate mapping. The visual↔physical helpers (`_visual_to_physical`, `_visual_row_count`, `_visual_row_of`) are thin adapters over `constants.iter_visible`; the fold-marker regexes they use now live in `constants.py` too (imported back here, and by `minimap.py` / `canvas_codeview.py`). |
 | `gutter.py` | `GutterMixin` — the left gutter's layout + drawing. `_compute_gutter()` sets the font-aware column geometry (`_debug_w`, `_linenum_r`, `_fold_x`, `_gutter_w`, `_text_x`); `_draw_gutter_background()` paints the full-height column once per render; `_draw_gutter_row()` paints per-row content (overlay mask → git stripe → breakpoint dot → line number → fold marker), called after tokens so it overpaints horizontally-scrolled glyphs; `_draw_gutter_number()` is the shared line-number helper reused by the sticky-scroll band. Reads host state + the gutter palette from `constants.py`; calls the host's `_line_is_foldable` (FoldMixin). Gutter *click/motion* hit-testing stays in `canvas_codeview.py`'s mouse handlers — only drawing moved. |
 | `multicursor.py` | `MultiCursorMixin` — Alt+Click secondary cursors; mirrors the primary editing ops (insert / delete / newline / tab / bracket-pair / move) onto every secondary cursor, applied bottom-to-top. State (`_mc_cursors: list[tuple[int,int]]`, `_mc_anchors: list[tuple[int,int]|None]`) is host-owned; `mc_count()` public helper. |
 | `bracket_matcher.py` | `BracketMatcherMixin` — bracket + quote match highlighting. Brackets matched by a directional depth scan; quotes by a same-line parity scan (opener == closer defeats depth counting). Pure: reads only `self.lines` / `cur_line` / `cur_col` and the constants; render calls `_find_bracket_pair()` once per paint and outlines the returned pair. |
@@ -152,7 +153,8 @@ imports from this package.
 | `autocomplete.py` | `AutocompleteMixin` — completion popup (lazily created `Toplevel` + `Listbox`; `render()` never touches it). Items come from the host's `on_completion_request` hook (LSP, wired by app.py) when set, else the synchronous buffer-word fallback (`_buffer_word_items`); an `_ac_seq` sequence number guards against stale async responses. |
 
 Import rules for this package are in the strict-import-rule block above: mixins import
-`constants.py` only, with fold's marker regexes as the one sanctioned exception.
+`constants.py` only. The shared fold vocabulary (marker regexes + `iter_visible`) lives
+in `constants.py`, so there is no longer a cross-mixin import exception.
 
 `styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state, custom colors, and font sizes. Used in `project_wizard.py`.
 

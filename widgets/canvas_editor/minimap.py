@@ -15,16 +15,15 @@ CanvasCodeView._build_ui), so no `_mm_*` attrs live in _init_state.
 
 Cross-mixin dependencies (MRO must place MinimapMixin after these):
   * TokenizerMixin._tokenize   — syntax tags in the body + hover preview
-  * FoldMixin._visual_row_count + the fold-marker regexes — fold-aware
-    elision and scroll sync
+  * FoldMixin._visual_row_count / _visual_row_of — fold-aware scroll sync
+    (fold-aware elision uses constants.iter_visible directly)
 """
 from __future__ import annotations
 
 import tkinter as tk
 import tkinter.font as tkfont
 
-from .constants import _FONT_FAMILY, _FONT_SIZE, _MINIMAP_W
-from .fold import _IDOL_BEGIN_RE, _IDOL_END_RE, _SECTION_MARKER
+from .constants import _FONT_FAMILY, _FONT_SIZE, _MINIMAP_W, iter_visible
 
 _MINIMAP_FONT_SIZE = 1
 _PREVIEW_LINES     = 14   # rows shown in the hover zoom preview
@@ -174,44 +173,12 @@ class MinimapMixin:
         pt = self._mm_text
         pt.tag_remove("mm_elide", "1.0", "end")
         if cur_folded:
-            skip = None
-            for i, line in enumerate(self.lines):
-                if skip is not None:
-                    if skip == -1:
-                        lnum = i + 1
-                        pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                        if _IDOL_END_RE.match(line):
-                            skip = None
-                        continue
-                    if skip <= -2:
-                        si = -(skip + 2)
-                        if line.strip():
-                            ind = len(line) - len(line.lstrip())
-                            if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                                skip = None  # terminating line is not elided
-                            else:
-                                lnum = i + 1
-                                pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                                continue
-                        else:
-                            lnum = i + 1
-                            pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                            continue
-                    else:
-                        ind = len(line) - len(line.lstrip())
-                        if line.strip() and ind <= skip:
-                            skip = None
-                        else:
-                            lnum = i + 1
-                            pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
-                            continue
-                if i in cur_folded:
-                    if _IDOL_BEGIN_RE.match(line):
-                        skip = -1
-                    elif _SECTION_MARKER.match(line):
-                        skip = -(len(line) - len(line.lstrip()) + 2)
-                    else:
-                        skip = len(line) - len(line.lstrip())
+            # Hidden lines are exactly the complement of the visible walk.
+            visible = {i for i, _ in iter_visible(self.lines, cur_folded)}
+            for i in range(len(self.lines)):
+                if i not in visible:
+                    lnum = i + 1
+                    pt.tag_add("mm_elide", f"{lnum}.0", f"{lnum + 1}.0")
         self._mm_last_folded = cur_folded
 
     def _mm_sync_scroll(self) -> None:
@@ -269,40 +236,7 @@ class MinimapMixin:
         except Exception:
             return
         # Convert physical line → visual row (account for folds).
-        v = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            if i == phys:
-                break
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-            v += 1
+        v = self._visual_row_of(phys)
         h = self.canvas.winfo_height()
         v_rows = max(1, h // self._line_h)
         self.scroll_y = max(0, v - v_rows // 2)

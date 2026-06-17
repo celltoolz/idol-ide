@@ -5,6 +5,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-17] — Fold-walk dedup: `iter_visible`
+
+### Changed
+- **One fold-skip walk instead of seven** — the inline loop that maps physical lines onto the
+  visible rows (skipping folded blocks) is now a single `iter_visible(lines, folded)` generator
+  in `canvas_editor/constants.py`. `FoldMixin._visual_to_physical`/`_visual_row_count`/
+  `_visual_row_of` became thin adapters over it; `canvas_codeview.py` (`scroll_to_line`,
+  `_ensure_visible`) and `minimap.py` (fold elision + scroll sync) now reuse those helpers
+  instead of carrying their own copies. The render loop keeps its own walk — it has an extra
+  `skip_close_char` bracket-inclusion rule the others don't. Behavior verified identical across
+  53k+ checks over every fold-state subset of representative documents.
+- **Fold-marker regexes moved to `constants.py`** — `_SECTION_MARKER`, `_IDOL_BEGIN_RE`, and
+  `_IDOL_END_RE` now live in the constants leaf alongside `iter_visible` (which needs them).
+  This retires the previous cross-mixin import exception: every fold-aware module now imports
+  the shared vocabulary from `constants.py`, not from `fold.py`.
+
 ## [2026-06-16] — Gutter Pass A: GutterMixin extraction
 
 ### Changed

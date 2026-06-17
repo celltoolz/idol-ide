@@ -23,16 +23,14 @@ from .canvas_editor.constants import (
     _CLOSERS,
     _FONT_FAMILY,
     _FONT_SIZE,
-    _MINIMAP_W,
-    _PAIRS,
-)
-from .canvas_editor.tokenizer import TokenizerMixin
-from .canvas_editor.fold import (
-    FoldMixin,
     _IDOL_BEGIN_RE,
     _IDOL_END_RE,
+    _MINIMAP_W,
+    _PAIRS,
     _SECTION_MARKER,
 )
+from .canvas_editor.tokenizer import TokenizerMixin
+from .canvas_editor.fold import FoldMixin
 from .canvas_editor.gutter import GutterMixin
 from .canvas_editor.multicursor import MultiCursorMixin
 from .canvas_editor.bracket_matcher import BracketMatcherMixin
@@ -483,40 +481,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
     def scroll_to_line(self, line: int) -> None:
         """Move the viewport so the (0-indexed) line is centered vertically."""
         idx = max(0, min(max(0, len(self.lines) - 1), line))
-        v = 0
-        skip: int | None = None
-        for i, txt in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(txt):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if txt.strip():
-                        ind = len(txt) - len(txt.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(txt)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(txt) - len(txt.lstrip())
-                    if txt.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            if i == idx:
-                break
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(txt):
-                    skip = -1
-                elif _SECTION_MARKER.match(txt):
-                    skip = -(len(txt) - len(txt.lstrip()) + 2)
-                else:
-                    skip = len(txt) - len(txt.lstrip())
-            v += 1
+        v = self._visual_row_of(idx)
         visible_rows = max(1, self.canvas.winfo_height() // self._line_h)
         self.scroll_y = max(0, v - visible_rows // 2)
         self.render()
@@ -1632,42 +1597,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
 
     def _ensure_visible(self) -> None:
         # Scroll so cur_line is in view. Convert cur_line to visual row.
-        cur_v = 0
-        skip = None
-        target_v = 0
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            if i == self.cur_line:
-                target_v = cur_v
-                break
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-            cur_v += 1
+        target_v = self._visual_row_of(self.cur_line)
         h = self.canvas.winfo_height()
         visible_rows = max(1, h // self._line_h)
         if target_v < self.scroll_y:

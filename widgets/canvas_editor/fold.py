@@ -3,32 +3,25 @@
 Extracted from canvas_codeview.py (P3 decomposition). `FoldMixin` is
 inherited by `CanvasCodeView`.
 
-Unlike the tokenizer, fold is NOT a clean leaf:
-  * The three fold-marker regexes (`_SECTION_MARKER`, `_IDOL_BEGIN_RE`,
-    `_IDOL_END_RE`) are shared vocabulary — render/minimap/coordinate code
-    that stays in canvas_codeview.py imports them back from here.
-  * The mixin operates on host-owned state: `self.lines`, `self.folded`
-    (the set of folded physical line indices), and `self._fold_dot_rects`
-    (render output, read by `_hit_fold_dots`). All three stay initialized
-    in CanvasCodeView._init_state; the mixin never creates them.
+The mixin operates on host-owned state: `self.lines`, `self.folded` (the set
+of folded physical line indices), and `self._fold_dot_rects` (render output,
+read by `_hit_fold_dots`). All three stay initialized in
+CanvasCodeView._init_state; the mixin never creates them.
 
-The fold-skip loop in `_visual_to_physical` / `_visual_row_count` /
-`_visual_row_of` is mirrored (not shared) by several inline copies that
-remain in render/minimap/coords. Deduplicating those into one iterator is
-a future refactor, deliberately out of scope for this behavior-preserving
-move.
+The fold-skip walk shared by `_visual_to_physical` / `_visual_row_count` /
+`_visual_row_of` lives in `constants.iter_visible`; those three are thin
+adapters over it. The fold-marker regexes moved to constants.py too (so
+iter_visible can reach them from the leaf), and minimap.py / canvas_codeview.py
+now import them from there.
 """
 from __future__ import annotations
 
-import re
-
-
-# A "# ── Name ─────" section marker — foldable like a block opener.
-# Matches IDOL/widgets/linenums.py:_SECTION_MARKER.
-_SECTION_MARKER = re.compile(r"^\s*# ─{2,}")
-# IDOL designer codegen pair markers — fold the entire BEGIN…END block.
-_IDOL_BEGIN_RE  = re.compile(r"^\s*# ─{2,}\s+IDOL(?::[^:]+)?:BEGIN")
-_IDOL_END_RE    = re.compile(r"^\s*# ─{2,}\s+IDOL(?::[^:]+)?:END")
+from .constants import (
+    _IDOL_BEGIN_RE,
+    _IDOL_END_RE,
+    _SECTION_MARKER,
+    iter_visible,
+)
 
 
 class FoldMixin:
@@ -65,111 +58,26 @@ class FoldMixin:
         return ni > ci
 
     def _visual_to_physical(self, v_row: int) -> int:
-        cur_v = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
+        """Physical line index of the `v_row`-th visible row."""
+        for cur_v, (i, _line) in enumerate(iter_visible(self.lines, self.folded)):
             if cur_v == v_row:
                 return i
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-            cur_v += 1
         return len(self.lines) - 1
 
     def _visual_row_count(self) -> int:
-        n = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
-            n += 1
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
-        return n
+        """Total number of rows currently visible (folds collapsed)."""
+        return sum(1 for _ in iter_visible(self.lines, self.folded))
 
     def _visual_row_of(self, line_idx: int) -> int:
+        """Visible row index of physical `line_idx`.
+
+        If `line_idx` is hidden inside a fold (or out of range), returns the
+        total visible-row count — matching the original loop's fall-through.
+        """
         v = 0
-        skip = None
-        for i, line in enumerate(self.lines):
-            if skip is not None:
-                if skip == -1:
-                    if _IDOL_END_RE.match(line):
-                        skip = None
-                    continue
-                if skip <= -2:
-                    si = -(skip + 2)
-                    if line.strip():
-                        ind = len(line) - len(line.lstrip())
-                        if ind < si or (ind == si and _SECTION_MARKER.match(line)):
-                            skip = None
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    ind = len(line) - len(line.lstrip())
-                    if line.strip() and ind <= skip:
-                        skip = None
-                    else:
-                        continue
+        for i, _line in iter_visible(self.lines, self.folded):
             if i == line_idx:
                 return v
-            if i in self.folded:
-                if _IDOL_BEGIN_RE.match(line):
-                    skip = -1
-                elif _SECTION_MARKER.match(line):
-                    skip = -(len(line) - len(line.lstrip()) + 2)
-                else:
-                    skip = len(line) - len(line.lstrip())
             v += 1
         return v
 
