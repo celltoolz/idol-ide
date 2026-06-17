@@ -486,7 +486,9 @@ Tags are what connect canvas items to `tag_bind` calls in generated code — ite
 - **Canvas Tags** (Dialog A) — manages the available-tags *pool* for the canvas: add new tags, remove unused ones. Protected system tags (e.g. `_bg` on a canvas with a background image) appear greyed at the top and can't be removed. The `×` remove button only highlights red when the mouse is directly over it.
 - **Item Tags** (Dialog B) — assigns pool tags to specific item(s). A dropdown at the top picks which item to edit (or **All items**); the top list shows the item's current tags (`×` to remove), the bottom list shows pool tags not yet on the item (`+` to add). Typing a new tag and pressing **Enter** adds it to both the item and the pool without closing the dialog. Selecting items on the canvas and in the dropdown stays in sync bidirectionally.
 
-Tag names are validated (no spaces or characters that would break a `tag_bind` call). When wiring a canvas-item event, the Item Tags dialog opens in **wiring mode** — a radio selection of a single pool tag for that event's `tag_bind`.
+Tag names are validated (no spaces or characters that would break a `tag_bind` call). When wiring a canvas-item event, the Item Tags dialog opens in **wiring mode** — a radio selection of a single pool tag for that event's `tag_bind`. The generated handler is named after that tag, not the item instance — e.g. binding `mousedown` to the `button` tag produces `_button_mousedown` (not `_canvasimage1_mousedown`).
+
+Because the binding belongs to the tag, it **propagates to every item carrying that tag**: once `button → mousedown` is wired on one item, the Events tab of every other item with the `button` tag shows the same handler as a read-only row. The tag is the logical unit, not the individual item — which mirrors runtime, where the single `tag_bind("button", …)` fires for all items tagged `button`.
 
 ### Image Component `parent` Property
 

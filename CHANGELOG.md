@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-17] — Canvas item events bind to the tag, not the instance
+
+### Changed
+- **Canvas-item event handlers are now named after the binding tag.** Wiring an event on a
+  canvas item (e.g. a `CanvasImage` carrying the `button` tag) used to generate a handler named
+  after the item instance (`_canvasimage1_mousedown`). It now derives the name from the tag the
+  event is bound to (`_button_mousedown`), matching the tag-scoped `tag_bind` codegen emits.
+- **Tag bindings propagate across every item sharing the tag.** Binding an event to a tag on one
+  item now shows that handler under the Events tab of *every* canvas item carrying the same tag
+  (read-only on the items that inherit it — the tag is the logical unit, not the individual item).
+  Codegen already emits a single `tag_bind` per `(tag, event)`, so this also matches runtime
+  behavior, where the binding fires for all items with the tag.
+
 ## [2026-06-17] — Autocomplete popup theming
 
 ### Changed

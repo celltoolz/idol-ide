@@ -1289,7 +1289,9 @@ class DesignerProperties(tk.Frame):
 
     def _update_event_btns(self, idx: int) -> None:
         iid = self._events_rows[idx]["iid"]
-        if iid == "ev__learn_guide":
+        # Read-only rows (canvas_button mirrors, tag-inherited canvas-item
+        # bindings) are owned elsewhere — no clear / edit / wire affordance.
+        if iid == "ev__learn_guide" or self._events_rows[idx].get("kind") == "readonly":
             self._ev_clear_btn.place_forget()
             self._ev_edit_btn.place_forget()
             self._ev_wire_btn.place_forget()
@@ -1377,6 +1379,9 @@ class DesignerProperties(tk.Frame):
         if iid == "ev__learn_guide":
             self._open_event_guide()
             return
+        idx = self._events_row_map.get(iid)
+        if idx is not None and self._events_rows[idx].get("kind") == "readonly":
+            return  # owned elsewhere (canvas_button / tag-inherited) — not editable here
         split_x = int(self._events_cv.winfo_width() * _PROPS_SPLIT)
         if event.x < split_x:
             return  # name column — double-click navigates, single-click does nothing
@@ -2870,6 +2875,33 @@ class DesignerProperties(tk.Frame):
     def _populate_events(self, d: WidgetDescriptor, reg: dict) -> None:
         self._events_clear()
 
+        # Canvas items: a binding belongs to the tag, not the individual item.
+        # Show each event's handler aggregated across every item that shares one
+        # of this item's tags, so a binding wired on one tagged item appears on
+        # all of them. The item that owns the binding shows an editable row;
+        # items that merely inherit it via a shared tag show it read-only.
+        if "_ci_tags" in d.props:
+            item_tags   = list(d.props.get("_ci_tags", []))
+            tag_methods = self._ci_tag_event_methods()
+            for ev in reg.get("events", []):
+                iid = f"ev__{ev}"
+                own = d.events.get(ev, "")
+                if own:
+                    self._events_insert(iid, ev, own)
+                    if not own.startswith("_"):
+                        self._events_set_warn(iid, True)
+                    continue
+                inherited = next(
+                    (tag_methods[(tag, ev)] for tag in item_tags
+                     if (tag, ev) in tag_methods),
+                    "",
+                )
+                self._events_insert(iid, ev, inherited,
+                                    kind="readonly" if inherited else "event")
+            self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
+            self._events_redraw()
+            return
+
         # Build canvas_button event map so generated methods show inline in
         # their matching event rows rather than as separate rows at the bottom.
         cb_event_map: dict[str, list[str]] = {}
@@ -2907,6 +2939,29 @@ class DesignerProperties(tk.Frame):
 
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
+
+    def _ci_tag_event_methods(self) -> "dict[tuple[str, str], str]":
+        """Map (tag, logical_event) → handler across all canvas items in the sub-form.
+
+        Canvas-item bindings are tag-scoped (codegen emits one ``tag_bind`` per
+        tag, which fires for every item carrying it at runtime), so a handler
+        wired on any item with tag T is the handler for tag T everywhere.
+        """
+        out: "dict[tuple[str, str], str]" = {}
+        if self._form is None:
+            return out
+        from designer.model import _CI_TK_TO_EVENT
+        for wd in self._form.widgets:
+            if "_ci_tags" not in wd.props:
+                continue
+            for tk_ev, tag in wd.props.get("_ci_binding_tags", {}).items():
+                logical = _CI_TK_TO_EVENT.get(tk_ev)
+                if not logical:
+                    continue
+                method = wd.events.get(logical, "")
+                if method:
+                    out.setdefault((tag, logical), method)
+        return out
 
     # ── Props canvas input handlers ───────────────────────────────────────────
 
@@ -4472,11 +4527,23 @@ class DesignerProperties(tk.Frame):
         self._do_auto_wire(d, row_iid, event_key)
 
     def _do_auto_wire(self, d: "WidgetDescriptor", row_iid: str, event_key: str) -> None:
-        default = f"_{d.id}_{event_key}"
+        # Canvas items are bound per-tag, not per-instance: the handler name is
+        # derived from the binding tag chosen in the wiring dialog (which has
+        # already populated _ci_binding_tags by the time this runs).
+        default = self._ci_default_method(d, event_key) or f"_{d.id}_{event_key}"
         d.events[event_key] = default
         self._events_set(row_iid, default)
         if self._on_event_change:
             self._on_event_change(d.id, event_key, default)
+
+    def _ci_default_method(self, d: "WidgetDescriptor", event_key: str) -> "str | None":
+        """Tag-derived handler name for a canvas item event, or None for plain widgets."""
+        if "_ci_tags" not in d.props:
+            return None
+        from designer.model import _CI_EVENT_TO_TK
+        tk_ev = _CI_EVENT_TO_TK.get(event_key)
+        tag = d.props.get("_ci_binding_tags", {}).get(tk_ev) if tk_ev else None
+        return f"_{tag}_{event_key}" if tag else None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
