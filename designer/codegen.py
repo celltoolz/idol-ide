@@ -12,7 +12,7 @@ import textwrap
 from typing import Any
 
 from .model import FormModel, WidgetDescriptor
-from .registry import REGISTRY
+from .registry import REGISTRY, normalize_tree_columns, normalize_tree_rows
 
 # tkinter binding string for each event key
 _BINDINGS: dict[str, str] = {
@@ -33,6 +33,9 @@ _BINDINGS: dict[str, str] = {
     "comboselected": "<<ComboboxSelected>>",
     "listselect":    "<<ListboxSelect>>",
     "tabchanged":    "<<NotebookTabChanged>>",
+    "treeselect":    "<<TreeviewSelect>>",
+    "treeopen":      "<<TreeviewOpen>>",
+    "treeclose":     "<<TreeviewClose>>",
 }
 
 _STUB        = "pass  # TODO"
@@ -595,8 +598,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
             continue  # IDOL-internal props (e.g. _ci_tags, _canvas_tags) — never tkinter kwargs
         if v is None:
             continue  # explicitly omitted by user (× button in properties panel)
-        if k in ("scrollbar", "tabs"):
-            continue  # structural props — not tkinter kwargs
+        if k in ("scrollbar", "tabs", "columns", "tree_heading"):
+            continue  # structural props — not direct tkinter kwargs
         if k in _all_color_props and v == "":
             continue
         if k in _SKIP_IF_EMPTY and (v == "" or v == () or v == []):
@@ -643,6 +646,15 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     )
     if command_method:
         kw_parts.append(f"command=self.{command_method}")
+
+    # Treeview — the columns kwarg carries the column *ids* (a tuple of strings),
+    # not the structured dicts stored in props. Heading/width/anchor/stretch are
+    # applied after placement (see the post-place block below).
+    _tree_cols: list[dict] = []
+    if reg.get("tree_columns"):
+        _tree_cols = normalize_tree_columns(w.props.get("columns"))
+        if _tree_cols:
+            kw_parts.append(f"columns={tuple(c['id'] for c in _tree_cols)!r}")
 
     # Resolve parent — Notebook children attach to their tab Frame, not the Notebook
     if w.parent_id:
@@ -725,6 +737,36 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 f'        self.{w.id}.create_image(0, 0, anchor="nw",'
                 f' image=self._img_{w.id}{_ci_bg_tag})'
             )
+
+    # Treeview — configure heading text + column geometry after place()
+    if reg.get("tree_columns"):
+        tree_heading = w.props.get("tree_heading", "")
+        if tree_heading and "tree" in w.props.get("show", "tree headings"):
+            lines.append(f'        self.{w.id}.heading("#0", text={tree_heading!r})')
+        for col in _tree_cols:
+            cid = col["id"]
+            lines.append(
+                f'        self.{w.id}.heading({cid!r}, text={col["heading"]!r})'
+            )
+            lines.append(
+                f'        self.{w.id}.column({cid!r}, width={col["width"]},'
+                f' anchor={col["anchor"]!r}, stretch={bool(col["stretch"])})'
+            )
+        # Seed rows — insert() at root; text is the #0 label, values the columns.
+        show_tree = "tree" in w.props.get("show", "tree headings")
+        ncols = len(_tree_cols)
+        for r in normalize_tree_rows(w.props.get("rows")):
+            vals = (r["values"] + [""] * ncols)[:ncols]
+            has_text = show_tree and bool(r["text"])
+            has_vals = any(vals)
+            if not has_text and not has_vals:
+                continue
+            args = ['""', '"end"']
+            if has_text:
+                args.append(f'text={r["text"]!r}')
+            if ncols:
+                args.append(f'values={tuple(vals)!r}')
+            lines.append(f'        self.{w.id}.insert({", ".join(args)})')
 
     # list_insert_props — populate widget with insert() calls after place()/pack()
     for prop_key in reg.get("list_insert_props", []):

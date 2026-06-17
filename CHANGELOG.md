@@ -5,6 +5,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased] — Treeview widget in the GUI Designer
+
+### Added
+- **`ttk.Treeview` is now a placeable designer widget.** Drop it from the palette like any other
+  widget. `show` mode (`tree headings` / `headings` / `tree`), `selectmode` (`browse` / `extended`
+  / `none`), and `scrollbar` (reuses the shared Frame + `ttk.Scrollbar` wrapping). The canvas
+  renders a heading strip, the `#0` tree column when applicable, and three sample rows. Events
+  `treeselect` / `treeopen` / `treeclose` are wirable.
+- **Column Editor dialog** for the Treeview `columns` prop — per-column **id**, **heading**,
+  **width**, **anchor** (left/center/right), and **stretch**, with add / reorder / remove. Column
+  ids auto-derive a stable slug from the heading (and stay stable across renames). Columns are
+  stored structurally (`list[dict]`); legacy plain-string column lists auto-migrate on load.
+  A **tree heading** prop sets the `#0` tree-column heading. Codegen emits column ids in
+  `columns=(…)` plus per-column `heading()` / `column(width=, anchor=, stretch=)` calls.
+- **Row Editor dialog** for the Treeview `rows` prop — seed rows inserted at startup. The grid is
+  derived from the current columns (a `(tree)` cell for the `#0` label when shown, then one cell per
+  data column); add / reorder / remove rows. Rows are stored as `{text, values}` dicts and drive the
+  canvas preview (falling back to placeholder rows when empty). Codegen emits an
+  `insert("", "end", text=…, values=(…))` call per row (`text=` only when the tree column is shown).
+
 ## [2026-06-17] — Canvas item events bind to the tag, not the instance
 
 ### Changed

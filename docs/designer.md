@@ -40,9 +40,9 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 
 ## Widget Palette
 
-16 widget types in a scrollable toolbox with canvas-drawn mini-previews:
+17 widget types in a scrollable toolbox with canvas-drawn mini-previews:
 
-Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, **Notebook**, Scale, Spinbox, Progressbar, Separator, **Canvas**
+Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, **Treeview**, Frame, LabelFrame, **Notebook**, Scale, Spinbox, Progressbar, Separator, **Canvas**
 
 **Placement modes:**
 - **Click** — arms the crosshair tool; click anywhere on the canvas to drop at default size
@@ -254,6 +254,25 @@ Frame, LabelFrame, and Notebook act as parent containers:
 - Each child has a `tab` property (the tab name string) that determines which tab it belongs to; reassign via the Order tab or by dragging across tab headers
 - The **`<<NotebookTabChanged>>`** event is available in the Events tab; wiring it generates a `.bind()` call and a handler stub
 - Codegen emits the full Notebook hierarchy: `ttk.Notebook`, one `ttk.Frame` per tab added with `.add(frame, text="Tab Name")`, and child widgets placed inside their tab's frame
+
+## Treeview Widget
+
+`ttk.Treeview` is a multi-column list / tree widget. Drop it onto the canvas and configure it from the Properties panel:
+
+- **`columns`** — clicking the row opens the **Column Editor** dialog. Each column has an **ID** (the tkinter identifier — leave blank to auto-derive a stable slug from the heading), a **Heading** (display text), a **Width** (px), an **Anchor** (`left`/`center`/`right` → `w`/`center`/`e`), and a **Stretch** toggle. Rows can be added, reordered (↑ ↓), and removed (×). Column ids stay stable when you rename a heading, so user code that references a column by id keeps working.
+- **`rows`** — clicking the row opens the **Row Editor** dialog: seed rows inserted at startup. Its grid is derived from the current columns — a `(tree)` cell for the `#0` label when `show` includes the tree column, then one cell per data column. Add / reorder / remove rows. Rows are stored as `{text, values}` dicts; cells are padded/truncated to the column count automatically. Like Listbox `values`, these are seed data — clear or replace them in code at runtime.
+- **`tree heading`** — heading text for the implicit tree column (`#0`). Only shown/applied when `show` includes the tree column.
+- **`show`** — `tree headings` (the `#0` tree column plus data columns), `headings` (data columns only — the flat-table look), or `tree` (the tree column only).
+- **`selectmode`** — `browse` (single), `extended` (multi), or `none`.
+- **`scrollbar`** — `None` / `Vertical` / `Horizontal` / `Both`; enabling one wraps the Treeview in a Frame with `ttk.Scrollbar`(s) wired to `yview`/`xview`, exactly like the other scrollable widgets.
+
+The `columns` prop is stored as a list of dicts (`{id, heading, width, anchor, stretch}`); legacy plain-string column lists are auto-migrated on load by `normalize_tree_columns()`.
+
+The canvas renders a representative preview: a heading strip (when headings are shown), a `#0` tree column when applicable (proportioned by the configured widths), and three sample rows with the first row selected.
+
+**Events** — `treeselect` (`<<TreeviewSelect>>`), `treeopen` (`<<TreeviewOpen>>`), and `treeclose` (`<<TreeviewClose>>`) are available in the Events tab; wiring one generates a `.bind()` call and a handler stub.
+
+Codegen emits the `ttk.Treeview` constructor with the column **ids** in `columns=(…)`, plus `show`/`selectmode`, followed by per-column `heading(text=…)` and `column(width=…, anchor=…, stretch=…)` calls (and a `heading("#0", …)` when a tree heading is set), then a `insert("", "end", text=…, values=(…))` call for each seed row — all after placement. `text=` is emitted only when the tree column is shown.
 
 ## Menu Editor
 

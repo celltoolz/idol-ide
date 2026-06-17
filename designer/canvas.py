@@ -27,7 +27,7 @@ import tkinter as tk
 from typing import Callable, Optional
 
 from .model import CanvasItemDescriptor, FormModel, WidgetDescriptor
-from .registry import REGISTRY
+from .registry import REGISTRY, normalize_tree_columns, normalize_tree_rows
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -2852,6 +2852,75 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
                           fill=fg, font=(UI_FONT, 8))
 
 
+@_tag
+def _draw_treeview(c, x, y, x2, y2, text, props):
+    show    = props.get("show", "tree headings")
+    cols    = normalize_tree_columns(props.get("columns"))
+    headed  = "headings" in show
+    treecol = "tree" in show
+    relief  = props.get("relief", "") or "sunken"
+    c.create_rectangle(x, y, x2, y2, fill="#ffffff", outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
+
+    # Build display columns: the tree column (#0) plus data columns. Each entry is
+    # (heading, weight) — column boundaries are proportioned by the configured width.
+    tree_heading = props.get("tree_heading", "")
+    display: list[tuple[str, int]] = []
+    if treecol:
+        display.append((tree_heading, 160))
+    display.extend((col["heading"], max(20, col["width"])) for col in cols)
+    if not display:
+        display = [("", 1)]
+
+    total_w = sum(w for _, w in display) or 1
+    inner_w = x2 - x
+    # Cumulative left edges scaled to the widget width
+    edges = [x]
+    acc = 0
+    for _, weight in display:
+        acc += weight
+        edges.append(x + round(inner_w * acc / total_w))
+    head_h = 18 if headed else 0
+
+    # Heading strip
+    if headed:
+        c.create_rectangle(x, y, x2, y + head_h, fill="#e1e1e1", outline="#abadb3")
+        for i, (label, _) in enumerate(display):
+            cxl = edges[i]
+            if i > 0:
+                c.create_line(cxl, y, cxl, y2, fill="#d0d0d0")
+            if label:
+                c.create_text(cxl + 5, y + head_h // 2, text=label, anchor="w",
+                              fill="#333333", font=(UI_FONT, 8, "bold"))
+
+    # Data rows: render the user's seed rows when present, else placeholder rows.
+    data_rows = normalize_tree_rows(props.get("rows"))
+    row_h = 18
+    n_show = max(3, len(data_rows)) if data_rows else 3
+    for r in range(n_show):
+        ry = y + head_h + r * row_h
+        if ry + row_h > y2:
+            break
+        if r == 0:
+            c.create_rectangle(x + 1, ry, x2 - 1, ry + row_h, fill="#0078d4", outline="")
+        fg = "#ffffff" if r == 0 else "#555555"
+        rowdata = data_rows[r] if r < len(data_rows) else None
+        for i, (label, _) in enumerate(display):
+            cxl = edges[i]
+            if rowdata is not None:
+                if treecol and i == 0:
+                    cell = rowdata["text"]
+                else:
+                    di = (i - 1) if treecol else i
+                    vals = rowdata["values"]
+                    cell = vals[di] if 0 <= di < len(vals) else ""
+            else:
+                cell = f"Item {r+1}" if (treecol and i == 0) else "cell"
+            if cell:
+                c.create_text(cxl + 5, ry + row_h // 2, text=cell, anchor="w",
+                              fill=fg, font=(UI_FONT, 8))
+
+
 def _draw_notebook_canvas(c, x, y, x2, y2, props, tag, nb_id, active_tab):
     """Draw a Notebook on the designer canvas (not @_tag — needs nb_id/active_tab)."""
     tabs  = props.get("tabs") or ["Tab 1"]
@@ -3138,6 +3207,7 @@ _DRAW: dict = {
     "Radiobutton": _draw_radiobutton,
     "Combobox":    _draw_combobox,
     "Listbox":     _draw_listbox,
+    "Treeview":    _draw_treeview,
     "Frame":       _draw_frame,
     "LabelFrame":  _draw_labelframe,
     "Scale":       _draw_scale,

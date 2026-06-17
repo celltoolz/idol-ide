@@ -77,6 +77,25 @@ def _draw_listbox(c, x, y, w, h):
                       fill="#ffffff" if i == 0 else "#cccccc",
                       font=("TkDefaultFont", 6), anchor="w")
 
+def _draw_treeview(c, x, y, w, h):
+    _sunken_rect(c, x, y, w, h)
+    head_h = 11
+    # Heading strip with two columns
+    c.create_rectangle(x+2, y+2, x+w-2, y+head_h, fill="#d4d0c8", outline="#808080")
+    midx = x + w // 2
+    c.create_line(midx, y+2, midx, y+h-2, fill="#c0c0c0")
+    c.create_text(x + w//4,   y+1+head_h//2, text="A", fill="#000000", font=("TkDefaultFont", 5))
+    c.create_text(x + 3*w//4, y+1+head_h//2, text="B", fill="#000000", font=("TkDefaultFont", 5))
+    # A couple of data rows
+    for i in range(2):
+        ry = y + head_h + 1 + i*9
+        if ry + 8 > y + h - 2:
+            break
+        if i == 0:
+            c.create_rectangle(x+3, ry, midx-1, ry+8, fill="#000080", outline="")
+        c.create_text(x+6, ry+4, text="row", anchor="w",
+                      fill="#ffffff" if i == 0 else "#cccccc", font=("TkDefaultFont", 5))
+
 def _draw_notebook(c, x, y, w, h):
     tab_h = 12
     # Tab strip
@@ -342,6 +361,30 @@ REGISTRY: dict[str, dict] = {
         "is_container": True,
         "is_notebook":  True,
     },
+    "Treeview": {
+        "label":        "Treeview",
+        "tk_class":     "ttk.Treeview",
+        "default_size": (220, 140),
+        "default_props": {"columns": [
+                              {"id": "col1", "heading": "Column 1",
+                               "width": 120, "anchor": "w", "stretch": True},
+                              {"id": "col2", "heading": "Column 2",
+                               "width": 120, "anchor": "w", "stretch": True},
+                          ],
+                          "rows": [],
+                          "tree_heading": "",
+                          "show": "tree headings",
+                          "selectmode": "browse",
+                          "scrollbar": "None"},
+        "events":       ["treeselect", "treeopen", "treeclose"] + _SIMPLE_EVENTS,
+        "draw_preview": _draw_treeview,
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
+        "tree_columns": True,
+        "prop_choices": {"show": ["tree headings", "headings", "tree"],
+                         "selectmode": ["browse", "extended", "none"],
+                         "scrollbar": _SCROLLBAR},
+    },
     "Frame": {
         "label":        "Frame",
         "tk_class":     "tk.Frame",
@@ -481,6 +524,70 @@ REGISTRY: dict[str, dict] = {
 def get(type_key: str) -> dict:
     """Return the registry entry for a widget type, raising KeyError if unknown."""
     return REGISTRY[type_key]
+
+
+_TREE_COL_ANCHORS = ["w", "center", "e"]
+
+
+def normalize_tree_columns(cols) -> list[dict]:
+    """Coerce a Treeview ``columns`` value into a list of full column dicts.
+
+    Accepts the structured form (``{id, heading, width, anchor, stretch}``) and
+    the legacy plain-string form (``["Name", "Size"]``), so older ``.form.json``
+    files load unchanged. Ids are auto-derived from the heading when missing and
+    de-duplicated so every column has a stable, unique tkinter identifier.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    for i, c in enumerate(cols or []):
+        if isinstance(c, str):
+            heading, raw_id = c, ""
+            width, anchor, stretch = 120, "w", True
+        elif isinstance(c, dict):
+            heading = str(c.get("heading", c.get("id", "")))
+            raw_id  = str(c.get("id", ""))
+            try:
+                width = int(c.get("width", 120))
+            except (TypeError, ValueError):
+                width = 120
+            anchor  = c.get("anchor", "w")
+            if anchor not in _TREE_COL_ANCHORS:
+                anchor = "w"
+            stretch = bool(c.get("stretch", True))
+        else:
+            continue
+        cid = raw_id or _slug_col_id(heading) or f"col{i + 1}"
+        base = cid
+        n = 2
+        while cid in seen:
+            cid = f"{base}_{n}"
+            n += 1
+        seen.add(cid)
+        out.append({"id": cid, "heading": heading,
+                    "width": width, "anchor": anchor, "stretch": stretch})
+    return out
+
+
+def normalize_tree_rows(rows) -> list[dict]:
+    """Coerce a Treeview ``rows`` value into a list of ``{text, values}`` dicts.
+
+    ``text`` is the ``#0`` tree-column label; ``values`` are the data-column cells.
+    Non-dict entries are dropped; all cells are coerced to strings.
+    """
+    out: list[dict] = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        out.append({"text": str(r.get("text", "")),
+                    "values": [str(v) for v in (r.get("values") or [])]})
+    return out
+
+
+def _slug_col_id(heading: str) -> str:
+    """Turn a heading into a safe column id (alnum + underscore, lowercased)."""
+    slug = "".join(ch if ch.isalnum() else "_" for ch in heading.strip().lower())
+    slug = slug.strip("_")
+    return slug if slug and not slug[0].isdigit() else (f"c_{slug}" if slug else "")
 
 
 def all_types() -> list[str]:
