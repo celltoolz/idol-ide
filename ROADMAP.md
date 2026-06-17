@@ -11,7 +11,6 @@ Completed sessions live at the bottom as a historical record.
 
 ### Designer
 
-- **ttk.Treeview widget** — Palette entry, canvas-drawn preview (header + sample rows). Props: columns (list editor like Notebook tabs), show (tree/headings/both), selectmode, height. Column editor popup defines ids/headings/widths/anchor/stretch. Events: `treeselect` (`<<TreeviewSelect>>`), `treeopen`, `treeclose` + standard mouse events. Codegen emits column defs + heading setup in `_build_ui`. Consistent with Listbox/Notebook handling.
 - **Audit component-generated event visibility** — `canvas_button` done (readonly rows in Events tab). Audit Timer (`_tick`), CommonDialog handlers, Socket handlers — wherever component codegen produces bindings that aren't visible in the widget Events tab, make them visible as readonly rows.
 - **Open Designer for existing (non-wizard) projects** — user may want the GUI builder without going through the New Project wizard.
 - **Live Preview mode** — eye icon toggles canvas to non-editable interactive state; widgets respond to real input without running the full app; strips grid lines and handles; restores on exit.
@@ -349,3 +348,11 @@ Use a fresh name for each new feature branch (don't reuse merged names). Master 
 **Added:** Form background image property; Show/hide grid toggle (⋯); Canvas `border` property; all 41 widget prop hints; Canvas events corrected to `_SIMPLE_EVENTS + _KEY_EVENTS`; auto-save .py before codegen (`_autosave_form_py`)
 
 **Fixed:** Props hover IndexError; paste order (set → ordered form.widgets iteration); paste offset drift (reset on move drag); tab badges after delete/paste; gallery + grid popups dismiss on app focus loss; canvas_button Events tab deduplication (inline in existing row, not appended); designer canvas focus_set on mode enter; widget deletion cleans up canvas_button wires and orphaned handler_wires
+
+### 2026-06-17 — ttk.Treeview Designer Widget
+
+**Added:** ttk.Treeview as the 17th designer widget — palette entry, canvas-drawn preview (heading strip, `#0` tree column, sample rows), `show` (tree headings / headings / tree), `selectmode`, and `scrollbar` (reuses the shared Frame + ttk.Scrollbar wrapping). Events `treeselect` (`<<TreeviewSelect>>`), `treeopen`, `treeclose` + standard mouse events. **Column Editor** dialog defines per-column id / heading / width / anchor / stretch (stable auto-derived ids) plus a `#0` tree-heading prop. **Row Editor** dialog defines seed rows (grid derived from current columns; flat/root-level for now). Columns and rows stored as structured `list[dict]` props; `normalize_tree_columns` / `normalize_tree_rows` auto-migrate legacy plain-string column lists. Codegen emits the constructor (`columns=` ids + `show`/`selectmode`), per-column `heading()`/`column(width, anchor, stretch)`, the `#0` heading, and one `insert("", "end", text=…, values=(…))` per seed row.
+
+**Polish:** Column Editor uses a shared grid (aligned headers), a `tk.Menu` anchor dropdown with a real hit area, directly-gridded stretch checkbox, action-glyph tooltips, and screen-clamped dialog centering.
+
+**Deferred:** hierarchical (nested) seed rows — flat rows only in this pass.
