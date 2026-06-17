@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased] — Treeview widget in the GUI Designer
+
+### Added
+- **`ttk.Treeview` is now a placeable designer widget.** Drop it from the palette like any other
+  widget. Configurable `columns` (inline list editor), `show` mode (`tree headings` / `headings` /
+  `tree`), `selectmode` (`browse` / `extended` / `none`), and `scrollbar` (reuses the shared
+  Frame + `ttk.Scrollbar` wrapping). The canvas renders a heading strip, the `#0` tree column when
+  applicable, and three sample rows. Events `treeselect` / `treeopen` / `treeclose` are wirable.
+  Codegen emits the constructor plus per-column `heading()` / `column()` calls after placement.
+
 ## [2026-06-17] — Canvas item events bind to the tag, not the instance
 
 ### Changed

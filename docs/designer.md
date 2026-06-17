@@ -40,9 +40,9 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 
 ## Widget Palette
 
-16 widget types in a scrollable toolbox with canvas-drawn mini-previews:
+17 widget types in a scrollable toolbox with canvas-drawn mini-previews:
 
-Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, Frame, LabelFrame, **Notebook**, Scale, Spinbox, Progressbar, Separator, **Canvas**
+Button, Label, Entry, Text, Checkbutton, Radiobutton, Combobox, Listbox, **Treeview**, Frame, LabelFrame, **Notebook**, Scale, Spinbox, Progressbar, Separator, **Canvas**
 
 **Placement modes:**
 - **Click** — arms the crosshair tool; click anywhere on the canvas to drop at default size
@@ -254,6 +254,21 @@ Frame, LabelFrame, and Notebook act as parent containers:
 - Each child has a `tab` property (the tab name string) that determines which tab it belongs to; reassign via the Order tab or by dragging across tab headers
 - The **`<<NotebookTabChanged>>`** event is available in the Events tab; wiring it generates a `.bind()` call and a handler stub
 - Codegen emits the full Notebook hierarchy: `ttk.Notebook`, one `ttk.Frame` per tab added with `.add(frame, text="Tab Name")`, and child widgets placed inside their tab's frame
+
+## Treeview Widget
+
+`ttk.Treeview` is a multi-column list / tree widget. Drop it onto the canvas and configure it from the Properties panel:
+
+- **`columns`** — the data column list, edited with the inline list editor (the same editor as Combobox/Listbox `values`). Each column generates a `heading(text=…)` and a `column(width=…)` call; widths are split evenly across the widget's pixel width.
+- **`show`** — `tree headings` (the implicit tree column `#0` plus data columns), `headings` (data columns only — the flat-table look), or `tree` (the tree column only).
+- **`selectmode`** — `browse` (single), `extended` (multi), or `none`.
+- **`scrollbar`** — `None` / `Vertical` / `Horizontal` / `Both`; enabling one wraps the Treeview in a Frame with `ttk.Scrollbar`(s) wired to `yview`/`xview`, exactly like the other scrollable widgets.
+
+The canvas renders a representative preview: a heading strip (when headings are shown), a `#0` tree column when applicable, and three sample rows with the first row selected.
+
+**Events** — `treeselect` (`<<TreeviewSelect>>`), `treeopen` (`<<TreeviewOpen>>`), and `treeclose` (`<<TreeviewClose>>`) are available in the Events tab; wiring one generates a `.bind()` call and a handler stub.
+
+Codegen emits the `ttk.Treeview` constructor with `columns`/`show`/`selectmode`, followed by per-column `heading()` and `column()` calls after placement. Populating rows with `insert()` is left to user code.
 
 ## Menu Editor
 

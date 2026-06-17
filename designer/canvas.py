@@ -2852,6 +2852,50 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
                           fill=fg, font=(UI_FONT, 8))
 
 
+@_tag
+def _draw_treeview(c, x, y, x2, y2, text, props):
+    show    = props.get("show", "tree headings")
+    cols    = props.get("columns", []) or []
+    headed  = "headings" in show
+    treecol = "tree" in show
+    relief  = props.get("relief", "") or "sunken"
+    c.create_rectangle(x, y, x2, y2, fill="#ffffff", outline="")
+    _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
+
+    # Tree column (#0) is shown unless show == "headings"
+    display_cols = (["#0"] + list(cols)) if treecol else list(cols)
+    n = max(1, len(display_cols))
+    col_w = (x2 - x) // n
+    head_h = 18 if headed else 0
+
+    # Heading strip
+    if headed:
+        c.create_rectangle(x, y, x2, y + head_h, fill="#e1e1e1", outline="#abadb3")
+        for i, col in enumerate(display_cols):
+            cxl = x + i * col_w
+            if i > 0:
+                c.create_line(cxl, y, cxl, y2, fill="#d0d0d0")
+            label = "" if col == "#0" else str(col)
+            if label:
+                c.create_text(cxl + 5, y + head_h // 2, text=label, anchor="w",
+                              fill="#333333", font=(UI_FONT, 8, "bold"))
+
+    # Sample rows
+    row_h = 18
+    for r in range(3):
+        ry = y + head_h + r * row_h
+        if ry + row_h > y2:
+            break
+        if r == 0:
+            c.create_rectangle(x + 1, ry, x2 - 1, ry + row_h, fill="#0078d4", outline="")
+        fg = "#ffffff" if r == 0 else "#555555"
+        for i, col in enumerate(display_cols):
+            cxl = x + i * col_w
+            cell = f"Item {r+1}" if col == "#0" else "cell"
+            c.create_text(cxl + 5, ry + row_h // 2, text=cell, anchor="w",
+                          fill=fg, font=(UI_FONT, 8))
+
+
 def _draw_notebook_canvas(c, x, y, x2, y2, props, tag, nb_id, active_tab):
     """Draw a Notebook on the designer canvas (not @_tag — needs nb_id/active_tab)."""
     tabs  = props.get("tabs") or ["Tab 1"]
@@ -3138,6 +3182,7 @@ _DRAW: dict = {
     "Radiobutton": _draw_radiobutton,
     "Combobox":    _draw_combobox,
     "Listbox":     _draw_listbox,
+    "Treeview":    _draw_treeview,
     "Frame":       _draw_frame,
     "LabelFrame":  _draw_labelframe,
     "Scale":       _draw_scale,

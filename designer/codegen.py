@@ -33,6 +33,9 @@ _BINDINGS: dict[str, str] = {
     "comboselected": "<<ComboboxSelected>>",
     "listselect":    "<<ListboxSelect>>",
     "tabchanged":    "<<NotebookTabChanged>>",
+    "treeselect":    "<<TreeviewSelect>>",
+    "treeopen":      "<<TreeviewOpen>>",
+    "treeclose":     "<<TreeviewClose>>",
 }
 
 _STUB        = "pass  # TODO"
@@ -725,6 +728,15 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 f'        self.{w.id}.create_image(0, 0, anchor="nw",'
                 f' image=self._img_{w.id}{_ci_bg_tag})'
             )
+
+    # Treeview — configure a heading + width for each data column after place()
+    if reg.get("tree_columns"):
+        cols = w.props.get("columns") or []
+        if cols:
+            col_w = max(40, w.width // len(cols))
+            for col in cols:
+                lines.append(f'        self.{w.id}.heading({col!r}, text={col!r})')
+                lines.append(f'        self.{w.id}.column({col!r}, width={col_w})')
 
     # list_insert_props — populate widget with insert() calls after place()/pack()
     for prop_key in reg.get("list_insert_props", []):

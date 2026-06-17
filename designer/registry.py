@@ -77,6 +77,25 @@ def _draw_listbox(c, x, y, w, h):
                       fill="#ffffff" if i == 0 else "#cccccc",
                       font=("TkDefaultFont", 6), anchor="w")
 
+def _draw_treeview(c, x, y, w, h):
+    _sunken_rect(c, x, y, w, h)
+    head_h = 11
+    # Heading strip with two columns
+    c.create_rectangle(x+2, y+2, x+w-2, y+head_h, fill="#d4d0c8", outline="#808080")
+    midx = x + w // 2
+    c.create_line(midx, y+2, midx, y+h-2, fill="#c0c0c0")
+    c.create_text(x + w//4,   y+1+head_h//2, text="A", fill="#000000", font=("TkDefaultFont", 5))
+    c.create_text(x + 3*w//4, y+1+head_h//2, text="B", fill="#000000", font=("TkDefaultFont", 5))
+    # A couple of data rows
+    for i in range(2):
+        ry = y + head_h + 1 + i*9
+        if ry + 8 > y + h - 2:
+            break
+        if i == 0:
+            c.create_rectangle(x+3, ry, midx-1, ry+8, fill="#000080", outline="")
+        c.create_text(x+6, ry+4, text="row", anchor="w",
+                      fill="#ffffff" if i == 0 else "#cccccc", font=("TkDefaultFont", 5))
+
 def _draw_notebook(c, x, y, w, h):
     tab_h = 12
     # Tab strip
@@ -341,6 +360,23 @@ REGISTRY: dict[str, dict] = {
         "color_props":  ["bg"],
         "is_container": True,
         "is_notebook":  True,
+    },
+    "Treeview": {
+        "label":        "Treeview",
+        "tk_class":     "ttk.Treeview",
+        "default_size": (220, 140),
+        "default_props": {"columns": ["Column 1", "Column 2"],
+                          "show": "tree headings",
+                          "selectmode": "browse",
+                          "scrollbar": "None"},
+        "events":       ["treeselect", "treeopen", "treeclose"] + _SIMPLE_EVENTS,
+        "draw_preview": _draw_treeview,
+        "state_prop":   True,
+        "state_values": ["normal", "disabled"],
+        "tree_columns": True,
+        "prop_choices": {"show": ["tree headings", "headings", "tree"],
+                         "selectmode": ["browse", "extended", "none"],
+                         "scrollbar": _SCROLLBAR},
     },
     "Frame": {
         "label":        "Frame",
