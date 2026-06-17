@@ -81,6 +81,20 @@ class FoldMixin:
             v += 1
         return v
 
+    # ── Public fold API ──────────────────────────────────────────────────────
+
+    def fold_all(self) -> None:
+        """Fold every foldable block in the document, then repaint."""
+        for i in range(len(self.lines)):
+            if self._line_is_foldable(i):
+                self.folded.add(i)
+        self.render()
+
+    def unfold_all(self) -> None:
+        """Clear all folds, then repaint."""
+        self.folded.clear()
+        self.render()
+
     def _fold_end(self, start: int) -> int:
         """Return the physical index of the last hidden line in a fold at `start`.
 

@@ -3958,19 +3958,13 @@ class IDOL(Tk):
 
     def view_fold_all(self) -> None:
         cv = self._current_codeview
-        if not cv:
-            return
-        for i in range(len(cv.lines)):
-            if cv._line_is_foldable(i):
-                cv.folded.add(i)
-        cv.render()
+        if cv:
+            cv.fold_all()
 
     def view_unfold_all(self) -> None:
         cv = self._current_codeview
-        if not cv:
-            return
-        cv.folded.clear()
-        cv.render()
+        if cv:
+            cv.unfold_all()
 
     def _refresh_nav_bar(self) -> None:
         """Sync nav bar toggle button colors with current view state."""

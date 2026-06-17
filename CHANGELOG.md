@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-17] — Public fold API
+
+### Changed
+- **`fold_all()` / `unfold_all()` are now public `CanvasCodeView` methods** (on `FoldMixin`).
+  `app.py`'s View → Fold All / Unfold All commands previously reached into editor internals
+  (`cv.lines`, `cv._line_is_foldable`, `cv.folded`, `cv.render`); they now call the public API,
+  matching how the gutter and command palette drive the editor. No behavior change.
+
 ## [2026-06-17] — Status bar multi-cursor count
 
 ### Fixed
