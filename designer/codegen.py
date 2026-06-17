@@ -12,7 +12,7 @@ import textwrap
 from typing import Any
 
 from .model import FormModel, WidgetDescriptor
-from .registry import REGISTRY
+from .registry import REGISTRY, normalize_tree_columns
 
 # tkinter binding string for each event key
 _BINDINGS: dict[str, str] = {
@@ -598,8 +598,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
             continue  # IDOL-internal props (e.g. _ci_tags, _canvas_tags) — never tkinter kwargs
         if v is None:
             continue  # explicitly omitted by user (× button in properties panel)
-        if k in ("scrollbar", "tabs"):
-            continue  # structural props — not tkinter kwargs
+        if k in ("scrollbar", "tabs", "columns", "tree_heading"):
+            continue  # structural props — not direct tkinter kwargs
         if k in _all_color_props and v == "":
             continue
         if k in _SKIP_IF_EMPTY and (v == "" or v == () or v == []):
@@ -646,6 +646,15 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
     )
     if command_method:
         kw_parts.append(f"command=self.{command_method}")
+
+    # Treeview — the columns kwarg carries the column *ids* (a tuple of strings),
+    # not the structured dicts stored in props. Heading/width/anchor/stretch are
+    # applied after placement (see the post-place block below).
+    _tree_cols: list[dict] = []
+    if reg.get("tree_columns"):
+        _tree_cols = normalize_tree_columns(w.props.get("columns"))
+        if _tree_cols:
+            kw_parts.append(f"columns={tuple(c['id'] for c in _tree_cols)!r}")
 
     # Resolve parent — Notebook children attach to their tab Frame, not the Notebook
     if w.parent_id:
@@ -729,14 +738,20 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
                 f' image=self._img_{w.id}{_ci_bg_tag})'
             )
 
-    # Treeview — configure a heading + width for each data column after place()
+    # Treeview — configure heading text + column geometry after place()
     if reg.get("tree_columns"):
-        cols = w.props.get("columns") or []
-        if cols:
-            col_w = max(40, w.width // len(cols))
-            for col in cols:
-                lines.append(f'        self.{w.id}.heading({col!r}, text={col!r})')
-                lines.append(f'        self.{w.id}.column({col!r}, width={col_w})')
+        tree_heading = w.props.get("tree_heading", "")
+        if tree_heading and "tree" in w.props.get("show", "tree headings"):
+            lines.append(f'        self.{w.id}.heading("#0", text={tree_heading!r})')
+        for col in _tree_cols:
+            cid = col["id"]
+            lines.append(
+                f'        self.{w.id}.heading({cid!r}, text={col["heading"]!r})'
+            )
+            lines.append(
+                f'        self.{w.id}.column({cid!r}, width={col["width"]},'
+                f' anchor={col["anchor"]!r}, stretch={bool(col["stretch"])})'
+            )
 
     # list_insert_props — populate widget with insert() calls after place()/pack()
     for prop_key in reg.get("list_insert_props", []):

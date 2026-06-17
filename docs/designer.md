@@ -259,16 +259,19 @@ Frame, LabelFrame, and Notebook act as parent containers:
 
 `ttk.Treeview` is a multi-column list / tree widget. Drop it onto the canvas and configure it from the Properties panel:
 
-- **`columns`** — the data column list, edited with the inline list editor (the same editor as Combobox/Listbox `values`). Each column generates a `heading(text=…)` and a `column(width=…)` call; widths are split evenly across the widget's pixel width.
-- **`show`** — `tree headings` (the implicit tree column `#0` plus data columns), `headings` (data columns only — the flat-table look), or `tree` (the tree column only).
+- **`columns`** — clicking the row opens the **Column Editor** dialog. Each column has an **ID** (the tkinter identifier — leave blank to auto-derive a stable slug from the heading), a **Heading** (display text), a **Width** (px), an **Anchor** (`left`/`center`/`right` → `w`/`center`/`e`), and a **Stretch** toggle. Rows can be added, reordered (↑ ↓), and removed (×). Column ids stay stable when you rename a heading, so user code that references a column by id keeps working.
+- **`tree heading`** — heading text for the implicit tree column (`#0`). Only shown/applied when `show` includes the tree column.
+- **`show`** — `tree headings` (the `#0` tree column plus data columns), `headings` (data columns only — the flat-table look), or `tree` (the tree column only).
 - **`selectmode`** — `browse` (single), `extended` (multi), or `none`.
 - **`scrollbar`** — `None` / `Vertical` / `Horizontal` / `Both`; enabling one wraps the Treeview in a Frame with `ttk.Scrollbar`(s) wired to `yview`/`xview`, exactly like the other scrollable widgets.
 
-The canvas renders a representative preview: a heading strip (when headings are shown), a `#0` tree column when applicable, and three sample rows with the first row selected.
+The `columns` prop is stored as a list of dicts (`{id, heading, width, anchor, stretch}`); legacy plain-string column lists are auto-migrated on load by `normalize_tree_columns()`.
+
+The canvas renders a representative preview: a heading strip (when headings are shown), a `#0` tree column when applicable (proportioned by the configured widths), and three sample rows with the first row selected.
 
 **Events** — `treeselect` (`<<TreeviewSelect>>`), `treeopen` (`<<TreeviewOpen>>`), and `treeclose` (`<<TreeviewClose>>`) are available in the Events tab; wiring one generates a `.bind()` call and a handler stub.
 
-Codegen emits the `ttk.Treeview` constructor with `columns`/`show`/`selectmode`, followed by per-column `heading()` and `column()` calls after placement. Populating rows with `insert()` is left to user code.
+Codegen emits the `ttk.Treeview` constructor with the column **ids** in `columns=(…)`, plus `show`/`selectmode`, followed by per-column `heading(text=…)` and `column(width=…, anchor=…, stretch=…)` calls (and a `heading("#0", …)` when a tree heading is set) after placement. Populating rows with `insert()` is left to user code.
 
 ## Menu Editor
 

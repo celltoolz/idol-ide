@@ -9,11 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **`ttk.Treeview` is now a placeable designer widget.** Drop it from the palette like any other
-  widget. Configurable `columns` (inline list editor), `show` mode (`tree headings` / `headings` /
-  `tree`), `selectmode` (`browse` / `extended` / `none`), and `scrollbar` (reuses the shared
-  Frame + `ttk.Scrollbar` wrapping). The canvas renders a heading strip, the `#0` tree column when
-  applicable, and three sample rows. Events `treeselect` / `treeopen` / `treeclose` are wirable.
-  Codegen emits the constructor plus per-column `heading()` / `column()` calls after placement.
+  widget. `show` mode (`tree headings` / `headings` / `tree`), `selectmode` (`browse` / `extended`
+  / `none`), and `scrollbar` (reuses the shared Frame + `ttk.Scrollbar` wrapping). The canvas
+  renders a heading strip, the `#0` tree column when applicable, and three sample rows. Events
+  `treeselect` / `treeopen` / `treeclose` are wirable.
+- **Column Editor dialog** for the Treeview `columns` prop — per-column **id**, **heading**,
+  **width**, **anchor** (left/center/right), and **stretch**, with add / reorder / remove. Column
+  ids auto-derive a stable slug from the heading (and stay stable across renames). Columns are
+  stored structurally (`list[dict]`); legacy plain-string column lists auto-migrate on load.
+  A **tree heading** prop sets the `#0` tree-column heading. Codegen emits column ids in
+  `columns=(…)` plus per-column `heading()` / `column(width=, anchor=, stretch=)` calls.
 
 ## [2026-06-17] — Canvas item events bind to the tag, not the instance
 

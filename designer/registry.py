@@ -365,7 +365,13 @@ REGISTRY: dict[str, dict] = {
         "label":        "Treeview",
         "tk_class":     "ttk.Treeview",
         "default_size": (220, 140),
-        "default_props": {"columns": ["Column 1", "Column 2"],
+        "default_props": {"columns": [
+                              {"id": "col1", "heading": "Column 1",
+                               "width": 120, "anchor": "w", "stretch": True},
+                              {"id": "col2", "heading": "Column 2",
+                               "width": 120, "anchor": "w", "stretch": True},
+                          ],
+                          "tree_heading": "",
                           "show": "tree headings",
                           "selectmode": "browse",
                           "scrollbar": "None"},
@@ -517,6 +523,55 @@ REGISTRY: dict[str, dict] = {
 def get(type_key: str) -> dict:
     """Return the registry entry for a widget type, raising KeyError if unknown."""
     return REGISTRY[type_key]
+
+
+_TREE_COL_ANCHORS = ["w", "center", "e"]
+
+
+def normalize_tree_columns(cols) -> list[dict]:
+    """Coerce a Treeview ``columns`` value into a list of full column dicts.
+
+    Accepts the structured form (``{id, heading, width, anchor, stretch}``) and
+    the legacy plain-string form (``["Name", "Size"]``), so older ``.form.json``
+    files load unchanged. Ids are auto-derived from the heading when missing and
+    de-duplicated so every column has a stable, unique tkinter identifier.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    for i, c in enumerate(cols or []):
+        if isinstance(c, str):
+            heading, raw_id = c, ""
+            width, anchor, stretch = 120, "w", True
+        elif isinstance(c, dict):
+            heading = str(c.get("heading", c.get("id", "")))
+            raw_id  = str(c.get("id", ""))
+            try:
+                width = int(c.get("width", 120))
+            except (TypeError, ValueError):
+                width = 120
+            anchor  = c.get("anchor", "w")
+            if anchor not in _TREE_COL_ANCHORS:
+                anchor = "w"
+            stretch = bool(c.get("stretch", True))
+        else:
+            continue
+        cid = raw_id or _slug_col_id(heading) or f"col{i + 1}"
+        base = cid
+        n = 2
+        while cid in seen:
+            cid = f"{base}_{n}"
+            n += 1
+        seen.add(cid)
+        out.append({"id": cid, "heading": heading,
+                    "width": width, "anchor": anchor, "stretch": stretch})
+    return out
+
+
+def _slug_col_id(heading: str) -> str:
+    """Turn a heading into a safe column id (alnum + underscore, lowercased)."""
+    slug = "".join(ch if ch.isalnum() else "_" for ch in heading.strip().lower())
+    slug = slug.strip("_")
+    return slug if slug and not slug[0].isdigit() else (f"c_{slug}" if slug else "")
 
 
 def all_types() -> list[str]:

@@ -27,7 +27,7 @@ import tkinter as tk
 from typing import Callable, Optional
 
 from .model import CanvasItemDescriptor, FormModel, WidgetDescriptor
-from .registry import REGISTRY
+from .registry import REGISTRY, normalize_tree_columns
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -2855,27 +2855,40 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
 @_tag
 def _draw_treeview(c, x, y, x2, y2, text, props):
     show    = props.get("show", "tree headings")
-    cols    = props.get("columns", []) or []
+    cols    = normalize_tree_columns(props.get("columns"))
     headed  = "headings" in show
     treecol = "tree" in show
     relief  = props.get("relief", "") or "sunken"
     c.create_rectangle(x, y, x2, y2, fill="#ffffff", outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
 
-    # Tree column (#0) is shown unless show == "headings"
-    display_cols = (["#0"] + list(cols)) if treecol else list(cols)
-    n = max(1, len(display_cols))
-    col_w = (x2 - x) // n
+    # Build display columns: the tree column (#0) plus data columns. Each entry is
+    # (heading, weight) — column boundaries are proportioned by the configured width.
+    tree_heading = props.get("tree_heading", "")
+    display: list[tuple[str, int]] = []
+    if treecol:
+        display.append((tree_heading, 160))
+    display.extend((col["heading"], max(20, col["width"])) for col in cols)
+    if not display:
+        display = [("", 1)]
+
+    total_w = sum(w for _, w in display) or 1
+    inner_w = x2 - x
+    # Cumulative left edges scaled to the widget width
+    edges = [x]
+    acc = 0
+    for _, weight in display:
+        acc += weight
+        edges.append(x + round(inner_w * acc / total_w))
     head_h = 18 if headed else 0
 
     # Heading strip
     if headed:
         c.create_rectangle(x, y, x2, y + head_h, fill="#e1e1e1", outline="#abadb3")
-        for i, col in enumerate(display_cols):
-            cxl = x + i * col_w
+        for i, (label, _) in enumerate(display):
+            cxl = edges[i]
             if i > 0:
                 c.create_line(cxl, y, cxl, y2, fill="#d0d0d0")
-            label = "" if col == "#0" else str(col)
             if label:
                 c.create_text(cxl + 5, y + head_h // 2, text=label, anchor="w",
                               fill="#333333", font=(UI_FONT, 8, "bold"))
@@ -2889,9 +2902,9 @@ def _draw_treeview(c, x, y, x2, y2, text, props):
         if r == 0:
             c.create_rectangle(x + 1, ry, x2 - 1, ry + row_h, fill="#0078d4", outline="")
         fg = "#ffffff" if r == 0 else "#555555"
-        for i, col in enumerate(display_cols):
-            cxl = x + i * col_w
-            cell = f"Item {r+1}" if col == "#0" else "cell"
+        for i, (label, _) in enumerate(display):
+            cxl = edges[i]
+            cell = f"Item {r+1}" if (treecol and i == 0) else "cell"
             c.create_text(cxl + 5, ry + row_h // 2, text=cell, anchor="w",
                           fill=fg, font=(UI_FONT, 8))
 
