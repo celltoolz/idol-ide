@@ -124,6 +124,7 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 - All cursors use the same blinking `|` caret — they all blink in sync with the primary
 - Typing, Backspace, Delete, Enter, Tab, and Shift+Tab apply to every cursor simultaneously (edits are processed bottom-to-top so earlier positions are not shifted by earlier edits)
 - Secondary text selections render in the active theme's selection color
+- The status bar shows a live `N cursors` count while multiple cursors are active
 - **Escape** clears all secondary cursors
 
 ## Find & Replace

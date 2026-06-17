@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-17] — Status bar multi-cursor count
+
+### Fixed
+- **Status bar now shows the live multi-cursor count** — the cursor-count argument was
+  hardcoded to `1`, so the documented `N cursors` indicator never appeared. The active-line
+  loop now passes `cv.mc_count()`, so adding secondary cursors (Alt+Click) updates the status
+  bar to `Ln x, Col y  |  N cursors`. The count was lost when the old `_multi_cursors` dict was
+  removed in the P2 decomposition.
+
+### Removed
+- Dead `IDOL._update_cursor_status` — uncalled, and broken (it called `cv.index("insert")`, a
+  `tk.Text` API the canvas editor doesn't implement). The 25 ms active-line loop already keeps
+  the status bar current.
+
 ## [2026-06-17] — Fold-walk dedup: `iter_visible`
 
 ### Changed
