@@ -8,7 +8,7 @@ highlighting, LSP integration (pylsp), Git tooling, integrated PTY terminal, AI 
 panel (Ollama/qwen2.5-coder:7b), pip package manager, learning mode, command palette,
 and session persistence. It runs on Windows, macOS, and Linux.
 
-GitHub: `celltoolz/notepad-ide`
+GitHub: `celltoolz/idol-ide`
 Entry point: `python main.py` (optional: `python main.py <filepath>`)
 
 ---
