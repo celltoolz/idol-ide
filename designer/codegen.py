@@ -1729,7 +1729,30 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
 
 
 def _canvas_items_handler_methods(form: FormModel, bodies: dict[str, str]) -> list[str]:
-    """Return user-stub handler methods for canvas item bindings."""
+    """Return handler methods for canvas item bindings.
+
+    A binding wired to a HANDLER_CATALOG entry (``binding_handlers``, e.g.
+    _open_dialog) gets that handler's wire body as its default; plain bindings
+    get a blank user stub. Saved bodies (user edits) always take precedence.
+    """
+    from .handlers import HANDLER_CATALOG
+    catalog = {h.id: h for h in HANDLER_CATALOG}
+
+    # method name → catalog wire body (first binding wins, matching tag dedup).
+    wire_bodies: dict[str, str] = {}
+    for w in form.widgets:
+        if w.type != "Canvas":
+            continue
+        for item in w.canvas_items:
+            for tk_ev, info in item.binding_handlers.items():
+                method = item.bindings.get(tk_ev)
+                hdef   = catalog.get(info.get("handler_id", ""))
+                if not method or hdef is None:
+                    continue
+                wbody = hdef.wire_body_for(info.get("option", ""), info["handler_id"])
+                if wbody:
+                    wire_bodies.setdefault(method, wbody)
+
     lines: list[str] = []
     seen: set[str] = set()
     for w in form.widgets:
@@ -1740,7 +1763,7 @@ def _canvas_items_handler_methods(form: FormModel, bodies: dict[str, str]) -> li
                 if not method or method in seen:
                     continue
                 seen.add(method)
-                body = bodies.get(method, "pass  # TODO")
+                body = bodies.get(method) or wire_bodies.get(method) or "pass  # TODO"
                 lines.append(f"    def {method}(self, event):")
                 for bline in body.splitlines():
                     lines.append(f"        {bline}")

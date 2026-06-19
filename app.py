@@ -5892,16 +5892,26 @@ class IDOL(Tk):
         if self._design_canvas.ci_mode:
             from designer.model import _CI_EVENT_TO_TK
             canvas_w = self._design_canvas.get_ci_widget()
-            if canvas_w:
+            tk_ev = _CI_EVENT_TO_TK.get(event_key)
+            if canvas_w and tk_ev:
                 for ci in canvas_w.canvas_items:
                     if ci.id == widget_id:
-                        tk_ev = _CI_EVENT_TO_TK.get(event_key)
-                        if tk_ev:
-                            if handler:
-                                ci.bindings[tk_ev] = handler
-                            else:
-                                ci.bindings.pop(tk_ev, None)
+                        if handler:
+                            ci.bindings[tk_ev] = handler
+                        else:
+                            # Clearing the event drops the tag binding and any
+                            # catalog-handler body attached to it.
+                            ci.bindings.pop(tk_ev, None)
+                            ci.binding_tags.pop(tk_ev, None)
+                            ci.binding_handlers.pop(tk_ev, None)
                         break
+                # Keep the sub-form widget's mirror props in sync on clear.
+                if not handler:
+                    sub = self._design_canvas.form
+                    wd  = sub.get_widget(widget_id) if sub else None
+                    if wd is not None:
+                        wd.props.get("_ci_binding_tags", {}).pop(tk_ev, None)
+                        wd.props.get("_ci_binding_handlers", {}).pop(tk_ev, None)
 
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
@@ -6135,6 +6145,11 @@ class IDOL(Tk):
             return
 
         if hdef.connectable:
+            # In CI mode, wire to a canvas item's tag event via the dedicated
+            # Object/Tag/Event connector (bindings are tag-scoped, not widget-scoped).
+            if self._design_canvas.ci_mode:
+                self._open_ci_handler_connector(hdef, handler_id, preselect_widget_id)
+                return
             # Resolve primary connector options (static tuple or dynamic source)
             if hdef.connector_options_source == "linked_dialogs":
                 if not form.linked_dialogs:
@@ -6205,6 +6220,119 @@ class IDOL(Tk):
                 form.enabled_handlers.append(handler_id)
             self._set_designer_dirty()
             self._props_panel.load_handlers(form)
+
+    def _open_ci_handler_connector(
+        self, hdef, handler_id: str, preselect_item_id: "str | None"
+    ) -> None:
+        """⚡ on a connectable handler while in CI mode — open the Object/Tag/Event connector."""
+        from designer.model import _CI_TYPE_TO_KIND
+        from widgets.designer_ci_connector import CanvasItemConnector
+
+        sub      = self._design_canvas.form               # synthetic CI sub-form (edited/displayed)
+        orig     = self._design_canvas.ci_original_form    # real form (codegen source, owns dialogs)
+        canvas_w = self._design_canvas.get_ci_widget()     # the Canvas widget on the real form
+        if sub is None or orig is None or canvas_w is None:
+            return
+
+        # Primary options come from the ORIGINAL form — the sub-form has none.
+        if hdef.connector_options_source == "linked_dialogs":
+            if not orig.linked_dialogs:
+                self._props_panel.show_hint(
+                    "No linked dialogs. Link a dialog to this form first via the Forms panel."
+                )
+                return
+            connector_options = tuple(orig.linked_dialogs)
+            option_label = "Dialog"
+        else:
+            connector_options = hdef.options
+            option_label = "Option"
+
+        objects = [
+            {
+                "id": wd.id,
+                "label": f"{wd.id}  ({_CI_TYPE_TO_KIND[wd.type]})",
+                "tags": list(wd.props.get("_ci_tags", [])),
+            }
+            for wd in sub.widgets
+            if wd.type in _CI_TYPE_TO_KIND
+        ]
+        if not objects:
+            self._props_panel.show_hint("No canvas items to wire — add an item first.")
+            return
+
+        method_display = (
+            hdef.wire_body_for(connector_options[0], handler_id)
+            if connector_options else f"self.{handler_id}()"
+        )
+        resolver = (
+            (lambda opt: hdef.wire_body_for(opt, handler_id))
+            if hdef.dynamic_wire_body else None
+        )
+
+        CanvasItemConnector(
+            self,
+            objects=objects,
+            tag_pool=tuple(canvas_w.props.get("_canvas_tags", [])),
+            method_display=method_display,
+            on_wire=lambda item_id, tag, ev, opt: self._wire_ci_handler(
+                hdef, handler_id, item_id, tag, ev, opt),
+            options=connector_options,
+            option_label=option_label,
+            secondary_options=hdef.secondary_options,
+            preselect_item_id=preselect_item_id,
+            wire_body_resolver=resolver,
+        )
+
+    def _wire_ci_handler(
+        self, hdef, handler_id: str, item_id: str, tag: str, event_key: str, option: str
+    ) -> None:
+        """Persist a catalog-handler wire onto a canvas item's tag event (Approach A).
+
+        Writes to both the live sub-form widget (drives the Events display and the
+        exit round-trip) and the original form's canvas item (the codegen source
+        during CI mode), then applies any handler side effects on the real form.
+        """
+        from designer.model import _CI_EVENT_TO_TK
+
+        tk_ev = _CI_EVENT_TO_TK.get(event_key)
+        if not tk_ev:
+            return
+        sub      = self._design_canvas.form
+        orig     = self._design_canvas.ci_original_form
+        canvas_w = self._design_canvas.get_ci_widget()
+        if sub is None or orig is None or canvas_w is None:
+            return
+        method = f"_{tag}_{event_key}"
+        info   = {"handler_id": handler_id, "option": option}
+
+        # 1) Sub-form widget — what the panel displays and what exit converts back.
+        wd = sub.get_widget(item_id)
+        if wd is not None:
+            wd.events[event_key] = method
+            ci_tags = wd.props.setdefault("_ci_tags", [])
+            if tag not in ci_tags:
+                ci_tags.append(tag)
+            wd.props.setdefault("_ci_binding_tags", {})[tk_ev] = tag
+            wd.props.setdefault("_ci_binding_handlers", {})[tk_ev] = dict(info)
+
+        # 2) Original canvas item — codegen reads the real form directly in CI mode.
+        for ci in canvas_w.canvas_items:
+            if ci.id == item_id:
+                ci.bindings[tk_ev] = method
+                if tag not in ci.tags:
+                    ci.tags.append(tag)
+                ci.binding_tags[tk_ev] = tag
+                ci.binding_handlers[tk_ev] = dict(info)
+                break
+        if tag not in canvas_w.props.get("_canvas_tags", []):
+            canvas_w.props.setdefault("_canvas_tags", []).append(tag)
+
+        # 3) Handler side effects (e.g. dialog close-mode sync) on the real form.
+        self._apply_wire_side_effects(orig, hdef, option)
+
+        self._set_designer_dirty()
+        if wd is not None:
+            self._props_panel.refresh_widget(wd)
 
     def _on_designer_handler_disconnect(self, handler_id: str, wire) -> None:
         """× button on a Connected handler row — disable the handler or remove a wire."""

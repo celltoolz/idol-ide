@@ -17,6 +17,10 @@ class CanvasItemDescriptor:
     props: dict[str, Any] = field(default_factory=dict)          # fill, outline, image_path, text, font, …
     bindings: dict[str, str] = field(default_factory=dict)       # tk event str → method name
     binding_tags: dict[str, str] = field(default_factory=dict)   # tk event str → specific tag for tag_bind
+    # tk event str → {"handler_id": str, "option": str} when the binding's method
+    # body is supplied by a HANDLER_CATALOG entry (e.g. _open_dialog) rather than a
+    # blank user stub. Codegen injects the handler's wire body into the tag_bind target.
+    binding_handlers: dict[str, dict] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -28,6 +32,8 @@ class CanvasItemDescriptor:
         }
         if self.binding_tags:
             d["binding_tags"] = dict(self.binding_tags)
+        if self.binding_handlers:
+            d["binding_handlers"] = {k: dict(v) for k, v in self.binding_handlers.items()}
         return d
 
     @staticmethod
@@ -40,6 +46,7 @@ class CanvasItemDescriptor:
             props=dict(d.get("props", {})),
             bindings=dict(d.get("bindings", {})),
             binding_tags=dict(d.get("binding_tags", {})),
+            binding_handlers={k: dict(v) for k, v in d.get("binding_handlers", {}).items()},
         )
 
 
@@ -431,6 +438,8 @@ def ci_to_widget(ci: "CanvasItemDescriptor") -> "WidgetDescriptor":
     props["_ci_tags"] = list(ci.tags)
     if ci.binding_tags:
         props["_ci_binding_tags"] = dict(ci.binding_tags)
+    if ci.binding_handlers:
+        props["_ci_binding_handlers"] = {k: dict(v) for k, v in ci.binding_handlers.items()}
     events = {_CI_TK_TO_EVENT[tk]: method
               for tk, method in ci.bindings.items()
               if tk in _CI_TK_TO_EVENT and method}
@@ -449,6 +458,7 @@ def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
     props = dict(w.props)
     tags = props.pop("_ci_tags", [])
     binding_tags = props.pop("_ci_binding_tags", {})
+    binding_handlers = props.pop("_ci_binding_handlers", {})
     bindings = {_CI_EVENT_TO_TK[ev]: method
                 for ev, method in w.events.items()
                 if ev in _CI_EVENT_TO_TK and method}
@@ -461,6 +471,7 @@ def widget_to_ci(w: "WidgetDescriptor") -> "CanvasItemDescriptor":
         props=props,
         bindings=bindings,
         binding_tags=dict(binding_tags),
+        binding_handlers={k: dict(v) for k, v in binding_handlers.items()},
     )
 
 

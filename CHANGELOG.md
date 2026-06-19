@@ -25,6 +25,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   canvas preview (falling back to placeholder rows when empty). Codegen emits an
   `insert("", "end", text=…, values=(…))` call per row (`text=` only when the tree column is shown).
 
+## [2026-06-19] — Wire catalog handlers to canvas items inside CI mode
+
+### Added
+- **Catalog handlers can now be wired to canvas-item events while in Canvas-Item edit mode.**
+  Clicking ⚡ on a connectable handler (e.g. `open_dialog`) with a canvas item selected opens a new
+  **`CanvasItemConnector`** — an **Object / Tag / Event** dialog (instead of the widget-scoped
+  `ComponentConnector`). Pick the item, the binding tag (its own id-tag affects only that item; a
+  shared tag fires for every item carrying it — surfaced with an `×N` count and a warning), and the
+  event. Dialog options are read from the *original* form's `linked_dialogs`, not the synthetic
+  sub-form.
+
+### Changed
+- `CanvasItemDescriptor` gained `binding_handlers` (`tk_event → {handler_id, option}`), persisted only
+  when non-empty and carried through `ci_to_widget`/`widget_to_ci`. Codegen injects the catalog
+  handler's wire body into the tag-bound method instead of a blank stub (user-edited bodies still win).
+- Clearing a canvas-item event now also drops its tag binding and any attached catalog-handler body.
+
 ## [2026-06-17] — Canvas item events bind to the tag, not the instance
 
 ### Changed
