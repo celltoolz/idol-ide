@@ -7814,6 +7814,13 @@ class IDOL(Tk):
 
     def _on_form_list_select(self, form_name: str) -> None:
         """FormListPanel click — switch canvas to the named form."""
+        # Leaving the form while editing its canvas items must first commit the
+        # CI sub-form back to the real form. Otherwise the canvas keeps showing a
+        # stale _ci_sub_form=True state on the newly loaded form, and a later
+        # Escape rebuilds the *original* form's canvas_items from the wrong
+        # widget list — wiping every item.
+        if self._design_canvas.ci_mode:
+            self._design_canvas.exit_canvas_item_mode()
         if form_name in self._designer_missing_dialogs:
             self.designer_open_form()
             return
