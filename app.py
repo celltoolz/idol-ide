@@ -7392,7 +7392,15 @@ class IDOL(Tk):
         w = form.get_widget(widget_id)
         if w is None:
             return
-        if not w.events:
+        first_handler = next(iter(w.events.values()), "")
+        # Canvas-item bindings are tag-scoped: an item that inherits its handler
+        # from a sibling sharing the same tag has no own `events` entry, so fall
+        # back to the tag-aggregated handler (matching the Events tab) before
+        # giving up — otherwise double-click on every item but the binding owner
+        # would wrongly flash the Events tab.
+        if not first_handler and "_ci_tags" in w.props:
+            first_handler = self._ci_inherited_handler(form, w)
+        if not first_handler:
             self._props_panel.flash_events_tab()
             return
 
@@ -7406,8 +7414,32 @@ class IDOL(Tk):
             if self._designer_dirty or not py_path.exists():
                 self.designer_generate_code()
 
-        first_handler = next(iter(w.events.values()))
         self._designer_jump_to_handler(first_handler)
+
+    def _ci_inherited_handler(self, form, w) -> str:
+        """Tag-scoped handler inherited from a sibling canvas item sharing a tag.
+
+        Canvas-item bindings live on the tag (codegen emits one ``tag_bind`` per
+        tag), so only the item that wired the event carries it in ``events``;
+        siblings carrying the same tag inherit the handler. Returns the first
+        such handler, or ``""`` if none of this item's tags is bound anywhere.
+        """
+        from designer.model import _CI_TK_TO_EVENT
+
+        item_tags = set(w.props.get("_ci_tags", []))
+        if not item_tags:
+            return ""
+        for wd in form.widgets:
+            if wd.id == w.id or "_ci_tags" not in wd.props:
+                continue
+            for tk_ev, tag in wd.props.get("_ci_binding_tags", {}).items():
+                if tag not in item_tags:
+                    continue
+                logical = _CI_TK_TO_EVENT.get(tk_ev)
+                method = wd.events.get(logical, "") if logical else ""
+                if method:
+                    return method
+        return ""
 
     def _on_designer_event_navigate(self, method_name: str) -> None:
         """Double-click on a wired event row → jump to that handler in the editor."""
