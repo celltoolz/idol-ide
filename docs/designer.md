@@ -509,6 +509,24 @@ Tag names are validated (no spaces or characters that would break a `tag_bind` c
 
 Because the binding belongs to the tag, it **propagates to every item carrying that tag**: once `button → mousedown` is wired on one item, the Events tab of every other item with the `button` tag shows the same handler as a read-only row. The tag is the logical unit, not the individual item — which mirrors runtime, where the single `tag_bind("button", …)` fires for all items tagged `button`.
 
+### Wiring Catalog Handlers to CI Items
+
+Beyond writing your own stubs, you can wire a canvas-item event directly to a **catalog handler**
+(e.g. `open_dialog`) without leaving CI mode. With a canvas item selected, click the ⚡ button on a
+connectable handler in the **Handlers** tab — instead of the widget-scoped `ComponentConnector`, this
+opens the **Canvas Item Connector**, an **Object / Tag / Event** dialog:
+
+- **Object** — the canvas item to wire (the selected item is pre-picked).
+- **Tag** — the binding target. Bindings are tag-scoped, so this decides *scope*: pick the item's own
+  id-tag to affect only that item, or a shared tag to affect every item carrying it (shared tags show
+  an `×N` count and a "fires for all of them" warning). A new tag can be typed in at the bottom.
+- **Event** — the canvas event (`click`, `dblclick`, …).
+
+For `open_dialog`, the dialog list and close-mode come from the *original* form's linked dialogs (not
+the synthetic CI sub-form). Wiring stores `{handler_id, option}` on the item's `binding_handlers`, so
+the binding survives the CI round-trip; codegen then injects the handler's body into the tag-bound
+method (see below). Plain user-stub wiring still goes through the Events tab + tag dialog as before.
+
 ### Image Component `parent` Property
 
 Image components now have a **`parent`** property (shown as a `canvas_ref` kind dropdown in the Properties panel):
@@ -533,17 +551,20 @@ self.canvas1.tag_bind("my_tag", "<Enter>",            self._my_tag_enter)
 self.canvas1.tag_bind("my_tag", "<ButtonRelease-1>",  self._my_tag_mouseup)
 ```
 
-**Stub methods** — one stub per unique method name across all bindings:
+**Handler methods** — one method per unique method name across all bindings. A plain binding gets a
+blank stub; a binding wired to a catalog handler (via `binding_handlers`) gets that handler's wire
+body injected as the default:
 
 ```python
 def _my_tag_click(self, event):
     pass  # TODO
 
-def _my_tag_enter(self, event):
-    pass  # TODO
+def _button_click(self, event):
+    self._open_Dialog1()   # injected from the open_dialog catalog handler
 ```
 
-Stubs are generated in the `# ── Events ──` section and bodies survive regeneration just like widget event stubs.
+Methods are generated in the `# ── Events ──` section and bodies survive regeneration just like widget
+event stubs — a saved/user-edited body always takes precedence over the injected default.
 
 **Resize scaling** — canvas items track the canvas through both kinds of resize, whether or not the canvas has a background image:
 

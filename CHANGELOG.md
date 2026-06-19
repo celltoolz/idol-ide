@@ -42,6 +42,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   handler's wire body into the tag-bound method instead of a blank stub (user-edited bodies still win).
 - Clearing a canvas-item event now also drops its tag binding and any attached catalog-handler body.
 
+### Fixed
+- **Double-click on a tag-inheriting canvas item now jumps to its handler.** A CI item that inherits
+  its binding from a sibling sharing the same tag (so it has no own `events` entry) used to flash the
+  Events tab instead of navigating; it now resolves the tag-aggregated handler.
+- **Switching/removing forms while editing canvas items no longer wipes them.** Leaving a form mid-CI
+  (FORMS-list click, form remove, or form delete) now commits the CI sub-form back to its real form
+  first. Previously the canvas kept a stale CI state on the newly loaded form and a later Escape
+  rebuilt the original form's `canvas_items` from the wrong widget list, deleting every item.
+  `DesignerCanvas.load_form` now guards this for *all* form switches.
+- **Treeview generated code crashed with `unknown option "-rows"`.** The designer-only `rows` (seed
+  rows) prop was missing from the structural-prop skip list, so codegen passed `rows=…` to
+  `ttk.Treeview()` instead of emitting only the `insert()` calls.
+- **Split editor sash positioning is now robust.** Opening/reopening the split (notably in designer
+  mode) could crash with "sash index 0 out of range" or reopen jammed against the right edge, because
+  `sashpos()` set right after `PanedWindow.add()` is undone by tkinter's later geometry pass. A short,
+  generation-guarded re-assert chain (`_position_split_sash`) holds the target across the relayout,
+  waits for two realized panes, and falls back to the midpoint for stale/edge positions.
+
 ## [2026-06-17] — Canvas item events bind to the tag, not the instance
 
 ### Changed
