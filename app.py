@@ -7864,6 +7864,11 @@ class IDOL(Tk):
         Removes from _designer_forms and _designer_form_names so nothing
         is re-loaded on the next session restore.  Files on disk are untouched.
         """
+        # Commit any in-progress canvas-item edit first, so the active-form check
+        # below sees the real form (not the synthetic _ci_ sub-form) and we never
+        # strand the canvas in CI mode on a form that's being removed.
+        if self._design_canvas.ci_mode:
+            self._design_canvas.exit_canvas_item_mode()
         # Collect dialogs owned by this form before we remove it
         form_obj = self._designer_forms.get(name)
         linked = list(form_obj.linked_dialogs) if form_obj else []
@@ -8023,6 +8028,10 @@ class IDOL(Tk):
         )
         if not confirmed:
             return
+
+        # Commit any in-progress canvas-item edit first (see _on_designer_form_remove).
+        if self._design_canvas.ci_mode:
+            self._design_canvas.exit_canvas_item_mode()
 
         root = getattr(self._sidebar.explorer, "_root", None)
 

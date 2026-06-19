@@ -302,7 +302,7 @@ class DesignerCanvas(tk.Canvas):
                 wd.y      = round(wd.y      * self._ci_scale_y)
                 wd.width  = max(1, round(wd.width  * self._ci_scale_x))
                 wd.height = max(1, round(wd.height * self._ci_scale_y))
-        self.load_form(sub)
+        self._load_form_raw(sub)
         if self._on_canvas_item_mode:
             self._on_canvas_item_mode(widget_id)
 
@@ -334,7 +334,7 @@ class DesignerCanvas(tk.Canvas):
         self._ci_original_form = None
         self._tool_extra_props = {}
         self._tool_size = None
-        self.load_form(orig)
+        self._load_form_raw(orig)
         if wid:
             self.select(wid)
         if self._on_canvas_item_mode:
@@ -452,6 +452,17 @@ class DesignerCanvas(tk.Canvas):
             self._reorder_after_parent(wid, parent_id)
 
     def load_form(self, form: FormModel) -> None:
+        # If an external caller switches forms while canvas items are being
+        # edited, commit the CI sub-form back to its real form first. Otherwise
+        # _ci_sub_form stays True on the newly loaded form and a later exit
+        # rebuilds canvas_items from the wrong widget list, wiping every item.
+        # (enter/exit_canvas_item_mode bypass this via _load_form_raw — they own
+        # the CI lifecycle themselves.)
+        if self._ci_sub_form and form is not self._form:
+            self.exit_canvas_item_mode()
+        self._load_form_raw(form)
+
+    def _load_form_raw(self, form: FormModel) -> None:
         self._form = form
         self._selected_ids.clear()
         self._primary_id = None
