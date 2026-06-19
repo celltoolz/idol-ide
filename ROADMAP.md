@@ -16,6 +16,14 @@ Completed sessions live at the bottom as a historical record.
 - **Live Preview mode** — eye icon toggles canvas to non-editable interactive state; widgets respond to real input without running the full app; strips grid lines and handles; restores on exit.
 - **Priority event sorting** — float the most relevant events to the top per widget type (e.g. `click` first for Button, `change` first for Entry).
 
+- **Split editor while in Designer — live code view** *(needs full planning before implementation)*
+  - **Problem:** the SPLIT button works in Designer mode (handy for seeing code + canvas at once), but the split pane behaves like a normal editor split — designer edits don't appear there, because regular split isn't tied to codegen. We want the opposite while in Designer.
+  - **Goal:** in Designer mode, open a SPLIT that shows the **editor's current tabs** and lets you work in them; when you make changes in the Designer, the corresponding generated code should update **live** in the split tab (you actually see the `.py` change). The split tab's **selected tab, cursor position, and scrollbar position must be preserved** across these live updates (don't reset the view on every regen).
+  - **Open design decision (pick next session):**
+    1. *Reuse the current SPLIT mode* and branch on Designer-vs-Editor inside it, or
+    2. *Add a dedicated Designer-SPLIT mode* that shows the editor's current tabs and wires live codegen → split refresh.
+  - **Notes / unknowns:** codegen currently runs on a 1.5s debounce → the live refresh likely hooks that; need to re-read the regenerated `.py` into the split codeview without losing cursor/scroll (re-apply saved `get_cursor`/`visible_range` after `set_text`); decide what happens when the user edits code in the split *and* edits the designer (conflict / who wins). Builds on the now-fixed split sash handling (`_position_split_sash`) and the existing `_enter_designer_mode` split hide/show logic.
+
 ### Editor / IDE
 
 - **Settings panel** — `View → Settings` consolidating per-user preferences that are currently scattered or missing UI:
