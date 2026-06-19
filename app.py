@@ -8613,17 +8613,10 @@ class IDOL(Tk):
             self._close_split()
             return
         self._split_pane.add(self._nb_frame_r, weight=1)
-        if self._split_sash_pos and self._split_sash_pos > 10:
-            pos = self._split_sash_pos
-            self.after(10, lambda: self._split_pane.sashpos(0, pos))
-        else:
-            # No saved position — default to midpoint
-            def _set_mid():
-                w = self._split_pane.winfo_width()
-                if w > 10:
-                    self._split_pane.sashpos(0, w // 2)
-
-            self.after(50, _set_mid)
+        # Restore the saved sash; _position_split_sash falls back to midpoint if
+        # the saved value is stale/out of range (the "opens all the way right" bug).
+        saved = self._split_sash_pos if (self._split_sash_pos and self._split_sash_pos > 10) else None
+        self._position_split_sash(saved)
         self._split_shown = True
         self._set_active_pane("right")
         self._patch_scroll_callbacks()
@@ -8723,26 +8716,47 @@ class IDOL(Tk):
         except Exception:
             pass
 
+    def _position_split_sash(self, target: "int | None" = None) -> None:
+        """Place the split sash, holding it against tkinter's post-add relayout.
+
+        sashpos(0, …) set right after add() is overridden by the geometry pass
+        that runs a beat later (it parks the sash at the far right, leaving the
+        right pane a sliver). A single set won't stick, so we re-assert the
+        target a handful of times across that window via a short after() chain,
+        then stop — so it doesn't fight a later user drag and doesn't leak a
+        permanent <Configure> handler. A generation token cancels an in-flight
+        chain when show/hide is toggled again. ``target`` is the desired sash x;
+        None — or a value that would collapse either pane below 120px (e.g. a
+        stale saved position) — falls back to the midpoint.
+        """
+        self._split_sash_gen = getattr(self, "_split_sash_gen", 0) + 1
+        gen = self._split_sash_gen
+
+        def _enforce(remaining: int) -> None:
+            if gen != self._split_sash_gen:
+                return  # superseded by a newer show/hide
+            pane = self._split_pane
+            if len(pane.panes()) >= 2 and pane.winfo_width() > 10:
+                w = pane.winfo_width()
+                pos = w // 2 if target is None else target
+                if pos < 120 or pos > w - 120:
+                    pos = w // 2  # stale/edge target — keep the split usable
+                try:
+                    pane.sashpos(0, pos)
+                except Exception:
+                    pass
+            if remaining > 0:
+                self.after(50, lambda: _enforce(remaining - 1))
+
+        self.after_idle(lambda: _enforce(8))
+
     def _build_right_pane(self) -> None:
         """Create the right notebook frame and wire it up."""
         import tkinter as tk
 
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
-
-        # Set sash to midpoint after geometry settles.
-        _mid_set = [False]
-
-        def _on_split_configured(event):
-            if _mid_set[0]:
-                return
-            w = event.width
-            if w > 10:
-                _mid_set[0] = True
-                self._split_pane.unbind("<Configure>")
-                self._split_pane.sashpos(0, w // 2)
-
-        self._split_pane.bind("<Configure>", _on_split_configured)
+        self._position_split_sash()  # midpoint once realized
 
         # Thin header with "SPLIT" label, lock button, and × close button
         hdr = tk.Frame(self._nb_frame_r, bg="#2d2d30", height=24)
