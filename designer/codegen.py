@@ -598,8 +598,8 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
             continue  # IDOL-internal props (e.g. _ci_tags, _canvas_tags) — never tkinter kwargs
         if v is None:
             continue  # explicitly omitted by user (× button in properties panel)
-        if k in ("scrollbar", "tabs", "columns", "tree_heading"):
-            continue  # structural props — not direct tkinter kwargs
+        if k in ("scrollbar", "tabs", "columns", "tree_heading", "rows"):
+            continue  # structural props — not direct tkinter kwargs (rows → insert() calls)
         if k in _all_color_props and v == "":
             continue
         if k in _SKIP_IF_EMPTY and (v == "" or v == () or v == []):
