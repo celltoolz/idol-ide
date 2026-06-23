@@ -170,6 +170,7 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 - **✦ auto-wire button** appears on hover for unwired rows
 - **? Events** row at the bottom opens a paginated guide explaining events, wiring steps, naming conventions, and a full reference table for the selected widget type
 - **Canvas widget** — when a Canvas widget has image buttons configured via an [Image component](#image), the Events tab shows additional **read-only** rows for each `tag_bind` generated: `mousedown`, `mouseup`, and (if hover is configured) `mouseenter` / `mouseleave`. These rows are greyed out; use the Image Button Builder to change them.
+- **Connected catalog & component handlers** — when one of this widget's events is wired to a catalog handler via the [Handlers tab](#handlers-tab) (e.g. `_set_always_on_top` → `command`) or to a component handler (e.g. a socket scaffold's Connect button → `_sock1_toggle_connect`), that event row shows the connected handler as a **read-only** entry (e.g. `command   _set_always_on_top`; multi-target handlers like `open_dialog` show the resolved opener, e.g. `_open_Dialog1`). These rows have no inline `×` because the connection is managed from the Handlers tab — use its `×` / `…` buttons to disconnect or re-target — but double-clicking the row still jumps to the handler.
 
 **`command` event** — for Button, Checkbutton, Radiobutton, Scale, Spinbox this generates `command=self.method` as a constructor kwarg (not `.bind()`).
 
@@ -198,7 +199,7 @@ Handlers that are not yet wired or enabled. A **⚡** button appears on hover:
 
 ### Connected Section
 
-Enabled or wired handlers, each showing their target on the right (e.g. `btn1.click` or `WM_DELETE_WINDOW`). Two floating buttons appear on hover:
+Enabled or wired handlers, each led by a **→** arrow and showing their target on the right (e.g. `btn1.click` or `WM_DELETE_WINDOW`). Two floating buttons appear on hover:
 
 - **×** — disconnects the wire or disables the handler
 - **…** — opens the **Options Editor** for handlers that have named mode variants (e.g. `on_close` with hide vs destroy, `open_dialog` close-mode picker)
@@ -526,6 +527,16 @@ For `open_dialog`, the dialog list and close-mode come from the *original* form'
 the synthetic CI sub-form). Wiring stores `{handler_id, option}` on the item's `binding_handlers`, so
 the binding survives the CI round-trip; codegen then injects the handler's body into the tag-bound
 method (see below). Plain user-stub wiring still goes through the Events tab + tag dialog as before.
+
+Once wired, the binding appears in the **Connected** section of the Handlers tab just like any other
+connected handler — the resolved action as the row name (e.g. `→ Dialog1`) and `tag.event` as the
+target. Hovering the row shows the familiar floating buttons:
+
+- **×** — removes the binding (and drops the tag from the item if nothing else on it uses the tag).
+- **…** — reopens the **Canvas Item Connector** pre-selected to the existing object, tag, event, and
+  option so you can change any of them in place; the **Update** button replaces the old binding (so
+  changing the tag or event never leaves an orphan).
+- **double-click** — jumps to the generated tag-bound method in the editor.
 
 ### Image Component `parent` Property
 

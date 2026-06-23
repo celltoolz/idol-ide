@@ -25,6 +25,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   canvas preview (falling back to placeholder rows when empty). Codegen emits an
   `insert("", "end", text=…, values=(…))` call per row (`text=` only when the tree column is shown).
 
+## [2026-06-23] — Canvas-item handler wires appear in the Connected section
+
+### Added
+- **CI handler wires now show as Connected handlers.** After wiring a catalog handler to a canvas
+  item's tag event in CI mode, the binding appears in the **Connected** section of the Handlers tab
+  with the same look as widget wires — the resolved action as the row name (e.g. `→ Dialog1`) and
+  `tag.event` as the target. Previously the wire was only visible on the Events tab.
+- **× disconnect** on a Connected CI row removes the tag-event binding from both the canvas item and
+  the live sub-form widget, pruning the tag from the item when no other binding on it still uses it.
+- **… edit** on a Connected CI row reopens the **Canvas Item Connector** pre-selected to the existing
+  object, tag, event, and option (button reads **Update**); applying replaces the old binding so
+  changing the tag or event never orphans the previous one. Double-clicking the row jumps to the
+  generated tag-bound method.
+
+### Changed
+- **Every Connected handler row now leads with the `→` arrow**, not just multi-wire/CI rows — a
+  consistent visual for "this is wired."
+- **Wired catalog handlers now appear on the widget's Events tab.** When a handler is connected to a
+  widget event via the Handlers tab (e.g. `_set_always_on_top` → `command`), the matching Events row
+  shows it as a read-only entry (`command   _set_always_on_top`); multi-target handlers like
+  `open_dialog` show the resolved opener (`_open_Dialog1`). Managed from the Handlers tab; double-click
+  still jumps to the handler. (CI mode already surfaced tag-bound handlers this way.)
+
+### Fixed
+- **Component-wired Events rows no longer show a stray `×` clear button.** Widget events wired to a
+  component handler (e.g. a Socket scaffold's Connect button → `_sock1_toggle_connect`) are now
+  rendered read-only like catalog wires, since the connection is owned by the Handlers tab. Previously
+  hovering the row offered an inline `×` that didn't belong there.
+
+### Fixed
+- **Internal CI binding maps are no longer shown as raw property rows.** `_ci_binding_tags` and
+  `_ci_binding_handlers` are hidden in the Properties tab (the Canvas Item Connector owns them),
+  matching how the other internal CI fields are already suppressed. (A future **Advanced Properties
+  view** to surface all such hidden fields is queued in `ROADMAP.md`.)
+
 ## [2026-06-19] — Wire catalog handlers to canvas items inside CI mode
 
 ### Added
