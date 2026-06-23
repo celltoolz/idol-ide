@@ -198,7 +198,7 @@ Handlers that are not yet wired or enabled. A **⚡** button appears on hover:
 
 ### Connected Section
 
-Enabled or wired handlers, each showing their target on the right (e.g. `btn1.click` or `WM_DELETE_WINDOW`). Two floating buttons appear on hover:
+Enabled or wired handlers, each led by a **→** arrow and showing their target on the right (e.g. `btn1.click` or `WM_DELETE_WINDOW`). Two floating buttons appear on hover:
 
 - **×** — disconnects the wire or disables the handler
 - **…** — opens the **Options Editor** for handlers that have named mode variants (e.g. `on_close` with hide vs destroy, `open_dialog` close-mode picker)
@@ -526,6 +526,16 @@ For `open_dialog`, the dialog list and close-mode come from the *original* form'
 the synthetic CI sub-form). Wiring stores `{handler_id, option}` on the item's `binding_handlers`, so
 the binding survives the CI round-trip; codegen then injects the handler's body into the tag-bound
 method (see below). Plain user-stub wiring still goes through the Events tab + tag dialog as before.
+
+Once wired, the binding appears in the **Connected** section of the Handlers tab just like any other
+connected handler — the resolved action as the row name (e.g. `→ Dialog1`) and `tag.event` as the
+target. Hovering the row shows the familiar floating buttons:
+
+- **×** — removes the binding (and drops the tag from the item if nothing else on it uses the tag).
+- **…** — reopens the **Canvas Item Connector** pre-selected to the existing object, tag, event, and
+  option so you can change any of them in place; the **Update** button replaces the old binding (so
+  changing the tag or event never leaves an orphan).
+- **double-click** — jumps to the generated tag-bound method in the editor.
 
 ### Image Component `parent` Property
 

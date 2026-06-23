@@ -52,6 +52,11 @@ class CanvasItemConnector(tk.Toplevel):
         secondary_options: "tuple[str, ...]" = (),
         secondary_label: str = "Mode",
         preselect_item_id: "str | None" = None,
+        preselect_tag: "str | None" = None,
+        preselect_event_key: "str | None" = None,
+        preselect_option: "str | None" = None,
+        preselect_secondary: "str | None" = None,
+        wire_label: str = "Wire",
         wire_body_resolver: "Callable[[str], str] | None" = None,
     ) -> None:
         super().__init__(parent)
@@ -65,6 +70,11 @@ class CanvasItemConnector(tk.Toplevel):
         self._secondary_opts     = secondary_options
         self._secondary_label    = secondary_label
         self._preselect_item_id  = preselect_item_id
+        self._preselect_tag      = preselect_tag
+        self._preselect_event    = preselect_event_key
+        self._preselect_option   = preselect_option
+        self._preselect_secondary = preselect_secondary
+        self._wire_label         = wire_label
         self._wire_body_resolver = wire_body_resolver
 
         self._cur_tags: list[str] = []   # tags shown in the Tag list for the selected object
@@ -122,6 +132,10 @@ class CanvasItemConnector(tk.Toplevel):
         self._ev_lb.pack(fill="both", expand=True, padx=2, pady=2)
         for ev in _CI_EVENTS:
             self._ev_lb.insert("end", ev)
+        if self._preselect_event in _CI_EVENTS:
+            ev_idx = _CI_EVENTS.index(self._preselect_event)
+            self._ev_lb.selection_set(ev_idx)
+            self._ev_lb.see(ev_idx)
 
         # New-tag entry row
         new_row = tk.Frame(self, bg=_BG)
@@ -146,7 +160,10 @@ class CanvasItemConnector(tk.Toplevel):
             if self._opt_list:
                 tk.Label(opt_row, text=f"{self._option_label}:", bg=_BG, fg=_DIM,
                          font=(UI_FONT, 8), anchor="w").pack(side="left", padx=(0, 4))
-                self._option_var = tk.StringVar(value=self._opt_list[0])
+                opt_init = (self._preselect_option
+                            if self._preselect_option in self._opt_list
+                            else self._opt_list[0])
+                self._option_var = tk.StringVar(value=opt_init)
                 opt_cb = ttk.Combobox(opt_row, textvariable=self._option_var,
                                       values=list(self._opt_list), state="readonly",
                                       width=14, font=(UI_FONT, 9))
@@ -155,7 +172,10 @@ class CanvasItemConnector(tk.Toplevel):
             if self._secondary_opts:
                 tk.Label(opt_row, text=f"{self._secondary_label}:", bg=_BG, fg=_DIM,
                          font=(UI_FONT, 8), anchor="w").pack(side="left", padx=(0, 4))
-                self._secondary_var = tk.StringVar(value=self._secondary_opts[0])
+                sec_init = (self._preselect_secondary
+                            if self._preselect_secondary in self._secondary_opts
+                            else self._secondary_opts[0])
+                self._secondary_var = tk.StringVar(value=sec_init)
                 sec_cb = ttk.Combobox(opt_row, textvariable=self._secondary_var,
                                       values=list(self._secondary_opts), state="readonly",
                                       width=14, font=(UI_FONT, 9))
@@ -173,7 +193,7 @@ class CanvasItemConnector(tk.Toplevel):
         # Buttons
         btn_row = tk.Frame(self, bg=_BG)
         btn_row.pack(fill="x", padx=10, pady=(0, 10))
-        self._wire_btn = tk.Label(btn_row, text="Wire", bg=_ACC, fg="#ffffff",
+        self._wire_btn = tk.Label(btn_row, text=self._wire_label, bg=_ACC, fg="#ffffff",
                                   font=(UI_FONT, 9), padx=12, pady=4, cursor="hand2")
         self._wire_btn.pack(side="right", padx=(6, 0))
         self._wire_btn.bind("<ButtonRelease-1>", lambda e: self._do_wire())
@@ -222,7 +242,12 @@ class CanvasItemConnector(tk.Toplevel):
             self._tag_lb.insert("end", label)
         if tags:
             self._tag_lb.selection_clear(0, "end")
-            self._tag_lb.selection_set(0)
+            tag_idx = 0
+            if self._preselect_tag in tags:
+                tag_idx = tags.index(self._preselect_tag)
+            self._preselect_tag = None   # apply only on the initial population
+            self._tag_lb.selection_set(tag_idx)
+            self._tag_lb.see(tag_idx)
         self._update_preview()
 
     def _tag_object_count(self, tag: str) -> int:

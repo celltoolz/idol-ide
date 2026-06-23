@@ -1039,6 +1039,8 @@ class IDOL(Tk):
             on_handler_connect=self._on_designer_handler_connect,
             on_handler_disconnect=self._on_designer_handler_disconnect,
             on_handler_edit=self._on_designer_handler_edit,
+            on_ci_handler_edit=self._on_ci_handler_edit,
+            on_ci_handler_disconnect=self._on_ci_handler_disconnect,
             on_component_prop_change=self._on_comp_prop_change,
             on_component_connect=self._on_comp_connect,
             on_component_disconnect=self._on_comp_disconnect,
@@ -6222,9 +6224,15 @@ class IDOL(Tk):
             self._props_panel.load_handlers(form)
 
     def _open_ci_handler_connector(
-        self, hdef, handler_id: str, preselect_item_id: "str | None"
+        self, hdef, handler_id: str, preselect_item_id: "str | None",
+        edit_binding: "dict | None" = None,
     ) -> None:
-        """⚡ on a connectable handler while in CI mode — open the Object/Tag/Event connector."""
+        """⚡ on a connectable handler while in CI mode — open the Object/Tag/Event connector.
+
+        When *edit_binding* is given (the … button on a Connected CI row), the dialog
+        opens pre-selected to the existing item/tag/event/option and the wire replaces
+        the old binding instead of stacking a second one.
+        """
         from designer.model import _CI_TYPE_TO_KIND
         from widgets.designer_ci_connector import CanvasItemConnector
 
@@ -6269,17 +6277,32 @@ class IDOL(Tk):
             if hdef.dynamic_wire_body else None
         )
 
+        def _do_wire(item_id: str, tag: str, ev: str, opt: str) -> None:
+            # Edit replaces the old binding so changing tag/event doesn't orphan it.
+            if edit_binding is not None:
+                self._unwire_ci_handler(edit_binding["item_id"], edit_binding["tk_ev"])
+            self._wire_ci_handler(hdef, handler_id, item_id, tag, ev, opt)
+
+        # Split the stored combined option (e.g. "Dialog1:hide (withdraw)") so the
+        # connector can pre-select both comboboxes when editing.
+        preselect_opt = edit_binding.get("option", "") if edit_binding else ""
+        primary_part, sep, secondary_part = preselect_opt.partition(":")
+
         CanvasItemConnector(
             self,
             objects=objects,
             tag_pool=tuple(canvas_w.props.get("_canvas_tags", [])),
             method_display=method_display,
-            on_wire=lambda item_id, tag, ev, opt: self._wire_ci_handler(
-                hdef, handler_id, item_id, tag, ev, opt),
+            on_wire=_do_wire,
             options=connector_options,
             option_label=option_label,
             secondary_options=hdef.secondary_options,
             preselect_item_id=preselect_item_id,
+            preselect_tag=edit_binding.get("tag") if edit_binding else None,
+            preselect_event_key=edit_binding.get("event_key") if edit_binding else None,
+            preselect_option=primary_part if (edit_binding and sep) else (preselect_opt if edit_binding else None),
+            preselect_secondary=secondary_part if (edit_binding and sep) else None,
+            wire_label="Update" if edit_binding else "Wire",
             wire_body_resolver=resolver,
         )
 
@@ -6329,6 +6352,72 @@ class IDOL(Tk):
 
         # 3) Handler side effects (e.g. dialog close-mode sync) on the real form.
         self._apply_wire_side_effects(orig, hdef, option)
+
+        self._set_designer_dirty()
+        if wd is not None:
+            self._props_panel.refresh_widget(wd)
+
+    def _on_ci_handler_edit(self, ci: dict) -> None:
+        """… on a Connected CI handler row — reopen the CanvasItemConnector to re-edit."""
+        from designer.handlers import HANDLER_CATALOG
+
+        hdef = next((h for h in HANDLER_CATALOG if h.id == ci["handler_id"]), None)
+        if hdef is None:
+            return
+        self._open_ci_handler_connector(
+            hdef, ci["handler_id"], ci["item_id"], edit_binding=ci
+        )
+
+    def _on_ci_handler_disconnect(self, ci: dict) -> None:
+        """× on a Connected CI handler row — remove the canvas-item tag-event binding."""
+        self._unwire_ci_handler(ci["item_id"], ci["tk_ev"])
+
+    def _unwire_ci_handler(self, item_id: str, tk_ev: str) -> None:
+        """Remove a catalog-handler binding from a canvas item's tag event.
+
+        Inverse of ``_wire_ci_handler``: clears the binding from both the live
+        sub-form widget (drives the Events/Handlers display and the exit round-trip)
+        and the original form's canvas item (the codegen source during CI mode). The
+        tag is pruned from the item only when no remaining binding on that item uses
+        it; the canvas tag pool is left intact (user-managed, possibly shared).
+        """
+        from designer.model import _CI_TK_TO_EVENT
+
+        sub      = self._design_canvas.form
+        orig     = self._design_canvas.ci_original_form
+        canvas_w = self._design_canvas.get_ci_widget()
+        if sub is None or orig is None or canvas_w is None:
+            return
+        event_key = _CI_TK_TO_EVENT.get(tk_ev)
+
+        # 1) Sub-form widget — what the panel displays and what exit converts back.
+        wd = sub.get_widget(item_id)
+        removed_tag = None
+        if wd is not None:
+            removed_tag = wd.props.get("_ci_binding_tags", {}).pop(tk_ev, None)
+            wd.props.get("_ci_binding_handlers", {}).pop(tk_ev, None)
+            if event_key:
+                wd.events.pop(event_key, None)
+
+        # 2) Original canvas item — codegen reads the real form directly in CI mode.
+        for ci in canvas_w.canvas_items:
+            if ci.id == item_id:
+                ci.bindings.pop(tk_ev, None)
+                ci.binding_tags.pop(tk_ev, None)
+                ci.binding_handlers.pop(tk_ev, None)
+                break
+
+        # 3) Drop the tag from this item when no remaining binding on it uses the tag
+        #    (keep the item's own id-tag; leave the shared canvas pool untouched).
+        if removed_tag and removed_tag != item_id and wd is not None:
+            still_used = removed_tag in wd.props.get("_ci_binding_tags", {}).values()
+            if not still_used:
+                if removed_tag in wd.props.get("_ci_tags", []):
+                    wd.props["_ci_tags"].remove(removed_tag)
+                for ci in canvas_w.canvas_items:
+                    if ci.id == item_id and removed_tag in ci.tags:
+                        ci.tags.remove(removed_tag)
+                        break
 
         self._set_designer_dirty()
         if wd is not None:

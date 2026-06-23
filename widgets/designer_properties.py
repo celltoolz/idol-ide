@@ -65,6 +65,8 @@ class DesignerProperties(tk.Frame):
         on_handler_connect:       Optional[Callable[[str, "str | None"], None]] = None,
         on_handler_disconnect:    Optional[Callable[[str, "Any"],    None]] = None,
         on_handler_edit:          Optional[Callable[[str],           None]] = None,
+        on_ci_handler_edit:       Optional[Callable[[dict],          None]] = None,
+        on_ci_handler_disconnect: Optional[Callable[[dict],          None]] = None,
         on_component_prop_change:    Optional[Callable[[str, str, Any], None]] = None,
         on_component_connect:        Optional[Callable[[str, str],      None]] = None,
         on_component_disconnect:     Optional[Callable[[str, str, str], None]] = None,
@@ -86,6 +88,8 @@ class DesignerProperties(tk.Frame):
         self._on_handler_connect       = on_handler_connect
         self._on_handler_disconnect    = on_handler_disconnect
         self._on_handler_edit          = on_handler_edit
+        self._on_ci_handler_edit       = on_ci_handler_edit
+        self._on_ci_handler_disconnect = on_ci_handler_disconnect
         self._on_component_prop_change    = on_component_prop_change
         self._on_component_connect        = on_component_connect
         self._on_component_disconnect     = on_component_disconnect
@@ -530,6 +534,8 @@ class DesignerProperties(tk.Frame):
                         "option":     wire.option,
                         "hdef":       hdef,
                     })
+            # Canvas-item bindings live on the widget props, not form.handler_wires.
+            conn_rows.extend(self._collect_ci_conn_rows(widget, all_defs))
             self._handlers_conn_rows = conn_rows
             # Component handlers — show those not yet wired to this specific widget,
             # filtered by applies_to_widgets when the handler has a widget-type restriction.
@@ -613,6 +619,49 @@ class DesignerProperties(tk.Frame):
         self._widget_comp_handlers = self._collect_form_comp_handlers(form)
         self._widget_comp_avail    = self._collect_form_comp_avail(form)
         self._handlers_redraw()
+
+    def _collect_ci_conn_rows(self, widget: WidgetDescriptor, all_defs) -> list[dict]:
+        """Connected rows for catalog handlers wired to a canvas item's tag events.
+
+        CI bindings are stored on the item's props (`_ci_binding_handlers` keyed by
+        tk event, `_ci_binding_tags` for the tag) rather than in `form.handler_wires`,
+        so they need their own collection pass. Rows carry a `ci_binding` payload that
+        routes the × / … buttons to the CI-specific disconnect/edit paths.
+        """
+        from designer.model import _CI_TK_TO_EVENT
+        binding_handlers = widget.props.get("_ci_binding_handlers") or {}
+        binding_tags     = widget.props.get("_ci_binding_tags") or {}
+        rows: list[dict] = []
+        for tk_ev, info in binding_handlers.items():
+            handler_id = info.get("handler_id")
+            option     = info.get("option", "")
+            hdef = next((h for h in all_defs if h.id == handler_id), None)
+            if hdef is None:
+                continue
+            tag       = binding_tags.get(tk_ev, widget.id)
+            event_key = _CI_TK_TO_EVENT.get(tk_ev, tk_ev)
+            name = (_parse_multi_wire_name(option) if hdef.multi_wire and option
+                    else hdef.id)
+            rows.append({
+                "handler_id": hdef.id,
+                "name":       name,
+                "target":     f"{tag}.{event_key}",
+                "removable":  True,
+                "editable":   True,
+                "wire":       None,
+                "option":     option,
+                "hdef":       hdef,
+                "nav_method": f"_{tag}_{event_key}",
+                "ci_binding": {
+                    "item_id":    widget.id,
+                    "tk_ev":      tk_ev,
+                    "tag":        tag,
+                    "event_key":  event_key,
+                    "option":     option,
+                    "handler_id": hdef.id,
+                },
+            })
+        return rows
 
     def _collect_widget_comp_handlers(self, descriptor: WidgetDescriptor) -> list[tuple]:
         """Return (method, label, removable, removal_key) for component handlers on descriptor."""
@@ -1483,7 +1532,11 @@ class DesignerProperties(tk.Frame):
 
             bg = _ORD_HOV if is_hov else (_ORD_EVEN if j % 2 == 0 else _ORD_ODD)
             cv.create_rectangle(0, y0, w, y1, fill=bg, outline="")
-            cv.create_text(8, mid, text=row["name"],
+            # All connected rows lead with the → arrow; multi-wire/CI names already
+            # carry it (from _parse_multi_wire_name), so only add it when missing.
+            name = row["name"]
+            label = name if name.startswith("→") else f"→ {name}"
+            cv.create_text(8, mid, text=label,
                            fill=_ORD_NB_NUM, font=("Consolas", 9), anchor="w")
 
             if row["target"]:
@@ -1847,7 +1900,7 @@ class DesignerProperties(tk.Frame):
         if conn_idx is not None:
             row = self._handlers_conn_rows[conn_idx]
             if self._on_navigate_handler:
-                self._on_navigate_handler(row["handler_id"])
+                self._on_navigate_handler(row.get("nav_method") or row["handler_id"])
             return
 
         # Connected Components (widget-level comp wires) → jump
@@ -1907,12 +1960,22 @@ class DesignerProperties(tk.Frame):
 
     def _on_handler_edit_click(self, _event: tk.Event) -> None:
         row = getattr(self._handler_edit_btn, "_conn_row", None)
-        if row and self._on_handler_edit:
+        if not row:
+            return
+        ci = row.get("ci_binding")
+        if ci and self._on_ci_handler_edit:
+            self._on_ci_handler_edit(ci)
+        elif self._on_handler_edit:
             self._on_handler_edit(row["handler_id"], row.get("wire"))
 
     def _on_handler_disco_click(self, _event: tk.Event) -> None:
         row = getattr(self._handler_disco_btn, "_conn_row", None)
-        if row and self._on_handler_disconnect:
+        if not row:
+            return
+        ci = row.get("ci_binding")
+        if ci and self._on_ci_handler_disconnect:
+            self._on_ci_handler_disconnect(ci)
+        elif self._on_handler_disconnect:
             self._on_handler_disconnect(row["handler_id"], row.get("wire"))
 
     # ── Props canvas data helpers ─────────────────────────────────────────────
@@ -2796,6 +2859,10 @@ class DesignerProperties(tk.Frame):
                 continue
             seen.add(key)
             if key in ("_ci_orig_w", "_ci_orig_h"):
+                continue
+            # Internal CI binding maps — the Canvas Item Connector owns these; never
+            # show them as raw property rows (see roadmap: advanced properties view).
+            if key in ("_ci_binding_tags", "_ci_binding_handlers"):
                 continue
             if key == "_ci_tags":
                 tags = d.props.get("_ci_tags", [])
