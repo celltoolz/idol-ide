@@ -133,8 +133,9 @@ class DesignerProperties(tk.Frame):
         self._widget_comp_avail: list[tuple[str, str, str]] = []  # (method, comp_id, handler_id)
         self._widget_comp_avail_hov_idx: int | None = None
         self._handlers_avail_comp_y0: int = 0
-        self._avail_comp_expanded: bool = False
+        self._avail_comp_expanded: bool = True   # expanded by default
         self._avail_comp_hdr_canvas_y: int = -1
+        self._avail_comp_hdr_hover: bool = False  # mouse over the ▶/▼ crease
         # Handlers tab — Available / Connected split
         self._handlers_avail_defs: list = []          # HandlerDef objects (not wired)
         self._handlers_conn_rows:  list = []          # dicts with conn info
@@ -1576,8 +1577,15 @@ class DesignerProperties(tk.Frame):
         if avail_comps:
             arrow = "▼" if self._avail_comp_expanded else "▶"
             cv.create_rectangle(0, y, w, y + _ORD_HDR_H, fill=_ORD_HDR_BG, outline="")
-            cv.create_text(8, y + _ORD_HDR_H // 2,
-                           text=f"{arrow} Available Components",
+            mid_y = y + _ORD_HDR_H // 2
+            # Draw the triangle and label as separate items so only the triangle
+            # changes color on hover; the label stays dim regardless.
+            arrow_color = _ORD_HDR_FG if self._avail_comp_hdr_hover else _ORD_DIM
+            aid = cv.create_text(8, mid_y, text=arrow,
+                                 fill=arrow_color, font=(UI_FONT, 7, "bold"), anchor="w")
+            abox = cv.bbox(aid)
+            label_x = (abox[2] + 4) if abox else 18
+            cv.create_text(label_x, mid_y, text="Available Components",
                            fill=_ORD_DIM, font=(UI_FONT, 7, "bold"), anchor="w")
             self._avail_comp_hdr_canvas_y = y
             y += _ORD_HDR_H
@@ -1782,17 +1790,21 @@ class DesignerProperties(tk.Frame):
         conn_idx       = self._handlers_conn_idx_at(cy)
         avail_comp_idx = self._avail_comp_idx_at(cy)
         comp_idx       = self._widget_comp_handler_at(cy)
+        hdr_y          = self._avail_comp_hdr_canvas_y
+        over_hdr       = (hdr_y >= 0 and hdr_y <= cy < hdr_y + _ORD_HDR_H)
 
         if (avail_idx      == self._handlers_hov_idx
                 and conn_idx       == self._handlers_hov_conn_idx
                 and avail_comp_idx == self._widget_comp_avail_hov_idx
-                and comp_idx       == self._widget_comp_hov_idx):
+                and comp_idx       == self._widget_comp_hov_idx
+                and over_hdr       == self._avail_comp_hdr_hover):
             return
 
         self._handlers_hov_idx          = avail_idx
         self._handlers_hov_conn_idx     = conn_idx
         self._widget_comp_avail_hov_idx = avail_comp_idx
         self._widget_comp_hov_idx       = comp_idx
+        self._avail_comp_hdr_hover      = over_hdr
         self._handler_wire_btn.place_forget()
         self._handler_edit_btn.place_forget()
         self._handler_disco_btn.place_forget()
@@ -1816,6 +1828,9 @@ class DesignerProperties(tk.Frame):
             method, label, removable, _ = self._widget_comp_handlers[comp_idx]
             suffix = " — double-click to jump · … to edit · × to disconnect" if removable else " — double-click to jump"
             self._show_hint(f"{method}  ({label}){suffix}")
+        elif over_hdr:
+            action = "collapse" if self._avail_comp_expanded else "expand"
+            self._show_hint(f"Available Components — click to {action}")
         else:
             self._clear_hint()
 
@@ -1833,11 +1848,13 @@ class DesignerProperties(tk.Frame):
         changed = (self._handlers_hov_idx          is not None
                    or self._handlers_hov_conn_idx     is not None
                    or self._widget_comp_avail_hov_idx is not None
-                   or self._widget_comp_hov_idx       is not None)
+                   or self._widget_comp_hov_idx       is not None
+                   or self._avail_comp_hdr_hover)
         self._handlers_hov_idx          = None
         self._handlers_hov_conn_idx     = None
         self._widget_comp_avail_hov_idx = None
         self._widget_comp_hov_idx       = None
+        self._avail_comp_hdr_hover      = False
         if changed:
             self._handler_wire_btn.place_forget()
             self._handler_edit_btn.place_forget()

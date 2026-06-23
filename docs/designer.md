@@ -195,7 +195,7 @@ Handlers that are not yet wired or enabled. A **⚡** button appears on hover:
 
 **`multi_wire` handlers** (currently `open_dialog`) stay in Available even after wiring so you can wire them to additional widget events — one wire per dialog.
 
-**Available Components sub-section** — collapsed by default (▶ header); click the header to expand. Shows **all** connectable component handlers (e.g. `timer1_start`, `cd1_show_open`) regardless of whether they are already wired — handlers are reusable and can be connected to multiple widgets or menu items. Clicking ⚡ opens the Connector pre-selecting the current widget.
+**Available Components sub-section** — expanded by default (▼ header); click the header to collapse/expand. Hovering the ▶/▼ triangle highlights it (teal) while the label stays dim, signalling the crease is clickable. Shows **all** connectable component handlers (e.g. `timer1_start`, `cd1_show_open`) regardless of whether they are already wired — handlers are reusable and can be connected to multiple widgets or menu items. Clicking ⚡ opens the Connector pre-selecting the current widget.
 
 ### Connected Section
 

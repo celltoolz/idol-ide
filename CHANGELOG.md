@@ -25,6 +25,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   canvas preview (falling back to placeholder rows when empty). Codegen emits an
   `insert("", "end", text=…, values=(…))` call per row (`text=` only when the tree column is shown).
 
+### Changed
+- **Available Components** (Handlers tab) now **expands by default** (▼) instead of starting
+  collapsed, so the connectable component handlers are visible without an extra click.
+- Hovering the **▶/▼ crease** of the Available Components header now highlights **only the
+  triangle** (teal) while the "Available Components" label stays dim — signalling the header is
+  clickable. The arrow and label are drawn as separate canvas items to keep the recolor scoped to
+  the glyph.
+
 ## [2026-06-23] — Canvas-item handler wires appear in the Connected section
 
 ### Added
