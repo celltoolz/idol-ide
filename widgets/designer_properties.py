@@ -3003,6 +3003,9 @@ class DesignerProperties(tk.Frame):
         # Catalog handlers wired to this widget via the Handlers tab — surface them
         # read-only on the matching event row (mirrors the CI Events tab).
         wired = self._wired_event_methods(d)
+        # Component handler methods (e.g. socket scaffold → _sock1_toggle_connect)
+        # are managed from the Handlers tab too, so their rows are read-only.
+        comp_methods = self._form_component_methods()
 
         for ev in reg.get("events", []):
             iid = f"ev__{ev}"
@@ -3018,9 +3021,13 @@ class DesignerProperties(tk.Frame):
                 self._events_insert(iid, ev, wired[ev], kind="readonly")
             else:
                 handler = d.events.get(ev, "")
-                self._events_insert(iid, ev, handler)
-                if handler and not handler.startswith("_"):
-                    self._events_set_warn(iid, True)
+                if handler and handler in comp_methods:
+                    # Component connection — managed from the Handlers tab, not here.
+                    self._events_insert(iid, ev, handler, kind="readonly")
+                else:
+                    self._events_insert(iid, ev, handler)
+                    if handler and not handler.startswith("_"):
+                        self._events_set_warn(iid, True)
 
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
@@ -3049,6 +3056,25 @@ class DesignerProperties(tk.Frame):
             body = hdef.wire_body_for(wire.option, wire.handler_id)
             m = re.match(r"\s*self\.(\w+)\(", body)
             out[wire.event_key] = m.group(1) if m else hdef.id
+        return out
+
+    def _form_component_methods(self) -> "set[str]":
+        """Generated method names for every component handler on the form.
+
+        These are wired directly into widget events (e.g. a socket scaffold's
+        Connect button → `_sock1_toggle_connect`) and are managed from the
+        Handlers tab, so their Events rows are shown read-only (no inline ×),
+        like catalog wires and canvas-button rows.
+        """
+        out: "set[str]" = set()
+        if self._form is None:
+            return out
+        from designer.component_registry import COMPONENT_REGISTRY
+        for comp in self._form.components:
+            cdef = COMPONENT_REGISTRY.get(comp.type)
+            if cdef:
+                for hdef in cdef.handler_defs:
+                    out.add(f"_{comp.id}{hdef.label}")
         return out
 
     def _ci_tag_event_methods(self) -> "dict[tuple[str, str], str]":

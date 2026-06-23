@@ -49,6 +49,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   still jumps to the handler. (CI mode already surfaced tag-bound handlers this way.)
 
 ### Fixed
+- **Component-wired Events rows no longer show a stray `×` clear button.** Widget events wired to a
+  component handler (e.g. a Socket scaffold's Connect button → `_sock1_toggle_connect`) are now
+  rendered read-only like catalog wires, since the connection is owned by the Handlers tab. Previously
+  hovering the row offered an inline `×` that didn't belong there.
+
+### Fixed
 - **Internal CI binding maps are no longer shown as raw property rows.** `_ci_binding_tags` and
   `_ci_binding_handlers` are hidden in the Properties tab (the Canvas Item Connector owns them),
   matching how the other internal CI fields are already suppressed. (A future **Advanced Properties
