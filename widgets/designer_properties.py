@@ -3000,6 +3000,10 @@ class DesignerProperties(tk.Frame):
                     for ev_name, method in pairs:
                         cb_event_map.setdefault(ev_name, []).append(method)
 
+        # Catalog handlers wired to this widget via the Handlers tab — surface them
+        # read-only on the matching event row (mirrors the CI Events tab).
+        wired = self._wired_event_methods(d)
+
         for ev in reg.get("events", []):
             iid = f"ev__{ev}"
             cb_methods = cb_event_map.get(ev)
@@ -3009,6 +3013,9 @@ class DesignerProperties(tk.Frame):
                 if len(cb_methods) > 1:
                     display += f" +{len(cb_methods) - 1}"
                 self._events_insert(iid, ev, display, kind="readonly")
+            elif ev in wired:
+                # Connected via the Handlers tab; managed there, not editable here.
+                self._events_insert(iid, ev, wired[ev], kind="readonly")
             else:
                 handler = d.events.get(ev, "")
                 self._events_insert(iid, ev, handler)
@@ -3017,6 +3024,32 @@ class DesignerProperties(tk.Frame):
 
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
+
+    def _wired_event_methods(self, widget: WidgetDescriptor) -> "dict[str, str]":
+        """Map event_key → the catalog handler/opener method the event invokes.
+
+        A handler wired to a widget event via the Handlers tab (a `HandlerWire`)
+        is surfaced read-only on the matching Events row, mirroring how CI mode
+        shows tag-bound handlers. The method name is parsed from the wire body so
+        it stays navigable on double-click and meaningful (e.g. `_set_always_on_top`,
+        `_open_Dialog1`) rather than the opaque `_{widget}_{event}` shim.
+        """
+        out: "dict[str, str]" = {}
+        if self._form is None:
+            return out
+        import re
+        from designer.handlers import HANDLER_CATALOG
+        catalog = {h.id: h for h in HANDLER_CATALOG}
+        for wire in getattr(self._form, "handler_wires", []):
+            if wire.widget_id != widget.id:
+                continue
+            hdef = catalog.get(wire.handler_id)
+            if hdef is None:
+                continue
+            body = hdef.wire_body_for(wire.option, wire.handler_id)
+            m = re.match(r"\s*self\.(\w+)\(", body)
+            out[wire.event_key] = m.group(1) if m else hdef.id
+        return out
 
     def _ci_tag_event_methods(self) -> "dict[tuple[str, str], str]":
         """Map (tag, logical_event) → handler across all canvas items in the sub-form.

@@ -42,6 +42,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - **Every Connected handler row now leads with the `→` arrow**, not just multi-wire/CI rows — a
   consistent visual for "this is wired."
+- **Wired catalog handlers now appear on the widget's Events tab.** When a handler is connected to a
+  widget event via the Handlers tab (e.g. `_set_always_on_top` → `command`), the matching Events row
+  shows it as a read-only entry (`command   _set_always_on_top`); multi-target handlers like
+  `open_dialog` show the resolved opener (`_open_Dialog1`). Managed from the Handlers tab; double-click
+  still jumps to the handler. (CI mode already surfaced tag-bound handlers this way.)
 
 ### Fixed
 - **Internal CI binding maps are no longer shown as raw property rows.** `_ci_binding_tags` and
