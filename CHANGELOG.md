@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [2026-06-25] — Wired handlers show on the form Events tab
+## [2026-06-25] — Designer handler-wiring fixes + split-tab crash
 
 ### Fixed
 - **A catalog handler wired to a form event now appears on the form's Events tab.** Connecting e.g.
@@ -17,6 +17,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the Handlers tab, so a freshly wired handler didn't show on Events until the form/widget was
   reselected. The connect/disconnect/edit paths now call `reload_after_wire()`, which re-populates
   the active view (widget or form).
+- **Deleting a widget now fully disconnects handlers wired to it.** Removing a widget that a catalog
+  handler was wired to (e.g. `_set_always_on_top` on a button) stripped the wire but left the handler
+  in the Connected section as an enabled-but-targetless entry. `_disconnect_widget` now also drops the
+  handler from `enabled_handlers` / `handler_options` when no other wire references it. (CI objects
+  were already covered — their bindings live on the item and go with it.)
+- **Dragging a tab into the split no longer crashes with `'NoneType' has no attribute 'add'`.** After
+  moving the split's last tab back to main (which hides, not closes, the pane), dragging a tab back in
+  re-showed the now-empty pane — which tore it down via `_close_split` mid-flight and left the caller
+  adding a tab to a `None` notebook. `_ensure_split_shown` now rebuilds the pane in that case so it
+  always hands back a live notebook.
 
 ## [Unreleased] — Treeview widget in the GUI Designer
 

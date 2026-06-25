@@ -8664,18 +8664,30 @@ class IDOL(Tk):
     # ── Split editor ──────────────────────────────────────────────────────────
 
     def _ensure_split_shown(self, open_tab_id: str | None = None) -> None:
-        """Build + show the split pane if needed, optionally opening a tab."""
-        if not self._split_active:
-            self._build_right_pane()
-            if open_tab_id:
-                self._add_tab_to_split(open_tab_id)
-            self._split_active = True
-            self._split_shown = True
-            self._set_active_pane("right")
-            self._patch_scroll_callbacks()
-            self._refresh_nav_bar()
-        elif not self._split_shown:
-            self._show_split()
+        """Build + show the split pane if needed, optionally opening a tab.
+
+        Guarantees a live ``self._notebook_r`` on return. A re-show can tear the
+        pane down — ``_show_split`` calls ``_close_split`` when the notebook was
+        left empty (e.g. after dragging the split's last tab back to main, which
+        only hides the pane). When that happens we fall through and rebuild, so
+        callers never end up calling ``.add`` on a ``None`` notebook.
+        """
+        if self._split_active and self._notebook_r is not None:
+            if not self._split_shown:
+                self._show_split()
+            if self._notebook_r is not None:
+                if open_tab_id:
+                    self._add_tab_to_split(open_tab_id)
+                return
+        # First time, or recovery after an inconsistent/empty teardown.
+        self._build_right_pane()
+        if open_tab_id:
+            self._add_tab_to_split(open_tab_id)
+        self._split_active = True
+        self._split_shown = True
+        self._set_active_pane("right")
+        self._patch_scroll_callbacks()
+        self._refresh_nav_bar()
 
     def _hide_split(self) -> None:
         """Hide the split pane without destroying it or its tabs."""

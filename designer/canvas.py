@@ -570,10 +570,19 @@ class DesignerCanvas(tk.Canvas):
                 comp.props["canvas_buttons"] = [
                     b for b in buttons if b.get("canvas_id") != wid
                 ]
-        # Remove orphaned handler wires that target this widget
+        # Remove handler wires that target this widget, then disable any catalog
+        # handler that no longer has any wire left (mirrors the Handlers tab's
+        # disconnect cleanup) so it doesn't linger in the Connected section.
+        orphaned = {w.handler_id for w in self._form.handler_wires if w.widget_id == wid}
         self._form.handler_wires = [
             w for w in self._form.handler_wires if w.widget_id != wid
         ]
+        for hid in orphaned:
+            if not any(w.handler_id == hid for w in self._form.handler_wires):
+                self._form.enabled_handlers = [
+                    h for h in self._form.enabled_handlers if h != hid
+                ]
+                self._form.handler_options.pop(hid, None)
 
     def _nudge(self, dx: int, dy: int) -> None:
         """Move all selected widgets by (dx, dy) pixels, clamped to form bounds."""
