@@ -5,14 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [2026-06-25] — Component rename works in CI mode
+## [2026-06-25] — Component management works in CI mode
 
 ### Fixed
-- **Renaming a component in the Properties panel now works while in Canvas-Item edit mode.**
-  `_on_comp_rename` looked the component up on `self._design_canvas.form`, which is the synthetic CI
-  sub-form (it has no components), so the rename silently bailed. It now resolves the original form
-  via `ci_original_form` in CI mode — matching `_on_comp_select`/`_on_comp_prop_change` — and refreshes
-  the panel through `load_component(form=…)` without resetting the CI selector context.
+- **Renaming, connecting, disconnecting, editing, and deleting components now work while in
+  Canvas-Item edit mode.** `_on_comp_rename`, `_on_comp_connect`, `_on_comp_disconnect`,
+  `_on_comp_edit`, and `_on_comp_delete` all looked the component up on `self._design_canvas.form` —
+  the synthetic CI sub-form, which has no components — so they silently bailed (the ⚡/×/… buttons and
+  tray rename/delete did nothing in CI mode). They now resolve the original form via `ci_original_form`
+  in CI mode, matching `_on_comp_select`/`_on_comp_prop_change`; the connector correctly lists the
+  original form's real widgets, rename refreshes via `load_component(form=…)`, and delete clears the
+  panel + refreshes CI palette images.
 
 ## [2026-06-25] — Dialog close-mode rename + unload/_on_close
 

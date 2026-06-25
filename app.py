@@ -7073,12 +7073,22 @@ class IDOL(Tk):
             self._props_panel.load_form(form)
 
     def _on_comp_delete(self, comp_id: str) -> None:
-        form = self._design_canvas.form
+        # In CI mode components live on the original form, not the sub-form.
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         form.components = [c for c in form.components if c.id != comp_id]
         self._comp_tray.refresh(form.components)
-        self._props_panel.load_form(form)
+        if self._design_canvas.ci_mode:
+            # The deleted component was shown in component mode; mirror _on_comp_deselect.
+            self._props_panel.clear()
+            if self._design_canvas.ci_widget_id:
+                updated = self._ci_palette_images(self._design_canvas.ci_widget_id)
+                self._designer_palette.refresh_ci_images(updated)
+        else:
+            self._props_panel.load_form(form)
         self._set_designer_dirty()
 
     def _on_comp_rename(self, comp_id: str, new_name: str) -> None:
@@ -7160,7 +7170,10 @@ class IDOL(Tk):
         self._set_designer_dirty()
 
     def _on_comp_connect(self, comp_id: str, handler_id: str) -> None:
-        form = self._design_canvas.form
+        # In CI mode components (and the widgets they wire to) live on the original form.
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         comp = form.get_component(comp_id)
@@ -7389,7 +7402,10 @@ class IDOL(Tk):
         )
 
     def _on_comp_disconnect(self, comp_id: str, widget_id: str, event_key: str) -> None:
-        form = self._design_canvas.form
+        # In CI mode components (and the widgets they wire to) live on the original form.
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         # canvas_button deletion — event_key is the tag name
@@ -7418,7 +7434,10 @@ class IDOL(Tk):
 
     def _on_comp_edit(self, comp_id: str, widget_id: str, event_key: str) -> None:
         """Open the Connector dialog pre-populated for an existing component wire."""
-        form = self._design_canvas.form
+        # In CI mode components (and the widgets they wire to) live on the original form.
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         comp = form.get_component(comp_id)
