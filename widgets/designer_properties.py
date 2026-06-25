@@ -1449,6 +1449,15 @@ class DesignerProperties(tk.Frame):
         iid = self._events_iid_at_y(event.y)
         if not iid or iid == "ev__learn_guide":
             return
+        # Form-event rows display the connected handler (e.g. _set_always_on_top)
+        # but the row *is* the form's load/activate/… event, so jump to that event's
+        # own stub (_on_load) — the connected handler is reached from the Handlers tab.
+        if iid.startswith("form_ev__") and self._form is not None:
+            ev_key = iid[len("form_ev__"):]
+            method = self._form.form_events.get(ev_key)
+            if method:
+                self._on_navigate_handler(method)
+                return
         handler = self._events_get(iid).strip()
         if handler:
             self._on_navigate_handler(handler)

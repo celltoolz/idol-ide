@@ -27,6 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   re-showed the now-empty pane — which tore it down via `_close_split` mid-flight and left the caller
   adding a tab to a `None` notebook. `_ensure_split_shown` now rebuilds the pane in that case so it
   always hands back a live notebook.
+- **Double-clicking a wired form-event row jumps to the form event, not the handler.** A form event
+  with a connected catalog handler (e.g. `load` → `_set_always_on_top`) displays the handler name, so
+  double-clicking it navigated to `_set_always_on_top` instead of the form's `_on_load` stub. It now
+  jumps to the event's own method (`_on_load`); the connected handler is still reached from the
+  Handlers tab. (Widget event rows are unchanged — they jump to the connected handler.)
 
 ## [Unreleased] — Treeview widget in the GUI Designer
 
