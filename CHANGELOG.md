@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-25] — Component rename works in CI mode
+
+### Fixed
+- **Renaming a component in the Properties panel now works while in Canvas-Item edit mode.**
+  `_on_comp_rename` looked the component up on `self._design_canvas.form`, which is the synthetic CI
+  sub-form (it has no components), so the rename silently bailed. It now resolves the original form
+  via `ci_original_form` in CI mode — matching `_on_comp_select`/`_on_comp_prop_change` — and refreshes
+  the panel through `load_component(form=…)` without resetting the CI selector context.
+
 ## [2026-06-25] — Dialog close-mode rename + unload/_on_close
 
 ### Changed

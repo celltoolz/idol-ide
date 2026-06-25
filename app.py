@@ -7084,7 +7084,10 @@ class IDOL(Tk):
     def _on_comp_rename(self, comp_id: str, new_name: str) -> None:
         from pathlib import Path as _Path
 
-        form = self._design_canvas.form
+        # In CI mode components live on the original form, not the sub-form.
+        form = (self._design_canvas.ci_original_form
+                if self._design_canvas.ci_mode
+                else self._design_canvas.form)
         if form is None:
             return
         if not new_name.isidentifier():
@@ -7122,10 +7125,16 @@ class IDOL(Tk):
         comp.id = new_name
         self._comp_tray.refresh(form.components)
         self._comp_tray.select(new_name)
-        self._props_panel.set_form(form)
         cdef = get_component_def(comp.type)
-        if cdef:
-            self._props_panel.load_component(comp, cdef)
+        if self._design_canvas.ci_mode:
+            # Mirror _on_comp_select: keep the CI panel context and pass the original
+            # form so the component resolves correctly (don't reset the selector to it).
+            if cdef:
+                self._props_panel.load_component(comp, cdef, form=form)
+        else:
+            self._props_panel.set_form(form)
+            if cdef:
+                self._props_panel.load_component(comp, cdef)
         self._set_designer_dirty()
 
     def _on_comp_prop_change(self, comp_id: str, prop_key: str, value) -> None:
