@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-25] — Wired handlers show on the form Events tab
+
+### Fixed
+- **A catalog handler wired to a form event now appears on the form's Events tab.** Connecting e.g.
+  `_set_always_on_top` to the form's `load` event via the Handlers tab left the Events tab blank —
+  the wired-handler visibility added for widget events never covered form-level events. `load_form`
+  now consults the same wire lookup (`_wire_method_map("__form__")`) and shows the connected handler
+  as a read-only row (`load   _set_always_on_top`), matching the widget Events tab.
+- **The Events tab refreshes immediately after wiring.** Handlers-tab wire/unwire/edit only redrew
+  the Handlers tab, so a freshly wired handler didn't show on Events until the form/widget was
+  reselected. The connect/disconnect/edit paths now call `reload_after_wire()`, which re-populates
+  the active view (widget or form).
+
 ## [Unreleased] — Treeview widget in the GUI Designer
 
 ### Added

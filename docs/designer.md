@@ -176,7 +176,7 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 
 **`comboselected` event** — for Combobox, generates `.bind("<<ComboboxSelected>>", ...)`.
 
-**Form events** — clicking the canvas background and switching to the Events tab exposes form-level events: load, activate, deactivate, unload, resize. Wiring them generates `.bind()` calls and stubs the handler methods.
+**Form events** — clicking the canvas background and switching to the Events tab exposes form-level events: load, activate, deactivate, unload, resize. Wiring them generates `.bind()` calls and stubs the handler methods. A catalog handler connected to a form event via the Handlers tab (e.g. `_set_always_on_top` → `load`) shows up here as a **read-only** row, exactly like the widget Events tab.
 
 **Handler picker** — every event handler cell has a ▾ button that opens a scrollable popup listing all handlers already defined on the form. Hover a row to preview the name in the entry field. Useful for reusing an existing handler across multiple events. The Menu Editor Command field has the same picker.
 

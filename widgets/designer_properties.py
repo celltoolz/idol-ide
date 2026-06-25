@@ -480,9 +480,15 @@ class DesignerProperties(tk.Frame):
             )
 
         self._events_clear()
+        # Catalog handlers wired to a form event via the Handlers tab show read-only
+        # (e.g. _set_always_on_top → load), matching the widget Events tab.
+        wired = self._wired_form_event_methods()
         for ev in ("load", "activate", "deactivate", "unload", "resize"):
-            handler = form.form_events.get(ev, "")
-            self._events_insert(f"form_ev__{ev}", ev, handler)
+            if ev in wired:
+                self._events_insert(f"form_ev__{ev}", ev, wired[ev], kind="readonly")
+            else:
+                handler = form.form_events.get(ev, "")
+                self._events_insert(f"form_ev__{ev}", ev, handler)
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
 
@@ -2826,6 +2832,20 @@ class DesignerProperties(tk.Frame):
         if self._current_widget and self._current_widget.id == descriptor.id:
             self.load_widget(descriptor)
 
+    def reload_after_wire(self) -> None:
+        """Re-populate the active view after a Handlers-tab wire/unwire/edit.
+
+        Those actions change the Events tab too (a wired handler shows read-only
+        on its event), so refresh whichever view is active — widget or form — and
+        the Events tab updates without the user having to reselect.
+        """
+        if not self._comp_mode and self._current_widget is not None:
+            self.load_widget(self._current_widget)
+        elif not self._comp_mode and self._form is not None:
+            self.load_form(self._form)
+        elif self._form is not None:
+            self.load_handlers(self._form)   # component view: refresh Handlers only
+
     # ── Populate helpers ──────────────────────────────────────────────────────
 
     def _populate_props(self, d: WidgetDescriptor, reg: dict) -> None:
@@ -3049,14 +3069,15 @@ class DesignerProperties(tk.Frame):
         self._events_insert("ev__learn_guide", "? Events", "", kind="guide")
         self._events_redraw()
 
-    def _wired_event_methods(self, widget: WidgetDescriptor) -> "dict[str, str]":
-        """Map event_key → the catalog handler/opener method the event invokes.
+    def _wire_method_map(self, target_id: str) -> "dict[str, str]":
+        """Map event_key → the catalog handler/opener method invoked, for one target.
 
-        A handler wired to a widget event via the Handlers tab (a `HandlerWire`)
-        is surfaced read-only on the matching Events row, mirroring how CI mode
-        shows tag-bound handlers. The method name is parsed from the wire body so
-        it stays navigable on double-click and meaningful (e.g. `_set_always_on_top`,
-        `_open_Dialog1`) rather than the opaque `_{widget}_{event}` shim.
+        A handler wired via the Handlers tab (a `HandlerWire`) is surfaced read-only
+        on the matching Events row, mirroring how CI mode shows tag-bound handlers.
+        The method name is parsed from the wire body so it stays navigable on
+        double-click and meaningful (e.g. `_set_always_on_top`, `_open_Dialog1`)
+        rather than the opaque `_{widget}_{event}` / `_on_{event}` shim. *target_id*
+        is a widget id or ``"__form__"`` for form-level events.
         """
         out: "dict[str, str]" = {}
         if self._form is None:
@@ -3065,7 +3086,7 @@ class DesignerProperties(tk.Frame):
         from designer.handlers import HANDLER_CATALOG
         catalog = {h.id: h for h in HANDLER_CATALOG}
         for wire in getattr(self._form, "handler_wires", []):
-            if wire.widget_id != widget.id:
+            if wire.widget_id != target_id:
                 continue
             hdef = catalog.get(wire.handler_id)
             if hdef is None:
@@ -3074,6 +3095,14 @@ class DesignerProperties(tk.Frame):
             m = re.match(r"\s*self\.(\w+)\(", body)
             out[wire.event_key] = m.group(1) if m else hdef.id
         return out
+
+    def _wired_event_methods(self, widget: WidgetDescriptor) -> "dict[str, str]":
+        """Wired-handler Events rows for a selected widget (see `_wire_method_map`)."""
+        return self._wire_method_map(widget.id)
+
+    def _wired_form_event_methods(self) -> "dict[str, str]":
+        """Wired-handler Events rows for form-level events (see `_wire_method_map`)."""
+        return self._wire_method_map("__form__")
 
     def _form_component_methods(self) -> "set[str]":
         """Generated method names for every component handler on the form.

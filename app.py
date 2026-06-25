@@ -6195,7 +6195,7 @@ class IDOL(Tk):
                 if option and hdef.stub_option_bodies:
                     form.handler_options[handler_id] = option
                 self._set_designer_dirty()
-                self._props_panel.load_handlers(form)
+                self._props_panel.reload_after_wire()
 
             # Pass a resolver so the connector preview shows the actual generated call.
             resolver = (
@@ -6221,7 +6221,7 @@ class IDOL(Tk):
             if handler_id not in form.enabled_handlers:
                 form.enabled_handlers.append(handler_id)
             self._set_designer_dirty()
-            self._props_panel.load_handlers(form)
+            self._props_panel.reload_after_wire()
 
     def _open_ci_handler_connector(
         self, hdef, handler_id: str, preselect_item_id: "str | None",
@@ -6462,7 +6462,7 @@ class IDOL(Tk):
             ]
             form.handler_options.pop(handler_id, None)
         self._set_designer_dirty()
-        self._props_panel.load_handlers(form)
+        self._props_panel.reload_after_wire()
 
     def _on_designer_handler_edit(self, handler_id: str, wire) -> None:
         """… button on a Connected handler row — open the options editor."""
@@ -6503,7 +6503,7 @@ class IDOL(Tk):
                 ]
                 self._apply_wire_side_effects(form, hdef, new_combined)
                 self._set_designer_dirty()
-                self._props_panel.load_handlers(form)
+                self._props_panel.reload_after_wire()
 
             HandlerOptionsEditor(
                 self,
@@ -6547,7 +6547,7 @@ class IDOL(Tk):
                 else:
                     form.handler_options.pop(handler_id, None)
             self._set_designer_dirty()
-            self._props_panel.load_handlers(form)
+            self._props_panel.reload_after_wire()
 
         HandlerOptionsEditor(self, handler_id, hdef, is_wire, current, on_apply)
 
