@@ -2,6 +2,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# Legacy option strings → current label, for projects saved before a rename.
+# The close mode "destroy (exit)" was renamed to "exit (destroy)".
+_LEGACY_OPTION_ALIASES = {
+    "destroy (exit)": "exit (destroy)",
+    "destroy":        "exit (destroy)",
+}
+
+
 @dataclass(frozen=True)
 class HandlerDef:
     id:              str            # method name, e.g. "_on_close"
@@ -52,15 +60,19 @@ class HandlerDef:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _resolve_option(self, option: str) -> str:
-        """Map option to a current option name, handling old short forms.
+        """Map option to a current option name, handling old short/renamed forms.
 
-        Allows "destroy" to match "destroy (exit)" and "hide" to match
-        "hide (withdraw)" so projects saved before the rename still work.
+        Allows "hide" to match "hide (withdraw)" (short form) and the legacy
+        close-mode label "destroy (exit)" / "destroy" to match the renamed
+        "exit (destroy)" so projects saved before the rename still work.
         """
         if not option:
             return option
         if option in self.options:
             return option
+        alias = _LEGACY_OPTION_ALIASES.get(option)
+        if alias and alias in self.options:
+            return alias
         for o in self.options:
             if o.startswith(option):
                 return o
@@ -88,7 +100,7 @@ class HandlerDef:
             if idx < len(self.wire_option_bodies):
                 return self.wire_option_bodies[idx]
         if self.dynamic_wire_body and option:
-            # Strip :secondary suffix (e.g. "Dialog1:destroy (exit)" → "Dialog1")
+            # Strip :secondary suffix (e.g. "Dialog1:exit (destroy)" → "Dialog1")
             base = option.split(":")[0]
             return self.dynamic_wire_body.replace("{option}", base)
         return f"self.{handler_id}()"
@@ -109,7 +121,7 @@ HANDLER_CATALOG: list[HandlerDef] = [
         default_body="self.withdraw()",
         always_wired=True,
         display_target="WM_DELETE_WINDOW",
-        options=("hide (withdraw)", "destroy (exit)"),
+        options=("hide (withdraw)", "exit (destroy)"),
         stub_option_bodies=(
             "self.withdraw()",
             "self.destroy()",
@@ -132,7 +144,7 @@ HANDLER_CATALOG: list[HandlerDef] = [
         params="event=None",
         default_body="pass  # TODO",
         display_target="<Escape>",
-        options=("hide (withdraw)", "destroy (exit)"),
+        options=("hide (withdraw)", "exit (destroy)"),
         stub_option_bodies=("self.withdraw()", "self.destroy()"),
     ),
     HandlerDef(
@@ -220,7 +232,7 @@ HANDLER_CATALOG: list[HandlerDef] = [
         generates_stub=False,
         multi_wire=True,
         dynamic_wire_body="self._open_{option}()",
-        secondary_options=("hide (withdraw)", "destroy (exit)"),
+        secondary_options=("hide (withdraw)", "exit (destroy)"),
         connector_options_source="linked_dialogs",
         edit_bodies=(
             "withdraw() — reuses instance on next open",

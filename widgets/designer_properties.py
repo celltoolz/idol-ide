@@ -32,13 +32,13 @@ _PROPS_SPLIT = 0.44   # fraction of width for the label column
 def _parse_multi_wire_name(option: str) -> str:
     """Convert a multi-wire option string to a display name for the Connected row.
 
-    "Dialog1:destroy (exit)"  → "→ Dialog1 (destroy)"
+    "Dialog1:exit (destroy)"  → "→ Dialog1 (destroy)"
     "Dialog1:hide (withdraw)" → "→ Dialog1"
     "Dialog1"                 → "→ Dialog1"
     """
     if ":" in option:
         dialog, _, mode = option.partition(":")
-        tag = " (destroy)" if mode.startswith("destroy") else ""
+        tag = " (destroy)" if "destroy" in mode else ""
         return f"→ {dialog}{tag}"
     return f"→ {option}"
 
@@ -484,7 +484,13 @@ class DesignerProperties(tk.Frame):
         # (e.g. _set_always_on_top → load), matching the widget Events tab.
         wired = self._wired_form_event_methods()
         for ev in ("load", "activate", "deactivate", "unload", "resize"):
-            if ev in wired:
+            if ev == "unload" and form.form_type == "dialog":
+                # `unload` binds WM_DELETE_WINDOW — the same protocol the always-wired
+                # `_on_close` dialog handler owns. Show it as owned by _on_close (read-
+                # only) so the close behaviour stays managed from the Handlers tab and
+                # isn't accidentally double-wired here. Double-click jumps to _on_close.
+                self._events_insert(f"form_ev__{ev}", ev, "_on_close", kind="readonly")
+            elif ev in wired:
                 self._events_insert(f"form_ev__{ev}", ev, wired[ev], kind="readonly")
             else:
                 handler = form.form_events.get(ev, "")

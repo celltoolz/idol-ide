@@ -4,6 +4,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+def _migrate_close_mode(value: str) -> str:
+    """Normalize the legacy close-mode label in a persisted option string.
+
+    The close mode "destroy (exit)" was renamed to "exit (destroy)". The label is
+    stored in ``FormModel.handler_options`` values and ``HandlerWire.option`` (where
+    it may be the ':'-suffixed part of a combined ``"Dialog1:destroy (exit)"`` value),
+    so old ``.form.json`` files are migrated on load to keep the chosen mode.
+    """
+    return value.replace("destroy (exit)", "exit (destroy)")
+
+
 @dataclass
 class CanvasItemDescriptor:
     """One item placed inside a tk.Canvas widget (create_image / create_rectangle / etc.)."""
@@ -230,7 +241,7 @@ class HandlerWire:
             handler_id=d.get("handler_id", ""),
             widget_id =d.get("widget_id",  ""),
             event_key =d.get("event_key",  ""),
-            option    =d.get("option",     ""),
+            option    =_migrate_close_mode(d.get("option", "")),
         )
 
 
@@ -394,7 +405,8 @@ class FormModel:
             enabled_handlers=_load_enabled_handlers(d),
             components=[ComponentDescriptor.from_dict(c) for c in d.get("components", [])],
             handler_wires=[HandlerWire.from_dict(w) for w in d.get("handler_wires", [])],
-            handler_options=dict(d.get("handler_options", {})),
+            handler_options={k: _migrate_close_mode(v)
+                             for k, v in d.get("handler_options", {}).items()},
         )
 
 

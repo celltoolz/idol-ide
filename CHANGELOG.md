@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-25] — Dialog close-mode rename + unload/_on_close
+
+### Changed
+- **Dialog `unload` event now shows as wired to `_on_close`.** Both bind the
+  `WM_DELETE_WINDOW` protocol, so a separately-wired `unload` would silently collide with the
+  always-wired `_on_close`. On dialog forms the `unload` Events row is now read-only and displays
+  `_on_close`; choose hide/exit via its **…** options on the Handlers tab. Double-clicking the row
+  jumps to `_on_close`.
+- **Close-mode option renamed `destroy (exit)` → `exit (destroy)`.** Applies to `_on_close`,
+  `_on_escape`, and the `open_dialog` mode picker. Existing `.form.json` files are migrated on load
+  (`_migrate_close_mode` rewrites `handler_options` + `HandlerWire.option`), and `_resolve_option`
+  keeps a legacy alias so older saved projects keep their chosen mode.
+
 ## [2026-06-25] — Designer handler-wiring fixes + split-tab crash
 
 ### Fixed

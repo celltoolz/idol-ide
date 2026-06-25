@@ -6555,7 +6555,7 @@ class IDOL(Tk):
         """Dispatch post-wire side effects declared in hdef.wire_side_effects."""
         if hdef.wire_side_effects == "sync_dialog_close_mode" and ":" in option:
             dlg_name, _, mode_str = option.partition(":")
-            # mode_str is already the full secondary option string e.g. "destroy (exit)";
+            # mode_str is already the full secondary option string e.g. "exit (destroy)";
             # store it directly so HandlerOptionsEditor can match it exactly.
             dlg_form = self._designer_forms.get(dlg_name)
             if dlg_form:

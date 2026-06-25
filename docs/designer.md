@@ -176,7 +176,7 @@ Every widget exposes its full event list (click, dblclick, keypress, focusin, ch
 
 **`comboselected` event** — for Combobox, generates `.bind("<<ComboboxSelected>>", ...)`.
 
-**Form events** — clicking the canvas background and switching to the Events tab exposes form-level events: load, activate, deactivate, unload, resize. Wiring them generates `.bind()` calls and stubs the handler methods. A catalog handler connected to a form event via the Handlers tab (e.g. `_set_always_on_top` → `load`) shows up here as a **read-only** row, exactly like the widget Events tab; double-clicking that row jumps to the form's own event stub (`_on_load`) — the connected handler itself is reached from the Handlers tab.
+**Form events** — clicking the canvas background and switching to the Events tab exposes form-level events: load, activate, deactivate, unload, resize. Wiring them generates `.bind()` calls and stubs the handler methods. A catalog handler connected to a form event via the Handlers tab (e.g. `_set_always_on_top` → `load`) shows up here as a **read-only** row, exactly like the widget Events tab; double-clicking that row jumps to the form's own event stub (`_on_load`) — the connected handler itself is reached from the Handlers tab. On **dialog** forms the `unload` row is shown read-only as wired to `_on_close`: both bind the `WM_DELETE_WINDOW` protocol, and the always-wired `_on_close` owns it (choose hide/exit via its **…** options), so `unload` can't be separately wired into a conflict.
 
 **Handler picker** — every event handler cell has a ▾ button that opens a scrollable popup listing all handlers already defined on the form. Hover a row to preview the name in the entry field. Useful for reusing an existing handler across multiple events. The Menu Editor Command field has the same picker.
 
@@ -215,7 +215,7 @@ When a connected handler has named mode variants, the **…** button opens a pic
 `open_dialog` (main forms only) wires a widget event to open a linked dialog. The Connector shows two dropdowns:
 
 - **Dialog** — which linked dialog to open
-- **Mode** — **hide (withdraw)** reuses the instance on next open; **destroy (exit)** recreates it fresh
+- **Mode** — **hide (withdraw)** reuses the instance on next open; **exit (destroy)** recreates it fresh
 
 Wiring automatically updates the linked dialog's `_on_close` option to match the chosen mode. Use the **…** button on a connected row to change the mode later — the dialog's `_on_close` updates automatically.
 
