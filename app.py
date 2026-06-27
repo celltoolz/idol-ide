@@ -5775,6 +5775,9 @@ class IDOL(Tk):
             return
         if key == "__name__":
             new_name = value
+            w = form.get_widget(widget_id)
+            if w is not None and new_name and new_name != widget_id:
+                self._propagate_widget_rename_to_events(w, widget_id, new_name)
             self._design_canvas.rename_widget(widget_id, new_name)
             self._props_panel.set_form(form)
             if form.get_widget(new_name):
@@ -5936,6 +5939,21 @@ class IDOL(Tk):
                     self._pending_body_renames.pop(old_method, None)
                 return
         self._pending_body_renames[old_method] = new_method
+
+    def _propagate_widget_rename_to_events(self, w, old_id: str, new_id: str) -> None:
+        """Rename auto-derived event handlers when their widget is renamed.
+
+        A handler still following the auto convention (_{id}_{event}) is renamed
+        to track the new widget id; a custom-named handler (e.g. _handle_click) is
+        left alone, since it isn't tied to the widget name. Each rename is recorded
+        in _pending_body_renames so the user's code carries to the new method name
+        on the next codegen — same mechanism as a manual handler rename.
+        """
+        for event_key, method_name in list(w.events.items()):
+            if method_name == f"_{old_id}_{event_key}":
+                new_method = f"_{new_id}_{event_key}"
+                w.events[event_key] = new_method
+                self._on_designer_event_rename(method_name, new_method)
 
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
