@@ -27,7 +27,7 @@ _BINDINGS: dict[str, str] = {
     "focusin":     "<FocusIn>",
     "focusout":    "<FocusOut>",
     "keypress":    "<KeyPress>",
-    "keydown":     "<KeyPress>",
+    "keydown":     "<KeyPress>",   # dropped event; kept as a codegen safety net (forms migrate keydown→keypress on load)
     "keyup":       "<KeyRelease>",
     "change":        "<<Modified>>",
     "comboselected": "<<ComboboxSelected>>",

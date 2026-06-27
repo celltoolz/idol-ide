@@ -147,6 +147,11 @@ class WidgetDescriptor:
         # codegen (command kwarg took precedence and click was skipped).
         if d.get("type") == "Button" and "command" in events:
             events["click"] = events.pop("command")
+        # "keydown" was an exact duplicate of "keypress" (both <KeyPress>).
+        # Collapse onto keypress; the survivor (keypress) is kept if both wired.
+        if "keydown" in events:
+            events.setdefault("keypress", events["keydown"])
+            del events["keydown"]
         return WidgetDescriptor(
             id=d["id"],
             type=d["type"],

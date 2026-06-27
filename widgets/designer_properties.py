@@ -4841,7 +4841,6 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "focusin":     ("<FocusIn>",          "Widget gained focus"),
     "focusout":    ("<FocusOut>",         "Widget lost focus"),
     "keypress":    ("<KeyPress>",         "Key pressed while focused"),
-    "keydown":     ("<KeyPress>",         "Key pressed while focused"),
     "keyup":       ("<KeyRelease>",       "Key released while focused"),
     "change":        ("<<Modified>>",           "Content changed"),
     "comboselected": ("<<ComboboxSelected>>",   "Item selected from dropdown"),

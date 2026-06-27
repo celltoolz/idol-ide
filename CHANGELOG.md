@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-27] — Drop duplicate keydown event (use keypress)
+
+### Changed
+- **The `keydown` designer event has been removed — it was an exact duplicate of `keypress`.** Both
+  bound `<KeyPress>`, so wiring both emitted two `.bind("<KeyPress>", …)` calls and one silently
+  overwrote the other. Widgets now expose `keypress` / `keyup` only. Existing forms migrate on load
+  (`WidgetDescriptor.from_dict`): a wired `keydown` becomes `keypress`, and if both were wired the
+  `keypress` wire is kept. (`keydown` remains in the codegen binding table as a safety net.)
+
 ## [2026-06-27] — Button command/click collision resolved
 
 ### Changed

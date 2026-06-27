@@ -195,7 +195,9 @@ _MOUSE_EVENTS   = ["click", "dblclick", "rightclick",
                    "mousedown", "mouseup", "mousemove",
                    "mouseenter", "mouseleave"]
 _FOCUS_EVENTS   = ["focusin", "focusout"]
-_KEY_EVENTS     = ["keypress", "keydown", "keyup"]
+# "keydown" was an exact duplicate of "keypress" (both <KeyPress>); dropped.
+# Old forms migrate keydown→keypress on load (WidgetDescriptor.from_dict).
+_KEY_EVENTS     = ["keypress", "keyup"]
 _CHANGE_EVENTS  = ["change"]
 
 _WIDGET_EVENTS  = _MOUSE_EVENTS + _FOCUS_EVENTS + _KEY_EVENTS + _CHANGE_EVENTS
