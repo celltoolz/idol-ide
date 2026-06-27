@@ -58,6 +58,7 @@ class DesignerProperties(tk.Frame):
         master,
         on_prop_change:           Optional[Callable[[str, str, Any],  None]] = None,
         on_event_change:          Optional[Callable[[str, str, str], None]] = None,
+        on_event_rename:          Optional[Callable[[str, str],       None]] = None,
         on_select_widget:         Optional[Callable[[str | None],    None]] = None,
         on_navigate_handler:      Optional[Callable[[str],           None]] = None,
         on_reorder_widget:        Optional[Callable[[str, int],      None]] = None,
@@ -81,6 +82,7 @@ class DesignerProperties(tk.Frame):
         super().__init__(master, bg="#252526", **kwargs)
         self._on_prop_change           = on_prop_change
         self._on_event_change          = on_event_change
+        self._on_event_rename          = on_event_rename
         self._on_select_widget         = on_select_widget
         self._on_navigate_handler      = on_navigate_handler
         self._on_reorder_widget        = on_reorder_widget
@@ -4715,10 +4717,12 @@ class DesignerProperties(tk.Frame):
             if self._form is None:
                 return
             ev_key = row_iid[9:]
+            old = self._form.form_events.get(ev_key, "")
             if handler:
                 self._form.form_events[ev_key] = handler
             else:
                 self._form.form_events.pop(ev_key, None)
+            self._notify_event_rename(old, handler)
             if self._on_event_change:
                 self._on_event_change("__form__", ev_key, handler)
             self._events_set_warn(row_iid, bool(handler and not handler.startswith("_")))
@@ -4728,13 +4732,27 @@ class DesignerProperties(tk.Frame):
         if d is None or not row_iid.startswith("ev__"):
             return
         event_key = row_iid[4:]
+        old = d.events.get(event_key, "")
         if handler:
             d.events[event_key] = handler
         else:
             d.events.pop(event_key, None)
+        self._notify_event_rename(old, handler)
         if self._on_event_change:
             self._on_event_change(d.id, event_key, handler)
         self._events_set_warn(row_iid, bool(handler and not handler.startswith("_")))
+
+    def _notify_event_rename(self, old: str, new: str) -> None:
+        """Report an event-handler method rename so its body survives regen.
+
+        When the user retypes an event's handler name (e.g. _canvas1_mousedown →
+        _gameboard_mousedown) the body is keyed by the *old* name in the existing
+        .py; without this the regen pass can't find it and emits a clean stub,
+        dropping the user's code. The app carries the body to the new name.
+        """
+        old = old.strip()
+        if old and new and old != new and self._on_event_rename:
+            self._on_event_rename(old, new)
 
     def _auto_wire_event(self, row_iid: str) -> None:
         """Click on event name → fill default handler and commit."""

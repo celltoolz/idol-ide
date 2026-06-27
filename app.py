@@ -496,6 +496,9 @@ class IDOL(Tk):
         self._pending_body_resets: set[str] = (
             set()
         )  # method names to drop before next gen
+        self._pending_body_renames: dict[str, str] = (
+            {}
+        )  # old→new event method names; carries user bodies across a rename
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
@@ -1032,6 +1035,7 @@ class IDOL(Tk):
             self._h_pane,
             on_prop_change=self._on_designer_prop_change,
             on_event_change=self._on_designer_event_change,
+            on_event_rename=self._on_designer_event_rename,
             on_select_widget=self._on_designer_selector_pick,
             on_navigate_handler=self._on_designer_event_navigate,
             on_reorder_widget=self._on_designer_reorder_widget,
@@ -5915,6 +5919,24 @@ class IDOL(Tk):
                         wd.props.get("_ci_binding_tags", {}).pop(tk_ev, None)
                         wd.props.get("_ci_binding_handlers", {}).pop(tk_ev, None)
 
+    def _on_designer_event_rename(self, old_method: str, new_method: str) -> None:
+        """Event handler renamed in the panel → carry its body across regen.
+
+        The body lives in the existing .py keyed by the *old* method name; the
+        model now points the event at *new_method*. We record the mapping so the
+        next codegen pass re-keys the extracted body to the new name instead of
+        emitting a clean stub. Insertion order preserves chains (A→B then B→C).
+        """
+        # Collapse a chain: if new_method was itself a prior rename's target,
+        # rewrite that entry so the original body still lands on the final name.
+        for src, dst in list(self._pending_body_renames.items()):
+            if dst == old_method:
+                self._pending_body_renames[src] = new_method
+                if old_method != new_method:
+                    self._pending_body_renames.pop(old_method, None)
+                return
+        self._pending_body_renames[old_method] = new_method
+
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
         if not self._designer_mode:
@@ -8600,6 +8622,10 @@ class IDOL(Tk):
             if form.form_type == "main":
                 self._generate_one_form(form, root)
 
+        # Renames have now been applied to every form's body extraction; clear so
+        # a later edit doesn't re-key a body that has already moved.
+        self._pending_body_renames.clear()
+
         self._designer_dirty = False
         self._designer_forms_dirty = False
 
@@ -8642,6 +8668,16 @@ class IDOL(Tk):
             pre_init, post_init = _init_zones(py_path)
             helpers = _helpers(py_path)
             user_imports = _user_imports(py_path)
+            # Carry user code across event-handler renames: re-key each preserved
+            # body (and its signature) from its old method name to the new one so
+            # the renamed stub keeps the user's code instead of regenerating blank.
+            # Guarded by membership so applying the map to a non-matching form is a
+            # no-op; cleared once by the caller after every form has generated.
+            for _old, _new in self._pending_body_renames.items():
+                if _old in event_bodies and _new not in event_bodies:
+                    event_bodies[_new] = event_bodies.pop(_old)
+                if _old in event_sigs and _new not in event_sigs:
+                    event_sigs[_new] = event_sigs.pop(_old)
             # Drop stale auto-bodies so the new wire body becomes the default
             for _m in self._pending_body_resets:
                 event_bodies.pop(_m, None)
