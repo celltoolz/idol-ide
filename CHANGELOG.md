@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-27] — Button command/click collision resolved
+
+### Changed
+- **A Button no longer has both a `command` and a `click` event — they were the same event under two
+  names.** On a Button, `click` was folded into the `command=` constructor kwarg (and skipped in
+  `.bind()`), so wiring both silently dropped `click` (`command` won). Button now exposes a single
+  activation event, **`click`**, which still wires as `command=self.method` — preserving keyboard
+  activation and `state=disabled` behaviour (a raw `<Button-1>` bind would lose both). `command` is
+  unchanged on Checkbutton/Radiobutton/Scale/Spinbox, where it and `click` fire independently.
+- **Existing forms migrate on load.** A Button with a wired `command` event is rewritten to `click`
+  (`WidgetDescriptor.from_dict`); if both were wired, `command` wins (matching the old codegen). The
+  Events tab and guide now show Button's `click` as `command=` (Fired on click), not `<Button-1>`.
+
 ## [2026-06-26] — Auto CI image component no longer duplicates/resurrects
 
 ### Fixed

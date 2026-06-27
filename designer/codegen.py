@@ -639,8 +639,12 @@ def _widget_lines(w: WidgetDescriptor, y_offset: int = 0, form: "FormModel | Non
         var_kwarg = reg.get("variable_prop", "textvariable")
         kw_parts.append(f"{var_kwarg}=self.{w.variable.name}")
 
-    # command event → kwarg (all command-capable widgets)
-    # Prefer explicit "command" key; fall back to Button's "click" legacy mapping.
+    # command event → kwarg (all command-capable widgets).
+    # Checkbutton/Radiobutton/Scale/Spinbox use an explicit "command" event.
+    # Button has no "command" event — its "click" event is the activation and
+    # wires as command= here (a real <Button-1> bind would lose keyboard/disabled
+    # behaviour). Old forms migrate command→click on load (WidgetDescriptor.from_dict),
+    # so the "command" key below is just a defensive fallback for un-migrated input.
     command_method = w.events.get("command") or (
         w.events.get("click") if w.type == "Button" else None
     )

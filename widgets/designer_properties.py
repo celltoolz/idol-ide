@@ -1334,7 +1334,8 @@ class DesignerProperties(tk.Frame):
             self._update_event_btns(idx)
             ev_name = (iid[4:]  if iid.startswith("ev__")      else
                        iid[9:]  if iid.startswith("form_ev__") else "")
-            hint = _EVENT_DESCRIPTIONS.get(ev_name, ("", ""))[1]
+            wtype = self._current_widget.type if self._current_widget else None
+            hint = _event_desc(ev_name, wtype)[1]
             if hint:
                 self._show_hint(hint)
             elif self._events_rows[idx].get("kind") == "comp_wire":
@@ -2785,7 +2786,7 @@ class DesignerProperties(tk.Frame):
         # Build the events reference list as a formatted string for the second page
         lines: list[str] = []
         for ev in events:
-            binding, desc = _EVENT_DESCRIPTIONS.get(ev, ("", ev))
+            binding, desc = _event_desc(ev, d.type if d else None)
             lines.append(f"{ev:<14}  {binding:<22}  {desc}")
         events_text = "\n".join(lines) if lines else "No events available for this widget type."
 
@@ -2829,10 +2830,11 @@ class DesignerProperties(tk.Frame):
                      "You can also type any name directly in the Handler column.",
                      "#cccccc"),
                     ("COMMAND EVENT",
-                     "The command event (Button, Checkbutton, Radiobutton, Scale, Spinbox) is wired "
-                     "as command= in the widget constructor rather than a .bind() call — "
-                     "this is the standard tkinter pattern. Scale passes the current value "
-                     "as an argument; use *args in the handler signature to receive it.",
+                     "The command event (Checkbutton, Radiobutton, Scale, Spinbox) — and a Button's "
+                     "click event — is wired as command= in the widget constructor rather than a "
+                     ".bind() call; this is the standard tkinter pattern (keyboard activation, "
+                     "respects state=disabled). Scale passes the current value as an argument; "
+                     "use *args in the handler signature to receive it.",
                      "#e2c08d"),
                 ],
                 plain_english=(
@@ -4852,6 +4854,18 @@ _EVENT_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "unload":     ("WM_DELETE_WINDOW",    "Fired when the user closes the window — stub calls self.destroy()"),
     "resize":     ("<Configure>",         "Fired when the form is resized (guard skips child resize events)"),
 }
+
+
+def _event_desc(ev_name: str, widget_type: str | None = None) -> tuple[str, str]:
+    """(binding, description) for an event, widget-aware where it matters.
+
+    On a Button, "click" is the activation event and wires as command= (not a
+    real <Button-1> bind), so it gets the command-event description rather than
+    the generic mouse-click one used on every other widget."""
+    if widget_type == "Button" and ev_name == "click":
+        return ("command=", "Fired on click — wired as constructor kwarg, not .bind()")
+    return _EVENT_DESCRIPTIONS.get(ev_name, ("", ev_name))
+
 
 _PROP_HINTS: dict[str, str] = {
     # Resize anchor

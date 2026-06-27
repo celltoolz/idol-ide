@@ -213,7 +213,10 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": "Button", "bg": "", "fg": "#000000",
                           "font": "", "justify": "", "relief": "", "borderwidth": "",
                           "wraplength": "", "image": "", "compound": ""},
-        "events":       ["command"] + _SIMPLE_EVENTS + _KEY_EVENTS,
+        # No separate "command" event — it collided with "click" (both emit
+        # command=self.method). "click" is the Button's activation event and is
+        # wired as command= in codegen. Old forms migrate command→click on load.
+        "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_button,
         "color_props":  ["bg", "fg"],
         "state_prop":   True,
