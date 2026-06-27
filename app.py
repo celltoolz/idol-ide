@@ -6082,6 +6082,18 @@ class IDOL(Tk):
         seen: set = set()
         unique_paths = [p for p in img_paths if not (p in seen or seen.add(p))]
         comp_id = f"{canvas_widget.id}_ci"
+        # Paths already supplied by another Image component targeting this canvas
+        # (or Global) are resolved to *that* component by codegen (_ci_image_ref
+        # picks the first match), so the _ci component must not duplicate them —
+        # otherwise it lingers unused and reappears on load after being deleted.
+        covered = {
+            p
+            for c in form.components
+            if c.type == "Image" and c.id != comp_id
+            and c.props.get("parent") in (canvas_widget.id, "Global")
+            for p in c.props.get("paths", [])
+        }
+        unique_paths = [p for p in unique_paths if p not in covered]
         existing = form.get_component(comp_id)
         if not unique_paths:
             if existing is not None:
@@ -6094,8 +6106,8 @@ class IDOL(Tk):
                                               "parent": canvas_widget.id})
             form.components.append(comp)
         else:
-            # Merge: keep manually-added palette paths, add any new canvas-item paths
-            saved = list(existing.props.get("paths", []))
+            # Merge: keep existing uncovered paths, add any new canvas-item paths
+            saved = [p for p in existing.props.get("paths", []) if p not in covered]
             seen = set(saved)
             for p in unique_paths:
                 if p not in seen:

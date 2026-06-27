@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-26] — Auto CI image component no longer duplicates/resurrects
+
+### Fixed
+- **A deleted `{canvas}_ci` Image component no longer reappears on restart.** The auto-sync that backs
+  CanvasImage items (`_sync_ci_image_component`) created a `_ci` component for *every* CI image path —
+  even paths already provided by another Image component on the same canvas. Codegen resolves a CI
+  image item to the first matching Image component, so the `_ci` duplicate was dead code that couldn't
+  be deleted (the next load recreated it). The sync now excludes paths already covered by another
+  Image component targeting that canvas (or `Global`); when all CI paths are covered, the `_ci`
+  component is omitted/removed. Generated code is unchanged (items still resolve to the covering
+  component).
+
 ## [2026-06-25] — Component management works in CI mode
 
 ### Fixed

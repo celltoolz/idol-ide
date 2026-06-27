@@ -548,7 +548,7 @@ Image components now have a **`parent`** property (shown as a `canvas_ref` kind 
 | `Global` | Shared by all canvases on the form — appears in every canvas's IMAGES palette |
 | `<canvas_id>` | Associated with a specific canvas — appears only in that canvas's IMAGES palette |
 
-When a `CanvasImage` item is placed in CI mode, an Image component is **auto-created** (or updated) on the original form with `parent = canvas_id`. The Image component's `paths` list stays in sync with placed CanvasImage items.
+When a `CanvasImage` item is placed in CI mode, an Image component named `{canvas_id}_ci` is **auto-created** (or updated) on the original form with `parent = canvas_id`. Its `paths` list stays in sync with placed CanvasImage items — **but only for paths not already provided by another Image component** targeting the same canvas (or `Global`). Since codegen resolves a CI image item to the first Image component that has its path, an overlapping `_ci` component would be dead code; so when every CI image path is already covered, the `_ci` component is omitted (and removed if it existed) instead of lingering and reappearing on load.
 
 ### Code Generation
 
