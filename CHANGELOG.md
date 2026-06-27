@@ -5,6 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-27] — Drop duplicate keydown event (use keypress)
+
+### Changed
+- **The `keydown` designer event has been removed — it was an exact duplicate of `keypress`.** Both
+  bound `<KeyPress>`, so wiring both emitted two `.bind("<KeyPress>", …)` calls and one silently
+  overwrote the other. Widgets now expose `keypress` / `keyup` only. Existing forms migrate on load
+  (`WidgetDescriptor.from_dict`): a wired `keydown` becomes `keypress`, and if both were wired the
+  `keypress` wire is kept. (`keydown` remains in the codegen binding table as a safety net.)
+
+## [2026-06-27] — Button command/click collision resolved
+
+### Changed
+- **A Button no longer has both a `command` and a `click` event — they were the same event under two
+  names.** On a Button, `click` was folded into the `command=` constructor kwarg (and skipped in
+  `.bind()`), so wiring both silently dropped `click` (`command` won). Button now exposes a single
+  activation event, **`click`**, which still wires as `command=self.method` — preserving keyboard
+  activation and `state=disabled` behaviour (a raw `<Button-1>` bind would lose both). `command` is
+  unchanged on Checkbutton/Radiobutton/Scale/Spinbox, where it and `click` fire independently.
+- **Existing forms migrate on load.** A Button with a wired `command` event is rewritten to `click`
+  (`WidgetDescriptor.from_dict`); if both were wired, `command` wins (matching the old codegen). The
+  Events tab and guide now show Button's `click` as `command=` (Fired on click), not `<Button-1>`.
+
 ## [2026-06-26] — Auto CI image component no longer duplicates/resurrects
 
 ### Fixed

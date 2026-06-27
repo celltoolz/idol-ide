@@ -140,6 +140,18 @@ class WidgetDescriptor:
     @staticmethod
     def from_dict(d: dict) -> "WidgetDescriptor":
         var_data = d.get("variable")
+        events = dict(d.get("events", {}))
+        # Button no longer has a separate "command" event — it collided with
+        # "click" (both emitted command=self.method). Collapse a wired command
+        # onto click; command wins on collision, matching the pre-migration
+        # codegen (command kwarg took precedence and click was skipped).
+        if d.get("type") == "Button" and "command" in events:
+            events["click"] = events.pop("command")
+        # "keydown" was an exact duplicate of "keypress" (both <KeyPress>).
+        # Collapse onto keypress; the survivor (keypress) is kept if both wired.
+        if "keydown" in events:
+            events.setdefault("keypress", events["keydown"])
+            del events["keydown"]
         return WidgetDescriptor(
             id=d["id"],
             type=d["type"],
@@ -148,7 +160,7 @@ class WidgetDescriptor:
             width=d.get("width", 100),
             height=d.get("height", 30),
             props=d.get("props", {}),
-            events=d.get("events", {}),
+            events=events,
             variable=VariableBinding.from_dict(var_data) if var_data else None,
             parent_id=d.get("parent_id", None),
             anchor=d.get("anchor", ""),

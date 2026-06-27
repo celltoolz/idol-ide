@@ -195,7 +195,9 @@ _MOUSE_EVENTS   = ["click", "dblclick", "rightclick",
                    "mousedown", "mouseup", "mousemove",
                    "mouseenter", "mouseleave"]
 _FOCUS_EVENTS   = ["focusin", "focusout"]
-_KEY_EVENTS     = ["keypress", "keydown", "keyup"]
+# "keydown" was an exact duplicate of "keypress" (both <KeyPress>); dropped.
+# Old forms migrate keydown→keypress on load (WidgetDescriptor.from_dict).
+_KEY_EVENTS     = ["keypress", "keyup"]
 _CHANGE_EVENTS  = ["change"]
 
 _WIDGET_EVENTS  = _MOUSE_EVENTS + _FOCUS_EVENTS + _KEY_EVENTS + _CHANGE_EVENTS
@@ -213,7 +215,10 @@ REGISTRY: dict[str, dict] = {
         "default_props": {"text": "Button", "bg": "", "fg": "#000000",
                           "font": "", "justify": "", "relief": "", "borderwidth": "",
                           "wraplength": "", "image": "", "compound": ""},
-        "events":       ["command"] + _SIMPLE_EVENTS + _KEY_EVENTS,
+        # No separate "command" event — it collided with "click" (both emit
+        # command=self.method). "click" is the Button's activation event and is
+        # wired as command= in codegen. Old forms migrate command→click on load.
+        "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_button,
         "color_props":  ["bg", "fg"],
         "state_prop":   True,
