@@ -5784,6 +5784,7 @@ class IDOL(Tk):
             w = form.get_widget(widget_id)
             if w is not None and new_name and new_name != widget_id:
                 self._propagate_widget_rename_to_events(w, widget_id, new_name)
+                self._propagate_widget_rename_to_components(form, widget_id, new_name)
                 self._record_attr_rename(widget_id, new_name)
             self._design_canvas.rename_widget(widget_id, new_name)
             self._props_panel.set_form(form)
@@ -6045,6 +6046,25 @@ class IDOL(Tk):
                 new_method = f"_{new_id}_{event_key}"
                 w.events[event_key] = new_method
                 self._on_designer_event_rename(method_name, new_method)
+
+    def _propagate_widget_rename_to_components(self, form, old_id: str, new_id: str) -> None:
+        """Repoint component references at a renamed widget id.
+
+        Image components reference a Canvas widget through the `parent`
+        canvas_ref prop and through each `canvas_buttons[].canvas_id`. If a
+        rename doesn't carry to those refs they dangle: an orphaned `parent`
+        makes the CI image-component sync (`_sync_ci_image_component`) treat the
+        canvas's image items as uncovered, regenerating a phantom `{canvas}_ci`
+        component on every load that reappears after the user deletes it.
+        """
+        for comp in form.components:
+            if comp.type != "Image":
+                continue
+            if comp.props.get("parent") == old_id:
+                comp.props["parent"] = new_id
+            for btn in comp.props.get("canvas_buttons") or []:
+                if btn.get("canvas_id") == old_id:
+                    btn["canvas_id"] = new_id
 
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
