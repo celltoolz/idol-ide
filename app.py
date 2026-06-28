@@ -496,9 +496,14 @@ class IDOL(Tk):
         self._pending_body_resets: set[str] = (
             set()
         )  # method names to drop before next gen
-        self._pending_body_renames: dict[str, str] = (
+        # Per-form rename maps, keyed by form name so a default id like "canvas1"
+        # reused on two forms can't cross-contaminate during regen.
+        self._pending_body_renames: dict[str, dict[str, str]] = (
             {}
-        )  # old→new event method names; carries user bodies across a rename
+        )  # form → {old→new method}; carries user bodies across a handler rename
+        self._pending_attr_renames: dict[str, dict[str, str]] = (
+            {}
+        )  # form → {old→new widget id}; rewrites self.<id> refs in user code
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
@@ -5778,6 +5783,7 @@ class IDOL(Tk):
             w = form.get_widget(widget_id)
             if w is not None and new_name and new_name != widget_id:
                 self._propagate_widget_rename_to_events(w, widget_id, new_name)
+                self._record_attr_rename(widget_id, new_name)
             self._design_canvas.rename_widget(widget_id, new_name)
             self._props_panel.set_form(form)
             if form.get_widget(new_name):
@@ -5922,23 +5928,58 @@ class IDOL(Tk):
                         wd.props.get("_ci_binding_tags", {}).pop(tk_ev, None)
                         wd.props.get("_ci_binding_handlers", {}).pop(tk_ev, None)
 
+    def _active_designer_form(self):
+        """The form the user is editing (the CI original when in canvas-item mode)."""
+        if self._design_canvas.ci_mode:
+            return self._design_canvas._ci_original_form
+        return self._design_canvas.form
+
+    @staticmethod
+    def _record_rename(mapping: dict[str, str], old: str, new: str) -> None:
+        """Record an old→new rename in *mapping*, collapsing chains.
+
+        If *new* was reached by renaming from *old* but *old* was itself a prior
+        rename's target (A→B then B→C), the original source (A) is repointed at
+        the final name (C) so the carried payload still lands in one hop.
+        """
+        for src, dst in list(mapping.items()):
+            if dst == old:
+                mapping[src] = new
+                if old != new:
+                    mapping.pop(old, None)
+                return
+        mapping[old] = new
+
     def _on_designer_event_rename(self, old_method: str, new_method: str) -> None:
         """Event handler renamed in the panel → carry its body across regen.
 
         The body lives in the existing .py keyed by the *old* method name; the
         model now points the event at *new_method*. We record the mapping so the
         next codegen pass re-keys the extracted body to the new name instead of
-        emitting a clean stub. Insertion order preserves chains (A→B then B→C).
+        emitting a clean stub.
         """
-        # Collapse a chain: if new_method was itself a prior rename's target,
-        # rewrite that entry so the original body still lands on the final name.
-        for src, dst in list(self._pending_body_renames.items()):
-            if dst == old_method:
-                self._pending_body_renames[src] = new_method
-                if old_method != new_method:
-                    self._pending_body_renames.pop(old_method, None)
-                return
-        self._pending_body_renames[old_method] = new_method
+        form = self._active_designer_form()
+        if form is None:
+            return
+        self._record_rename(
+            self._pending_body_renames.setdefault(form.name, {}),
+            old_method, new_method,
+        )
+
+    def _record_attr_rename(self, old_id: str, new_id: str) -> None:
+        """Record a widget-id rename so self.<old_id> refs in user code get rewritten.
+
+        Codegen emits self.<new_id> for the widget, but user event/helper bodies
+        keep self.<old_id> verbatim → AttributeError at runtime. The next codegen
+        pass token-rewrites those references (see persistence.rename_self_attributes).
+        """
+        form = self._active_designer_form()
+        if form is None:
+            return
+        self._record_rename(
+            self._pending_attr_renames.setdefault(form.name, {}),
+            old_id, new_id,
+        )
 
     def _propagate_widget_rename_to_events(self, w, old_id: str, new_id: str) -> None:
         """Rename auto-derived event handlers when their widget is renamed.
@@ -8640,9 +8681,10 @@ class IDOL(Tk):
             if form.form_type == "main":
                 self._generate_one_form(form, root)
 
-        # Renames have now been applied to every form's body extraction; clear so
-        # a later edit doesn't re-key a body that has already moved.
+        # Renames have now been applied to every form; clear so a later edit
+        # doesn't re-apply a rename whose payload has already moved.
         self._pending_body_renames.clear()
+        self._pending_attr_renames.clear()
 
         self._designer_dirty = False
         self._designer_forms_dirty = False
@@ -8670,6 +8712,7 @@ class IDOL(Tk):
             extract_init_user_zones as _init_zones,
             extract_helper_methods as _helpers,
             extract_user_imports as _user_imports,
+            rename_self_attributes as _rename_attrs,
             load as _load,
         )
 
@@ -8689,9 +8732,9 @@ class IDOL(Tk):
             # Carry user code across event-handler renames: re-key each preserved
             # body (and its signature) from its old method name to the new one so
             # the renamed stub keeps the user's code instead of regenerating blank.
-            # Guarded by membership so applying the map to a non-matching form is a
-            # no-op; cleared once by the caller after every form has generated.
-            for _old, _new in self._pending_body_renames.items():
+            # Guarded by membership so a stale entry is a no-op; the map is scoped
+            # to this form and cleared by the caller after every form generates.
+            for _old, _new in self._pending_body_renames.get(form.name, {}).items():
                 if _old in event_bodies and _new not in event_bodies:
                     event_bodies[_new] = event_bodies.pop(_old)
                 if _old in event_sigs and _new not in event_sigs:
@@ -8737,6 +8780,10 @@ class IDOL(Tk):
             else None,
             dialog_modes=dialog_modes or None,
         )
+        # Rewrite self.<old_id> references in spliced user code to follow widget
+        # renames. The generated regions already use the new id, so this only
+        # touches the user's event/helper bodies. Scoped per form.
+        code = _rename_attrs(code, self._pending_attr_renames.get(form.name, {}))
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)

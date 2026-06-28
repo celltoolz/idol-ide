@@ -15,8 +15,11 @@ The checksum lets app.py detect manual edits before re-entering Designer mode.
 
 import ast
 import hashlib
+import io
 import json
 import textwrap
+import tokenize
+from collections import defaultdict
 from pathlib import Path
 
 from .model import FormModel
@@ -85,6 +88,62 @@ def extract_user_imports(py_path: Path) -> str:
     if not begins or not ends:
         return ""
     return "\n".join(lines[begins[0] + 1 : ends[0]]).strip()
+
+
+def rename_self_attributes(source: str, renames: dict[str, str]) -> str:
+    """Rewrite ``self.<old>`` attribute references to ``self.<new>`` in *source*.
+
+    Used when a widget is renamed so user code (event bodies, helper methods)
+    keeps working: codegen emits ``self.<new_id>`` for the widget, but spliced-in
+    user code still says ``self.<old_id>`` and would raise AttributeError.
+
+    Only the exact token run ``NAME('self') OP('.') NAME(old)`` is rewritten, so:
+      * strings and comments are never touched (distinct token types),
+      * substrings are safe (``canvas1`` ≠ ``canvas10`` — separate NAME tokens),
+      * locals that share the name are safe (no ``self.`` prefix),
+      * ``obj.self.<old>`` is skipped (``self`` preceded by ``.`` is an attribute).
+
+    Known misses (documented in ROADMAP): ``getattr(self, "canvas1")`` and other
+    string-based access, derived attrs like ``self.canvas1_vsb`` (one NAME token),
+    and f-string internals on Python < 3.12. Returns *source* unchanged when
+    *renames* is empty or the source can't be tokenized.
+    """
+    if not renames or not source:
+        return source
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source
+
+    # Collect (row, start_col, end_col, new_text) for each old-id NAME token that
+    # is the third element of a `self . <old>` run.
+    edits: dict[int, list[tuple[int, int, str]]] = defaultdict(list)
+    for i in range(len(toks) - 2):
+        t0, t1, t2 = toks[i], toks[i + 1], toks[i + 2]
+        if (
+            t0.type == tokenize.NAME and t0.string == "self"
+            and t1.type == tokenize.OP and t1.string == "."
+            and t2.type == tokenize.NAME and t2.string in renames
+        ):
+            # Skip when `self` is itself an attribute (e.g. obj.self.canvas1).
+            if i > 0 and toks[i - 1].type == tokenize.OP and toks[i - 1].string == ".":
+                continue
+            (row, scol), (erow, ecol) = t2.start, t2.end
+            if row != erow:
+                continue  # a NAME never spans lines; defensive
+            edits[row].append((scol, ecol, renames[t2.string]))
+
+    if not edits:
+        return source
+
+    lines = source.splitlines(keepends=True)
+    for row, row_edits in edits.items():
+        line = lines[row - 1]
+        # Apply right-to-left so earlier column offsets stay valid.
+        for scol, ecol, new in sorted(row_edits, reverse=True):
+            line = line[:scol] + new + line[ecol:]
+        lines[row - 1] = line
+    return "".join(lines)
 
 
 def extract_event_signatures(py_path: Path) -> dict[str, tuple[str, str]]:

@@ -187,6 +187,11 @@ Use a fresh name for each new feature branch (don't reuse merged names). Master 
 - **Debugger:** global hotkeys (F5/F10/F11/Shift+F11/Shift+F5) need a low-level keyboard hook (pynput or keyboard lib) to fire when IDOL doesn't have focus; hook installed only during active debug session
 - **Codegen:** removing the last widget reference to a handler method silently drops its body on next regen; should warn "handler `_on_x` has a body but nothing calls it — remove?"
 - **Codegen:** `_`-prefixed methods with decorators (e.g. `@staticmethod def _helper()`) lose their decorator on regen — event stub bodies are extracted separately and the `def` line is rebuilt by codegen, so decorator info is never captured. Uncommon pattern for event handlers but worth fixing eventually; would require plumbing decorator data through `extract_event_bodies` and `generate()`.
+- **Codegen — widget-rename reference rewrite (known misses):** renaming a widget rewrites `self.<old_id>` references in user code to `self.<new_id>` (`persistence.rename_self_attributes`, a `tokenize`-based pass that is string/comment-safe and substring-safe). It deliberately does **not** catch:
+  - **String-based attribute access** — `getattr(self, "canvas1")` / `setattr(...)` / `eval("self.canvas1")`; the id lives in a string literal, invisible to a token scan.
+  - **Derived generated attrs** — `self.canvas1_vsb` / `_hsb` / `_frame` (Treeview scrollbar/frame). These are a single `NAME` token (`canvas1_vsb` ≠ `canvas1`), so they're skipped. Codegen regenerates them with the new id anyway; only a *direct user reference* to the suffixed attr would break. Fixable by also mapping the known suffixed forms.
+  - **f-string internals on Python < 3.12** — `f"{self.canvas1}"` is one `STRING` token pre-3.12, so the inner reference isn't rewritten. Fine on 3.12+ (PEP 701 tokenizes f-string contents).
+  - **Name collision** — renaming to an id the user already uses for an unrelated `self.<name>` attr collides — but the widget assignment `self.<name> = tk.X(...)` collides regardless, so this is a rename-choice problem, not a rewrite problem. A name-collision warning at rename time would be the complementary fix.
 
 ---
 ---
@@ -366,3 +371,9 @@ Use a fresh name for each new feature branch (don't reuse merged names). Master 
 **Polish:** Column Editor uses a shared grid (aligned headers), a `tk.Menu` anchor dropdown with a real hit area, directly-gridded stretch checkbox, action-glyph tooltips, and screen-clamped dialog centering.
 
 **Deferred:** hierarchical (nested) seed rows — flat rows only in this pass.
+
+### 2026-06-27 — Event/Widget Rename Code Preservation
+
+**Fixed:** renaming an event handler (e.g. `_canvas1_mousedown` → `_gameboard_mousedown`) dropped the method body — extracted bodies are keyed by method name, so the regen lookup missed the new name and emitted a clean stub. Bodies (and custom signatures) now carry across a rename via a per-form `_pending_body_renames` map applied during extraction, with chain-collapse (A→B→C).
+
+**Added:** renaming a **widget** now (1) renames its auto-derived event handlers that still follow the `_{id}_{event}` convention (custom-named handlers left alone), and (2) rewrites `self.<old_id>` references throughout user event/helper bodies to `self.<new_id>` via `persistence.rename_self_attributes` (a `tokenize` pass — string/comment/substring/local-safe). Both reuse the per-form rename-map plumbing; maps are keyed by form name so a default id like `canvas1` reused on two forms can't cross-contaminate during regen. Known misses of the reference rewrite are documented under Known Bugs → Codegen.
