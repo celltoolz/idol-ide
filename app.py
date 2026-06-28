@@ -1041,6 +1041,7 @@ class IDOL(Tk):
             on_prop_change=self._on_designer_prop_change,
             on_event_change=self._on_designer_event_change,
             on_event_rename=self._on_designer_event_rename,
+            on_name_collision=self._designer_name_collision,
             on_select_widget=self._on_designer_selector_pick,
             on_navigate_handler=self._on_designer_event_navigate,
             on_reorder_widget=self._on_designer_reorder_widget,
@@ -5980,6 +5981,55 @@ class IDOL(Tk):
             self._pending_attr_renames.setdefault(form.name, {}),
             old_id, new_id,
         )
+
+    def _designer_name_collision(self, old_id: str, new_name: str) -> "str | None":
+        """Return a reason if renaming a widget to *new_name* would collide, else None.
+
+        The properties panel already rejects empty/invalid/keyword names and a
+        duplicate *widget* id; this covers the names that only the full model and
+        the generated .py know about: other generated `self.<name>` attributes
+        (components, tk variables, linked-dialog instances, scrollbar-wrapped
+        derived attrs) and the user's own `self.<name>` code. Best-effort — the
+        user-code scan reads the current .py (autosaved first if open & dirty).
+        """
+        form = self._active_designer_form()
+        if form is None:
+            return None
+
+        # Generated attribute names other than widget ids (panel owns those).
+        taken: dict[str, str] = {}
+        for w in form.widgets:
+            # A tk variable's name is independent of the widget id, so it stays
+            # taken even for the widget being renamed (renaming entry1 -> its own
+            # entry1_var still collides). Derived scrollbar attrs follow the id, so
+            # the renamed widget's own move with it and aren't a collision.
+            if getattr(w, "variable", None) and w.variable.name:
+                taken[w.variable.name] = "a variable"
+            if w.id != old_id and w.props.get("scrollbar"):
+                taken[f"{w.id}_frame"] = f"{w.id}'s frame"
+                taken[f"{w.id}_vsb"] = f"{w.id}'s scrollbar"
+                taken[f"{w.id}_hsb"] = f"{w.id}'s scrollbar"
+        for comp in form.components:
+            taken[comp.id] = "a component"
+        for mi in form.menu_items:
+            if mi.variable:
+                taken.setdefault(mi.variable, "a menu variable")
+        for dlg in (form.linked_dialogs or []):
+            taken[f"dlg_{dlg}"] = f"the {dlg} dialog instance"
+
+        if new_name in taken:
+            return f'"{new_name}" is already used by {taken[new_name]}'
+
+        # User-written self.<name> assignments in the generated .py.
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if root:
+            from pathlib import Path as _Path
+            py_path = _Path(root) / f"{form.name}.py"
+            self._autosave_form_py(py_path)
+            from designer.persistence import collect_self_attribute_targets as _targets
+            if new_name in _targets(py_path):
+                return f'"{new_name}" is already assigned in your code (self.{new_name})'
+        return None
 
     def _propagate_widget_rename_to_events(self, w, old_id: str, new_id: str) -> None:
         """Rename auto-derived event handlers when their widget is renamed.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import keyword
 import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable, Optional
@@ -59,6 +60,7 @@ class DesignerProperties(tk.Frame):
         on_prop_change:           Optional[Callable[[str, str, Any],  None]] = None,
         on_event_change:          Optional[Callable[[str, str, str], None]] = None,
         on_event_rename:          Optional[Callable[[str, str],       None]] = None,
+        on_name_collision:        Optional[Callable[[str, str], "str | None"]] = None,
         on_select_widget:         Optional[Callable[[str | None],    None]] = None,
         on_navigate_handler:      Optional[Callable[[str],           None]] = None,
         on_reorder_widget:        Optional[Callable[[str, int],      None]] = None,
@@ -83,6 +85,7 @@ class DesignerProperties(tk.Frame):
         self._on_prop_change           = on_prop_change
         self._on_event_change          = on_event_change
         self._on_event_rename          = on_event_rename
+        self._on_name_collision        = on_name_collision
         self._on_select_widget         = on_select_widget
         self._on_navigate_handler      = on_navigate_handler
         self._on_reorder_widget        = on_reorder_widget
@@ -4551,11 +4554,24 @@ class DesignerProperties(tk.Frame):
             if not new_name or not new_name.isidentifier() or new_name == d.id:
                 self._props_set(row_iid, d.id)
                 return
+            if keyword.iskeyword(new_name):
+                self._props_set(row_iid, d.id)
+                self._show_status(f'"{new_name}" is a Python keyword and can\'t be a name')
+                return
             if self._form and any(w.id == new_name for w in self._form.widgets
                                   if w.id != d.id):
                 self._props_set(row_iid, d.id)
                 self._show_status(f'"{new_name}" is already in use')
                 return
+            # Deeper collision check (components, variables, dialogs, derived attrs,
+            # and the user's own self.<name> code) — owned by app.py, which has the
+            # full model + file access. A returned message means: revert and explain.
+            if self._on_name_collision:
+                reason = self._on_name_collision(d.id, new_name)
+                if reason:
+                    self._props_set(row_iid, d.id)
+                    self._show_status(reason)
+                    return
             old_id = d.id
             if self._on_prop_change:
                 self._on_prop_change(old_id, "__name__", new_name)

@@ -90,6 +90,30 @@ def extract_user_imports(py_path: Path) -> str:
     return "\n".join(lines[begins[0] + 1 : ends[0]]).strip()
 
 
+def collect_self_attribute_targets(py_path: Path) -> set[str]:
+    """Return the set of names assigned as ``self.<name>`` anywhere in the file.
+
+    Only assignment *targets* (``Store`` context) are collected — ``self.score = 0``,
+    ``self.score += 1``, ``for self.x in …``, ``with … as self.y`` — since those are
+    where an attribute is defined and would collide with a widget of the same id.
+    Plain reads (``self.score``) don't define anything and are ignored. Returns an
+    empty set if the file is missing or unparseable.
+    """
+    _, tree, _ = _parse(py_path)
+    if tree is None:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Store)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        ):
+            names.add(node.attr)
+    return names
+
+
 def rename_self_attributes(source: str, renames: dict[str, str]) -> str:
     """Rewrite ``self.<old>`` attribute references to ``self.<new>`` in *source*.
 
