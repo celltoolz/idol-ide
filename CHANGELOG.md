@@ -5,6 +5,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-27] — Event/widget rename keeps user code
+
+### Fixed
+- **Renaming an event handler no longer drops its body.** Preserved bodies are keyed by method
+  name, so retyping a handler (e.g. `_canvas1_mousedown` → `_gameboard_mousedown`) used to miss the
+  lookup on regen and emit a clean stub, discarding the user's code. The body (and any custom
+  signature) now carries to the new name via a per-form rename map applied during extraction, with
+  chain-collapse for repeated renames (A→B→C).
+
+### Added
+- **Renaming a widget now keeps its handlers and code in sync.** It (1) renames the widget's
+  auto-derived event handlers that still follow the `_{id}_{event}` convention (custom-named
+  handlers are left alone), and (2) rewrites `self.<old_id>` references throughout user event/helper
+  bodies to `self.<new_id>` so they don't raise `AttributeError` at runtime. The reference rewrite is
+  a `tokenize` pass (`persistence.rename_self_attributes`) — safe against strings, comments,
+  substrings (`canvas1` ≠ `canvas10`), and same-named locals. Rename maps are keyed by form name so a
+  default id like `canvas1` reused on two forms can't cross-contaminate during regen.
+- **Rename collision guard.** The name editor now rejects a rename that would shadow an existing
+  attribute (reverting with a status-bar reason) instead of generating broken or clobbering code:
+  Python keywords (`self.class = …` would be a `SyntaxError`), other widget ids, components, tk
+  variables, menu variables, linked-dialog instances (`self.dlg_X`), scrollbar-derived attrs
+  (`{id}_vsb/_hsb/_frame`), and the user's own `self.<name>` assignments (scanned from the `.py`).
+
 ## [2026-06-27] — Drop duplicate keydown event (use keypress)
 
 ### Changed

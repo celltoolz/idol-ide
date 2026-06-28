@@ -496,6 +496,14 @@ class IDOL(Tk):
         self._pending_body_resets: set[str] = (
             set()
         )  # method names to drop before next gen
+        # Per-form rename maps, keyed by form name so a default id like "canvas1"
+        # reused on two forms can't cross-contaminate during regen.
+        self._pending_body_renames: dict[str, dict[str, str]] = (
+            {}
+        )  # form → {old→new method}; carries user bodies across a handler rename
+        self._pending_attr_renames: dict[str, dict[str, str]] = (
+            {}
+        )  # form → {old→new widget id}; rewrites self.<id> refs in user code
         self._designer_project_type: str = "cli"  # "cli" | "gui"
         self._designer_menu_had_items: bool = (
             False  # tracks prev menu_bar state for shift logic
@@ -1032,6 +1040,8 @@ class IDOL(Tk):
             self._h_pane,
             on_prop_change=self._on_designer_prop_change,
             on_event_change=self._on_designer_event_change,
+            on_event_rename=self._on_designer_event_rename,
+            on_name_collision=self._designer_name_collision,
             on_select_widget=self._on_designer_selector_pick,
             on_navigate_handler=self._on_designer_event_navigate,
             on_reorder_widget=self._on_designer_reorder_widget,
@@ -5771,6 +5781,10 @@ class IDOL(Tk):
             return
         if key == "__name__":
             new_name = value
+            w = form.get_widget(widget_id)
+            if w is not None and new_name and new_name != widget_id:
+                self._propagate_widget_rename_to_events(w, widget_id, new_name)
+                self._record_attr_rename(widget_id, new_name)
             self._design_canvas.rename_widget(widget_id, new_name)
             self._props_panel.set_form(form)
             if form.get_widget(new_name):
@@ -5914,6 +5928,123 @@ class IDOL(Tk):
                     if wd is not None:
                         wd.props.get("_ci_binding_tags", {}).pop(tk_ev, None)
                         wd.props.get("_ci_binding_handlers", {}).pop(tk_ev, None)
+
+    def _active_designer_form(self):
+        """The form the user is editing (the CI original when in canvas-item mode)."""
+        if self._design_canvas.ci_mode:
+            return self._design_canvas._ci_original_form
+        return self._design_canvas.form
+
+    @staticmethod
+    def _record_rename(mapping: dict[str, str], old: str, new: str) -> None:
+        """Record an old→new rename in *mapping*, collapsing chains.
+
+        If *new* was reached by renaming from *old* but *old* was itself a prior
+        rename's target (A→B then B→C), the original source (A) is repointed at
+        the final name (C) so the carried payload still lands in one hop.
+        """
+        for src, dst in list(mapping.items()):
+            if dst == old:
+                mapping[src] = new
+                if old != new:
+                    mapping.pop(old, None)
+                return
+        mapping[old] = new
+
+    def _on_designer_event_rename(self, old_method: str, new_method: str) -> None:
+        """Event handler renamed in the panel → carry its body across regen.
+
+        The body lives in the existing .py keyed by the *old* method name; the
+        model now points the event at *new_method*. We record the mapping so the
+        next codegen pass re-keys the extracted body to the new name instead of
+        emitting a clean stub.
+        """
+        form = self._active_designer_form()
+        if form is None:
+            return
+        self._record_rename(
+            self._pending_body_renames.setdefault(form.name, {}),
+            old_method, new_method,
+        )
+
+    def _record_attr_rename(self, old_id: str, new_id: str) -> None:
+        """Record a widget-id rename so self.<old_id> refs in user code get rewritten.
+
+        Codegen emits self.<new_id> for the widget, but user event/helper bodies
+        keep self.<old_id> verbatim → AttributeError at runtime. The next codegen
+        pass token-rewrites those references (see persistence.rename_self_attributes).
+        """
+        form = self._active_designer_form()
+        if form is None:
+            return
+        self._record_rename(
+            self._pending_attr_renames.setdefault(form.name, {}),
+            old_id, new_id,
+        )
+
+    def _designer_name_collision(self, old_id: str, new_name: str) -> "str | None":
+        """Return a reason if renaming a widget to *new_name* would collide, else None.
+
+        The properties panel already rejects empty/invalid/keyword names and a
+        duplicate *widget* id; this covers the names that only the full model and
+        the generated .py know about: other generated `self.<name>` attributes
+        (components, tk variables, linked-dialog instances, scrollbar-wrapped
+        derived attrs) and the user's own `self.<name>` code. Best-effort — the
+        user-code scan reads the current .py (autosaved first if open & dirty).
+        """
+        form = self._active_designer_form()
+        if form is None:
+            return None
+
+        # Generated attribute names other than widget ids (panel owns those).
+        taken: dict[str, str] = {}
+        for w in form.widgets:
+            # A tk variable's name is independent of the widget id, so it stays
+            # taken even for the widget being renamed (renaming entry1 -> its own
+            # entry1_var still collides). Derived scrollbar attrs follow the id, so
+            # the renamed widget's own move with it and aren't a collision.
+            if getattr(w, "variable", None) and w.variable.name:
+                taken[w.variable.name] = "a variable"
+            if w.id != old_id and w.props.get("scrollbar"):
+                taken[f"{w.id}_frame"] = f"{w.id}'s frame"
+                taken[f"{w.id}_vsb"] = f"{w.id}'s scrollbar"
+                taken[f"{w.id}_hsb"] = f"{w.id}'s scrollbar"
+        for comp in form.components:
+            taken[comp.id] = "a component"
+        for mi in form.menu_items:
+            if mi.variable:
+                taken.setdefault(mi.variable, "a menu variable")
+        for dlg in (form.linked_dialogs or []):
+            taken[f"dlg_{dlg}"] = f"the {dlg} dialog instance"
+
+        if new_name in taken:
+            return f'"{new_name}" is already used by {taken[new_name]}'
+
+        # User-written self.<name> assignments in the generated .py.
+        root = getattr(self._sidebar.explorer, "_root", None)
+        if root:
+            from pathlib import Path as _Path
+            py_path = _Path(root) / f"{form.name}.py"
+            self._autosave_form_py(py_path)
+            from designer.persistence import collect_self_attribute_targets as _targets
+            if new_name in _targets(py_path):
+                return f'"{new_name}" is already assigned in your code (self.{new_name})'
+        return None
+
+    def _propagate_widget_rename_to_events(self, w, old_id: str, new_id: str) -> None:
+        """Rename auto-derived event handlers when their widget is renamed.
+
+        A handler still following the auto convention (_{id}_{event}) is renamed
+        to track the new widget id; a custom-named handler (e.g. _handle_click) is
+        left alone, since it isn't tied to the widget name. Each rename is recorded
+        in _pending_body_renames so the user's code carries to the new method name
+        on the next codegen — same mechanism as a manual handler rename.
+        """
+        for event_key, method_name in list(w.events.items()):
+            if method_name == f"_{old_id}_{event_key}":
+                new_method = f"_{new_id}_{event_key}"
+                w.events[event_key] = new_method
+                self._on_designer_event_rename(method_name, new_method)
 
     def _on_global_click_designer(self, event: tk.Event) -> None:
         """Cancel placement mode when user clicks outside the canvas or palette."""
@@ -8600,6 +8731,11 @@ class IDOL(Tk):
             if form.form_type == "main":
                 self._generate_one_form(form, root)
 
+        # Renames have now been applied to every form; clear so a later edit
+        # doesn't re-apply a rename whose payload has already moved.
+        self._pending_body_renames.clear()
+        self._pending_attr_renames.clear()
+
         self._designer_dirty = False
         self._designer_forms_dirty = False
 
@@ -8626,6 +8762,7 @@ class IDOL(Tk):
             extract_init_user_zones as _init_zones,
             extract_helper_methods as _helpers,
             extract_user_imports as _user_imports,
+            rename_self_attributes as _rename_attrs,
             load as _load,
         )
 
@@ -8642,6 +8779,16 @@ class IDOL(Tk):
             pre_init, post_init = _init_zones(py_path)
             helpers = _helpers(py_path)
             user_imports = _user_imports(py_path)
+            # Carry user code across event-handler renames: re-key each preserved
+            # body (and its signature) from its old method name to the new one so
+            # the renamed stub keeps the user's code instead of regenerating blank.
+            # Guarded by membership so a stale entry is a no-op; the map is scoped
+            # to this form and cleared by the caller after every form generates.
+            for _old, _new in self._pending_body_renames.get(form.name, {}).items():
+                if _old in event_bodies and _new not in event_bodies:
+                    event_bodies[_new] = event_bodies.pop(_old)
+                if _old in event_sigs and _new not in event_sigs:
+                    event_sigs[_new] = event_sigs.pop(_old)
             # Drop stale auto-bodies so the new wire body becomes the default
             for _m in self._pending_body_resets:
                 event_bodies.pop(_m, None)
@@ -8683,6 +8830,10 @@ class IDOL(Tk):
             else None,
             dialog_modes=dialog_modes or None,
         )
+        # Rewrite self.<old_id> references in spliced user code to follow widget
+        # renames. The generated regions already use the new id, so this only
+        # touches the user's event/helper bodies. Scoped per form.
+        code = _rename_attrs(code, self._pending_attr_renames.get(form.name, {}))
         py_path.write_text(code, encoding="utf-8")
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)
