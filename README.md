@@ -47,6 +47,7 @@ For Git features: install [Git](https://git-scm.com)
 ## Features
 
 ### GUI Designer
+<img src="screenshots/designer-showcase.gif" width="100%">
 
 <img src="screenshots/designer-canvas-palette-properties.gif" width="100%">
 <p align="center">
