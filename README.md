@@ -1,3 +1,5 @@
+<p align="center"><a href="https://buymeacoffee.com/alexfero" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a></p>
+
 # IDOL
 ### Integrated Development and Objective Learning
 
@@ -15,6 +17,8 @@
   <img src="https://img.shields.io/badge/Designer-GUI%20Builder-ff6b35?style=flat-square" alt="GUI Designer">
   <img src="https://img.shields.io/badge/Status-Active%20Development-brightgreen?style=flat-square" alt="Active Development">
 </p>
+
+
 
 IDOL is what IDLE could have been — a full Python IDE with professional-grade tools (Designer, LSP, git, terminal, split editor) and a built-in learning platform designed to grow with you. Beginner-friendly without being beginner-limited. Pure Python, no Electron, no dependencies beyond pip.
 
