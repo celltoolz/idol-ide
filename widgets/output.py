@@ -277,20 +277,32 @@ class OutputPanel(ttk.Frame):
         self._text.delete("1.0", "end")
         self._text.configure(state="disabled")
 
-    def run(self, filepath: str, python_path: str = "python") -> None:
-        """Run *filepath* with *python_path*."""
+    def run(
+        self, filepath: str, python_path: str = "python", cwd: str | None = None
+    ) -> None:
+        """Run *filepath* with *python_path* in working directory *cwd*."""
         if self._is_running:
             return
         self.clear()
+        if cwd:
+            self.write(f"$ cd {cwd}\n", "info")
         self.write(f"$ python {filepath}\n\n", "info")
         self._start_run()
-        self._runner.run(filepath, python_path)
+        self._runner.run(filepath, python_path, cwd)
 
-    def run_code(self, code: str, label: str = "selection", python_path: str = "python") -> None:
+    def run_code(
+        self,
+        code: str,
+        label: str = "selection",
+        python_path: str = "python",
+        cwd: str | None = None,
+    ) -> None:
         """Write *code* to a temp file and run it, showing output as [label]."""
         if self._is_running:
             return
         self.clear()
+        if cwd:
+            self.write(f"$ cd {cwd}\n", "info")
         self.write(f"$ python [{label}]\n\n", "info")
         self._start_run()
         tmp = tempfile.NamedTemporaryFile(
@@ -298,7 +310,7 @@ class OutputPanel(ttk.Frame):
         )
         tmp.write(code)
         tmp.close()
-        self._runner.run(tmp.name, python_path)
+        self._runner.run(tmp.name, python_path, cwd)
 
     def terminate(self) -> None:
         """Kill the running process if one is active."""

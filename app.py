@@ -478,6 +478,9 @@ class IDOL(Tk):
         self.zen_mode_var = BooleanVar(value=False)
         self._run_target_var = tk.StringVar(value="output")
         self._run_action_var = tk.StringVar(value="run")
+        # Working directory a run starts in: "project" (explorer/project root)
+        # or "script" (the file's own directory). See _compute_run_cwd.
+        self._run_cwd_mode_var = tk.StringVar(value="project")
         self._run_entry_file: str | None = None
         self._running_file: str | None = None  # transient label while a run is active
         self._sidebar_shown = True  # tracks actual pane membership
@@ -882,6 +885,17 @@ class IDOL(Tk):
         )
         self._run_menu.add_radiobutton(
             label="  \u2192 Terminal", variable=self._run_target_var, value="terminal"
+        )
+        self._run_menu.add_separator()
+        self._run_menu.add_radiobutton(
+            label="  Dir: Project Root",
+            variable=self._run_cwd_mode_var,
+            value="project",
+        )
+        self._run_menu.add_radiobutton(
+            label="  Dir: Script Directory",
+            variable=self._run_cwd_mode_var,
+            value="script",
         )
         self._run_menu.add_separator()
         self._run_menu.add_command(label="Run Line", command=self._run_current_line)
@@ -9491,7 +9505,9 @@ class IDOL(Tk):
                 self.output_visible_var.set(True)
                 self.view_toggle_output()
             self._set_running_file(filepath)
-            self._output.run(filepath, self._active_python)
+            self._output.run(
+                filepath, self._active_python, self._compute_run_cwd(filepath)
+            )
 
     def run_file_in_terminal(self) -> None:
         """Ctrl+F5 — save and run the current file (or pinned entry) in the terminal."""
@@ -9507,7 +9523,7 @@ class IDOL(Tk):
         self._output._set_active("terminal")
         if not self._output.terminal._running:
             self._output.terminal._new_session(
-                cwd=os.path.dirname(filepath) or os.getcwd()
+                cwd=self._compute_run_cwd(filepath) or os.getcwd()
             )
         self._set_running_file(filepath)
         term = self._output.terminal
@@ -9677,6 +9693,47 @@ class IDOL(Tk):
         if self._run_entry_file and os.path.isfile(self._run_entry_file):
             return self._run_entry_file
         return self._files.get(self._current_tab_id)
+
+    def _project_root_cwd(self) -> str | None:
+        """The project root working directory, or None if no project is open.
+
+        Reuses the single project-root expression (explorer root); returns None
+        rather than falling back to os.getcwd() so callers can decide their own
+        fallback (IDOL's launch dir must never become a run's cwd).
+        """
+        root = self._sidebar.explorer._root
+        if root and os.path.isdir(root):
+            return str(root)
+        return None
+
+    def _compute_run_cwd(self, filepath: str | None) -> str | None:
+        """Working directory for running *filepath*, per _run_cwd_mode_var.
+
+        "project" → the project root, but only when a real project is open;
+        with no project the explorer root is unset, so we fall back to the
+        script's own directory rather than IDOL's launch dir (which would
+        silently reintroduce the wrong-cwd bug this setting fixes).
+        "script"  → always the file's own directory.
+        """
+        script_dir = (
+            os.path.dirname(os.path.abspath(filepath)) if filepath else None
+        )
+        if self._run_cwd_mode_var.get() == "script":
+            return script_dir
+        return self._project_root_cwd() or script_dir
+
+    def _selection_run_cwd(self) -> str | None:
+        """Working directory for Run Line / Run Selection.
+
+        These run off a temp file, so "script directory" is meaningless — the
+        mode is ignored and we always use the project root, falling back to the
+        active file's directory when no project is open.
+        """
+        root = self._project_root_cwd()
+        if root:
+            return root
+        fp = self._get_run_filepath()
+        return os.path.dirname(os.path.abspath(fp)) if fp else None
 
     def _set_run_entry(self, path: str | None) -> None:
         self._run_entry_file = path or None
@@ -10020,7 +10077,7 @@ class IDOL(Tk):
         self._output._set_active("terminal")
         if not self._output.terminal._running:
             self._output.terminal._new_session(
-                cwd=os.path.dirname(filepath) or os.getcwd()
+                cwd=self._compute_run_cwd(filepath) or os.getcwd()
             )
 
         import platform as _pl
@@ -10193,7 +10250,9 @@ class IDOL(Tk):
         if not self.output_visible_var.get():
             self.output_visible_var.set(True)
             self.view_toggle_output()
-        self._output.run_code(code, label, self._active_python)
+        self._output.run_code(
+            code, label, self._active_python, self._selection_run_cwd()
+        )
 
     def _run_current_line(self) -> None:
         cv = self._current_codeview
@@ -10275,6 +10334,16 @@ class IDOL(Tk):
             ("Run", "Ctrl+F5", self._nav_run),
             ("Run Line", "", self.run_line),
             ("Run Selection", "", self.run_selection),
+            (
+                "Run Working Dir: Project Root",
+                "",
+                lambda: self._run_cwd_mode_var.set("project"),
+            ),
+            (
+                "Run Working Dir: Script Directory",
+                "",
+                lambda: self._run_cwd_mode_var.set("script"),
+            ),
             ("Stop", "Shift+F5", self.run_stop),
             ("Clear Output", "", self.run_clear),
             # Help

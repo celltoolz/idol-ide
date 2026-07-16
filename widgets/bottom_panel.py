@@ -193,13 +193,21 @@ class BottomPanel(ttk.Frame):
 
     # ── Public API (mirrors OutputPanel) ─────────────────────────────────────
 
-    def run(self, filepath: str, python_path: str = "python") -> None:
+    def run(
+        self, filepath: str, python_path: str = "python", cwd: str | None = None
+    ) -> None:
         self._set_active("output")
-        self.output.run(filepath, python_path)
+        self.output.run(filepath, python_path, cwd)
 
-    def run_code(self, code: str, label: str = "selection", python_path: str = "python") -> None:
+    def run_code(
+        self,
+        code: str,
+        label: str = "selection",
+        python_path: str = "python",
+        cwd: str | None = None,
+    ) -> None:
         self._set_active("output")
-        self.output.run_code(code, label, python_path)
+        self.output.run_code(code, label, python_path, cwd)
 
     def terminate(self) -> None:
         self.output.terminate()

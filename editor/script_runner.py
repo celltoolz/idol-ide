@@ -22,8 +22,16 @@ class ScriptRunner:
         self._process: subprocess.Popen | None = None
         self._stdin_lock = threading.Lock()
 
-    def run(self, filepath: str, python_path: str = "python") -> None:
-        """Spawn *filepath* with *python_path* (defaults to system Python)."""
+    def run(
+        self, filepath: str, python_path: str = "python", cwd: str | None = None
+    ) -> None:
+        """Spawn *filepath* with *python_path* (defaults to system Python).
+
+        *cwd* is the working directory for the subprocess. When None the
+        process inherits IDOL's own working directory (legacy behaviour);
+        callers pass the project root or script directory so relative paths
+        in the user's code resolve where they expect.
+        """
         def _run():
             try:
                 self._process = subprocess.Popen(
@@ -32,6 +40,7 @@ class ScriptRunner:
                     stderr=subprocess.PIPE,
                     stdin=subprocess.PIPE,
                     bufsize=0,          # binary, no OS-level buffering
+                    cwd=cwd,
                 )
 
                 def _drain_stdout() -> None:
