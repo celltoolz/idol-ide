@@ -91,6 +91,15 @@ Open with `Ctrl+Shift+U` or the nav toolbar **▶** button.
 - Stdout and stderr with color coding
 - **Inline stdin bar** — when a script calls `input()`, a `>` input field appears at the bottom of the Output panel; type your response and hit Enter; the prompt appears immediately (unbuffered), your input echoes in light blue, and the script continues — no terminal switch needed for simple scripts
 
+## Run Working Directory
+
+By default your program runs from your **project root**, so relative paths (e.g. `open("data/x.txt")` or `sqlite3.connect("app.db")`) resolve against your project rather than IDOL's install directory. Change it in the run dropdown (▾ next to ▶):
+
+- **Dir: Project Root** (default) — the current Explorer root. With no project open it falls back to the running file's own directory (never IDOL's directory).
+- **Dir: Script Directory** — always the running file's own folder.
+
+The choice applies to both the Output panel and terminal run paths, is also available from the command palette, and persists with the project. The Output panel echoes the directory as `$ cd <dir>` above each run. (Run Line / Run Selection always use the project root, since they execute a temporary file.)
+
 ## Run Line & Run Selection
 
 Right-click any line or highlighted block and choose **Run Line** or **Run Selection**. Selection execution auto-dedents indented blocks before running.

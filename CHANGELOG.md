@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-16] — Run working directory follows your project
+
+### Fixed
+- **Runs launched from the Run button now start in your project directory, not IDOL's.**
+  Previously the Output-panel run inherited IDOL's own working directory, so relative paths in
+  your code (e.g. `sqlite3.connect("data.db")`) resolved against the install dir and failed —
+  while the integrated terminal, which already set a cwd, worked. The two run paths no longer
+  diverge: both honor a single working-directory mode.
+
+### Added
+- **Run working-directory setting (Run menu → Dir: Project Root / Script Directory).** Chooses
+  where a run starts: the project root (default) or the running file's own directory. "Project
+  Root" reuses the explorer root and falls back to the script's directory when no project is open
+  (never IDOL's launch dir). The mode governs both the Output-panel and terminal run paths
+  (including terminal debug); Run Line / Run Selection always use the project root since they
+  execute off a temp file. Persisted per project in the session layout, and also reachable from
+  the command palette. The output header now echoes `$ cd <dir>` so the run directory is visible.
+
 ## [2026-06-27] — Event/widget rename keeps user code
 
 ### Fixed

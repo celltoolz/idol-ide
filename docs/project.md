@@ -58,6 +58,7 @@ On exit, IDOL auto-saves:
 - Appearance settings
 - Breakpoints
 - Active interpreter and venv (venv is re-activated in the terminal on next launch)
+- Run preferences — run target (Output/Terminal), run/debug action, pinned entry file, and the [run working directory](terminal.md#run-working-directory) mode
 - **Designer state** — open forms, active canvas, and the Set as Main selection; if the designer was active, it re-opens automatically on the next launch with the same forms loaded
 
 Session data is written to `~/.idol/session.json`. Named project saves write to `<name>.idol-project` in the project root.
