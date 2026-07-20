@@ -10052,10 +10052,15 @@ class IDOL(Tk):
         else:
             self._output._set_active("debug")
             self._output.output.clear()
+            debug_cwd = self._compute_run_cwd(filepath)
+            if debug_cwd:
+                self._output.output.write(f"$ cd {debug_cwd}\n", "info")
             self._output.output.write(
                 f"$ Debugging {os.path.basename(filepath)}\n\n", "info"
             )
-            self._debugger.launch(filepath, python_exe, bp_dict, debugpy_site)
+            self._debugger.launch(
+                filepath, python_exe, bp_dict, debugpy_site, debug_cwd
+            )
             self._show_debug_bar()
             if self._file_uses_input(filepath):
                 self._output.output.show_debug_input_guide_btn(

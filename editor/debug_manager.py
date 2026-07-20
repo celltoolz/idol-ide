@@ -58,12 +58,18 @@ class DebugManager:
         python_path: str,
         breakpoints: dict[str, list[int]],
         debugpy_site: Optional[str] = None,
+        cwd: Optional[str] = None,
     ) -> None:
         """Start a debug session for *filepath* using *python_path*.
 
         If *debugpy_site* is given (the site-packages dir containing IDOL's
         bundled debugpy), it is prepended to PYTHONPATH so the project's
         interpreter finds debugpy without needing it installed locally.
+
+        *cwd* is the debuggee's working directory — callers pass the same
+        value the Run paths use so relative paths resolve identically whether
+        the user pressed Run or Debug. When None it falls back to the script's
+        own directory (the historical behaviour), never IDOL's own cwd.
         """
         self._filepath            = filepath
         self._pending_breakpoints = breakpoints
@@ -86,7 +92,7 @@ class DebugManager:
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=os.path.dirname(filepath) or None,
+            cwd=cwd or os.path.dirname(filepath) or None,
             env=env,
         )
         self._running = True
