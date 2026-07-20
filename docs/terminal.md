@@ -98,7 +98,7 @@ By default your program runs from your **project root**, so relative paths (e.g.
 - **Dir: Project Root** (default) — the current Explorer root. With no project open it falls back to the running file's own directory (never IDOL's directory).
 - **Dir: Script Directory** — always the running file's own folder.
 
-The choice applies to both the Output panel and terminal run paths, is also available from the command palette, and persists with the project. The Output panel echoes the directory as `$ cd <dir>` above each run. (Run Line / Run Selection always use the project root, since they execute a temporary file.)
+The choice applies to every way you start your program — Run and Debug, in both the Output panel and the terminal — so relative paths resolve the same no matter which button you press. It is also available from the command palette and persists with the project. The Output panel echoes the directory as `$ cd <dir>` above each run. (Run Line / Run Selection always use the project root, since they execute a temporary file.)
 
 ## Run Line & Run Selection
 

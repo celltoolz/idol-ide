@@ -24,6 +24,8 @@ Choose Output or Terminal from the run menu chevron:
 | **Output** | debugpy spawns as a subprocess; stdout/stderr stream to the Output panel |
 | **Terminal** | debugpy launches inside the integrated terminal PTY; `input()` works natively, ANSI colors render correctly, full interactive session |
 
+Both modes start in the same directory as a normal run — see [Run Working Directory](terminal.md#run-working-directory) — so relative paths in your code resolve identically whether you press Run or Debug. The Output panel echoes the directory as `$ cd <dir>` above each debug session.
+
 ## Step Controls
 
 Available in the nav toolbar while a debug session is active:

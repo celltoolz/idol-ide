@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-16] — Debugging honors the run working directory
+
+### Fixed
+- **Debugging now starts in the same directory as running.** The Output-panel debugger set its
+  working directory to the script's own folder regardless of the Run working-directory setting, so
+  with the default **Project Root** mode a program that ran correctly could still fail under the
+  debugger — a relative path like `sqlite3.connect("app.db")` resolving against a subfolder instead
+  of the project root. Debug now uses the same directory as Run (`DebugManager.launch` takes a
+  `cwd`), so relative paths resolve identically whichever button you press. The debug header echoes
+  `$ cd <dir>` like the run header does. Terminal debugging already followed the setting and is
+  unchanged.
+
 ## [2026-07-16] — Run working directory follows your project
 
 ### Fixed
