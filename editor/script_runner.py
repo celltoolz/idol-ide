@@ -13,6 +13,8 @@ import subprocess
 import threading
 from typing import Callable
 
+from utils.conda_env import runtime_env
+
 
 class ScriptRunner:
     """Runs a Python script in a subprocess, streaming output via a callback."""
@@ -23,7 +25,8 @@ class ScriptRunner:
         self._stdin_lock = threading.Lock()
 
     def run(
-        self, filepath: str, python_path: str = "python", cwd: str | None = None
+        self, filepath: str, python_path: str = "python", cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> None:
         """Spawn *filepath* with *python_path* (defaults to system Python).
 
@@ -31,6 +34,11 @@ class ScriptRunner:
         process inherits IDOL's own working directory (legacy behaviour);
         callers pass the project root or script directory so relative paths
         in the user's code resolve where they expect.
+
+        *env* overrides the subprocess environment. When None and
+        *python_path* is a conda interpreter, a synthesized activation
+        environment is used (conda pythons need the env's PATH entries on
+        Windows to resolve DLLs); otherwise IDOL's environment is inherited.
         """
         def _run():
             try:
@@ -41,6 +49,7 @@ class ScriptRunner:
                     stdin=subprocess.PIPE,
                     bufsize=0,          # binary, no OS-level buffering
                     cwd=cwd,
+                    env=env or runtime_env(python_path),
                 )
 
                 def _drain_stdout() -> None:

@@ -26,6 +26,8 @@ Choose Output or Terminal from the run menu chevron:
 
 Both modes start in the same directory as a normal run — see [Run Working Directory](terminal.md#run-working-directory) — so relative paths in your code resolve identically whether you press Run or Debug. The Output panel echoes the directory as `$ cd <dir>` above each debug session.
 
+Conda interpreters debug the same way they run: the debuggee gets a synthesized conda activation environment (env PATH + `CONDA_PREFIX`), with IDOL's bundled debugpy layered on top via `PYTHONPATH` — no `conda activate` or per-env debugpy install needed.
+
 ## Step Controls
 
 Available in the nav toolbar while a debug session is active:

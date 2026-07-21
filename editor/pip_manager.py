@@ -11,6 +11,8 @@ import sys
 import threading
 from typing import Callable
 
+from utils.conda_env import runtime_env
+
 
 class PipManager:
     """Runs pip subprocesses on daemon threads, fires callbacks on the main thread."""
@@ -29,12 +31,15 @@ class PipManager:
         Calls on_done(name_to_version) on the main thread when complete.
         """
         python = self._python_exe
+        # Conda interpreters need the env's PATH (Library\bin DLLs on
+        # Windows) or pip itself can fail to import ssl; None for the rest.
+        env = runtime_env(python)
 
         def _run():
             try:
                 result = subprocess.run(
                     [python, "-m", "pip", "list", "--format=json"],
-                    capture_output=True, text=True, timeout=15,
+                    capture_output=True, text=True, timeout=15, env=env,
                 )
                 pkgs = json.loads(result.stdout)
                 installed = {p["name"]: p["version"] for p in pkgs}
@@ -58,13 +63,14 @@ class PipManager:
         instead of routing through on_line.
         """
         python = self._python_exe
+        env = runtime_env(python)
 
         def _run():
             try:
                 proc = subprocess.Popen(
                     [python, "-m", "pip"] + args,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True,
+                    text=True, env=env,
                 )
                 for line in proc.stdout:
                     self._after(0, on_line, line)

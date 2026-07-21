@@ -10369,6 +10369,7 @@ class IDOL(Tk):
     def _palette_run_pip(self, args: list[str]) -> None:
         """Run a pip command from the command palette, streaming to the Output panel."""
         import subprocess, threading as _threading
+        from utils.conda_env import runtime_env
 
         output = self._output.output
         try:
@@ -10384,6 +10385,7 @@ class IDOL(Tk):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    env=runtime_env(self._active_python),
                 )
                 for line in proc.stdout:
                     self.after(0, lambda l=line: output.write(l))

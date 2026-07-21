@@ -14,6 +14,8 @@ import threading
 import time
 from typing import Callable, Optional
 
+from utils.conda_env import runtime_env
+
 
 def _find_free_port(start: int = 5678, end: int = 5720) -> int:
     for port in range(start, end):
@@ -59,12 +61,19 @@ class DebugManager:
         breakpoints: dict[str, list[int]],
         debugpy_site: Optional[str] = None,
         cwd: Optional[str] = None,
+        env: Optional[dict] = None,
     ) -> None:
         """Start a debug session for *filepath* using *python_path*.
 
         If *debugpy_site* is given (the site-packages dir containing IDOL's
         bundled debugpy), it is prepended to PYTHONPATH so the project's
         interpreter finds debugpy without needing it installed locally.
+
+        *env* overrides the debuggee's environment. When None and
+        *python_path* is a conda interpreter, a synthesized activation
+        environment is used (PATH + CONDA_PREFIX) so the debuggee resolves
+        conda DLLs on Windows; the debugpy_site PYTHONPATH prepend is
+        layered on top either way.
 
         *cwd* is the debuggee's working directory — callers pass the same
         value the Run paths use so relative paths resolve identically whether
@@ -83,9 +92,9 @@ class DebugManager:
             "--wait-for-client",
             filepath,
         ]
-        env = None
+        env = env or runtime_env(python_path)
         if debugpy_site:
-            env = os.environ.copy()
+            env = dict(env) if env is not None else os.environ.copy()
             existing = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = (debugpy_site + os.pathsep + existing) if existing else debugpy_site
         self._proc = subprocess.Popen(

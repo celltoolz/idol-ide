@@ -100,6 +100,8 @@ By default your program runs from your **project root**, so relative paths (e.g.
 
 The choice applies to every way you start your program — Run and Debug, in both the Output panel and the terminal — so relative paths resolve the same no matter which button you press. It is also available from the command palette and persists with the project. The Output panel echoes the directory as `$ cd <dir>` above each run. (Run Line / Run Selection always use the project root, since they execute a temporary file.)
 
+When the active interpreter is a **conda environment**, Output-panel runs get a synthesized activation environment automatically — the env's PATH entries (including `Library\bin` on Windows, where conda keeps its DLLs) plus `CONDA_PREFIX`/`CONDA_DEFAULT_ENV` — so scripts import conda packages correctly without `conda activate` and without conda being on your PATH.
+
 ## Run Line & Run Selection
 
 Right-click any line or highlighted block and choose **Run Line** or **Run Selection**. Selection execution auto-dedents indented blocks before running.
