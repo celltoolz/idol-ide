@@ -511,8 +511,9 @@ class ProjectWizard(tk.Toplevel):
                 self, "Setting Up a Git Remote", git_remote_guide.get_pages()
             ))
 
+        deps_file = "environment.yml" if self._conda_selected() else "requirements.txt"
         self._check("Create starter files", self._files_var,
-                    detail="<ProjectName>.py / main.py, requirements.txt, .gitignore")
+                    detail=f"<ProjectName>.py / main.py, {deps_file}, .gitignore")
 
     # ── Step 3: Summary ───────────────────────────────────────────────────────
 
