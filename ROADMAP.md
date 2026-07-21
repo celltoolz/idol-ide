@@ -28,6 +28,13 @@ Completed sessions live at the bottom as a historical record.
 
 ### Editor / IDE
 
+- **Thread the active interpreter into the LSP** *(next up — do this first)* — pylsp and ruff
+  currently launch from IDOL's own environment (`detect_server` looks next to `sys.executable`,
+  and the `initialize` request never mentions the selected interpreter), so diagnostics and
+  completions don't see packages installed in the active venv or conda env. Spawn/point the
+  server at the selected interpreter (env + PATH, jedi `environmentPath` or equivalent) and
+  restart it on interpreter switch. Deferred from the conda-support branch.
+
 - **Settings panel** — `View → Settings` consolidating per-user preferences that are currently scattered or missing UI:
   - Font (family / size / bold / italic) — currently only via `View → Change Font`
   - Theme — currently only via `View → Theme`

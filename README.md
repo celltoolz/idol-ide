@@ -101,7 +101,7 @@ Staging/unstaging, commit, push/pull, gutter diff strips, Git Health panel with 
 
 <img src="screenshots/terminal-powershell-activate_venv-colors-tui.gif" width="100%">
 
-Full VT100 PTY terminal (PowerShell/bash/zsh/Python REPL), venv detection toolbar, Run/Output panel with inline stdin bar, Run Line, Run Selection, and runtime error indicators. An interactive Python REPL is included out of the box — no configuration required.
+Full VT100 PTY terminal (PowerShell/bash/zsh/Python REPL), venv **and conda** detection toolbar (activate/deactivate/switch, no `conda init` needed), Run/Output panel with inline stdin bar, Run Line, Run Selection, and runtime error indicators. An interactive Python REPL is included out of the box — no configuration required.
 
 → **[Full terminal docs](docs/terminal.md)**
 
@@ -125,7 +125,7 @@ Local Ollama LLM — fully offline, no API key. Send File, Send Selection, strea
 
 <img src="screenshots/package_manager-topics-details-install-uninstall.gif" width="100%">
 
-Installed packages grouped by topic, live filter, PyPI search, install/uninstall with live output, and AI examples — all tied to the active interpreter.
+Installed packages grouped by topic, live filter, PyPI search, install/uninstall with live output, and AI examples — all tied to the active interpreter. Conda environments get a conda backend automatically: conda-first installs with pip fallback, origin badges, and uninstalls routed to the tool that installed the package.
 
 → **[Full package manager docs](docs/package-manager.md)**
 
@@ -146,7 +146,7 @@ Hover any IDE element for a three-section explanation (what it is, how it works,
   <img src="screenshots/project_wizard-details-envirornment-options-summary.gif" width="50%">
 </p>
 
-4-step project setup wizard, per-project interpreter selection, venv management, session persistence, `.idol-project` files, zen mode, and status bar with live git branch and diagnostic count.
+4-step project setup wizard, per-project interpreter selection, venv **and conda env** management (conda interpreters discovered automatically; the wizard can create project-local `.conda/` envs), session persistence, `.idol-project` files, zen mode, and status bar with live git branch and diagnostic count.
 
 → **[Full project docs](docs/project.md)**
 

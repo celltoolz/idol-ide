@@ -5,6 +5,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-21] — Conda environment support
+
+### Added
+- **Conda interpreters are first-class citizens.** Conda envs (Miniconda/Anaconda/Miniforge)
+  are discovered automatically — `~/.conda/environments.txt` plus the default install
+  locations — and appear in the interpreter picker and Project Wizard as
+  `Python 3.x (conda: base)` / `(conda: myenv)`; the wizard gains a `conda` filter toggle.
+  `categorize_interpreter` returns a new `"conda"` category (a venv created *from* a conda
+  python still counts as a venv).
+- **No `conda init` required, ever.** Run, Debug, and all package operations execute conda
+  pythons with a synthesized activation environment — the env's PATH entries (including
+  `Library\bin`, where conda keeps its DLLs on Windows) plus `CONDA_PREFIX` /
+  `CONDA_DEFAULT_ENV` — so unactivated conda pythons no longer fail importing `ssl` /
+  numpy / pip. Terminal activation sources the hook scripts explicitly
+  (`conda-hook.ps1` for PowerShell, `etc/profile.d/conda.sh` for bash/zsh with
+  MSYS2-converted paths for Git Bash).
+- **Package Manager conda backend** (`editor/conda_manager.py`). With a conda interpreter
+  active: the installed list comes from `conda list --json`, installs are **conda-first
+  with automatic pip fallback** (a notice line marks the retry), pip-installed packages
+  show a `· pip` badge, and uninstalls route to whichever tool installed the package.
+  If the env's conda executable can't be located, the panel falls back to pip inside the
+  env with a notice.
+- **Terminal conda awareness.** The env toolbar now tracks `$CONDA_PREFIX` (new
+  IDOL-private OSC 7778 marker on bash/zsh; a third state-file line on PowerShell) and
+  handles conda targets: **▶ Activate conda env** for a project-local `.conda/`,
+  **⏹ Deactivate** (sends `conda deactivate`), **⇄ Switch env** across kinds. Child
+  shells start with IDOL's own `CONDA_*` variables stripped. Run-in-Terminal and
+  Debug-in-Terminal type the activation command before the run command when the shell
+  hasn't activated the conda interpreter yet.
+- **Project Wizard creates conda envs.** The existing *Create virtual environment*
+  checkbox is conda-aware: with a conda interpreter selected, a yellow **Conda
+  Environment Selected** note appears and project creation runs
+  `conda create -p <project>/.conda -y python=<X.Y>` (pinned to the selected
+  interpreter's version; conda's stderr — e.g. fresh-install channel ToS instructions —
+  is surfaced verbatim on failure). The starter `.gitignore` covers `.conda/`, the Git
+  health panel classifies committed `.conda/` / `conda-meta/` files, and project-local
+  `.conda` envs are auto-detected like `.venv` (interpreter auto-select on file open).
+- **Session persistence.** The active conda env's prefix is saved
+  (`interpreter["conda_prefix"]`) and project-local `.conda` envs re-activate in the
+  terminal on restore, under the same project-containment guard as venvs.
+
+### Notes
+- Verified on Windows against a default Miniconda3 install (discovery, synthesized-env
+  runs, pip-in-conda, conda list/install-fallback/uninstall round-trip, ToS failure
+  surfacing). Linux/macOS code paths structurally mirror the shipped venv POSIX paths
+  but haven't been exercised on real systems yet.
+- LSP diagnostics/completions still run from IDOL's own environment — threading the
+  active interpreter into pylsp is queued next in `ROADMAP.md`.
+
 ## [2026-07-16] — Debugging honors the run working directory
 
 ### Fixed
