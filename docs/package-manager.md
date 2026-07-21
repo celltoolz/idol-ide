@@ -32,6 +32,7 @@ When the active interpreter is a **conda environment**, the panel switches to a 
 - Packages installed via pip show a **`· pip` badge** in the list
 - **Uninstall routes by origin** — pip-installed packages are removed with pip, conda packages with `conda remove`
 - If the env's conda executable can't be found (e.g. the base install was removed), the panel falls back to pip inside the env with a notice
+- **Terms of Service** — before the first conda-routed install/uninstall, the panel checks whether the conda installation has accepted its channels' ToS (fresh Miniconda installs haven't) and shows an Accept/Decline dialog if not; Accept runs `conda tos accept` (remembered by conda itself), Decline cancels the operation
 
 No `conda activate` is needed for any of this — operations run with a synthesized activation environment.
 

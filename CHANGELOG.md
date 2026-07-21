@@ -36,12 +36,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   hasn't activated the conda interpreter yet.
 - **Project Wizard creates conda envs.** The existing *Create virtual environment*
   checkbox is conda-aware: with a conda interpreter selected, a yellow **Conda
-  Environment Selected** note appears and project creation runs
-  `conda create -p <project>/.conda -y python=<X.Y>` (pinned to the selected
-  interpreter's version; conda's stderr — e.g. fresh-install channel ToS instructions —
-  is surfaced verbatim on failure). The starter `.gitignore` covers `.conda/`, the Git
-  health panel classifies committed `.conda/` / `conda-meta/` files, and project-local
-  `.conda` envs are auto-detected like `.venv` (interpreter auto-select on file open).
+  Environment Selected** note appears with an **Env Python version** picker (defaults
+  to the selected interpreter's version — conda installs any version into a fresh env),
+  and project creation runs `conda create -p <project>/.conda -y python=<X.Y>`
+  (conda's stderr surfaced verbatim on failure). Conda projects get an
+  **`environment.yml`** starter instead of `requirements.txt`. The starter `.gitignore`
+  covers `.conda/`, the Git health panel classifies committed `.conda/` / `conda-meta/`
+  files, and project-local `.conda` envs are auto-detected like `.venv` (interpreter
+  auto-select on file open).
+- **Terms of Service handled in-app.** Anaconda's channels require accepted ToS before
+  conda can download packages (fresh Miniconda installs haven't accepted). The wizard
+  checks on **Next** (conda interpreter + create-env checked) and the Package Manager
+  checks before the first conda-routed install/uninstall; both show the channel ToS
+  text with an **Accept/Decline dialog** (`widgets/conda_tos_dialog.py`). Accept runs
+  `conda tos accept` — persisted by conda itself, so the user's own CLI works too;
+  Decline cancels the operation.
 - **Session persistence.** The active conda env's prefix is saved
   (`interpreter["conda_prefix"]`) and project-local `.conda` envs re-activate in the
   terminal on restore, under the same project-containment guard as venvs.

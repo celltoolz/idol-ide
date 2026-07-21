@@ -18,6 +18,74 @@ from typing import Callable
 
 from utils import conda_env
 
+# ── Terms of Service helpers ──────────────────────────────────────────────────
+# Anaconda's default channels require ToS acceptance (conda-anaconda-tos
+# plugin) before conda can download packages. These module-level helpers let
+# the wizard and the Package Manager check and accept the ToS with the user's
+# consent — acceptance via `conda tos accept` persists in conda itself, so
+# the user's own CLI works afterward too.
+
+_TOS_TIMEOUT = 60
+
+
+def fetch_tos_pending(
+    conda_exe: str | None,
+    after_fn: Callable,
+    on_done: Callable[[dict[str, str]], None],
+) -> None:
+    """Check which channels still need ToS acceptance, on a daemon thread.
+
+    Calls on_done(pending) on the main thread — {channel_url: tos_text}.
+    Empty dict means nothing to accept (all accepted, ToS plugin absent,
+    or the check failed — in which case the operation proceeds and any
+    real ToS error surfaces from conda itself).
+    """
+    def _run():
+        pending: dict[str, str] = {}
+        try:
+            result = subprocess.run(
+                [conda_exe, "tos", "--json"],
+                capture_output=True, text=True, timeout=_TOS_TIMEOUT,
+            )
+            data = json.loads(result.stdout)
+            if isinstance(data, dict):
+                for channel, meta in data.items():
+                    if not isinstance(meta, dict) or "text" not in meta:
+                        continue
+                    # "path" points at the local acceptance record once the
+                    # ToS has been accepted; "None"/empty means still pending.
+                    if meta.get("path") in (None, "", "None"):
+                        pending[channel] = meta.get("text", "")
+        except Exception:
+            pending = {}
+        after_fn(0, on_done, pending)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def accept_tos(
+    conda_exe: str | None,
+    after_fn: Callable,
+    on_done: Callable[[bool, str], None],
+) -> None:
+    """Run `conda tos accept` (all active channels) on a daemon thread.
+
+    Calls on_done(ok, message) on the main thread.
+    """
+    def _run():
+        try:
+            result = subprocess.run(
+                [conda_exe, "tos", "accept", "--json"],
+                capture_output=True, text=True, timeout=_TOS_TIMEOUT,
+            )
+            ok = result.returncode == 0
+            msg = (result.stderr or result.stdout or "").strip()[-500:]
+        except Exception as e:
+            ok, msg = False, str(e)
+        after_fn(0, on_done, ok, msg)
+
+    threading.Thread(target=_run, daemon=True).start()
+
 
 class CondaManager:
     """Runs conda subprocesses on daemon threads, fires callbacks on the main thread."""
@@ -38,6 +106,11 @@ class CondaManager:
     def available(self) -> bool:
         """True when the env prefix and a conda executable were both located."""
         return bool(self._prefix and self._conda_exe)
+
+    @property
+    def conda_exe(self) -> str | None:
+        """The conda executable serving this env (for the ToS helpers)."""
+        return self._conda_exe
 
     def fetch_installed(
         self,

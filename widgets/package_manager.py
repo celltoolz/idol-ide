@@ -9,8 +9,10 @@ from tkinter import ttk
 from typing import Callable
 from widgets.scrollbar import VerticalScrollbar
 
+from editor import conda_manager as conda_backend
 from editor.conda_manager import CondaManager
 from editor.pip_manager import PipManager
+from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.learning_manager import LearningManager
 from utils.conda_env import is_conda_env
 from utils.thread_safe_after import make_thread_safe_after
@@ -208,9 +210,11 @@ class PackageManagerPanel(tk.Frame):
         self._topic_cache: dict[str, str] = {}   # name → topic (persisted)
         self._load_topic_cache()
         _after = make_thread_safe_after(self)
+        self._after_fn = _after
         self._pip = PipManager(after_fn=_after)
         self._conda = CondaManager(after_fn=_after)
         self._backend = self._pip
+        self._tos_ok_exe: str | None = None   # conda exe whose ToS check passed
         self._build()
         self.after(100, self._load_installed)
 
@@ -621,6 +625,47 @@ class PackageManagerPanel(tk.Frame):
         self._run_backend_op("uninstall", name)
 
     def _run_backend_op(self, verb: str, name: str) -> None:
+        # Conda-routed operations download from Anaconda's channels, which
+        # require accepted Terms of Service — check before the op so the
+        # user gets an Accept/Decline dialog instead of a raw conda error.
+        # (pip-routed uninstalls and the pip backend need no gate; conda
+        # list is local and unaffected.)
+        conda_routed = self._backend is self._conda and (
+            verb == "install" or self._origins.get(name, "pypi") != "pypi"
+        )
+        if conda_routed and self._conda.conda_exe != self._tos_ok_exe:
+            self._notify("Checking conda Terms of Service…\n")
+            conda_backend.fetch_tos_pending(
+                self._conda.conda_exe, self._after_fn,
+                lambda pending: self._on_tos_status(pending, verb, name))
+            return
+        self._exec_backend_op(verb, name)
+
+    def _on_tos_status(self, pending: dict[str, str], verb: str, name: str) -> None:
+        if not pending:
+            self._tos_ok_exe = self._conda.conda_exe
+            self._exec_backend_op(verb, name)
+            return
+        CondaTosDialog(
+            self, pending,
+            on_accept=lambda: self._on_tos_accept(verb, name),
+            on_decline=lambda: self._notify(
+                f"{verb} of '{name}' cancelled — conda Terms of Service not accepted\n"),
+        )
+
+    def _on_tos_accept(self, verb: str, name: str) -> None:
+        self._notify("Accepting conda Terms of Service…\n")
+
+        def _done(ok: bool, msg: str) -> None:
+            if ok:
+                self._tos_ok_exe = self._conda.conda_exe
+                self._exec_backend_op(verb, name)
+            else:
+                self._notify(f"Could not accept the Terms of Service: {msg}\n")
+
+        conda_backend.accept_tos(self._conda.conda_exe, self._after_fn, _done)
+
+    def _exec_backend_op(self, verb: str, name: str) -> None:
         output = self._get_output_panel() if self._get_output_panel else None
         origin = self._origins.get(name, "pypi")
         if self._backend is self._conda:

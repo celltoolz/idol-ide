@@ -10,8 +10,11 @@ from pathlib import Path
 from tkinter import Frame, Label, Entry, ttk, filedialog, messagebox
 from typing import Callable
 
+from editor import conda_manager
 from editor.project_manager import ProjectManager, categorize_interpreter
+from utils.conda_env import conda_prefix_for, find_conda_exe
 from utils.thread_safe_after import make_thread_safe_after
+from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.guide_window import GuideWindow
 import utils.venv_guide as venv_guide
 import utils.git_remote_guide as git_remote_guide
@@ -87,6 +90,10 @@ class ProjectWizard(tk.Toplevel):
         self._show_venv_var   = tk.BooleanVar(value=False)  # hide venv by default
         self._show_system_var = tk.BooleanVar(value=True)
         self._show_conda_var  = tk.BooleanVar(value=True)
+        self._conda_ver_var   = tk.StringVar()   # python version for a new .conda env
+        self._safe_after      = make_thread_safe_after(self)
+        self._tos_ok_for: set[str] = set()       # conda exes whose ToS check passed
+        self._tos_checking    = False
 
         # ── Header ────────────────────────────────────────────────────────────
         self._hdr_frame = Frame(self, bg=_HDR_BG, pady=10)
@@ -395,6 +402,18 @@ class ProjectWizard(tk.Toplevel):
             wraplength=430,
         )
 
+        # Python-version picker for the new conda env (conda can install any
+        # version into a fresh env, unlike venv which reuses the interpreter).
+        self._conda_ver_row = Frame(self._content, bg=_BG)
+        Label(self._conda_ver_row, text="Env Python version:", bg=_BG, fg=_DIM,
+              font=(UI_FONT, 8)).pack(side="left", padx=(0, 6))
+        self._conda_ver_combo = ttk.Combobox(
+            self._conda_ver_row, textvariable=self._conda_ver_var,
+            state="readonly", width=8, font=(UI_FONT, 9),
+            values=("3.14", "3.13", "3.12", "3.11", "3.10", "3.9"),
+        )
+        self._conda_ver_combo.pack(side="left")
+
         spacer = Label(self._content, text="", bg=_BG)
         spacer.pack()
         self._conda_note_anchor = spacer
@@ -416,17 +435,40 @@ class ProjectWizard(tk.Toplevel):
         exe = self._python_var.get()
         return bool(exe) and categorize_interpreter(exe) == "conda"
 
+    def _selected_python_mm(self) -> str:
+        """major.minor of the selected interpreter, parsed from its label."""
+        exe = self._python_var.get()
+        for lbl, path in getattr(self, "_pythons", []):
+            if path == exe:
+                m = re.search(r"Python\s+(\d+\.\d+)", lbl)
+                if m:
+                    return m.group(1)
+        return ""
+
     def _update_conda_note(self) -> None:
-        """Show/hide the yellow conda note and retext the env checkbox detail."""
+        """Show/hide the conda note + version row and retext the checkbox detail."""
         note = getattr(self, "_conda_note", None)
         if not note or not note.winfo_exists():
             return
         if self._conda_selected():
             note.pack(fill="x", pady=(6, 0), before=self._conda_note_anchor)
+            self._conda_ver_row.pack(fill="x", pady=(4, 0),
+                                     before=self._conda_note_anchor)
+            # Default the env version to the selected interpreter's version;
+            # a value the user already picked stays put.
+            mm = self._selected_python_mm()
+            if mm:
+                values = list(self._conda_ver_combo["values"])
+                if mm not in values:
+                    values.insert(0, mm)
+                    self._conda_ver_combo["values"] = values
+                if not self._conda_ver_var.get():
+                    self._conda_ver_var.set(mm)
             if self._venv_detail_lbl and self._venv_detail_lbl.winfo_exists():
                 self._venv_detail_lbl.config(text="  .conda/")
         else:
             note.pack_forget()
+            self._conda_ver_row.pack_forget()
             if self._venv_detail_lbl and self._venv_detail_lbl.winfo_exists():
                 self._venv_detail_lbl.config(text="  .venv/")
 
@@ -497,7 +539,11 @@ class ProjectWizard(tk.Toplevel):
         _row("Location:", path)
         _row("Python:", os.path.basename(python))
         if self._venv_var.get():
-            env_val = "Yes — .conda/ (conda)" if self._conda_selected() else "Yes — .venv/"
+            if self._conda_selected():
+                ver = self._conda_ver_var.get()
+                env_val = f"Yes — .conda/ (conda, python={ver})" if ver else "Yes — .conda/ (conda)"
+            else:
+                env_val = "Yes — .venv/"
         else:
             env_val = "No"
         _row("Virtual environment:", env_val)
@@ -523,7 +569,72 @@ class ProjectWizard(tk.Toplevel):
             if os.path.exists(dest):
                 self._error(f"'{name}' already exists in that location.")
                 return False
+        if self._step == 1 and self._venv_var.get() and self._conda_selected():
+            # Creating a conda env downloads packages from Anaconda's
+            # channels, which require accepted Terms of Service. Gate the
+            # Next click on that check so the failure isn't discovered
+            # mid-creation.
+            if not self._conda_tos_ready():
+                return False
         return True
+
+    # ── Conda Terms of Service gate ───────────────────────────────────────────
+
+    def _conda_tos_ready(self) -> bool:
+        """True when the selected conda install's ToS is known-accepted.
+
+        Otherwise starts an async check (the interrupted Next click resumes
+        automatically once the check/dialog resolves) and returns False.
+        """
+        conda_exe = find_conda_exe(conda_prefix_for(self._python_var.get()))
+        if not conda_exe:
+            return True   # scaffold_project surfaces its own error for this
+        if conda_exe in self._tos_ok_for:
+            return True
+        if not self._tos_checking:
+            self._tos_checking = True
+            self._error("Checking conda Terms of Service…")
+            conda_manager.fetch_tos_pending(
+                conda_exe, self._safe_after,
+                lambda pending: self._on_tos_status(conda_exe, pending))
+        return False
+
+    def _on_tos_status(self, conda_exe: str, pending: dict[str, str]) -> None:
+        self._tos_checking = False
+        if not self.winfo_exists():
+            return
+        if not pending:
+            self._tos_ok_for.add(conda_exe)
+            self._error("")
+            self._next()   # resume the Next click that started the check
+            return
+        CondaTosDialog(
+            self, pending,
+            on_accept=lambda: self._on_tos_accept(conda_exe),
+            on_decline=self._on_tos_decline,
+        )
+
+    def _on_tos_accept(self, conda_exe: str) -> None:
+        self._error("Accepting conda Terms of Service…")
+        conda_manager.accept_tos(
+            conda_exe, self._safe_after,
+            lambda ok, msg: self._on_tos_accepted(conda_exe, ok, msg))
+
+    def _on_tos_accepted(self, conda_exe: str, ok: bool, msg: str) -> None:
+        if not self.winfo_exists():
+            return
+        if ok:
+            self._tos_ok_for.add(conda_exe)
+            self._error("")
+            self._next()
+        else:
+            self._error(f"Could not accept the Terms of Service: {msg}")
+
+    def _on_tos_decline(self) -> None:
+        if self.winfo_exists():
+            self._error(
+                "Conda env creation needs the Terms of Service accepted — "
+                "uncheck the environment box or pick a different interpreter.")
 
     # ── Project creation ──────────────────────────────────────────────────────
 
@@ -548,6 +659,8 @@ class ProjectWizard(tk.Toplevel):
             on_status=self._set_status,
             on_done=lambda error: self._finish_setup(path, error),
             write_files_fn=self._write_starter_files if self._files_var.get() else None,
+            conda_py_version=(self._conda_ver_var.get() or None
+                              if self._conda_selected() else None),
         )
 
     def _show_progress(self) -> None:
@@ -718,9 +831,24 @@ class ProjectWizard(tk.Toplevel):
             with open(main_py, "w", encoding="utf-8") as f:
                 f.write('def main():\n    print("Hello, World!")\n\n\nif __name__ == "__main__":\n    main()\n')
 
-        req = os.path.join(project_path, "requirements.txt")
-        with open(req, "w", encoding="utf-8") as f:
-            f.write("# Project dependencies\n")
+        if self._conda_selected():
+            # Conda projects declare dependencies in environment.yml (the
+            # conda-native equivalent of requirements.txt): recreate the env
+            # anywhere with `conda env create -f environment.yml`.
+            ver = self._conda_ver_var.get()
+            env_yml = os.path.join(project_path, "environment.yml")
+            with open(env_yml, "w", encoding="utf-8") as f:
+                f.write(
+                    f"name: {project_name}\n"
+                    "channels:\n"
+                    "  - defaults\n"
+                    "dependencies:\n"
+                    + (f"  - python={ver}\n" if ver else "  - python\n")
+                )
+        else:
+            req = os.path.join(project_path, "requirements.txt")
+            with open(req, "w", encoding="utf-8") as f:
+                f.write("# Project dependencies\n")
 
         gitignore = os.path.join(project_path, ".gitignore")
         with open(gitignore, "w", encoding="utf-8") as f:

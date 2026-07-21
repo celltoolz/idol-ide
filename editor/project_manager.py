@@ -190,12 +190,16 @@ class ProjectManager:
         on_status: Callable[[str], None],
         on_done: Callable[[str | None], None],
         write_files_fn: Callable[[str], None] | None = None,
+        conda_py_version: str | None = None,
     ) -> None:
         """Create venv and/or git repo for a new project on a daemon thread.
 
         Calls on_status(msg) for progress updates (on main thread).
         Calls on_done(error) when complete; error is None on success.
         write_files_fn, if provided, is called between venv and git init.
+        conda_py_version ("3.12" etc.) pins the python version when *python*
+        is a conda interpreter; None falls back to the interpreter's own
+        version.
         """
         def _run():
             error: str | None = None
@@ -214,10 +218,12 @@ class ProjectManager:
                         if not conda_exe:
                             raise RuntimeError(
                                 "conda executable not found for the selected interpreter")
-                        ver_out = subprocess.check_output(
-                            [python, "--version"], stderr=subprocess.STDOUT, timeout=10
-                        ).decode().strip()
-                        ver = ".".join(ver_out.split()[-1].split(".")[:2])
+                        ver = conda_py_version
+                        if not ver:
+                            ver_out = subprocess.check_output(
+                                [python, "--version"], stderr=subprocess.STDOUT, timeout=10
+                            ).decode().strip()
+                            ver = ".".join(ver_out.split()[-1].split(".")[:2])
                         result = subprocess.run(
                             [conda_exe, "create", "-p", os.path.join(path, ".conda"),
                              "-y", f"python={ver}"],
