@@ -25,10 +25,16 @@ class PipManager:
         """Switch the Python interpreter used for all pip operations."""
         self._python_exe = exe
 
-    def fetch_installed(self, on_done: Callable[[dict[str, str]], None]) -> None:
+    def fetch_installed(
+        self,
+        on_done: Callable[[dict[str, str], dict[str, str]], None],
+    ) -> None:
         """Fetch installed packages via `pip list --format=json`.
 
-        Calls on_done(name_to_version) on the main thread when complete.
+        Calls on_done(name_to_version, name_to_origin) on the main thread
+        when complete. The origins dict is always empty for the pip backend
+        (everything is pip-managed) — the shape matches CondaManager so the
+        Package Manager panel can treat both backends uniformly.
         """
         python = self._python_exe
         # Conda interpreters need the env's PATH (Library\bin DLLs on
@@ -45,9 +51,30 @@ class PipManager:
                 installed = {p["name"]: p["version"] for p in pkgs}
             except Exception:
                 installed = {}
-            self._after(0, on_done, installed)
+            self._after(0, on_done, installed, {})
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def install(
+        self,
+        name: str,
+        on_line: Callable[[str], None],
+        on_done: Callable[[], None],
+        on_error: Callable[[str], None] | None = None,
+    ) -> None:
+        """Semantic install — mirrors CondaManager.install."""
+        self.run_operation(["install", name], on_line, on_done, on_error)
+
+    def uninstall(
+        self,
+        name: str,
+        origin: str,
+        on_line: Callable[[str], None],
+        on_done: Callable[[], None],
+        on_error: Callable[[str], None] | None = None,
+    ) -> None:
+        """Semantic uninstall — *origin* is ignored (pip manages everything)."""
+        self.run_operation(["uninstall", "-y", name], on_line, on_done, on_error)
 
     def run_operation(
         self,

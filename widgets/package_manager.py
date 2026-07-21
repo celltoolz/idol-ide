@@ -9,8 +9,10 @@ from tkinter import ttk
 from typing import Callable
 from widgets.scrollbar import VerticalScrollbar
 
+from editor.conda_manager import CondaManager
 from editor.pip_manager import PipManager
 from widgets.learning_manager import LearningManager
+from utils.conda_env import is_conda_env
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow, GuidePage
 from utils.ui_font import UI_FONT
@@ -200,18 +202,40 @@ class PackageManagerPanel(tk.Frame):
         self._get_ai_panel     = get_ai_panel
         self._open_ai_panel    = open_ai_panel
         self._installed: dict[str, str] = {}   # name → version
+        self._origins: dict[str, str] = {}     # name → "conda" | "pypi" (conda backend only)
         self._selected_pkg: str = ""
         self._pypi_cache: dict[str, dict] = {}   # per-session detail cache
         self._topic_cache: dict[str, str] = {}   # name → topic (persisted)
         self._load_topic_cache()
-        self._pip = PipManager(after_fn=make_thread_safe_after(self))
+        _after = make_thread_safe_after(self)
+        self._pip = PipManager(after_fn=_after)
+        self._conda = CondaManager(after_fn=_after)
+        self._backend = self._pip
         self._build()
         self.after(100, self._load_installed)
 
     def set_python(self, exe: str) -> None:
-        """Switch the active interpreter and refresh the installed package list."""
+        """Switch the active interpreter and refresh the installed package list.
+
+        Conda interpreters route package operations through CondaManager
+        (conda-first install with pip fallback); if the env's conda
+        executable can't be located, pip inside the env is used instead.
+        """
         self._pip.set_python(exe)
+        self._conda.set_python(exe)
+        if is_conda_env(exe) and self._conda.available:
+            self._backend = self._conda
+        else:
+            if is_conda_env(exe):
+                self._notify("conda executable not found — using pip inside the env\n")
+            self._backend = self._pip
         self._load_installed()
+
+    def _notify(self, msg: str) -> None:
+        """One-line notice in the Output panel, if available."""
+        output = self._get_output_panel() if self._get_output_panel else None
+        if output:
+            output.write(msg, tag="err")
 
     # ── Disk cache ────────────────────────────────────────────────────────────
 
@@ -359,10 +383,12 @@ class PackageManagerPanel(tk.Frame):
     def _load_installed(self) -> None:
         self._tree_label.config(text="INSTALLED  (loading…)")
         self._tree.delete(*self._tree.get_children())
-        self._pip.fetch_installed(self._on_installed_fetched)
+        self._backend.fetch_installed(self._on_installed_fetched)
 
-    def _on_installed_fetched(self, pkgs: dict[str, str]) -> None:
+    def _on_installed_fetched(self, pkgs: dict[str, str],
+                              origins: dict[str, str]) -> None:
         self._installed = pkgs
+        self._origins = origins
         self._populate_grouped()
 
     def _refresh_selected_detail(self) -> None:
@@ -401,8 +427,9 @@ class PackageManagerPanel(tk.Frame):
                               tags=("category",), open=True)
             for name in pkgs:
                 ver = self._installed[name]
+                badge = "  · pip" if self._origins.get(name) == "pypi" else ""
                 self._tree.insert(cat_iid, "end", iid=f"pkg:{name}",
-                                  text=f"  {name}  {ver}", tags=("installed",))
+                                  text=f"  {name}  {ver}{badge}", tags=("installed",))
 
         self._tree.tag_configure("category", foreground=_DIM)
         self._tree.tag_configure("installed", foreground=_FG)
@@ -588,31 +615,40 @@ class PackageManagerPanel(tk.Frame):
     # ── Install / Uninstall ────────────────────────────────────────────────────
 
     def _install_pkg(self, name: str) -> None:
-        self._run_pip(["install", name])
+        self._run_backend_op("install", name)
 
     def _uninstall_pkg(self, name: str) -> None:
-        self._run_pip(["uninstall", "-y", name])
+        self._run_backend_op("uninstall", name)
 
-    def _run_pip(self, args: list[str]) -> None:
+    def _run_backend_op(self, verb: str, name: str) -> None:
         output = self._get_output_panel() if self._get_output_panel else None
+        origin = self._origins.get(name, "pypi")
+        if self._backend is self._conda:
+            echo = {"install": f"$ conda install -y {name}",
+                    "uninstall": (f"$ pip uninstall -y {name}" if origin == "pypi"
+                                  else f"$ conda remove -y {name}")}[verb]
+        else:
+            echo = {"install": f"$ pip install {name}",
+                    "uninstall": f"$ pip uninstall -y {name}"}[verb]
         if output:
             # Switch bottom panel to OUTPUT tab so user sees progress
             try:
                 output.master._set_active("output")
             except Exception:
                 pass
-            output.write(f"\n$ pip {' '.join(args)}\n", tag="cmd")
+            output.write(f"\n{echo}\n", tag="cmd")
 
         def _on_line(line: str) -> None:
             if output:
                 output.write(line)
 
-        self._pip.run_operation(
-            args,
-            on_line=_on_line,
-            on_done=self._load_installed,
-            on_error=(lambda e: output.write(e + "\n", tag="err")) if output else None,
-        )
+        on_error = (lambda e: output.write(e + "\n", tag="err")) if output else None
+        if verb == "install":
+            self._backend.install(name, on_line=_on_line,
+                                  on_done=self._load_installed, on_error=on_error)
+        else:
+            self._backend.uninstall(name, origin, on_line=_on_line,
+                                    on_done=self._load_installed, on_error=on_error)
 
     # ── Ask AI ─────────────────────────────────────────────────────────────────
 
