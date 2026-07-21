@@ -14,6 +14,8 @@ import sys
 import threading
 from typing import Callable
 
+from utils import conda_env
+
 
 def _detect_pythons() -> list[tuple[str, str]]:
     """Return a list of (label, executable_path) for available Python interpreters."""
@@ -81,6 +83,33 @@ def _detect_pythons() -> list[tuple[str, str]]:
         except Exception:
             pass
 
+    # Conda envs: registry file + well-known base installs. The bare
+    # --version probe is safe for unactivated conda pythons (needs no
+    # Library\bin DLLs); anything heavier would.
+    conda_prefixes = conda_env.list_conda_env_prefixes()
+    seen_conda = {os.path.normcase(p) for p in conda_prefixes}
+    for base in conda_env.find_base_prefixes():
+        if os.path.normcase(base) not in seen_conda:
+            conda_prefixes.append(base)
+    for prefix in conda_prefixes:
+        exe = conda_env.python_exe_for(prefix)
+        if not os.path.isfile(exe):
+            continue
+        norm = os.path.normcase(os.path.realpath(exe))
+        if norm in seen_real or os.path.normcase(exe) in seen_path:
+            continue
+        seen_real.add(norm)
+        seen_path.add(os.path.normcase(exe))
+        try:
+            out = subprocess.check_output(
+                [exe, "--version"], stderr=subprocess.STDOUT, timeout=3
+            ).decode().strip()
+            version = out.split()[-1]
+        except Exception:
+            continue
+        name = conda_env.env_name_for(prefix)
+        results.append((f"Python {version}  (conda: {name})  ({exe})", exe))
+
     # Windows: scan user-level and system-level Python install directories
     if sys.platform == "win32":
         local_app = os.environ.get("LOCALAPPDATA", "")
@@ -112,11 +141,13 @@ def _detect_pythons() -> list[tuple[str, str]]:
 
 
 def categorize_interpreter(exe: str) -> str:
-    """Return 'venv' or 'system' for a given interpreter path.
+    """Return 'venv', 'conda', or 'system' for a given interpreter path.
 
     Detects venvs by looking for pyvenv.cfg in parent directories of the
     original path (not resolved) — on Linux, venv pythons are symlinks to
     the system binary so resolve() would lose the venv directory context.
+    The pyvenv.cfg check runs first: a venv created *from* a conda python
+    is still a venv.
     """
     from pathlib import Path
     try:
@@ -125,6 +156,8 @@ def categorize_interpreter(exe: str) -> str:
                 return "venv"
     except OSError:
         pass
+    if conda_env.is_conda_env(exe):
+        return "conda"
     return "system"
 
 

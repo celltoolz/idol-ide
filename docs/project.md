@@ -36,6 +36,12 @@ The wizard includes paginated guides covering:
 ### Interpreter Statusbar
 The active Python version is always visible in the status bar (e.g. `Python 3.12.3` or `(.venv) Python 3.12.3`). Click to open a picker and switch interpreters instantly.
 
+### Conda Environments
+Conda environments (Miniconda/Anaconda/Miniforge) are discovered automatically — from
+`~/.conda/environments.txt` plus the default install locations — and appear in the
+picker as `Python 3.x  (conda: base)` / `(conda: myenv)`. The Project Wizard's
+interpreter list gains a `conda` filter toggle alongside `venv` and `system`.
+
 ### Persistent Per-Project Selection
 The chosen interpreter is saved per project root in `~/.idol/settings.json` and restored automatically on next open.
 

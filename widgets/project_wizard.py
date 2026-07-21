@@ -86,6 +86,7 @@ class ProjectWizard(tk.Toplevel):
         self._pm = ProjectManager(after_fn=make_thread_safe_after(self))
         self._show_venv_var   = tk.BooleanVar(value=False)  # hide venv by default
         self._show_system_var = tk.BooleanVar(value=True)
+        self._show_conda_var  = tk.BooleanVar(value=True)
 
         # ── Header ────────────────────────────────────────────────────────────
         self._hdr_frame = Frame(self, bg=_HDR_BG, pady=10)
@@ -328,11 +329,13 @@ class ProjectWizard(tk.Toplevel):
             def _filtered() -> list[tuple[str, str]]:
                 show_venv   = self._show_venv_var.get()
                 show_system = self._show_system_var.get()
+                show_conda  = self._show_conda_var.get()
                 out = []
                 for label, exe in self._pythons:
                     cat = categorize_interpreter(exe)
                     if cat == "venv"   and not show_venv:   continue
                     if cat == "system" and not show_system: continue
+                    if cat == "conda"  and not show_conda:  continue
                     out.append((label, exe))
                 return out
 
@@ -363,6 +366,7 @@ class ProjectWizard(tk.Toplevel):
             combo.bind("<<ComboboxSelected>>", _on_select)
             self._show_venv_var.trace_add("write",  lambda *_: _refresh_combo())
             self._show_system_var.trace_add("write", lambda *_: _refresh_combo())
+            self._show_conda_var.trace_add("write",  lambda *_: _refresh_combo())
             _refresh_combo()
 
             # Filter toggles
@@ -372,6 +376,7 @@ class ProjectWizard(tk.Toplevel):
                   font=(UI_FONT, 8)).pack(side="left", padx=(0, 6))
             self._mini_check(filter_row, "venv",   self._show_venv_var)
             self._mini_check(filter_row, "system", self._show_system_var)
+            self._mini_check(filter_row, "conda",  self._show_conda_var)
 
         Label(self._content, text="", bg=_BG).pack()  # spacer
         self._check("Create virtual environment (recommended)", self._venv_var,
