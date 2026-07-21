@@ -201,9 +201,37 @@ class ProjectManager:
             error: str | None = None
             try:
                 if create_venv:
-                    self._after(0, on_status, "Creating virtual environment…")
-                    subprocess.run([python, "-m", "venv", os.path.join(path, ".venv")],
-                                   check=True, timeout=120)
+                    if conda_env.is_conda_env(python):
+                        # Conda interpreter selected → create a project-local
+                        # conda env instead of a venv. Pinned to the selected
+                        # interpreter's version so the env matches what the
+                        # user picked. Conda solves + downloads, so the
+                        # timeout is much longer than venv's.
+                        self._after(0, on_status,
+                                    "Creating conda environment… (this can take a few minutes)")
+                        conda_exe = conda_env.find_conda_exe(
+                            conda_env.conda_prefix_for(python))
+                        if not conda_exe:
+                            raise RuntimeError(
+                                "conda executable not found for the selected interpreter")
+                        ver_out = subprocess.check_output(
+                            [python, "--version"], stderr=subprocess.STDOUT, timeout=10
+                        ).decode().strip()
+                        ver = ".".join(ver_out.split()[-1].split(".")[:2])
+                        result = subprocess.run(
+                            [conda_exe, "create", "-p", os.path.join(path, ".conda"),
+                             "-y", f"python={ver}"],
+                            capture_output=True, text=True, timeout=600,
+                        )
+                        if result.returncode != 0:
+                            # Surface conda's own stderr (ToS prompts, network
+                            # errors) so the user sees actionable instructions.
+                            tail = (result.stderr or result.stdout or "").strip()[-800:]
+                            raise RuntimeError(f"conda create failed:\n{tail}")
+                    else:
+                        self._after(0, on_status, "Creating virtual environment…")
+                        subprocess.run([python, "-m", "venv", os.path.join(path, ".venv")],
+                                       check=True, timeout=120)
                 if write_files_fn:
                     self._after(0, on_status, "Writing starter files…")
                     write_files_fn(path)

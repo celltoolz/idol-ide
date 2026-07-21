@@ -3345,6 +3345,7 @@ class IDOL(Tk):
         python_label: str = "",
         venv_activate_path: str | None = None,
         project_type: str = "cli",
+        conda_prefix: str | None = None,
     ) -> None:
         """Called when the project wizard finishes — open the new project."""
         self._designer_project_type = project_type
@@ -3393,6 +3394,23 @@ class IDOL(Tk):
                 term.send(f'source "{venv_activate_path}"\r')
             # Ensure panel is visible without toggling (view_show_panel would
             # hide the panel if terminal was already the active tab)
+            if not self.output_visible_var.get():
+                self.output_visible_var.set(True)
+                self.view_toggle_output()
+            self._output._set_active("terminal")
+        elif conda_prefix and os.path.isdir(conda_prefix):
+            from utils.conda_env import python_exe_for
+
+            _conda_py = python_exe_for(conda_prefix)
+            _exe = _conda_py if os.path.isfile(_conda_py) else python_exe
+            # Set interpreter synchronously so workspace_save (500 ms below)
+            # captures the env Python before the async label refinement.
+            self._set_active_interpreter(_exe, "(conda: .conda) Python")
+            self._on_conda_activated(_exe)
+            term = self._output.terminal
+            _act = term.conda_activation_for(conda_prefix)
+            if _act:
+                term.send(_act + "\r")
             if not self.output_visible_var.get():
                 self.output_visible_var.set(True)
                 self.view_toggle_output()
@@ -9612,15 +9630,22 @@ class IDOL(Tk):
     # ── Debugger ──────────────────────────────────────────────────────────────
 
     def _find_project_python(self, filepath: str) -> str:
-        """Return the venv Python for *filepath*'s project tree, or sys.executable."""
+        """Return the venv/conda Python for *filepath*'s project tree, or sys.executable."""
         is_win = sys.platform == "win32"
         subpath = os.path.join(
             "Scripts" if is_win else "bin", "python.exe" if is_win else "python"
         )
+        # Conda envs on Windows keep python.exe at the env root, not Scripts\
+        conda_subpath = "python.exe" if is_win else os.path.join("bin", "python")
         directory = os.path.dirname(os.path.abspath(filepath))
         while True:
             for name in (".venv", "venv", "env", ".env"):
                 candidate = os.path.join(directory, name, subpath)
+                if os.path.isfile(candidate):
+                    return candidate
+            conda_dir = os.path.join(directory, ".conda")
+            if os.path.isdir(os.path.join(conda_dir, "conda-meta")):
+                candidate = os.path.join(conda_dir, conda_subpath)
                 if os.path.isfile(candidate):
                     return candidate
             parent = os.path.dirname(directory)

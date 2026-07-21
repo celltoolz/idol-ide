@@ -229,12 +229,17 @@ class ProjectWizard(tk.Toplevel):
         return e
 
     def _check(self, label: str, variable: tk.BooleanVar, detail: str = "",
-               disabled: bool = False) -> None:
+               disabled: bool = False) -> "Label | None":
+        """Build a styled checkbox row; returns the detail Label (if any) so
+        callers can retext it (e.g. .venv/ → .conda/ for conda interpreters)."""
         cb = StyledCheckbox(self._content, label, variable, bg=_BG, disabled=disabled)
         cb.pack(fill="x", pady=3)
         if detail:
-            Label(cb, text=f"  {detail}", bg=_BG, fg=_DIM,
-                  font=(UI_FONT, 8)).pack(side="left")
+            detail_lbl = Label(cb, text=f"  {detail}", bg=_BG, fg=_DIM,
+                               font=(UI_FONT, 8))
+            detail_lbl.pack(side="left")
+            return detail_lbl
+        return None
 
     def _mini_check(self, parent: Frame, label: str, var: tk.BooleanVar) -> None:
         """Compact inline checkbox for filter rows."""
@@ -356,12 +361,14 @@ class ProjectWizard(tk.Toplevel):
                     idx = 0
                 combo.current(idx)
                 self._python_var.set(visible[idx][1])
+                self._update_conda_note()
 
             def _on_select(_=None) -> None:
                 visible = _filtered()
                 idx = combo.current()
                 if 0 <= idx < len(visible):
                     self._python_var.set(visible[idx][1])
+                self._update_conda_note()
 
             combo.bind("<<ComboboxSelected>>", _on_select)
             self._show_venv_var.trace_add("write",  lambda *_: _refresh_combo())
@@ -378,9 +385,23 @@ class ProjectWizard(tk.Toplevel):
             self._mini_check(filter_row, "system", self._show_system_var)
             self._mini_check(filter_row, "conda",  self._show_conda_var)
 
-        Label(self._content, text="", bg=_BG).pack()  # spacer
-        self._check("Create virtual environment (recommended)", self._venv_var,
-                    detail=".venv/")
+        # Yellow note shown when the selected interpreter is a conda python —
+        # the env checkbox below then creates a conda env instead of a venv.
+        self._conda_note = Label(
+            self._content,
+            text="⚠  Conda Environment Selected — a conda env (.conda/) will be "
+                 "created instead of a venv",
+            bg=_BG, fg=_WARN, font=(UI_FONT, 8), anchor="w", justify="left",
+            wraplength=430,
+        )
+
+        spacer = Label(self._content, text="", bg=_BG)
+        spacer.pack()
+        self._conda_note_anchor = spacer
+        self._venv_detail_lbl = self._check(
+            "Create virtual environment (recommended)", self._venv_var,
+            detail=".venv/")
+        self._update_conda_note()
 
         # Learn more link
         learn = Label(self._content, text="? Learn about virtual environments & choosing a Python interpreter",
@@ -389,6 +410,25 @@ class ProjectWizard(tk.Toplevel):
         learn.bind("<Button-1>", lambda _: GuideWindow(
             self, "Virtual Environments", venv_guide.get_pages()
         ))
+
+    def _conda_selected(self) -> bool:
+        """True when the currently selected wizard interpreter is a conda python."""
+        exe = self._python_var.get()
+        return bool(exe) and categorize_interpreter(exe) == "conda"
+
+    def _update_conda_note(self) -> None:
+        """Show/hide the yellow conda note and retext the env checkbox detail."""
+        note = getattr(self, "_conda_note", None)
+        if not note or not note.winfo_exists():
+            return
+        if self._conda_selected():
+            note.pack(fill="x", pady=(6, 0), before=self._conda_note_anchor)
+            if self._venv_detail_lbl and self._venv_detail_lbl.winfo_exists():
+                self._venv_detail_lbl.config(text="  .conda/")
+        else:
+            note.pack_forget()
+            if self._venv_detail_lbl and self._venv_detail_lbl.winfo_exists():
+                self._venv_detail_lbl.config(text="  .venv/")
 
     # ── Step 2: Options ───────────────────────────────────────────────────────
 
@@ -456,7 +496,11 @@ class ProjectWizard(tk.Toplevel):
         _row("Project name:", name)
         _row("Location:", path)
         _row("Python:", os.path.basename(python))
-        _row("Virtual environment:", "Yes — .venv/" if self._venv_var.get() else "No")
+        if self._venv_var.get():
+            env_val = "Yes — .conda/ (conda)" if self._conda_selected() else "Yes — .venv/"
+        else:
+            env_val = "No"
+        _row("Virtual environment:", env_val)
         _row("Git repository:", "Yes" if self._git_var.get() else "No")
         _row("Starter files:", "Yes" if self._files_var.get() else "No")
 
@@ -593,7 +637,7 @@ class ProjectWizard(tk.Toplevel):
     def _get_venv_activate_path(self, project_path: str) -> "str | None":
         """Return the activate script path if a venv was created, else None."""
         import platform as _pl
-        if not self._venv_var.get():
+        if not self._venv_var.get() or self._conda_selected():
             return None
         base = os.path.join(project_path, ".venv")
         if _pl.system() == "Windows":
@@ -602,12 +646,22 @@ class ProjectWizard(tk.Toplevel):
             p = os.path.join(base, "bin", "activate")
         return p if os.path.isfile(p) else None
 
+    def _get_conda_prefix(self, project_path: str) -> "str | None":
+        """Return the .conda env prefix if a conda env was created, else None."""
+        if not self._venv_var.get():
+            return None
+        prefix = os.path.join(project_path, ".conda")
+        if os.path.isdir(os.path.join(prefix, "conda-meta")):
+            return prefix
+        return None
+
     def _open_project(self, path: str) -> None:
         self.destroy()
         self._on_complete(
             path, *self._selected_python(),
             self._get_venv_activate_path(path),
             self._type_var.get(),
+            self._get_conda_prefix(path),
         )
 
     def _selected_python(self) -> tuple[str, str]:
@@ -672,7 +726,7 @@ class ProjectWizard(tk.Toplevel):
         with open(gitignore, "w", encoding="utf-8") as f:
             f.write(
                 "# Virtual environment\n"
-                "venv/\n.venv/\n"
+                "venv/\n.venv/\n.conda/\n"
                 "bin/\ninclude/\nlib/\nlib64\npyvenv.cfg\nshare/\n\n"
                 "# Python\n__pycache__/\n*.py[cod]\n*.pyo\n\n"
                 "# Build\ndist/\nbuild/\n*.egg-info/\n\n"

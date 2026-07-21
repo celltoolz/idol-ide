@@ -5,7 +5,7 @@
 `File → New Project…` launches a guided 4-step wizard:
 
 1. **Project type & name** — choose **Command Line App** (standard script) or **Tkinter GUI App** (visual designer enabled); set project name and location with live path preview
-2. **Interpreter & venv** — auto-detects all installed Python versions; create a `.venv` virtual environment
+2. **Interpreter & venv** — auto-detects all installed Python versions (with venv/system/conda filter toggles); create a `.venv` virtual environment — or, when a **conda interpreter** is selected, the same checkbox creates a project-local **`.conda/` conda env** instead (a yellow *Conda Environment Selected* note appears, and the env is pinned to the selected interpreter's Python version). On a fresh Miniconda install, conda may require accepting its channels' Terms of Service first (`conda tos accept …`) — the wizard surfaces conda's own instructions verbatim if so
 3. **Git & starter files** — optional git init; scaffold `main.py`, `requirements.txt`, `.gitignore`; the Git option is disabled (checkbox greyed out with a status note) when git is not found on PATH or not configured
 4. **Summary** — review all settings before creating
 
@@ -41,6 +41,12 @@ Conda environments (Miniconda/Anaconda/Miniforge) are discovered automatically �
 `~/.conda/environments.txt` plus the default install locations — and appear in the
 picker as `Python 3.x  (conda: base)` / `(conda: myenv)`. The Project Wizard's
 interpreter list gains a `conda` filter toggle alongside `venv` and `system`.
+
+Project-local `.conda/` envs are auto-detected the same way `.venv` is: opening a
+file inside a project that contains one selects its Python automatically, and no
+`conda init` is ever required — IDOL runs conda pythons with a synthesized
+activation environment (the env's PATH entries and `CONDA_PREFIX` set on the child
+process), so Run, Debug, and package operations work without activating a shell.
 
 ### Persistent Per-Project Selection
 The chosen interpreter is saved per project root in `~/.idol/settings.json` and restored automatically on next open.

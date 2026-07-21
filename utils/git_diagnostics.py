@@ -32,6 +32,8 @@ class FileInfo:
 _VENV_PATTERNS = [
     r"^(bin|Scripts)/(activate|python[\d.]*|pip[\d.]*|easy_install.*|wheel.*|f2py.*)$",
     r"^(bin|Scripts)/",
+    r"(^|/)\.conda/",
+    r"(^|/)conda-meta/",
     r"^lib/python[\d.]+/",
     r"^lib64/",
     r"^include/",
@@ -108,7 +110,7 @@ def classify_file(path: str) -> FileInfo:
             return FileInfo(
                 category="venv",
                 label="Virtual Environment",
-                explanation="Part of a Python virtual environment — should never be committed. Add venv/ to .gitignore.",
+                explanation="Part of a Python environment (venv or conda) — should never be committed. Add venv/ or .conda/ to .gitignore.",
                 severity="high",
             )
 

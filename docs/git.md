@@ -27,7 +27,7 @@ Scannable checklist of common git hygiene issues:
 - No secrets staged
 - No large build artifacts committed
 
-Each issue has a **one-click fix** button. Smart warning detection automatically identifies venv files, secrets, build artifacts, and OS metadata in untracked files.
+Each issue has a **one-click fix** button. Smart warning detection automatically identifies venv files (including project-local `.conda/` conda envs), secrets, build artifacts, and OS metadata in untracked files.
 
 When git is not installed, the health panel shows a guide for installing git on Windows, macOS, or Linux.
 
