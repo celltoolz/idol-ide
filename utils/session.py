@@ -289,10 +289,15 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         _act = _parent / ("Activate.ps1" if _pl.system() == "Windows" else "activate")
         if _act.exists():
             _venv_activate = str(_act)
+    # Conda envs have no activate script — persist the env prefix directory
+    # instead (restore re-activates via the terminal's conda activation).
+    from utils.conda_env import conda_prefix_for
+    _conda_prefix = (conda_prefix_for(_interp_path) or "") if _interp_path else ""
     interpreter = {
         "path":          _interp_path,
         "label":         getattr(app, "_active_python_label", ""),
         "venv_activate": _venv_activate,
+        "conda_prefix":  _conda_prefix,
     }
 
     try:
@@ -454,6 +459,21 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         )
         if _venv_under_root:
             app._schedule_venv_activation_if_needed(venv_activate)
+
+    conda_prefix = interp.get("conda_prefix", "")
+    if (conda_prefix and os.path.isdir(conda_prefix)
+            and hasattr(app, "_schedule_conda_activation_if_needed")):
+        # Same containment guard as venvs: only re-activate a project-local
+        # conda env (e.g. <root>/.conda) — a base or named env from outside
+        # the project must not be injected into this session's terminal.
+        _conda_under_root = bool(
+            root and
+            os.path.normcase(os.path.abspath(conda_prefix)).startswith(
+                os.path.normcase(os.path.abspath(root)) + os.sep
+            )
+        )
+        if _conda_under_root:
+            app._schedule_conda_activation_if_needed(conda_prefix)
 
     # ── Appearance ────────────────────────────────────────────────────────────
     appearance = data.get("appearance", {})

@@ -33,6 +33,7 @@ else:
     _TERM_FONT_FAMILY, _TERM_FONT_SIZE = "DejaVu Sans Mono", 10
 
 import pyte
+from utils import conda_env
 from utils.ui_font import UI_FONT
 
 PTY_AVAILABLE = False
@@ -545,9 +546,15 @@ class TerminalPanel(ttk.Frame):
         self._queue:    queue.Queue = queue.Queue()
         self.on_venv_activate:   Optional[Callable[[str], None]] = None
         self.on_venv_deactivate: Optional[Callable[[], None]]   = None
+        self.on_conda_activate:  Optional[Callable[[str], None]] = None
         self.on_command_done:    Optional[Callable[[Optional[int]], None]] = None
         self._running   = False
         self._cwd: Optional[str] = None
+        self._venv_active:  str = ""
+        self._conda_active: str = ""
+        self._conda_prefix_path: str = ""   # .conda env found in shell CWD
+        self._active_env_kind: str = ""     # "venv" | "conda" | ""
+        self._target_env_kind: str = ""
 
         # pyte screen — sized properly once the widget is mapped
         self._rows = 24
@@ -694,6 +701,13 @@ class TerminalPanel(ttk.Frame):
             # Strip IDOL's own venv so the child shell starts clean
             env.pop("VIRTUAL_ENV", None)
             env.pop("VIRTUAL_ENV_PROMPT", None)
+            # Same for conda: a conda-launched IDOL must not leak a
+            # phantom-activated env into the child shell. PATH is left
+            # alone — scrubbing conda dirs could break the user's own
+            # `conda` command.
+            for _cv in ("CONDA_PREFIX", "CONDA_DEFAULT_ENV",
+                        "CONDA_PROMPT_MODIFIER", "CONDA_SHLVL"):
+                env.pop(_cv, None)
             # Remove venv bin dir from PATH so the shell doesn't inherit it
             if self._idol_venv:
                 venv_bin = os.path.join(self._idol_venv, "bin") + os.pathsep
@@ -748,6 +762,7 @@ class TerminalPanel(ttk.Frame):
             self._raw_buf  = ""
             self._cwd_current = ""
             self._venv_active  = ""
+            self._conda_active = ""
             self._venv_auto_activated = False
             self._state_file_mtime = 0.0
             self._sid_to_key[sid] = self._active_shell_key
@@ -2069,6 +2084,7 @@ class TerminalPanel(ttk.Frame):
             if activate:
                 break
         if not activate:
+            self._try_auto_activate_conda(cwd, shell_name)
             return
         self._venv_auto_activated = True
         if is_pwsh:
@@ -2091,12 +2107,75 @@ class TerminalPanel(ttk.Frame):
             self._send_silently(f'source "{activate.as_posix()}"\r')
         self._fire_venv_activate(str(activate))
 
+    def _try_auto_activate_conda(self, cwd: str, shell_name: str) -> None:
+        """Activate a project-local .conda env in the live shell, if one exists.
+
+        Called by _auto_activate_venv when the venv search misses — venvs
+        win when both are present. Uses the explicit hook-sourcing
+        activation command so no `conda init` is required."""
+        prefix = os.path.join(cwd, ".conda")
+        if not os.path.isdir(os.path.join(prefix, "conda-meta")):
+            return
+        cmd = self.conda_activation_for(prefix, shell_name)
+        if not cmd:
+            return
+        self._venv_auto_activated = True
+        self._send_silently(cmd + "\r")
+        self._fire_conda_activate(prefix)
+
+    def _active_shell_name(self) -> str:
+        """Basename of the active session's shell command (lowercase)."""
+        shell_cmd = (self._session_meta.get(self._active_shell_key) or {}).get("cmd") or _default_shell()
+        return os.path.basename(shell_cmd[0]).lower() if shell_cmd else ""
+
+    def conda_activation_for(self, prefix: str,
+                             shell_name: str = "") -> Optional[str]:
+        """Shell-ready conda activation command for *prefix*, or None.
+
+        PowerShell gets the same process-scope execution-policy prelude the
+        venv Activate.ps1 path uses (hook scripts can be unsigned)."""
+        shell = shell_name or self._active_shell_name()
+        to_msys = (self._win_path_to_msys
+                   if platform.system() == "Windows" and "bash" in shell else None)
+        cmd = conda_env.activation_command(prefix, shell, to_msys=to_msys)
+        if cmd and ("powershell" in shell or "pwsh" in shell):
+            cmd = ("Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned; "
+                   + cmd)
+        return cmd
+
+    def send_conda_activation(self, prefix: str, deact: str = "") -> None:
+        """Type the conda activation for *prefix* into the active shell.
+
+        *deact* optionally prepends a deactivation command (e.g. "deactivate"
+        or "conda deactivate") for the switch-env flow."""
+        cmd = self.conda_activation_for(prefix)
+        if not cmd:
+            return
+        if deact:
+            shell = self._active_shell_name()
+            joiner = "; " if ("powershell" in shell or "pwsh" in shell) else " && "
+            cmd = deact + joiner + cmd
+        self.send(cmd + "\r")
+        self._fire_conda_activate(prefix)
+
+    def conda_active_matches(self, prefix: str) -> bool:
+        """True if the shell's reported CONDA_PREFIX is *prefix*."""
+        active = self._conda_active
+        return bool(active) and self._norm_env_path(active) == self._norm_env_path(prefix)
+
+    def _fire_conda_activate(self, prefix: str) -> None:
+        """Derive the env's python exe from the prefix and notify the app."""
+        if not self.on_conda_activate:
+            return
+        exe = conda_env.python_exe_for(prefix)
+        if os.path.isfile(exe):
+            self.on_conda_activate(exe)
+
     def _inject_shell_hooks(self) -> None:
         """Inject CWD + VENV reporting into the running shell."""
         if not self._running:
             return
-        shell_cmd = (self._session_meta.get(self._active_shell_key) or {}).get("cmd") or _default_shell()
-        shell_name = os.path.basename(shell_cmd[0]).lower() if shell_cmd else ""
+        shell_name = self._active_shell_name()
         _KNOWN_SHELLS = ("powershell", "pwsh", "cmd", "bash", "zsh", "sh")
         if not any(s in shell_name for s in _KNOWN_SHELLS):
             return   # REPL or unknown program — skip hook injection
@@ -2117,7 +2196,8 @@ class TerminalPanel(ttk.Frame):
                 'function prompt {'
                 ' $p = $PWD.Path;'
                 ' $v = if ($env:VIRTUAL_ENV) { $env:VIRTUAL_ENV } else { "" };'
-                f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v");'
+                ' $c = if ($env:CONDA_PREFIX) { $env:CONDA_PREFIX } else { "" };'
+                f' [System.IO.File]::WriteAllText("{ps_path}", "$p`n$v`n$c");'
                 ' Write-Host -NoNewline "$([char]27)]133;D;$([int]$LASTEXITCODE)$([char]7)";'
                 ' if (-not $global:_idol_cleared) { $global:_idol_cleared = $true; clear };'
                 ' "PS $p> "'
@@ -2130,6 +2210,7 @@ class TerminalPanel(ttk.Frame):
                 ' printf "\\e]133;D;%d\\a" "$_ec";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOST" "$PWD";'
                 ' printf "\\e]7776;%s\\a" "${VIRTUAL_ENV:-}";'
+                ' printf "\\e]7778;%s\\a" "${CONDA_PREFIX:-}";'
                 '};'
                 ' precmd_functions=(_idol_prompt "${precmd_functions[@]}")\r'
             )
@@ -2149,7 +2230,8 @@ class TerminalPanel(ttk.Frame):
                 'export PROMPT_COMMAND=\'_ec=$?;'
                 ' printf "\\e]133;D;%d\\a" "$_ec";'
                 ' printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD";'
-                ' printf "\\e]7776;%s\\a" "${VIRTUAL_ENV:-}"\'\r'
+                ' printf "\\e]7776;%s\\a" "${VIRTUAL_ENV:-}";'
+                ' printf "\\e]7778;%s\\a" "${CONDA_PREFIX:-}"\'\r'
             )
         self._send_silently(hook)
 
@@ -2166,6 +2248,7 @@ class TerminalPanel(ttk.Frame):
                 if lines:
                     self._cwd_current = lines[0].strip()
                     self._venv_active = lines[1].strip() if len(lines) > 1 else ""
+                    self._conda_active = lines[2].strip() if len(lines) > 2 else ""
                     self._refresh_venv_state()
         except Exception:
             pass
@@ -2209,6 +2292,12 @@ class TerminalPanel(ttk.Frame):
             self._venv_active = m.group(1).strip()
             venv_changed = True
         raw = re.sub(r'\x1b\]7776;[^\x07\x1b]*(?:\x07|\x1b\\)?', '', raw)
+
+        # ── OSC 7778: IDOL conda prefix ───────────────────────────────────────
+        for m in re.finditer(r'\x1b\]7778;([^\x07\x1b]*)(?:\x07|\x1b\\)?', raw):
+            self._conda_active = m.group(1).strip()
+            venv_changed = True
+        raw = re.sub(r'\x1b\]7778;[^\x07\x1b]*(?:\x07|\x1b\\)?', '', raw)
         if venv_changed:
             self.after(0, self._refresh_venv_state)
 
@@ -2218,14 +2307,27 @@ class TerminalPanel(ttk.Frame):
         if self.on_command_done:
             self.on_command_done(exit_code)
 
-    def _refresh_venv_state(self) -> None:
-        """Recompute button state based on current CWD and active venv."""
-        cwd    = self._cwd_current
-        active = self._venv_active
+    @staticmethod
+    def _norm_env_path(p: str) -> str:
+        """Normalize path for comparison — lowercase on Windows, forward slashes."""
+        p = p.replace("\\", "/").rstrip("/")
+        # Convert MSYS2/Git Bash POSIX drive paths: /c/Users/... → c:/Users/...
+        if len(p) >= 3 and p[0] == "/" and p[1].isalpha() and p[2] == "/":
+            p = p[1].lower() + ":/" + p[3:]
+        if platform.system() == "Windows":
+            p = p.lower()
+        return p
 
-        # Check for a venv in CWD — try all common names
+    def _refresh_venv_state(self) -> None:
+        """Recompute button state based on current CWD and active env (venv or conda)."""
+        cwd          = self._cwd_current
+        active_venv  = self._venv_active
+        active_conda = self._conda_active
+
+        # Check for an env in CWD — venv names first (they win), then .conda
         venv_activate_path = ""
         cwd_venv = ""
+        conda_prefix_path = ""
         # Git Bash on Windows reports CWD as /c/Users/... (MSYS2 POSIX format);
         # Python's Path on Windows can't resolve that, so convert it first.
         fs_cwd = self._msys_to_win_path(cwd) if platform.system() == "Windows" else cwd
@@ -2241,55 +2343,70 @@ class TerminalPanel(ttk.Frame):
                         venv_activate_path = str(candidate / "Scripts" / "Activate.ps1")
                         cwd_venv = str(candidate)
                         break
+                if not cwd_venv:
+                    candidate = Path(fs_cwd) / ".conda"
+                    if (candidate / "conda-meta").is_dir():
+                        conda_prefix_path = str(candidate)
             except Exception:
                 pass
 
-        def _norm(p: str) -> str:
-            """Normalize path for comparison — lowercase on Windows, forward slashes."""
-            p = p.replace("\\", "/").rstrip("/")
-            # Convert MSYS2/Git Bash POSIX drive paths: /c/Users/... → c:/Users/...
-            if len(p) >= 3 and p[0] == "/" and p[1].isalpha() and p[2] == "/":
-                p = p[1].lower() + ":/" + p[3:]
-            if platform.system() == "Windows":
-                p = p.lower()
-            return p
+        _norm = self._norm_env_path
 
-        # Child PTY always starts with VIRTUAL_ENV stripped, so any reported venv
-        # is explicitly user-activated — no need to filter _idol_venv here.
+        # Child PTY always starts with VIRTUAL_ENV/CONDA_PREFIX stripped, so any
+        # reported env is explicitly user-activated. A venv activated inside a
+        # conda env is the innermost environment — venv wins the comparison.
+        active = active_venv or active_conda
+        target = cwd_venv or conda_prefix_path
+        self._active_env_kind = "venv" if active_venv else ("conda" if active_conda else "")
+        self._target_env_kind = "venv" if cwd_venv else ("conda" if conda_prefix_path else "")
         if active:
             na = _norm(active)
-            nv = _norm(cwd_venv) if cwd_venv else ""
-            if nv and (na == nv or na.startswith(nv + "/")):
+            nt = _norm(target) if target else ""
+            if nt and (na == nt or na.startswith(nt + "/")):
                 self._venv_btn_state = "active_match"
-            elif nv:
+            elif nt:
                 self._venv_btn_state = "active_other"
             else:
                 self._venv_btn_state = "none"
-        elif venv_activate_path:
+        elif target:
             self._venv_btn_state = "activate"
         else:
             self._venv_btn_state = "none"
 
         self._venv_activate_path = venv_activate_path
+        self._conda_prefix_path = conda_prefix_path
         self._update_venv_ui()
+
+    def _active_env_name(self) -> str:
+        """Display name of the shell's active env for the toolbar label."""
+        if self._active_env_kind == "conda" and self._conda_active:
+            fs = (self._msys_to_win_path(self._conda_active)
+                  if platform.system() == "Windows" else self._conda_active)
+            return conda_env.env_name_for(fs)
+        if self._venv_active:
+            return Path(self._venv_active).name
+        return ".venv"
 
     def _update_venv_ui(self) -> None:
         state = self._venv_btn_state
         if state == "activate":
-            self._venv_btn.config(text="▶ Activate venv", bg="#0e639c",
+            label = ("▶ Activate conda env" if self._target_env_kind == "conda"
+                     else "▶ Activate venv")
+            self._venv_btn.config(text=label, bg="#0e639c",
                                   cursor="hand2", fg="white")
             self._venv_label.pack_forget()
         elif state == "active_match":
             self._venv_btn.config(text="⏹ Deactivate", bg="#1a3a1a",
                                   cursor="hand2", fg="#50fa7b")
-            name = Path(self._venv_active).name if self._venv_active else ".venv"
-            self._venv_label.config(text=f"({name})", fg="#50fa7b")
+            self._venv_label.config(text=f"({self._active_env_name()})", fg="#50fa7b")
             self._venv_label.pack(side="right", padx=(0, 4))
         elif state == "active_other":
-            self._venv_btn.config(text="⇄ Switch venv", bg="#3a2a00",
+            label = ("⇄ Switch env"
+                     if "conda" in (self._active_env_kind, self._target_env_kind)
+                     else "⇄ Switch venv")
+            self._venv_btn.config(text=label, bg="#3a2a00",
                                   cursor="hand2", fg="#f1fa8c")
-            name = Path(self._venv_active).name if self._venv_active else "venv"
-            self._venv_label.config(text=f"({name})", fg="#f1fa8c")
+            self._venv_label.config(text=f"({self._active_env_name()})", fg="#f1fa8c")
             self._venv_label.pack(side="right", padx=(0, 4))
         else:
             self._venv_btn.config(text="▶ Activate venv", bg="#3c3c3c",
@@ -2309,7 +2426,12 @@ class TerminalPanel(ttk.Frame):
 
     def _venv_btn_click(self) -> None:
         state = self._venv_btn_state
+        deact = ("conda deactivate" if self._active_env_kind == "conda"
+                 else "deactivate")
         if state == "activate":
+            if self._target_env_kind == "conda":
+                self.send_conda_activation(self._conda_prefix_path)
+                return
             path = getattr(self, "_venv_activate_path", "")
             if path:
                 if platform.system() == "Windows":
@@ -2318,17 +2440,20 @@ class TerminalPanel(ttk.Frame):
                     self.send(f'source "{path}"\r')
                 self._fire_venv_activate(path)
         elif state == "active_match":
-            self.send("deactivate\r")
+            self.send(deact + "\r")
             if self.on_venv_deactivate:
                 self.on_venv_deactivate()
         elif state == "active_other":
             # Deactivate current, then activate the one in CWD
+            if self._target_env_kind == "conda":
+                self.send_conda_activation(self._conda_prefix_path, deact=deact)
+                return
             path = getattr(self, "_venv_activate_path", "")
             if path:
                 if platform.system() == "Windows":
-                    self.send(f'deactivate; & "{path}"\r')
+                    self.send(f'{deact}; & "{path}"\r')
                 else:
-                    self.send(f'deactivate && source "{path}"\r')
+                    self.send(f'{deact} && source "{path}"\r')
                 self._fire_venv_activate(path)
 
     def _fire_venv_activate(self, activate_path: str) -> None:

@@ -60,29 +60,36 @@ IDOL injects a small prompt hook on startup that emits standard escape sequences
 | `OSC 133;D` | Command-done event with exit code — clears the running-filename badge in the status bar |
 | `OSC 7` | Current working directory — drives venv autodetection |
 | `OSC 7776` | Active `$VIRTUAL_ENV` path (IDOL-private) — drives the venv toolbar |
+| `OSC 7778` | Active `$CONDA_PREFIX` path (IDOL-private) — drives conda env tracking |
 
 Supported shells: PowerShell (Windows), PowerShell 7, bash, zsh, sh. Other programs (Python REPL, custom CLIs) skip hook injection and run unmodified.
 
-On Windows the hook writes CWD/VENV to a temp file (`%TEMP%\idol_state.txt`) instead of stdout to avoid any PTY cursor interference; IDOL polls the file every 500ms.
+On Windows the hook writes CWD/VENV/CONDA to a temp file (`%TEMP%\idol_state.txt`) instead of stdout to avoid any PTY cursor interference; IDOL polls the file every 500ms.
 
-## Virtual Environment Detection
+## Environment Detection (venv & conda)
 
-The terminal toolbar shows the active venv state for the **active session**:
+The terminal toolbar shows the active environment state for the **active session**:
 
 | State | Toolbar shows |
 |---|---|
-| No venv found | nothing |
+| No env found | nothing |
 | `.venv` / `venv` / `env` / `.env` exists in CWD, not active | **▶ Activate venv** button |
-| Venv in CWD is active | **⏹ Deactivate** + venv name |
-| A *different* venv is active | **⇄ Switch venv** + venv name |
+| `.conda` env exists in CWD, not active | **▶ Activate conda env** button |
+| Env in CWD is active | **⏹ Deactivate** + env name |
+| A *different* env is active | **⇄ Switch env** + env name |
 
-Clicking **Activate** switches the status bar and all run/debug/package operations to the venv Python automatically. Each session tracks its own venv state independently.
+Venv names win when both a venv and a `.conda` env exist in the same directory. Clicking **Activate** switches the status bar and all run/debug/package operations to that env's Python automatically. Each session tracks its own env state independently.
+
+**Conda activation** never requires `conda init`: IDOL sources the hook script explicitly — `conda-hook.ps1` for PowerShell, `etc/profile.d/conda.sh` for bash/zsh (MSYS2-converted paths for Git Bash) — then runs `conda activate <prefix>`. Deactivation sends `conda deactivate`. A conda env activated when the terminal opens is also re-activated on session restore (project-local `.conda` envs only, same containment rule as venvs).
+
+**Run in Terminal with a conda interpreter**: typed commands run under the *shell's* environment, so if the shell hasn't activated the env yet, IDOL types the activation command first, then the run command.
 
 **Platform notes:**
 - **Git Bash on Windows** — launched with `--login -i` flags so `/etc/profile` runs and populates the MSYS2 PATH (making `sort`, `tr`, `cygpath`, etc. available); `MSYSTEM=MINGW64` and related environment variables are injected automatically
 - **Venv activation on Windows (Git Bash)** — `Scripts/activate` is bypassed (it calls `cygpath`, which requires Cygwin); instead `VIRTUAL_ENV` and `PATH` are set directly in MSYS2-compatible form
-- **Venv activation on Windows (PowerShell)** — `Set-ExecutionPolicy -Scope Process Bypass` is prepended so the unsigned `Activate.ps1` runs without changing any system policy
-- **Double-activation guard** — a flag prevents both the terminal's auto-activate path and the app-level pending venv path from both firing on the same session startup
+- **Activation on Windows (PowerShell)** — `Set-ExecutionPolicy -Scope Process` is prepended so the unsigned `Activate.ps1` / `conda-hook.ps1` runs without changing any system policy
+- **Double-activation guard** — a flag prevents both the terminal's auto-activate path and the app-level pending env path from both firing on the same session startup
+- **Clean start** — child shells never inherit IDOL's own `VIRTUAL_ENV` or `CONDA_*` variables, so any env the shell reports was explicitly activated
 
 ## Run / Output Panel
 

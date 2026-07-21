@@ -1298,6 +1298,7 @@ class IDOL(Tk):
         """Start the terminal shell in the background so it's ready on first open."""
         self._output.terminal.on_venv_activate = self._on_venv_activated
         self._output.terminal.on_venv_deactivate = self._on_venv_deactivated
+        self._output.terminal.on_conda_activate = self._on_conda_activated
         if not self._output.terminal._running:
             cwd = self._output._cwd or os.getcwd()
             self._output.terminal._new_session(cwd=cwd)
@@ -1317,6 +1318,18 @@ class IDOL(Tk):
                     self._auto_activate_venv(p)
 
             self.after(1500, _activate_if_needed)
+
+        # Same deferral for a session-restored conda env (prefix dir, not a script)
+        pending_conda = getattr(self, "_pending_conda_activate", None)
+        if pending_conda and os.path.isdir(pending_conda):
+            self._pending_conda_activate = None
+            term = self._output.terminal
+
+            def _activate_conda_if_needed(p=pending_conda, t=term):
+                if not getattr(t, "_venv_auto_activated", False):
+                    t.send_conda_activation(p)
+
+            self.after(1500, _activate_conda_if_needed)
 
     def _on_venv_deactivated(self) -> None:
         """Called when the user clicks Deactivate — fall back to first system Python."""
@@ -1348,6 +1361,40 @@ class IDOL(Tk):
             self._set_active_interpreter(python_exe, "(.venv) Python")
 
         ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
+
+    def _on_conda_activated(self, python_exe: str) -> None:
+        """Called when a conda env is activated in the terminal toolbar."""
+        from editor.project_manager import ProjectManager
+        from utils.conda_env import conda_prefix_for, env_name_for
+
+        prefix = conda_prefix_for(python_exe)
+        name = env_name_for(prefix) if prefix else "conda"
+
+        def _on_pythons(results: list[tuple[str, str]]) -> None:
+            for label, exe in results:
+                if os.path.normcase(exe) == os.path.normcase(python_exe):
+                    short = self._get_short_interp_label(label)
+                    self._set_active_interpreter(exe, f"(conda: {name}) {short}")
+                    return
+            # Not in detected list — set with generic conda label
+            self._set_active_interpreter(python_exe, f"(conda: {name}) Python")
+
+        ProjectManager(self._safe_after).discover_interpreters(_on_pythons)
+
+    def _schedule_conda_activation_if_needed(self, prefix: str) -> None:
+        """Schedule terminal conda activation after session restore.
+
+        Sibling of _schedule_venv_activation_if_needed — the target is an
+        env prefix directory rather than an activate script.
+        """
+        if not prefix or not os.path.isdir(os.path.join(prefix, "conda-meta")):
+            return
+        if getattr(self._output, "terminal", None) and self._output.terminal._running:
+            # Terminal already up — fire directly after a short settle delay.
+            self.after(500, lambda: self._output.terminal.send_conda_activation(prefix))
+        else:
+            # Startup path — _prewarm_terminal will pick this up.
+            self._pending_conda_activate = prefix
 
     def _schedule_venv_activation_if_needed(self, activate_path: str = "") -> None:
         """Schedule terminal venv activation after session restore.
@@ -9531,14 +9578,36 @@ class IDOL(Tk):
 
         prefix = "& " if _pl.system() == "Windows" else ""
         cmd = f'{prefix}"{self._active_python}" "{filepath}"\r'
+        activation = self._pending_terminal_conda_activation(term)
 
         def _send_when_ready(retries: int = 40) -> None:
             if term.winfo_ismapped() and not term._resize_job:
-                term.after(200, lambda: term.send_to_run_session(cmd))
+                if activation:
+                    term.after(200, lambda: term.send_to_run_session(activation + "\r"))
+                    term.after(400, lambda: term.send_to_run_session(cmd))
+                else:
+                    term.after(200, lambda: term.send_to_run_session(cmd))
             elif retries > 0:
                 term.after(50, lambda: _send_when_ready(retries - 1))
 
         _send_when_ready()
+
+    def _pending_terminal_conda_activation(self, term) -> str | None:
+        """Conda activation command to type before a terminal run, or None.
+
+        Typed commands run under the *shell's* environment — the synthesized
+        Popen env can't help there — so when the active interpreter is a conda
+        env the shell hasn't activated yet, the run must be preceded by the
+        activation command.
+        """
+        from utils.conda_env import conda_prefix_for, is_conda_env
+
+        if not is_conda_env(self._active_python):
+            return None
+        prefix = conda_prefix_for(self._active_python)
+        if not prefix or term.conda_active_matches(prefix):
+            return None
+        return term.conda_activation_for(prefix)
 
     # ── Debugger ──────────────────────────────────────────────────────────────
 
@@ -10105,10 +10174,15 @@ class IDOL(Tk):
         # that repaint finishes wipes the output. On subsequent runs the widget
         # is already the right size so _resize_job is None and this fires immediately.
         term = self._output.terminal
+        activation = self._pending_terminal_conda_activation(term)
 
         def _send_when_ready(retries: int = 40) -> None:
             if term.winfo_ismapped() and not term._resize_job:
-                term.after(200, lambda: term.send_to_run_session(cmd))
+                if activation:
+                    term.after(200, lambda: term.send_to_run_session(activation + "\r"))
+                    term.after(400, lambda: term.send_to_run_session(cmd))
+                else:
+                    term.after(200, lambda: term.send_to_run_session(cmd))
             elif retries > 0:
                 term.after(50, lambda: _send_when_ready(retries - 1))
 
