@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-22] — Package list view toggle
+
+### Added
+- **Grouped ↔ alphabetical view toggle** in the Package Manager: a `≡ A–Z` / `⊞ Groups`
+  control right-aligned on the INSTALLED header switches the installed list between
+  topic groups and a flat alphabetical list. The live filter respects the choice, and
+  it persists across sessions (`pkg_group_view` in `~/.idol/settings.json`).
+
 ## [2026-07-21] — Conda environment support
 
 ### Added

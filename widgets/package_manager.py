@@ -14,6 +14,7 @@ from editor.conda_manager import CondaManager, CondaSearchIndex
 from editor.pip_manager import PipManager
 from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.learning_manager import LearningManager
+from utils import settings as _settings
 from utils.conda_env import is_conda_env
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow, GuidePage
@@ -219,6 +220,7 @@ class PackageManagerPanel(tk.Frame):
         self._search_source = "pypi"          # "pypi" | "conda" — where search looks
         self._selected_src = "pypi"           # source of the currently selected search result
         self._conda_results: dict[str, dict] = {}   # last conda search results by name
+        self._group_view = bool(_settings.get("pkg_group_view", True))
         self._build()
         self.after(100, self._load_installed)
 
@@ -352,9 +354,22 @@ class PackageManagerPanel(tk.Frame):
         left = tk.Frame(pane, bg=_BG)
         pane.add(left, minsize=180)
 
-        self._tree_label = tk.Label(left, text="INSTALLED", bg=_BG, fg=_DIM,
+        header = tk.Frame(left, bg=_BG)
+        header.pack(fill="x", padx=8, pady=(4, 2))
+        self._tree_label = tk.Label(header, text="INSTALLED", bg=_BG, fg=_DIM,
                                     font=(UI_FONT, 8, "bold"), anchor="w")
-        self._tree_label.pack(fill="x", padx=8, pady=(4, 2))
+        self._tree_label.pack(side="left", fill="x", expand=True)
+        # Grouped ↔ alphabetical view toggle — the label shows the view a
+        # click switches TO.
+        self._view_toggle = tk.Label(header, bg=_BG, fg=_DIM,
+                                     font=(UI_FONT, 8), cursor="hand2")
+        self._view_toggle.pack(side="right")
+        self._view_toggle.bind("<Enter>",
+                               lambda _: self._view_toggle.config(fg=_FG))
+        self._view_toggle.bind("<Leave>",
+                               lambda _: self._view_toggle.config(fg=_DIM))
+        self._view_toggle.bind("<ButtonRelease-1>", lambda _: self._toggle_view())
+        self._sync_view_toggle()
 
         tree_frame = tk.Frame(left, bg=_BG)
         tree_frame.pack(fill="both", expand=True)
@@ -439,11 +454,36 @@ class PackageManagerPanel(tk.Frame):
                               self._pypi_cache[self._selected_pkg],
                               self._installed.get(self._selected_pkg))
 
-    # ── Grouping (always-on, instant via builtin lookup) ─────────────────────
+    # ── Grouped / alphabetical view toggle ────────────────────────────────────
+
+    def _sync_view_toggle(self) -> None:
+        self._view_toggle.config(
+            text="≡ A–Z" if self._group_view else "⊞ Groups")
+
+    def _toggle_view(self) -> None:
+        self._group_view = not self._group_view
+        _settings.set("pkg_group_view", self._group_view)
+        self._sync_view_toggle()
+        # Re-render only when the installed list is on screen (search results
+        # are already flat); a live filter re-applies through the same path.
+        if self._tree_label.cget("text").startswith("INSTALLED"):
+            self._filter_installed()
+
+    # ── Grouping (instant via builtin lookup) ─────────────────────────────────
 
     def _populate_grouped(self) -> None:
         self._tree.delete(*self._tree.get_children())
         self._tree_label.config(text=f"INSTALLED  ({len(self._installed)})")
+
+        if not self._group_view:
+            for name in sorted(self._installed, key=str.lower):
+                ver = self._installed[name]
+                badge = "  · pip" if self._origins.get(name) == "pypi" else ""
+                self._tree.insert("", "end", iid=f"pkg:{name}",
+                                  text=f"  {name}  {ver}{badge}", tags=("installed",))
+            self._tree.tag_configure("installed", foreground=_FG)
+            self._refresh_selected_detail()
+            return
 
         groups: dict[str, list[str]] = {}
         for name in sorted(self._installed, key=str.lower):
@@ -501,23 +541,29 @@ class PackageManagerPanel(tk.Frame):
         self._tree_label.config(text=label)
 
         if matches:
-            groups: dict[str, list[str]] = {}
-            for name in sorted(matches, key=str.lower):
-                topic = (self._topic_cache.get(name)
-                         or _BUILTIN_LOOKUP.get(name.lower())
-                         or "Other")
-                groups.setdefault(topic, []).append(name)
+            if not self._group_view:
+                for name in sorted(matches, key=str.lower):
+                    self._tree.insert("", "end", iid=f"pkg:{name}",
+                                      text=f"  {name}  {matches[name]}",
+                                      tags=("installed",))
+            else:
+                groups: dict[str, list[str]] = {}
+                for name in sorted(matches, key=str.lower):
+                    topic = (self._topic_cache.get(name)
+                             or _BUILTIN_LOOKUP.get(name.lower())
+                             or "Other")
+                    groups.setdefault(topic, []).append(name)
 
-            for cat in sorted(groups):
-                pkgs = groups[cat]
-                cat_iid = f"cat:{cat}"
-                self._tree.insert("", "end", iid=cat_iid,
-                                  text=f"  {cat}  ({len(pkgs)})",
-                                  tags=("category",), open=True)
-                for name in pkgs:
-                    self._tree.insert(cat_iid, "end", iid=f"pkg:{name}",
-                                      text=f"  {name}  {matches[name]}", tags=("installed",))
-            self._tree.tag_configure("category", foreground=_DIM)
+                for cat in sorted(groups):
+                    pkgs = groups[cat]
+                    cat_iid = f"cat:{cat}"
+                    self._tree.insert("", "end", iid=cat_iid,
+                                      text=f"  {cat}  ({len(pkgs)})",
+                                      tags=("category",), open=True)
+                    for name in pkgs:
+                        self._tree.insert(cat_iid, "end", iid=f"pkg:{name}",
+                                          text=f"  {name}  {matches[name]}", tags=("installed",))
+                self._tree.tag_configure("category", foreground=_DIM)
             self._tree.tag_configure("installed", foreground=_FG)
 
         # Always show a discovery-search prompt at the bottom (source-aware)

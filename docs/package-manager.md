@@ -7,6 +7,7 @@ Press **F3** (or **Help → Package Manager**) to open the package manager panel
 All installed packages are shown **grouped by topic** instantly — no network needed, powered by a precomputed 362K-package lookup covering 46% of PyPI.
 
 - **Live filter** — type in the search bar to instantly filter by name or topic (e.g. type "web" to see all networking packages)
+- **View toggle** — the `≡ A–Z` / `⊞ Groups` control on the right of the INSTALLED header switches between topic groups and a flat alphabetical list (applies to the live filter too); the choice persists in `~/.idol/settings.json`
 
 ## PyPI Search
 
