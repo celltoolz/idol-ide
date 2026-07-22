@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-22] — Package list view toggle, REPL follows interpreter
 
 ### Fixed
+- **Run no longer opens Save As on panel tabs.** Clicking Run (or Debug/Ctrl+F5) with
+  the Package Manager, Welcome, or Learn tab focused treated the panel as an untitled
+  editor — retitling the tab "Untitled" and prompting Save As. `file_save`/`file_save_as`
+  now no-op on tabs without an editor, so Run proceeds straight to the pinned run entry.
 - **Closing a project now deactivates the active env (venv and conda).** Teardown only
   handled venvs (by statusbar label), so a conda env stayed active while the terminal
   cd'd home — where the cwd-based toolbar had no target and offered no Deactivate. Both

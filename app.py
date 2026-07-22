@@ -3550,6 +3550,11 @@ class IDOL(Tk):
         tab_id = self._current_tab_id
         if tab_id is None:
             return False
+        if tab_id not in self._codeviews:
+            # Special tabs (Welcome, Packages, Learn, …) have no editor and
+            # nothing to save — Run's save-first step must not treat them as
+            # untitled files (Save As prompt + tab retitled "Untitled").
+            return True
         filepath = self._files.get(tab_id)
         if filepath is None:
             return self.file_save_as()
@@ -3557,7 +3562,7 @@ class IDOL(Tk):
 
     def file_save_as(self, *_) -> bool:
         tab_id = self._current_tab_id
-        if tab_id is None:
+        if tab_id is None or tab_id not in self._codeviews:
             return False
         root = str(self._sidebar.explorer._root or os.getcwd())
         path = asksaveasfilename(
