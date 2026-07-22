@@ -3759,10 +3759,12 @@ class IDOL(Tk):
         self._welcome_panel = None
         if add_untitled:
             self.view_welcome()
-        if "(.venv)" in getattr(self, "_active_python_label", ""):
-            term = self._output.terminal
-            if term._running and term._venv_active:
-                term.send("deactivate\r")
+        # Deactivate any shell-active env (venv or conda) BEFORE the explorer
+        # root resets to $HOME below — after that cd the toolbar has no cwd
+        # target and the env would outlive the project.
+        self._output.terminal.deactivate_active_env()
+        _label = getattr(self, "_active_python_label", "")
+        if "(.venv)" in _label or "(conda:" in _label:
             import sys as _sys
 
             self._set_active_interpreter(_sys.executable, "Python")

@@ -79,6 +79,9 @@ The terminal toolbar shows the active environment state for the **active session
 | `.conda` env exists in CWD, not active | **▶ Activate conda env** button |
 | Env in CWD is active | **⏹ Deactivate** + env name |
 | A *different* env is active | **⇄ Switch env** + env name |
+| An env is active but CWD has none | **⏹ Deactivate** + env name (an active env is always deactivatable) |
+
+Closing a project (`File → Close Project`, or opening/creating another) automatically deactivates any env the terminal has active — venv or conda — before the terminal returns to your home directory, so a project-local env never outlives its project.
 
 Venv names win when both a venv and a `.conda` env exist in the same directory. Clicking **Activate** switches the status bar and all run/debug/package operations to that env's Python automatically. Each session tracks its own env state independently.
 

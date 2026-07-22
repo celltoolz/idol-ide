@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-07-22] — Package list view toggle, REPL follows interpreter
 
+### Fixed
+- **Closing a project now deactivates the active env (venv and conda).** Teardown only
+  handled venvs (by statusbar label), so a conda env stayed active while the terminal
+  cd'd home — where the cwd-based toolbar had no target and offered no Deactivate. Both
+  kinds are now deactivated before the cwd reset, and as a belt-and-suspenders fix the
+  env toolbar always offers **⏹ Deactivate** when an env is active but the CWD has none
+  (previously it showed nothing — the same trap existed for venvs after a manual `cd`).
+
 ### Added
 - **Terminal Python REPL uses the active interpreter.** The REPL session type now
   launches IDOL's active interpreter (venv/conda/system) instead of IDOL's own Python,

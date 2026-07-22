@@ -2176,6 +2176,22 @@ class TerminalPanel(ttk.Frame):
         active = self._conda_active
         return bool(active) and self._norm_env_path(active) == self._norm_env_path(prefix)
 
+    def deactivate_active_env(self) -> None:
+        """Deactivate whatever env the shell reports active (venv and/or conda).
+
+        Used by project teardown so a project-local env never outlives its
+        project (once the terminal cd's back to $HOME the cwd-based toolbar
+        loses its target). Does not fire on_venv_deactivate — the caller owns
+        the app-side interpreter reset. Venv first: it's the innermost layer
+        when both are active.
+        """
+        if not self._running:
+            return
+        if self._venv_active:
+            self.send("deactivate\r")
+        if self._conda_active:
+            self.send("conda deactivate\r")
+
     def set_active_python(self, exe: str) -> None:
         """Point the Python REPL session type at IDOL's active interpreter.
 
@@ -2391,7 +2407,10 @@ class TerminalPanel(ttk.Frame):
             elif nt:
                 self._venv_btn_state = "active_other"
             else:
-                self._venv_btn_state = "none"
+                # Active env but no env in CWD — still offer Deactivate, or
+                # an env activated here would become unkillable from the UI
+                # once the shell leaves the project directory.
+                self._venv_btn_state = "active_match"
         elif target:
             self._venv_btn_state = "activate"
         else:
