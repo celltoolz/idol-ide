@@ -12,7 +12,8 @@ from typing import Callable
 
 from editor import conda_manager
 from editor.project_manager import ProjectManager, categorize_interpreter
-from utils.conda_env import conda_prefix_for, find_conda_exe
+from utils.conda_env import (conda_prefix_for, env_name_for, find_conda_exe,
+                             is_conda_base)
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.guide_window import GuideWindow
@@ -87,13 +88,18 @@ class ProjectWizard(tk.Toplevel):
         self._pythons: list[tuple[str, str]] = []   # populated by background thread
         self._detecting = True
         self._pm = ProjectManager(after_fn=make_thread_safe_after(self))
-        self._show_venv_var   = tk.BooleanVar(value=False)  # hide venv by default
-        self._show_system_var = tk.BooleanVar(value=True)
-        self._show_conda_var  = tk.BooleanVar(value=True)
+        self._show_venv_var      = tk.BooleanVar(value=False)  # hide venv by default
+        self._show_system_var    = tk.BooleanVar(value=True)
+        self._show_conda_var     = tk.BooleanVar(value=True)   # conda base installs
+        self._show_conda_env_var = tk.BooleanVar(value=False)  # created conda envs — hidden by default
         self._conda_ver_var   = tk.StringVar()   # python version for a new .conda env
         self._safe_after      = make_thread_safe_after(self)
         self._tos_ok_for: set[str] = set()       # conda exes whose ToS check passed
         self._tos_checking    = False
+        self._venv_check_disabled = False        # env checkbox greyed for existing conda envs
+        self._venv_saved_value    = True         # user's checkbox value while greyed out
+        self._note_updating       = False        # reentrancy guard (trace fires on our own .set)
+        self._venv_var.trace_add("write", lambda *_: self._update_conda_note())
 
         # ── Header ────────────────────────────────────────────────────────────
         self._hdr_frame = Frame(self, bg=_HDR_BG, pady=10)
@@ -236,17 +242,18 @@ class ProjectWizard(tk.Toplevel):
         return e
 
     def _check(self, label: str, variable: tk.BooleanVar, detail: str = "",
-               disabled: bool = False) -> "Label | None":
-        """Build a styled checkbox row; returns the detail Label (if any) so
-        callers can retext it (e.g. .venv/ → .conda/ for conda interpreters)."""
+               disabled: bool = False) -> StyledCheckbox:
+        """Build a styled checkbox row; returns the checkbox (its optional
+        detail Label attached as .detail_lbl) so callers can retext or
+        grey it out at runtime."""
         cb = StyledCheckbox(self._content, label, variable, bg=_BG, disabled=disabled)
         cb.pack(fill="x", pady=3)
+        cb.detail_lbl = None
         if detail:
-            detail_lbl = Label(cb, text=f"  {detail}", bg=_BG, fg=_DIM,
-                               font=(UI_FONT, 8))
-            detail_lbl.pack(side="left")
-            return detail_lbl
-        return None
+            cb.detail_lbl = Label(cb, text=f"  {detail}", bg=_BG, fg=_DIM,
+                                  font=(UI_FONT, 8))
+            cb.detail_lbl.pack(side="left")
+        return cb
 
     def _mini_check(self, parent: Frame, label: str, var: tk.BooleanVar) -> None:
         """Compact inline checkbox for filter rows."""
@@ -339,15 +346,22 @@ class ProjectWizard(tk.Toplevel):
             combo.configure(state="readonly")
 
             def _filtered() -> list[tuple[str, str]]:
-                show_venv   = self._show_venv_var.get()
-                show_system = self._show_system_var.get()
-                show_conda  = self._show_conda_var.get()
+                show_venv      = self._show_venv_var.get()
+                show_system    = self._show_system_var.get()
+                show_conda     = self._show_conda_var.get()
+                show_conda_env = self._show_conda_env_var.get()
                 out = []
                 for label, exe in self._pythons:
                     cat = categorize_interpreter(exe)
                     if cat == "venv"   and not show_venv:   continue
                     if cat == "system" and not show_system: continue
-                    if cat == "conda"  and not show_conda:  continue
+                    if cat == "conda":
+                        # base installs and created envs filter separately
+                        if is_conda_base(exe):
+                            if not show_conda:
+                                continue
+                        elif not show_conda_env:
+                            continue
                     out.append((label, exe))
                 return out
 
@@ -381,6 +395,7 @@ class ProjectWizard(tk.Toplevel):
             self._show_venv_var.trace_add("write",  lambda *_: _refresh_combo())
             self._show_system_var.trace_add("write", lambda *_: _refresh_combo())
             self._show_conda_var.trace_add("write",  lambda *_: _refresh_combo())
+            self._show_conda_env_var.trace_add("write", lambda *_: _refresh_combo())
             _refresh_combo()
 
             # Filter toggles
@@ -391,6 +406,7 @@ class ProjectWizard(tk.Toplevel):
             self._mini_check(filter_row, "venv",   self._show_venv_var)
             self._mini_check(filter_row, "system", self._show_system_var)
             self._mini_check(filter_row, "conda",  self._show_conda_var)
+            self._mini_check(filter_row, "conda env", self._show_conda_env_var)
 
         # Yellow note shown when the selected interpreter is a conda python —
         # the env checkbox below then creates a conda env instead of a venv.
@@ -417,9 +433,11 @@ class ProjectWizard(tk.Toplevel):
         spacer = Label(self._content, text="", bg=_BG)
         spacer.pack()
         self._conda_note_anchor = spacer
-        self._venv_detail_lbl = self._check(
+        self._venv_check_disabled = False   # fresh widget each render
+        self._venv_check = self._check(
             "Create virtual environment (recommended)", self._venv_var,
             detail=".venv/")
+        self._venv_detail_lbl = self._venv_check.detail_lbl
         self._update_conda_note()
 
         # Learn more link
@@ -446,31 +464,83 @@ class ProjectWizard(tk.Toplevel):
         return ""
 
     def _update_conda_note(self) -> None:
-        """Show/hide the conda note + version row and retext the checkbox detail."""
+        """Sync the conda note, version row, and env checkbox to the selection.
+
+        Three conda cases:
+        - base + create checked   → note (env will be created) + version picker
+        - base + create unchecked → note (base used directly), picker greyed
+        - existing conda env      → checkbox AND picker greyed; the env is
+          used as-is (never create an env from inside another env)
+        """
         note = getattr(self, "_conda_note", None)
-        if not note or not note.winfo_exists():
+        if not note or not note.winfo_exists() or self._note_updating:
             return
-        if self._conda_selected():
+        self._note_updating = True
+        try:
+            conda = self._conda_selected()
+            existing_env = conda and not is_conda_base(self._python_var.get())
+
+            # Env checkbox: greyed while an existing conda env is selected
+            check = getattr(self, "_venv_check", None)
+            if check and check.winfo_exists():
+                if existing_env and not self._venv_check_disabled:
+                    self._venv_saved_value = self._venv_var.get()
+                    self._venv_var.set(False)
+                    check.set_disabled(True)
+                    self._venv_check_disabled = True
+                elif not existing_env and self._venv_check_disabled:
+                    check.set_disabled(False)
+                    self._venv_var.set(self._venv_saved_value)
+                    self._venv_check_disabled = False
+
+            if self._venv_detail_lbl and self._venv_detail_lbl.winfo_exists():
+                self._venv_detail_lbl.config(
+                    text="  .conda/" if conda else "  .venv/")
+
+            if not conda:
+                note.pack_forget()
+                self._conda_ver_row.pack_forget()
+                return
+
+            mm = self._selected_python_mm()
+            if existing_env:
+                prefix = conda_prefix_for(self._python_var.get())
+                name = env_name_for(prefix) if prefix else "env"
+                note.config(
+                    text=f"⚠  Existing Conda Environment Selected ({name}) — the "
+                         "project will use this environment directly; no new "
+                         "env is created")
+            elif self._venv_var.get():
+                note.config(
+                    text="⚠  Conda Environment Selected — a conda env (.conda/) "
+                         "will be created instead of a venv")
+            else:
+                note.config(
+                    text="⚠  Conda Interpreter Selected — no environment will be "
+                         "created; the project will use the conda base "
+                         "environment directly")
             note.pack(fill="x", pady=(6, 0), before=self._conda_note_anchor)
+
+            # Version picker: choosable only when a fresh env will be created;
+            # otherwise greyed, showing the version the project actually gets.
+            creating = self._venv_var.get() and not existing_env
             self._conda_ver_row.pack(fill="x", pady=(4, 0),
                                      before=self._conda_note_anchor)
-            # Default the env version to the selected interpreter's version;
-            # a value the user already picked stays put.
-            mm = self._selected_python_mm()
-            if mm:
-                values = list(self._conda_ver_combo["values"])
-                if mm not in values:
-                    values.insert(0, mm)
-                    self._conda_ver_combo["values"] = values
-                if not self._conda_ver_var.get():
+            if creating:
+                self._conda_ver_combo.config(state="readonly")
+                if mm:
+                    values = list(self._conda_ver_combo["values"])
+                    if mm not in values:
+                        values.insert(0, mm)
+                        self._conda_ver_combo["values"] = values
+                    if not self._conda_ver_var.get():
+                        self._conda_ver_var.set(mm)
+            else:
+                if mm:
                     self._conda_ver_var.set(mm)
-            if self._venv_detail_lbl and self._venv_detail_lbl.winfo_exists():
-                self._venv_detail_lbl.config(text="  .conda/")
-        else:
-            note.pack_forget()
-            self._conda_ver_row.pack_forget()
-            if self._venv_detail_lbl and self._venv_detail_lbl.winfo_exists():
-                self._venv_detail_lbl.config(text="  .venv/")
+                self._conda_ver_combo.config(state="disabled")
+        finally:
+            self._note_updating = False
 
     # ── Step 2: Options ───────────────────────────────────────────────────────
 
@@ -545,6 +615,13 @@ class ProjectWizard(tk.Toplevel):
                 env_val = f"Yes — .conda/ (conda, python={ver})" if ver else "Yes — .conda/ (conda)"
             else:
                 env_val = "Yes — .venv/"
+        elif self._conda_selected():
+            if is_conda_base(python):
+                env_val = "No — using conda base directly"
+            else:
+                prefix = conda_prefix_for(python)
+                name = env_name_for(prefix) if prefix else "env"
+                env_val = f"No — using existing conda env ({name})"
         else:
             env_val = "No"
         _row("Virtual environment:", env_val)
@@ -761,12 +838,19 @@ class ProjectWizard(tk.Toplevel):
         return p if os.path.isfile(p) else None
 
     def _get_conda_prefix(self, project_path: str) -> "str | None":
-        """Return the .conda env prefix if a conda env was created, else None."""
-        if not self._venv_var.get():
+        """The conda env prefix the project should activate, else None.
+
+        Either the freshly created .conda/ env, or — when the user picked an
+        existing (non-base) conda env as the interpreter — that env itself.
+        """
+        if self._venv_var.get():
+            prefix = os.path.join(project_path, ".conda")
+            if os.path.isdir(os.path.join(prefix, "conda-meta")):
+                return prefix
             return None
-        prefix = os.path.join(project_path, ".conda")
-        if os.path.isdir(os.path.join(prefix, "conda-meta")):
-            return prefix
+        exe = self._python_var.get()
+        if exe and self._conda_selected() and not is_conda_base(exe):
+            return conda_prefix_for(exe)
         return None
 
     def _open_project(self, path: str) -> None:
@@ -785,7 +869,11 @@ class ProjectWizard(tk.Toplevel):
         for lbl, path in getattr(self, "_pythons", []):
             if path == exe:
                 m = _re.match(r"(Python\s+\S+)", lbl)
-                return exe, (m.group(1) if m else lbl.split("(")[0].strip())
+                short = m.group(1) if m else lbl.split("(")[0].strip()
+                mconda = _re.search(r"\(conda: ([^)]+)\)", lbl)
+                if mconda:
+                    short = f"(conda: {mconda.group(1)}) {short}"
+                return exe, short
         return exe, "Python"
 
     @staticmethod

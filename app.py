@@ -3399,13 +3399,14 @@ class IDOL(Tk):
                 self.view_toggle_output()
             self._output._set_active("terminal")
         elif conda_prefix and os.path.isdir(conda_prefix):
-            from utils.conda_env import python_exe_for
+            from utils.conda_env import env_name_for, python_exe_for
 
             _conda_py = python_exe_for(conda_prefix)
             _exe = _conda_py if os.path.isfile(_conda_py) else python_exe
             # Set interpreter synchronously so workspace_save (500 ms below)
             # captures the env Python before the async label refinement.
-            self._set_active_interpreter(_exe, "(conda: .conda) Python")
+            self._set_active_interpreter(
+                _exe, f"(conda: {env_name_for(conda_prefix)}) Python")
             self._on_conda_activated(_exe)
             term = self._output.terminal
             _act = term.conda_activation_for(conda_prefix)

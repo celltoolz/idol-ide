@@ -48,14 +48,32 @@ def python_exe_for(prefix: str) -> str:
     return os.path.join(prefix, "bin", "python")
 
 
+def is_conda_base(exe: str) -> bool:
+    """True when *exe* is the python of a conda base installation.
+
+    Base installs carry a condabin/ directory; created envs (named or
+    project-local -p) don't.
+    """
+    prefix = conda_prefix_for(exe)
+    return bool(prefix) and os.path.isdir(os.path.join(prefix, "condabin"))
+
+
 def env_name_for(prefix: str) -> str:
-    """Human name for an env prefix: 'base', the envs/<name>, or dir basename."""
+    """Human name for an env prefix: 'base', the envs/<name>, or dir basename.
+
+    Project-local dot-named envs (every project's is ".conda") are prefixed
+    with the project folder so labels stay distinguishable:
+    "CondaTosTest/.conda".
+    """
     if os.path.isdir(os.path.join(prefix, "condabin")):
         return "base"
     parent = os.path.dirname(prefix)
+    name = os.path.basename(prefix)
     if os.path.basename(parent) == "envs":
-        return os.path.basename(prefix)
-    return os.path.basename(prefix)
+        return name
+    if name.startswith("."):
+        return f"{os.path.basename(parent)}/{name}"
+    return name
 
 
 def list_conda_env_prefixes() -> list[str]:

@@ -16,6 +16,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (previously it showed nothing — the same trap existed for venvs after a manual `cd`).
 
 ### Added
+- **Wizard conda cases refined.** The interpreter filter row gains a **`conda env`**
+  toggle (off by default, like `venv`) for previously created conda envs, while `conda`
+  covers base installs. With a base interpreter and *Create virtual environment*
+  **unchecked**, the version picker greys out and the note says the base env is used
+  directly. Selecting an **existing conda env** greys out both the checkbox and the
+  picker (its actual version shown) — the project uses the env as-is and activates it
+  in the terminal on open; the summary and statusbar label say so
+  (`(conda: myenv) Python 3.x`). Project-local envs are now labeled with their project
+  folder (`(conda: CondaTosTest/.conda)`) so multiple `.conda` envs stay
+  distinguishable. `StyledCheckbox` gains runtime `set_disabled()`.
 - **Terminal Python REPL uses the active interpreter.** The REPL session type now
   launches IDOL's active interpreter (venv/conda/system) instead of IDOL's own Python,
   and its picker entry shows that interpreter's version (e.g. `Python 3.14` with a conda

@@ -30,6 +30,7 @@ class StyledCheckbox(tk.Frame):
 
         self._var = variable
         self._disabled = disabled
+        self._fg = fg
         self._dim = dim
         self._checked_color = checked_color
 
@@ -57,6 +58,21 @@ class StyledCheckbox(tk.Frame):
                 text="☑" if checked else "☐",
                 fg=self._checked_color if checked else self._dim,
             )
+
+    def set_disabled(self, disabled: bool) -> None:
+        """Enable/disable at runtime — disabled shows a dim ☐ and ignores clicks."""
+        if disabled == self._disabled:
+            return
+        self._disabled = disabled
+        cursor = "" if disabled else "hand2"
+        for w in (self, self._box, self._lbl):
+            w.config(cursor=cursor)
+            if disabled:
+                w.unbind("<Button-1>")
+            else:
+                w.bind("<Button-1>", self._toggle)
+        self._lbl.config(fg=self._dim if disabled else self._fg)
+        self._refresh()
 
     def _toggle(self, _=None) -> None:
         self._var.set(not self._var.get())

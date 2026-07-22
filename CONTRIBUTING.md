@@ -158,7 +158,7 @@ Import rules for this package are in the strict-import-rule block above: mixins 
 `constants.py` only. The shared fold vocabulary (marker regexes + `iter_visible`) lives
 in `constants.py`, so there is no longer a cross-mixin import exception.
 
-`styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state, custom colors, and font sizes. Used in `project_wizard.py`.
+`styled_checkbox.py` — reusable Unicode-glyph checkbox (`tk.Frame` subclass): a `tk.Label` box (`☑`/`☐`) paired with a text `tk.Label`; identical appearance on all platforms (no native `tk.Checkbutton` quirks); supports disabled state (constructor flag or runtime `set_disabled()`), custom colors, and font sizes. Used in `project_wizard.py`.
 
 `clipboard_history.py` — canvas-virtualized clipboard ring (`ClipboardHistoryPanel`). Rows are
 drawn as `Canvas` primitives (background rect + text items); hover state updated via
