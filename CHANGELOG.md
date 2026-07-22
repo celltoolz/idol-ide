@@ -22,11 +22,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`conda-hook.ps1` for PowerShell, `etc/profile.d/conda.sh` for bash/zsh with
   MSYS2-converted paths for Git Bash).
 - **Package Manager conda backend** (`editor/conda_manager.py`). With a conda interpreter
-  active: the installed list comes from `conda list --json`, installs are **conda-first
-  with automatic pip fallback** (a notice line marks the retry), pip-installed packages
-  show a `· pip` badge, and uninstalls route to whichever tool installed the package.
-  If the env's conda executable can't be located, the panel falls back to pip inside the
-  env with a notice.
+  active the installed list comes from `conda list --json`, pip-installed packages show a
+  `· pip` badge, and uninstalls route to whichever tool installed the package. If the
+  env's conda executable can't be located, the panel falls back to pip inside the env
+  with a notice.
+- **Search follows the interpreter — no more name-collision traps.** With a conda env
+  active, package search runs against your *configured conda channels* (from `~/.condarc`;
+  each channel's `channeldata.json` is cached in `~/.idol/conda_index/`, refreshed weekly,
+  fuzzy-searched locally — instant and offline-friendly). A `conda | PyPI` toggle next to
+  the search button lets you still reach PyPI-only packages. Installs route by the source
+  the package was picked from: conda results install via `conda install` **only** (no
+  silent pip fallback — conda's `graphviz` is the Graphviz C tool while PyPI's is the
+  Python bindings, so swapping tools silently installs the wrong product), and PyPI picks
+  install via pip inside the env after a one-line warning that pip-in-conda can conflict
+  with conda's dependency resolver. Conda search results show channel + summary details
+  from the index; search itself never needs the ToS (plain HTTPS, not conda).
 - **Terminal conda awareness.** The env toolbar now tracks `$CONDA_PREFIX` (new
   IDOL-private OSC 7778 marker on bash/zsh; a third state-file line on PowerShell) and
   handles conda targets: **▶ Activate conda env** for a project-local `.conda/`,
@@ -40,7 +50,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   to the selected interpreter's version — conda installs any version into a fresh env),
   and project creation runs `conda create -p <project>/.conda -y python=<X.Y>`
   (conda's stderr surfaced verbatim on failure). Conda projects get an
-  **`environment.yml`** starter instead of `requirements.txt`. The starter `.gitignore`
+  **`environment.yml`** starter instead of `requirements.txt`, with the channel list
+  mirroring the user's `~/.condarc`. The starter `.gitignore`
   covers `.conda/`, the Git health panel classifies committed `.conda/` / `conda-meta/`
   files, and project-local `.conda` envs are auto-detected like `.venv` (interpreter
   auto-select on file open).

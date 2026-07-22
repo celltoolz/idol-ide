@@ -10,7 +10,7 @@ from typing import Callable
 from widgets.scrollbar import VerticalScrollbar
 
 from editor import conda_manager as conda_backend
-from editor.conda_manager import CondaManager
+from editor.conda_manager import CondaManager, CondaSearchIndex
 from editor.pip_manager import PipManager
 from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.learning_manager import LearningManager
@@ -215,6 +215,10 @@ class PackageManagerPanel(tk.Frame):
         self._conda = CondaManager(after_fn=_after)
         self._backend = self._pip
         self._tos_ok_exe: str | None = None   # conda exe whose ToS check passed
+        self._conda_index = CondaSearchIndex(after_fn=_after)
+        self._search_source = "pypi"          # "pypi" | "conda" — where search looks
+        self._selected_src = "pypi"           # source of the currently selected search result
+        self._conda_results: dict[str, dict] = {}   # last conda search results by name
         self._build()
         self.after(100, self._load_installed)
 
@@ -233,7 +237,27 @@ class PackageManagerPanel(tk.Frame):
             if is_conda_env(exe):
                 self._notify("conda executable not found — using pip inside the env\n")
             self._backend = self._pip
+        # Search source follows the interpreter: conda envs search conda's
+        # channels (what conda install can reach), everything else PyPI.
+        self._set_search_source(
+            "conda" if self._backend is self._conda else "pypi")
+        if self._backend is self._conda:
+            self._conda_index.ensure_loaded()   # pre-warm in the background
         self._load_installed()
+
+    def _set_search_source(self, source: str) -> None:
+        """Switch the search namespace and sync the toggle/button UI."""
+        self._search_source = source
+        if self._backend is self._conda:
+            self._src_frame.pack(side="right", padx=(4, 0), pady=2)
+        else:
+            self._src_frame.pack_forget()
+        for src, lbl in self._src_lbls.items():
+            active = src == source
+            lbl.config(fg="white" if active else _DIM,
+                       bg=_ACCENT if active else _INPUT_BG)
+        self._search_btn.config(
+            text="conda ↗" if source == "conda" else "PyPI ↗")
 
     def _notify(self, msg: str) -> None:
         """One-line notice in the Output panel, if available."""
@@ -299,12 +323,25 @@ class PackageManagerPanel(tk.Frame):
         self._search_entry.config(fg=_DIM)
         self._search_entry.bind("<FocusIn>",    lambda _: self._search_focus_in())
         self._search_entry.bind("<FocusOut>",   lambda _: self._search_focus_out())
-        self._search_entry.bind("<Return>",     lambda _: self._do_pypi_search())
+        self._search_entry.bind("<Return>",     lambda _: self._do_search())
         self._search_entry.bind("<KeyRelease>", lambda _: self._filter_installed())
         self.after(3000, self._cycle_hint)
 
-        self._search_btn = self._make_btn(search_frame, "PyPI ↗", self._do_pypi_search)
+        self._search_btn = self._make_btn(search_frame, "PyPI ↗", self._do_search)
         self._search_btn.pack(side="right", padx=(4, 4), pady=2)
+
+        # Source toggle (conda | PyPI) — only shown for conda interpreters,
+        # where the search namespace genuinely differs (conda's `graphviz`
+        # is the C tool; PyPI's is the Python bindings).
+        self._src_frame = tk.Frame(search_frame, bg=_INPUT_BG)
+        self._src_lbls: dict[str, tk.Label] = {}
+        for src, text in (("conda", "conda"), ("pypi", "PyPI")):
+            lbl = tk.Label(self._src_frame, text=text, bg=_INPUT_BG, fg=_DIM,
+                           font=(UI_FONT, 8), padx=8, pady=3, cursor="hand2")
+            lbl.pack(side="left")
+            lbl.bind("<ButtonRelease-1>",
+                     lambda _e, s=src: self._set_search_source(s))
+            self._src_lbls[src] = lbl
 
         # ── Main split (left tree / right detail) ─────────────────────────────
         pane = tk.PanedWindow(self, orient="horizontal", bg=_BORDER,
@@ -483,22 +520,55 @@ class PackageManagerPanel(tk.Frame):
             self._tree.tag_configure("category", foreground=_DIM)
             self._tree.tag_configure("installed", foreground=_FG)
 
-        # Always show a PyPI search prompt at the bottom
+        # Always show a discovery-search prompt at the bottom (source-aware)
+        src_label = "conda" if self._search_source == "conda" else "PyPI"
         self._tree.insert("", "end", iid="__pypi_hint__",
-                          text=f"  ↗ Search PyPI for '{raw}'",
+                          text=f"  ↗ Search {src_label} for '{raw}'",
                           tags=("pypi_hint",))
         self._tree.tag_configure("pypi_hint", foreground=_ACCENT)
 
-    # ── PyPI discovery search ─────────────────────────────────────────────────
+    # ── Package discovery search (PyPI or conda, by source) ───────────────────
 
-    def _do_pypi_search(self) -> None:
+    def _do_search(self) -> None:
         query = self._search_var.get().strip()
         if not query or query in _HINTS:
+            return
+        if self._search_source == "conda":
+            self._do_conda_search(query)
             return
         self._tree_label.config(text="PYPI RESULTS  (searching…)")
         self._tree.delete(*self._tree.get_children())
         threading.Thread(target=self._fetch_pypi_search,
                          args=(query,), daemon=True).start()
+
+    def _do_conda_search(self, query: str) -> None:
+        if not self._conda_index.ready:
+            self._tree_label.config(text="CONDA RESULTS  (loading channel index…)")
+            self._tree.delete(*self._tree.get_children())
+            self._conda_index.ensure_loaded(
+                on_done=lambda _n, q=query: self._run_conda_search(q))
+            return
+        self._run_conda_search(query)
+
+    def _run_conda_search(self, query: str) -> None:
+        results = self._conda_index.search(query)
+        self._conda_results = {r["name"]: r for r in results}
+        self._tree.delete(*self._tree.get_children())
+        if not results:
+            self._tree_label.config(text="CONDA RESULTS  (none found)")
+        else:
+            self._tree_label.config(text=f"CONDA RESULTS  ({len(results)})")
+        for r in results:
+            name = r["name"]
+            installed = name in self._installed
+            tag = "found_installed" if installed else "search"
+            label = f"  {name}  ✓" if installed else f"  {name}"
+            self._tree.insert("", "end", iid=f"pkg:{name}", text=label, tags=(tag,))
+        self._tree.tag_configure("found_installed", foreground=_GREEN)
+        self._tree.tag_configure("search", foreground=_FG)
+        self._tree.insert("", "end", iid="__back__",
+                          text="  ← Back to installed", tags=("back",))
+        self._tree.tag_configure("back", foreground=_DIM)
 
     def _fetch_pypi_search(self, query: str) -> None:
         q = query.lower()
@@ -589,13 +659,28 @@ class PackageManagerPanel(tk.Frame):
             self._load_installed()
             return
         if iid == "__pypi_hint__":
-            self._do_pypi_search()
+            self._do_search()
             return
         if iid.startswith("cat:"):
             return
         name = iid.replace("pkg:", "")
         self._selected_pkg = name
         self._detail.show_loading(name)
+        if self._search_source == "conda" and name in self._conda_results:
+            # Conda search result — details come from the channel index, not
+            # PyPI (the same name may be a different product there).
+            self._selected_src = "conda"
+            meta = self._conda_results[name]
+            summary = meta["summary"] or "(no summary in channel metadata)"
+            data = {"info": {
+                "summary": f"{summary}\n\nconda package — channel: {meta['channel']}",
+                "version": meta["version"],
+                "home_page": meta["home"],
+                "license": meta["license"],
+            }}
+            self._detail.show(name, data, self._installed.get(name))
+            return
+        self._selected_src = "pypi"
         if name in self._pypi_cache:
             self._detail.show(name, self._pypi_cache[name],
                               self._installed.get(name))
@@ -619,18 +704,27 @@ class PackageManagerPanel(tk.Frame):
     # ── Install / Uninstall ────────────────────────────────────────────────────
 
     def _install_pkg(self, name: str) -> None:
+        if self._backend is self._conda and self._selected_src == "pypi":
+            # Explicit PyPI pick in a conda env → pip inside the env. Never
+            # conda-install a PyPI name (conda's `graphviz` is the C tool,
+            # PyPI's is the Python bindings — same name, different product).
+            self._notify(
+                "⚠ Installing via pip in a conda environment can conflict with "
+                "conda's dependency resolver — prefer conda packages when available\n")
+            self._run_backend_op("install", name, force_pip=True)
+            return
         self._run_backend_op("install", name)
 
     def _uninstall_pkg(self, name: str) -> None:
         self._run_backend_op("uninstall", name)
 
-    def _run_backend_op(self, verb: str, name: str) -> None:
+    def _run_backend_op(self, verb: str, name: str, force_pip: bool = False) -> None:
         # Conda-routed operations download from Anaconda's channels, which
         # require accepted Terms of Service — check before the op so the
         # user gets an Accept/Decline dialog instead of a raw conda error.
-        # (pip-routed uninstalls and the pip backend need no gate; conda
-        # list is local and unaffected.)
-        conda_routed = self._backend is self._conda and (
+        # (pip-routed ops and the pip backend need no gate; conda list is
+        # local and unaffected.)
+        conda_routed = self._backend is self._conda and not force_pip and (
             verb == "install" or self._origins.get(name, "pypi") != "pypi"
         )
         if conda_routed and self._conda.conda_exe != self._tos_ok_exe:
@@ -639,7 +733,7 @@ class PackageManagerPanel(tk.Frame):
                 self._conda.conda_exe, self._after_fn,
                 lambda pending: self._on_tos_status(pending, verb, name))
             return
-        self._exec_backend_op(verb, name)
+        self._exec_backend_op(verb, name, force_pip)
 
     def _on_tos_status(self, pending: dict[str, str], verb: str, name: str) -> None:
         if not pending:
@@ -665,10 +759,11 @@ class PackageManagerPanel(tk.Frame):
 
         conda_backend.accept_tos(self._conda.conda_exe, self._after_fn, _done)
 
-    def _exec_backend_op(self, verb: str, name: str) -> None:
+    def _exec_backend_op(self, verb: str, name: str, force_pip: bool = False) -> None:
         output = self._get_output_panel() if self._get_output_panel else None
         origin = self._origins.get(name, "pypi")
-        if self._backend is self._conda:
+        backend = self._pip if force_pip else self._backend
+        if backend is self._conda:
             echo = {"install": f"$ conda install -y {name}",
                     "uninstall": (f"$ pip uninstall -y {name}" if origin == "pypi"
                                   else f"$ conda remove -y {name}")}[verb]
@@ -689,11 +784,11 @@ class PackageManagerPanel(tk.Frame):
 
         on_error = (lambda e: output.write(e + "\n", tag="err")) if output else None
         if verb == "install":
-            self._backend.install(name, on_line=_on_line,
-                                  on_done=self._load_installed, on_error=on_error)
+            backend.install(name, on_line=_on_line,
+                            on_done=self._load_installed, on_error=on_error)
         else:
-            self._backend.uninstall(name, origin, on_line=_on_line,
-                                    on_done=self._load_installed, on_error=on_error)
+            backend.uninstall(name, origin, on_line=_on_line,
+                              on_done=self._load_installed, on_error=on_error)
 
     # ── Ask AI ─────────────────────────────────────────────────────────────────
 

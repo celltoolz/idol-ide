@@ -835,14 +835,18 @@ class ProjectWizard(tk.Toplevel):
         if self._conda_selected():
             # Conda projects declare dependencies in environment.yml (the
             # conda-native equivalent of requirements.txt): recreate the env
-            # anywhere with `conda env create -f environment.yml`.
+            # anywhere with `conda env create -f environment.yml`. Channels
+            # mirror the user's .condarc so the file resolves the same way
+            # their conda does.
+            from utils.conda_env import configured_channels
             ver = self._conda_ver_var.get()
+            channel_lines = "".join(f"  - {c}\n" for c in configured_channels())
             env_yml = os.path.join(project_path, "environment.yml")
             with open(env_yml, "w", encoding="utf-8") as f:
                 f.write(
                     f"name: {project_name}\n"
                     "channels:\n"
-                    "  - defaults\n"
+                    f"{channel_lines}"
                     "dependencies:\n"
                     + (f"  - python={ver}\n" if ver else "  - python\n")
                 )

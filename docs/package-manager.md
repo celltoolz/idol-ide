@@ -27,12 +27,14 @@ All operations use the **active interpreter** — the same one shown in the stat
 
 When the active interpreter is a **conda environment**, the panel switches to a conda backend automatically:
 
+- **Search follows the interpreter** — a `conda | PyPI` source toggle appears next to the search button, defaulting to **conda**: results come from your *configured channels* (read from `~/.condarc`; plain Miniconda means `defaults`), so what you find is exactly what `conda install` can reach. Each channel's package index (`channeldata.json`) is cached locally in `~/.idol/conda_index/` and refreshed weekly, so search is instant and offline-friendly
+- **Names differ between conda and PyPI** — conda's `graphviz` is the Graphviz C tool while PyPI's `graphviz` is the Python bindings (`python-graphviz` on conda). Searching the namespace you'll install from shows both with their summaries, so you pick the right one
+- **Install routes by search source** — a conda result installs with `conda install` only (no silent pip fallback: swapping tools swaps *products* when names collide); a package picked with the **PyPI** toggle installs with pip inside the env, after a one-line warning that pip-in-conda can conflict with conda's dependency resolver
 - **Installed list** comes from `conda list` — it honestly includes conda's non-Python packages (openssl, vc, ca-certificates, …), so a fresh env shows a few dozen entries grouped mostly under "Other"
-- **Install** is **conda-first with pip fallback** — `conda install -y` runs first; if conda can't provide the package (not on its channels), the panel automatically retries with pip inside the env and says so in the Output panel
 - Packages installed via pip show a **`· pip` badge** in the list
 - **Uninstall routes by origin** — pip-installed packages are removed with pip, conda packages with `conda remove`
 - If the env's conda executable can't be found (e.g. the base install was removed), the panel falls back to pip inside the env with a notice
-- **Terms of Service** — before the first conda-routed install/uninstall, the panel checks whether the conda installation has accepted its channels' ToS (fresh Miniconda installs haven't) and shows an Accept/Decline dialog if not; Accept runs `conda tos accept` (remembered by conda itself), Decline cancels the operation
+- **Terms of Service** — before the first conda-routed install/uninstall, the panel checks whether the conda installation has accepted its channels' ToS (fresh Miniconda installs haven't) and shows an Accept/Decline dialog if not; Accept runs `conda tos accept` (remembered by conda itself), Decline cancels the operation. Search never needs the ToS — the channel index is fetched over plain HTTPS, not through conda
 
 No `conda activate` is needed for any of this — operations run with a synthesized activation environment.
 

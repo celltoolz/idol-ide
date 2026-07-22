@@ -125,7 +125,7 @@ Local Ollama LLM — fully offline, no API key. Send File, Send Selection, strea
 
 <img src="screenshots/package_manager-topics-details-install-uninstall.gif" width="100%">
 
-Installed packages grouped by topic, live filter, PyPI search, install/uninstall with live output, and AI examples — all tied to the active interpreter. Conda environments get a conda backend automatically: conda-first installs with pip fallback, origin badges, and uninstalls routed to the tool that installed the package.
+Installed packages grouped by topic, live filter, package search, install/uninstall with live output, and AI examples — all tied to the active interpreter. Conda environments get a conda backend automatically: search runs against your configured conda channels (with a conda ↔ PyPI source toggle), installs route by where you found the package, and uninstalls route to the tool that installed it.
 
 → **[Full package manager docs](docs/package-manager.md)**
 

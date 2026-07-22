@@ -2,9 +2,12 @@
 
 Peer backend to PipManager with the same daemon-thread + after_fn
 contract, used by the Package Manager panel when the active interpreter
-is a conda environment. Install is conda-first with an automatic pip
-fallback (packages not on conda's channels retry via pip inside the
-env); uninstall routes by each package's recorded origin.
+is a conda environment. Install/uninstall route by the search source the
+package was picked from (conda packages via conda, explicit PyPI picks
+via pip inside the env); uninstall routes by each package's recorded
+origin. ``CondaSearchIndex`` provides the conda-side package search:
+each configured channel's channeldata.json is cached locally and
+fuzzy-searched client-side (mirroring the panel's local PyPI index).
 
 All conda invocations use ``-p <prefix>`` so base, named, and
 project-local ``-p`` environments work identically.
@@ -12,8 +15,12 @@ project-local ``-p`` environments work identically.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
+import time
+import urllib.request
+from pathlib import Path
 from typing import Callable
 
 from utils import conda_env
@@ -149,8 +156,14 @@ class CondaManager:
         on_done: Callable[[], None],
         on_error: Callable[[str], None] | None = None,
     ) -> None:
-        """Install via conda; on any conda failure, retry with pip in the env."""
-        conda_exe, prefix, python = self._conda_exe, self._prefix, self._python_exe
+        """Install via conda only — *name* must be a conda package name.
+
+        No automatic pip fallback: conda and PyPI use different names for
+        the same software (conda's `graphviz` is the C tool, PyPI's is the
+        Python bindings), so silently swapping tools installs the wrong
+        thing. Explicit PyPI picks go through the panel's pip route instead.
+        """
+        conda_exe, prefix = self._conda_exe, self._prefix
 
         def _run():
             try:
@@ -158,10 +171,9 @@ class CondaManager:
                                   on_line, env=None)
                 if rc != 0:
                     self._after(0, on_line,
-                                f"\nconda could not install '{name}' — "
-                                "retrying with pip inside the environment…\n")
-                    self._stream([python, "-m", "pip", "install", name],
-                                 on_line, env=conda_env.runtime_env(python))
+                                f"\nconda could not install '{name}' from your "
+                                "configured channels — switch the search source "
+                                "to PyPI to install it with pip instead.\n")
             except Exception as e:
                 if on_error:
                     self._after(0, on_error, str(e))
@@ -211,3 +223,125 @@ class CondaManager:
             self._after(0, on_line, line)
         proc.wait()
         return proc.returncode
+
+
+# ── Conda package search index ────────────────────────────────────────────────
+
+_INDEX_DIR = Path.home() / ".idol" / "conda_index"
+_INDEX_MAX_AGE = 7 * 24 * 3600   # refresh cached channeldata weekly
+
+
+class CondaSearchIndex:
+    """Local package search over the user's configured conda channels.
+
+    Downloads each channel's channeldata.json (defaults/main is ~5 MB,
+    conda-forge ~22 MB) into ``~/.idol/conda_index/`` and fuzzy-searches it
+    in memory — the conda-side mirror of the panel's local PyPI name index.
+    Channels come from ``~/.condarc`` (utils.conda_env.configured_channels),
+    so search results always match what `conda install` can actually reach.
+    The fetch is plain HTTPS — it never goes through conda, so no ToS gate.
+    """
+
+    def __init__(self, after_fn: Callable) -> None:
+        self._after = after_fn
+        self._packages: dict[str, dict] = {}   # name → {summary, version, channel, home, license}
+        self._loaded = False
+        self._loading = False
+
+    @property
+    def ready(self) -> bool:
+        return self._loaded
+
+    def ensure_loaded(self, on_done: Callable[[int], None] | None = None,
+                      force: bool = False) -> None:
+        """Load (fetching/caching as needed) on a daemon thread.
+
+        Calls on_done(package_count) on the main thread. No-ops if already
+        loaded (unless *force*) or currently loading.
+        """
+        if self._loaded and not force:
+            if on_done:
+                self._after(0, on_done, len(self._packages))
+            return
+        if self._loading:
+            return
+        self._loading = True
+
+        def _run():
+            packages: dict[str, dict] = {}
+            for chan_name, url in conda_env.channeldata_urls(
+                    conda_env.configured_channels()):
+                data = self._load_channel(chan_name, url, force)
+                # First channel wins on name clashes — mirrors conda's
+                # channel priority order.
+                for name, meta in data.items():
+                    packages.setdefault(name, meta)
+            self._packages = packages
+            self._loaded = True
+            self._loading = False
+            if on_done:
+                self._after(0, on_done, len(packages))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _load_channel(self, chan_name: str, url: str, force: bool) -> dict[str, dict]:
+        """Cached channeldata for one channel: {name: meta}."""
+        _INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        slug = "".join(c if c.isalnum() or c in "-_" else "_" for c in chan_name)
+        cache = _INDEX_DIR / f"{slug}.json"
+        raw = None
+        try:
+            fresh = (cache.is_file()
+                     and time.time() - cache.stat().st_mtime < _INDEX_MAX_AGE)
+            if force or not fresh:
+                req = urllib.request.Request(url, headers={"User-Agent": "IDOL-IDE"})
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    body = resp.read()
+                cache.write_bytes(body)
+                raw = json.loads(body)
+        except Exception:
+            raw = None
+        if raw is None:
+            try:
+                raw = json.loads(cache.read_text(encoding="utf-8"))
+            except Exception:
+                return {}
+        out: dict[str, dict] = {}
+        for name, meta in (raw.get("packages") or {}).items():
+            if not isinstance(meta, dict):
+                continue
+            out[name] = {
+                "summary": (meta.get("summary") or "").strip(),
+                "version": str(meta.get("version") or ""),
+                "channel": chan_name,
+                "home": meta.get("home") or meta.get("doc_url") or "",
+                "license": meta.get("license") or "",
+            }
+        return out
+
+    def search(self, query: str, limit: int = 20) -> list[dict]:
+        """Ranked in-memory search: exact > prefix > name-substring > summary hit."""
+        q = query.strip().lower()
+        if not q or not self._packages:
+            return []
+        words = q.split()
+        exact, prefix, name_hit, summary_hit = [], [], [], []
+        for name, meta in self._packages.items():
+            lname = name.lower()
+            if lname == q:
+                exact.append(name)
+            elif lname.startswith(q):
+                prefix.append(name)
+            elif any(w in lname for w in words):
+                name_hit.append(name)
+            elif meta["summary"] and all(w in meta["summary"].lower() for w in words):
+                summary_hit.append(name)
+        prefix.sort(key=len)
+        name_hit.sort(key=len)
+        summary_hit.sort()
+        results = []
+        for name in exact + prefix + name_hit + summary_hit:
+            results.append({"name": name, **self._packages[name]})
+            if len(results) >= limit:
+                break
+        return results

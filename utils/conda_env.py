@@ -183,6 +183,60 @@ def runtime_env(exe: str,
     return None
 
 
+def configured_channels() -> list[str]:
+    """Channels from ~/.condarc, in priority order; ["defaults"] when unset.
+
+    Minimal line-based parse of the two forms conda writes (block list and
+    inline list) — no YAML dependency. Only the top-level `channels:` key is
+    read; anything else in the file is ignored.
+    """
+    rc = os.path.expanduser(os.path.join("~", ".condarc"))
+    channels: list[str] = []
+    try:
+        with open(rc, encoding="utf-8") as f:
+            in_channels = False
+            for raw in f:
+                line = raw.split("#", 1)[0].rstrip()
+                if not line.strip():
+                    continue
+                indented = raw[0] in (" ", "\t")
+                if not indented:
+                    key, _, value = line.partition(":")
+                    in_channels = key.strip() == "channels"
+                    value = value.strip()
+                    if in_channels and value.startswith("[") and value.endswith("]"):
+                        channels += [v.strip().strip("'\"")
+                                     for v in value[1:-1].split(",") if v.strip()]
+                        in_channels = False
+                    continue
+                if in_channels and line.strip().startswith("- "):
+                    channels.append(line.strip()[2:].strip().strip("'\""))
+    except OSError:
+        pass
+    channels = [c for c in channels if c and c != "nodefaults"]
+    return channels or ["defaults"]
+
+
+def channeldata_urls(channels: list[str]) -> list[tuple[str, str]]:
+    """Map channel names/URLs to (display_name, channeldata.json URL) pairs.
+
+    "defaults" resolves to repo.anaconda.com/pkgs/main (the Python package
+    channel; pkgs/r and pkgs/msys2 hold R packages and build tooling, which
+    the package-manager search doesn't need).
+    """
+    out: list[tuple[str, str]] = []
+    for ch in channels:
+        if ch == "defaults":
+            out.append(("defaults",
+                        "https://repo.anaconda.com/pkgs/main/channeldata.json"))
+        elif ch.startswith(("http://", "https://")):
+            name = ch.rstrip("/").rsplit("/", 1)[-1]
+            out.append((name, ch.rstrip("/") + "/channeldata.json"))
+        else:
+            out.append((ch, f"https://conda.anaconda.org/{ch}/channeldata.json"))
+    return out
+
+
 def activation_command(prefix: str, shell_name: str,
                        to_msys: Callable[[str], str] | None = None) -> str | None:
     """Shell command that activates a conda env, per shell dialect.
