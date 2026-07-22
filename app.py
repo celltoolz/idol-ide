@@ -9725,6 +9725,10 @@ class IDOL(Tk):
             self._pkg_panel.set_python(path)
         if hasattr(self, "_props_panel") and self._props_panel:
             self._props_panel.set_active_python(path)
+        # Terminal's Python REPL session type follows the active interpreter
+        term = getattr(getattr(self, "_output", None), "terminal", None)
+        if term:
+            term.set_active_python(path)
 
     def _on_designer_install_pillow(self) -> None:
         pip = getattr(self._pkg_panel, "_pip", None)

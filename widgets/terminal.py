@@ -169,8 +169,12 @@ def _default_shell() -> list[str]:
         return ["sh"]
 
 
-def _detect_available_shells() -> list[dict]:
-    """Return [{name, cmd, color}] for every shell found on this system."""
+def _detect_available_shells(active_python: str | None = None) -> list[dict]:
+    """Return [{name, cmd, color}] for every shell found on this system.
+
+    *active_python* points the Python REPL entry at IDOL's active
+    interpreter (venv/conda/system); None falls back to IDOL's own.
+    """
     result: list[dict] = []
     system = platform.system()
 
@@ -223,8 +227,10 @@ def _detect_available_shells() -> list[dict]:
                     result.insert(0, result.pop(i))
                     break
 
-    # Python REPL — use sys.executable to avoid Windows Store stubs
-    python = sys.executable
+    # Python REPL — IDOL's active interpreter when known (falls back to
+    # sys.executable, a real file path, avoiding Windows Store stubs)
+    python = active_python if active_python and os.path.isfile(active_python) \
+        else sys.executable
     try:
         import subprocess as _sp
         ver = _sp.check_output([python, "--version"], text=True,
@@ -599,6 +605,7 @@ class TerminalPanel(ttk.Frame):
         self._session_meta:     dict[str, dict] = {}   # key → {display_name, cmd, icon_color}
         self._run_shell_key:    str             = ""   # targeted by run_file_in_terminal
         self._detected_shells:  list[dict]      = []   # cached _detect_available_shells()
+        self._active_python:    str             = ""   # IDOL's active interpreter (REPL target)
         self._panel_visible:    bool            = True
         self._session_panel_w:  int             = 160
         self._sash_ghost:       Optional[tk.Frame] = None
@@ -731,6 +738,12 @@ class TerminalPanel(ttk.Frame):
             _shell_base = os.path.basename(cmd[0]).lower()
             if _shell_base in ("sh", "dash", "ash"):
                 env.pop("PS1", None)
+            # A conda python launched directly (the Python REPL session type)
+            # needs its synthesized activation env — without the env's
+            # Library\bin on PATH, imports like ssl/numpy fail on Windows.
+            # Re-adds the correct CONDA_* vars stripped above.
+            if cmd and conda_env.is_conda_env(cmd[0]):
+                env = conda_env.build_env(cmd[0], base_env=env)
             # Reassign (don't .clear()) so we break the reference shared
             # with any session just snapshotted into self._sessions. With
             # .clear() the previously-active session's saved scrollback IS
@@ -1772,7 +1785,7 @@ class TerminalPanel(ttk.Frame):
                      cwd: str | None = None) -> None:
         """Create and switch to a new terminal session."""
         if not self._detected_shells:
-            self._detected_shells = _detect_available_shells()
+            self._detected_shells = _detect_available_shells(self._active_python)
         if shell_dict is None:
             shell_dict = self._detected_shells[0] if self._detected_shells else {
                 "name": "Shell", "cmd": _default_shell(), "color": "#8a8a8a"
@@ -1908,7 +1921,7 @@ class TerminalPanel(ttk.Frame):
     def _show_shell_picker(self, event=None) -> None:
         """Show overlay to pick a shell type for a new session."""
         if not self._detected_shells:
-            self._detected_shells = _detect_available_shells()
+            self._detected_shells = _detect_available_shells(self._active_python)
         items = [
             (sd["name"], lambda sd=sd: self._new_session(sd), True)
             for sd in self._detected_shells
@@ -2162,6 +2175,17 @@ class TerminalPanel(ttk.Frame):
         """True if the shell's reported CONDA_PREFIX is *prefix*."""
         active = self._conda_active
         return bool(active) and self._norm_env_path(active) == self._norm_env_path(prefix)
+
+    def set_active_python(self, exe: str) -> None:
+        """Point the Python REPL session type at IDOL's active interpreter.
+
+        Running REPL sessions keep their interpreter; the next new Python
+        session (shell picker or +) uses the new one.
+        """
+        if os.path.normcase(exe or "") == os.path.normcase(self._active_python or ""):
+            return
+        self._active_python = exe or ""
+        self._detected_shells = []   # rebuilt with the new REPL target on next use
 
     def _fire_conda_activate(self, prefix: str) -> None:
         """Derive the env's python exe from the prefix and notify the app."""

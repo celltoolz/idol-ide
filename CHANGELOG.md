@@ -5,9 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [2026-07-22] — Package list view toggle
+## [2026-07-22] — Package list view toggle, REPL follows interpreter
 
 ### Added
+- **Terminal Python REPL uses the active interpreter.** The REPL session type now
+  launches IDOL's active interpreter (venv/conda/system) instead of IDOL's own Python,
+  and its picker entry shows that interpreter's version (e.g. `Python 3.14` with a conda
+  env active). Switching interpreters retargets the next new REPL session; running
+  sessions keep theirs. Conda REPLs get the synthesized activation environment so
+  imports resolve DLLs.
 - **Grouped ↔ alphabetical view toggle** in the Package Manager: a `≡ A–Z` / `⊞ Groups`
   control right-aligned on the INSTALLED header switches the installed list between
   topic groups and a flat alphabetical list. The live filter respects the choice, and

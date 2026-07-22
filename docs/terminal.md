@@ -64,6 +64,8 @@ IDOL injects a small prompt hook on startup that emits standard escape sequences
 
 Supported shells: PowerShell (Windows), PowerShell 7, bash, zsh, sh. Other programs (Python REPL, custom CLIs) skip hook injection and run unmodified.
 
+The **Python REPL** session type uses IDOL's **active interpreter** — its entry is labeled with that interpreter's version (e.g. `Python 3.14` when a conda env is active), and switching interpreters updates the next new REPL session (running ones keep theirs). Conda-interpreter REPLs launch with the synthesized activation environment, so imports resolve conda DLLs without `conda activate`.
+
 On Windows the hook writes CWD/VENV/CONDA to a temp file (`%TEMP%\idol_state.txt`) instead of stdout to avoid any PTY cursor interference; IDOL polls the file every 500ms.
 
 ## Environment Detection (venv & conda)
