@@ -28,13 +28,6 @@ Completed sessions live at the bottom as a historical record.
 
 ### Editor / IDE
 
-- **Thread the active interpreter into the LSP** *(next up — do this first)* — pylsp and ruff
-  currently launch from IDOL's own environment (`detect_server` looks next to `sys.executable`,
-  and the `initialize` request never mentions the selected interpreter), so diagnostics and
-  completions don't see packages installed in the active venv or conda env. Spawn/point the
-  server at the selected interpreter (env + PATH, jedi `environmentPath` or equivalent) and
-  restart it on interpreter switch. Deferred from the conda-support branch.
-
 - **Settings panel** — `View → Settings` consolidating per-user preferences that are currently scattered or missing UI:
   - Font (family / size / bold / italic) — currently only via `View → Change Font`
   - Theme — currently only via `View → Theme`
@@ -204,6 +197,22 @@ Use a fresh name for each new feature branch (don't reuse merged names). Master 
 ---
 
 # ✅ Completed — Historical Record
+
+---
+
+## Conda Environment Support — COMPLETE (2026-07-22)
+
+Full conda integration on `feature/conda-envs` (detail in `CHANGELOG.md` 2026-07-21/22):
+discovery + picker/wizard labels, synthesized activation env for Run/Debug/pip (no
+`conda init` ever), Package Manager conda backend with source-aware search (configured
+channels' channeldata index, conda ↔ PyPI toggle), in-app ToS Accept/Decline flow,
+terminal activation/tracking/deactivate-on-close, wizard `.conda` creation with version
+pin + `environment.yml`, base vs existing-env cases, REPL follows the interpreter, and
+**LSP interpreter threading** — pylsp's jedi backend now points at the active
+interpreter (`set_python_environment` → `pylsp.plugins.jedi.environment` via
+didChangeConfiguration), so completions/hovers resolve the selected env's packages;
+re-points live on interpreter switch, no restart. (Ruff diagnostics don't resolve
+imports — no interpreter awareness needed.)
 
 ---
 

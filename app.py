@@ -2205,6 +2205,9 @@ class IDOL(Tk):
         if cmd:
             self._lsp = LspManager(root, after_fn=self._safe_after)
             self._lsp.on_ready = lambda srv=self._lsp: self._lsp_open_tabs_for(srv)
+            # jedi inspects the active interpreter's env (venv/conda), so
+            # completions and hovers see the packages the code will run with
+            self._lsp.set_python_environment(self._active_python)
             self._lsp.start(cmd)
 
         # Diagnostics — always PyflakesLinter (uses ruff subprocess internally)
@@ -9737,6 +9740,9 @@ class IDOL(Tk):
         term = getattr(getattr(self, "_output", None), "terminal", None)
         if term:
             term.set_active_python(path)
+        # Re-point the LSP's jedi backend at the new interpreter's env
+        if getattr(self, "_lsp", None):
+            self._lsp.set_python_environment(path)
 
     def _on_designer_install_pillow(self) -> None:
         pip = getattr(self._pkg_panel, "_pip", None)

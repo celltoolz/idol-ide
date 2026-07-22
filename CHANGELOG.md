@@ -20,6 +20,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (previously it showed nothing — the same trap existed for venvs after a manual `cd`).
 
 ### Added
+- **Completions and hovers follow the active interpreter (LSP).** pylsp still runs from
+  IDOL's own environment (no per-project install, like the bundled debugpy), but its
+  jedi backend is now pointed at the active interpreter via
+  `pylsp.plugins.jedi.environment` (sent in `initializationOptions` and
+  `workspace/didChangeConfiguration`), so autocomplete, hover docs, and go-to-definition
+  resolve the selected venv/conda env's packages. Switching interpreters re-points the
+  live server — no restart. Verified over real LSP stdio: `import cond…` completions
+  include the conda env's package family only with the environment set. Closes the
+  deferred item from the conda branch.
 - **Wizard conda cases refined.** The interpreter filter row gains a **`conda env`**
   toggle (off by default, like `venv`) for previously created conda envs, while `conda`
   covers base installs. With a base interpreter and *Create virtual environment*

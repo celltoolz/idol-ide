@@ -85,10 +85,37 @@ class LspManager:
         self._client: Optional[LspClient] = None
         self._ready     = False
         self._versions: dict[str, int] = {}   # uri → version counter
+        self._python_env: str | None = None   # interpreter jedi inspects
 
         # Callbacks set by the app
         self.on_diagnostics: Optional[Callable[[str, list], None]] = None
         self.on_ready: Optional[Callable[[], None]] = None
+
+    # ── Interpreter environment ───────────────────────────────────────────────
+
+    def set_python_environment(self, exe: str | None) -> None:
+        """Point the server's jedi backend at *exe*'s environment.
+
+        pylsp itself keeps running from IDOL's own Python (no per-env
+        install needed — same philosophy as the bundled debugpy); jedi
+        resolves imports/completions from the given interpreter's
+        site-packages via `pylsp.plugins.jedi.environment`. Safe to call
+        any time: before start it seeds initializationOptions, after
+        initialization it re-points the live server via
+        workspace/didChangeConfiguration.
+        """
+        if exe and os.path.normcase(exe) == os.path.normcase(sys.executable):
+            exe = None   # IDOL's own env is the server's default anyway
+        if exe == self._python_env:
+            return
+        self._python_env = exe
+        if self.ready:
+            self._client.notify("workspace/didChangeConfiguration",
+                                {"settings": self._pylsp_settings()})
+
+    def _pylsp_settings(self) -> dict:
+        """Server settings — pylsp shape; other servers ignore unknown keys."""
+        return {"pylsp": {"plugins": {"jedi": {"environment": self._python_env}}}}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -204,6 +231,7 @@ class LspManager:
         self._client.request("initialize", {
             "processId": os.getpid(),
             "rootUri":   root_uri,
+            "initializationOptions": self._pylsp_settings(),
             "capabilities": {
                 "textDocument": {
                     "synchronization": {
@@ -228,6 +256,11 @@ class LspManager:
         if error:
             return
         self._client.notify("initialized", {})
+        # Push settings once initialized too — pylsp applies configuration
+        # from didChangeConfiguration; initializationOptions alone isn't
+        # honored by every version.
+        self._client.notify("workspace/didChangeConfiguration",
+                            {"settings": self._pylsp_settings()})
         self._ready = True
         if self.on_ready:
             self.on_ready()
