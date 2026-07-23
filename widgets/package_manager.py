@@ -966,7 +966,9 @@ class PackageManagerPanel(tk.Frame):
                 sections=[
                     ("SEARCH PyPI",
                      "Use the search bar at the top of the Package Manager. It searches PyPI "
-                     "in real time and groups results by category so you can quickly compare options.", "#569cd6"),
+                     "in real time and groups results by category so you can quickly compare options. "
+                     "In a conda environment a conda | PyPI toggle appears — conda mode searches "
+                     "your configured conda channels instead.", "#569cd6"),
                     ("WHAT TO LOOK FOR",
                      "• Download count — high numbers mean battle-tested\n"
                      "• Last release date — actively maintained?\n"
@@ -981,6 +983,36 @@ class PackageManagerPanel(tk.Frame):
                     "With 500,000+ packages on PyPI, picking the right one matters. "
                     "A package last updated in 2017 or with open security issues is a liability. "
                     "When in doubt, ask the AI — it's read the docs so you don't have to."
+                ),
+            ),
+            GuidePage(
+                title="Conda Environments",
+                sections=[
+                    ("WHEN CONDA TAKES OVER",
+                     "If your active interpreter is a conda environment, this panel automatically "
+                     "routes installs and uninstalls through conda instead of pip, and a "
+                     "conda | PyPI toggle appears next to the search bar. Conda search looks "
+                     "through your configured channels — exactly what 'conda install' can reach.", "#569cd6"),
+                    ("SAME NAME, DIFFERENT PACKAGE",
+                     "Conda channels and PyPI sometimes reuse a name for different products. "
+                     "On conda, 'graphviz' is the C drawing tool and the Python bindings are "
+                     "'python-graphviz' — while on PyPI, 'graphviz' IS the Python bindings. "
+                     "Check the summary in the detail panel before installing.", "#e2c08d"),
+                    ("MIXING PIP INTO A CONDA ENV",
+                     "Pip-installed packages inside a conda env show a '· pip' badge in the "
+                     "installed list, and Uninstall automatically uses the right tool for each. "
+                     "Prefer conda packages first; flip the search toggle to PyPI when a package "
+                     "isn't on your channels.", "#cccccc"),
+                    ("FIRST-TIME SETUP",
+                     "Anaconda's default channels require accepting their Terms of Service once. "
+                     "If that's still pending, the panel shows an Accept/Decline dialog before "
+                     "the first conda operation — your acceptance is stored by conda itself.", "#73c991"),
+                ],
+                plain_english=(
+                    "Think of conda and PyPI as two different app stores. Most apps exist in "
+                    "both, but a few share a name and aren't the same thing at all. When your "
+                    "project lives in a conda environment, this panel shops at the conda store "
+                    "by default — and clearly labels anything that came from the other store."
                 ),
             ),
         ])

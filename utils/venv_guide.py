@@ -79,7 +79,8 @@ def get_pages() -> list[GuidePage]:
                     "WHY ARE THERE MULTIPLE?",
                     "It's common to have several Python installations on one machine — "
                     "the system Python that came with your OS, one you installed from python.org, "
-                    "one inside a virtual environment, maybe one from Homebrew or pyenv. "
+                    "one inside a virtual environment, maybe one from Homebrew, pyenv, or "
+                    "Anaconda (shown here as 'conda: name'). "
                     "They are completely independent and may have different versions and packages.",
                     "#569cd6",
                 ),
@@ -141,6 +142,50 @@ def get_pages() -> list[GuidePage]:
                     "#cccccc",
                 ),
             ],
+        ),
+        GuidePage(
+            title="What About Conda?",
+            sections=[
+                (
+                    "A DIFFERENT KIND OF ENVIRONMENT",
+                    "Conda is an alternative environment manager, popular in data science. "
+                    "Like a venv, a conda env is an isolated space for one project — but conda "
+                    "also installs Python itself, plus non-Python software your packages need "
+                    "(CUDA for GPUs, MKL for fast math, ffmpeg for video).",
+                    "#569cd6",
+                ),
+                (
+                    "CONDA ENV vs VENV",
+                    "• A venv copies a Python you already have; a conda env can bring any Python version\n"
+                    "• Conda installs from channels (defaults, conda-forge) — not from PyPI\n"
+                    "• environment.yml plays the role of requirements.txt\n"
+                    "• Both isolate packages per project — pick one per project, not both",
+                    "#cccccc",
+                ),
+                (
+                    "IN THIS IDE",
+                    "Conda installs are detected automatically — conda interpreters appear in "
+                    "the interpreter picker labelled (conda: name). Pick one and the terminal "
+                    "activates the env for you, the Package Manager routes installs through "
+                    "conda, and the New Project wizard can create a project-local .conda env "
+                    "with an environment.yml.",
+                    "#73c991",
+                ),
+                (
+                    "MIXING CONDA AND PIP",
+                    "Inside a conda env, prefer 'conda install'. Use pip only for packages "
+                    "that aren't on your conda channels — installing the same library from "
+                    "both can leave the environment confused about which copy is real.",
+                    "#e2c08d",
+                ),
+            ],
+            plain_english=(
+                "If a venv is a toolbox for your project, a conda env is a whole workshop "
+                "trailer — it brings its own Python, its own tools, and even the heavy "
+                "machinery (GPU drivers, math libraries) that ordinary toolboxes can't "
+                "hold. You still use one per project; it's just a bigger box from a "
+                "different supplier."
+            ),
         ),
         GuidePage(
             title="Best Practices",
