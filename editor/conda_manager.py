@@ -328,6 +328,7 @@ class CondaSearchIndex:
         self._packages: dict[str, dict] = {}   # name → {summary, version, channel, home, license}
         self._loaded = False
         self._loading = False
+        self._pending: list[Callable[[int], None]] = []   # on_done callbacks queued mid-load
 
     @property
     def ready(self) -> bool:
@@ -337,13 +338,15 @@ class CondaSearchIndex:
                       force: bool = False) -> None:
         """Load (fetching/caching as needed) on a daemon thread.
 
-        Calls on_done(package_count) on the main thread. No-ops if already
-        loaded (unless *force*) or currently loading.
+        Calls on_done(package_count) on the main thread. If a load is already
+        in flight, on_done is queued and fires when that load completes.
         """
         if self._loaded and not force:
             if on_done:
                 self._after(0, on_done, len(self._packages))
             return
+        if on_done:
+            self._pending.append(on_done)
         if self._loading:
             return
         self._loading = True
@@ -360,8 +363,9 @@ class CondaSearchIndex:
             self._packages = packages
             self._loaded = True
             self._loading = False
-            if on_done:
-                self._after(0, on_done, len(packages))
+            pending, self._pending = self._pending, []
+            for cb in pending:
+                self._after(0, cb, len(packages))
 
         threading.Thread(target=_run, daemon=True).start()
 

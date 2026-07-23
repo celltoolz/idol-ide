@@ -326,7 +326,13 @@ class PackageManagerPanel(tk.Frame):
         self._search_entry.bind("<FocusIn>",    lambda _: self._search_focus_in())
         self._search_entry.bind("<FocusOut>",   lambda _: self._search_focus_out())
         self._search_entry.bind("<Return>",     lambda _: self._do_search())
-        self._search_entry.bind("<KeyRelease>", lambda _: self._filter_installed())
+        self._search_entry.bind("<KP_Enter>",   lambda _: self._do_search())
+        # Enter's KeyRelease must not run the installed filter — it fires
+        # right after <Return> and would wipe the search results it produced.
+        self._search_entry.bind(
+            "<KeyRelease>",
+            lambda e: None if e.keysym in ("Return", "KP_Enter")
+            else self._filter_installed())
         self.after(3000, self._cycle_hint)
 
         self._search_btn = self._make_btn(search_frame, "PyPI ↗", self._do_search)
