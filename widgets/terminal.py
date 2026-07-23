@@ -106,6 +106,31 @@ class _RobustScreen(pyte.HistoryScreen):
             self.cursor_up_min_y = dest_y
         super().cursor_up(count)
 
+    # EL/ED wipe a row's tail with written default-attr spaces, which is
+    # indistinguishable from a drawn trailing space. Clear the wrap flag at
+    # the source so _row_effective_wrap can trust the flag on rows that
+    # still carry it — a wrap boundary landing on a genuine drawn space
+    # ("...) PS ", paths with spaces) must stay a wrap, or reflow splits
+    # the logical line differently than the real console and every
+    # absolutely-positioned repaint afterwards lands on the wrong row.
+    def erase_in_line(self, how=0, private=False):
+        super().erase_in_line(how, private)
+        if how in (0, 2):   # tail (incl. last col) erased → no continuation
+            self.buffer[self.cursor.y].idol_wrapped = False
+
+    def erase_in_display(self, how=0, *args, **kwargs):
+        super().erase_in_display(how, *args, **kwargs)
+        if how == 0:
+            interval = range(self.cursor.y, self.lines)
+        elif how == 1:      # rows above fully erased; cursor row keeps its tail
+            interval = range(self.cursor.y)
+        elif how in (2, 3):
+            interval = range(self.lines)
+        else:
+            return
+        for y in interval:
+            self.buffer[y].idol_wrapped = False
+
     def set_mode(self, *args, private=False, **kwargs):
         if private and args:
             # Mouse tracking modes: 9=X10, 1000=normal, 1002=button, 1003=any, 1006=SGR
@@ -1233,13 +1258,13 @@ class TerminalPanel(ttk.Frame):
         max_row = max(actual_keys[-1], cur_y)
 
         def _is_real_wrap(row_obj) -> bool:
+            # Same rule as _row_effective_wrap, at the pre-resize width:
+            # trust the flag whenever the boundary cell was actually written
+            # (drawn spaces included — erased rows lose the flag at the
+            # source in _RobustScreen's EL/ED overrides).
             if row_obj is None or not getattr(row_obj, "idol_wrapped", False):
                 return False
-            last = row_obj.get(old_cols - 1)
-            if last is None:
-                return False
-            return (bool(last.data and last.data != " ")
-                    or last.fg != "default" or last.bg != "default")
+            return row_obj.get(old_cols - 1) is not None
 
         # ── Extract logical lines ─────────────────────────────────────────
         # Each entry: (list[Char], cursor_offset_into_line | None)
@@ -1357,22 +1382,18 @@ class TerminalPanel(ttk.Frame):
 
     def _row_effective_wrap(self, line, wrapped: bool) -> bool:
         """Return True only if this row actually wrap-continues onto the next.
-        Pyte's idol_wrapped flag is set when the cursor reached col == columns,
-        but that state persists even if the line is later cleared, the cursor
-        is repositioned away, or PSReadLine redraws the prompt over the row.
-        Trust the flag ONLY if the row's last cell currently has content,
-        which is the requirement for a real visual wrap."""
+        The flag is trusted whenever the row's last cell was actually written
+        — including a drawn space: wrap boundaries frequently land on spaces
+        ("...) PS ", paths with spaces), and the real console still records
+        those lines as wrapped, so refusing them here makes reflow split the
+        logical line differently than the console and desyncs every
+        absolutely-positioned repaint that follows. Stale flags from erased
+        rows are handled at the source: _RobustScreen clears idol_wrapped
+        when EL/ED wipe a row's tail. A last cell that was never written
+        (sparse row) cannot be a wrap."""
         if not wrapped:
             return False
-        last_cell = line.get(self._screen.columns - 1)
-        if last_cell is None:
-            return False
-        data = last_cell.data
-        if data and data != " ":
-            return True
-        if last_cell.fg != "default" or last_cell.bg != "default":
-            return True
-        return False
+        return line.get(self._screen.columns - 1) is not None
 
     def _row_segments_for_history(self, line, wrapped: bool) -> list:
         """Build (text, fg, bg, bold) segments for one pyte history row.
