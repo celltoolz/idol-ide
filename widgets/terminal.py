@@ -1063,11 +1063,17 @@ class TerminalPanel(ttk.Frame):
         sb = self._sb_phys_rows
         screen_lines = self._screen_to_lines()
         cur_y = self._screen.cursor.y
-        cur_x = self._screen.cursor.x
+        # Pending-wrap state (DECAWM) leaves cursor.x == columns; real
+        # terminals show the block on the last column, not past the edge.
+        cur_x = min(self._screen.cursor.x, self._screen.columns - 1)
+        # DECTCEM: apps hide the cursor while repainting (\x1b[?25l). A poll
+        # frame can land mid-repaint — drawing the cursor then shows a
+        # phantom block at an intermediate, wrong position.
+        cursor_visible = not self._screen.cursor.hidden
         for row_idx, segs in enumerate(screen_lines):
             canvas_row = sb + row_idx
             self._draw_row(canvas_row, segs, ("live",))
-            if row_idx == cur_y:
+            if row_idx == cur_y and cursor_visible:
                 cx = cur_x * self._char_w
                 cy = canvas_row * self._char_h
                 self._canvas.create_rectangle(
@@ -1213,10 +1219,18 @@ class TerminalPanel(ttk.Frame):
         actual_keys = sorted(buffer.keys())
         if not actual_keys:
             return
-        max_row = actual_keys[-1]
 
         cur_y = self._screen.cursor.y
         cur_x = min(self._screen.cursor.x, old_cols - 1)
+
+        # Include the cursor row even when it holds no glyphs yet — pyte's
+        # buffer is sparse, so a prompt that exactly filled the previous row
+        # followed by an explicit \r\n leaves the cursor alone on a row with
+        # no buffer entry. If the walk below never visits the cursor row,
+        # cur_off stays None and the stale pre-reflow cursor.y is committed
+        # against re-wrapped content — the block cursor then renders one or
+        # more rows away from the real prompt position.
+        max_row = max(actual_keys[-1], cur_y)
 
         def _is_real_wrap(row_obj) -> bool:
             if row_obj is None or not getattr(row_obj, "idol_wrapped", False):
@@ -1267,6 +1281,11 @@ class TerminalPanel(ttk.Frame):
         for chars, cur_off in logical:
             if not chars:
                 new_buf[r] = _ps.StaticDefaultDict(default_char)
+                # A cursor at col 0 of a blank row strips to an empty line
+                # (cur_off == 0) — it must still claim its new row here.
+                if cur_off is not None:
+                    new_cur_y = r
+                    new_cur_x = 0
                 r += 1
                 continue
             total = len(chars)
@@ -1300,6 +1319,32 @@ class TerminalPanel(ttk.Frame):
                 blank = _ps.StaticDefaultDict(default_char)
                 blank.idol_wrapped = False
                 new_buf[new_cur_y] = blank
+
+        # ── Scroll overflow into scrollback ──────────────────────────────
+        # Narrowing can re-wrap the content into more rows than the screen
+        # has. The real console scrolls the top out to keep the cursor
+        # visible; do the same, or the min() clamp below parks the block
+        # cursor on whatever unrelated row sits at the bottom of the
+        # viewport while the true prompt row hides below it.
+        scroll = max(0, new_cur_y - (num_rows - 1))
+        for y in range(scroll):
+            line = new_buf.get(y)
+            if line is None:
+                continue
+            wrapped = bool(getattr(line, "idol_wrapped", False))
+            segs = self._row_segments_for_history(line, wrapped)
+            if self._scrollback_open and self._scrollback:
+                self._scrollback[-1].extend(segs)
+            else:
+                self._scrollback.append(segs)
+            self._scrollback_open = wrapped
+        if scroll:
+            new_cur_y -= scroll
+            new_buf = {y - scroll: line for y, line in new_buf.items()
+                       if y >= scroll}
+        # Rows that still fall below the viewport would resurface as stale
+        # garbage on a later row-grow — drop them.
+        new_buf = {y: line for y, line in new_buf.items() if y < num_rows}
 
         # ── Commit ───────────────────────────────────────────────────────
         buffer.clear()
