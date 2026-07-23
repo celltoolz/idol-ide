@@ -5,6 +5,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-23] — Conda search fixes, source-aware hints, conda guides
+
+### Fixed
+- **Enter now runs the discovery search.** Pressing Enter in the package search box ran
+  the search on key press — then the same key's *release* re-ran the installed-list
+  filter and rebuilt the tree, wiping the results it had just rendered. Search appeared
+  to return nothing unless the "↗ Search … for" row was clicked. The KeyRelease filter
+  now skips Return/KP_Enter (numpad Enter is bound to search too), and a search issued
+  while the conda channel index is still loading is queued instead of silently dropped
+  (previously it stuck at "loading channel index…" until a second Enter).
+- **Conda install output is readable.** Conda writes terminal-oriented output even when
+  piped: backspace-drawn spinners, download bars redrawn via `\r` + cursor-up codes,
+  clear-line runs of spaces — all of which landed verbatim in the Output panel.
+  `_StreamCleaner` now scrubs every streamed line: spinners collapse to their final
+  text, ANSI escapes are stripped, and each download bar appears once at 100% instead
+  of as a redraw storm.
+
+### Added
+- **Designer Pillow install follows the interpreter.** The designer's one-click
+  "⚠ install Pillow" was hardcoded to pip; conda interpreters now install the conda
+  `pillow` package, with the same ToS Accept/Decline gate as the Package Manager, a pip
+  fallback when no conda exe is found, and the dependency appended to `environment.yml`
+  instead of `requirements.txt`. Success is verified by probing `import PIL` before
+  reporting done.
+- **Search hints follow the source toggle.** The rotating placeholder shows
+  "Search conda…" with channel-relevant examples (`pytorch`, `python-graphviz`,
+  `cudatoolkit`, …) when the search source is conda, and swaps back to the PyPI set on
+  toggle — immediately, restarting the hint cycle, and never clobbering a typed query.
+- **Learning guides cover conda.** The Package Manager guide gains a *Conda
+  Environments* page (automatic conda routing, conda-vs-PyPI name clashes like
+  `graphviz`, the `· pip` badge and origin-aware uninstall, first-run ToS dialog) and
+  the venv guide gains *What About Conda?* (conda env vs venv, channels,
+  `environment.yml`, how IDOL detects and activates conda envs). Anaconda now also
+  appears in the "why are there multiple interpreters" list.
+
 ## [2026-07-22] — Package list view toggle, REPL follows interpreter
 
 ### Fixed
