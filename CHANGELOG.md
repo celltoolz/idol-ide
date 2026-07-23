@@ -5,9 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [2026-07-23] — Conda search fixes, source-aware hints, conda guides
+## [2026-07-23] — Conda search fixes, source-aware hints, conda guides, terminal cursor fixes
 
 ### Fixed
+- **Terminal block cursor stays on the prompt after a resize.** Sash drags, panel
+  toggles, and window resizes could leave the block cursor rows away from the prompt —
+  or parked mid-text at the bottom of the screen. Three reflow defects fixed: a cursor
+  sitting alone on a blank never-written row (pyte's buffer is sparse) was skipped by
+  the reflow walk, keeping its stale pre-resize row; narrowing that re-wrapped content
+  into more rows than the screen has clamped the cursor onto whatever row sat at the
+  viewport bottom (overflow now scrolls into scrollback like the real console); and a
+  cursor at column 0 of a blank line never claimed its new row. The renderer also now
+  honors cursor hide/show (DECTCEM) — no more phantom block at an intermediate position
+  when a poll frame lands mid-repaint — and draws a pending-wrap cursor on the last
+  column instead of past the right edge.
+- **Run commands echo at the prompt, not floating mid-screen.** A wrap boundary landing
+  on a space (`…) PS `, paths with spaces) was treated as a hard line break, so resize
+  reflow split the logical line differently than the Windows console's own buffer. The
+  two layouts disagreed about which row the prompt ends on, and later
+  absolutely-positioned repaints — like the echoed Run command — landed rows below the
+  prompt with a blank gap to the left. Wrap flags are now cleared at the source when
+  EL/ED erase a row's tail, and trusted for any actually-written boundary cell, drawn
+  spaces included, keeping IDOL's layout in lockstep with the console's.
 - **Enter now runs the discovery search.** Pressing Enter in the package search box ran
   the search on key press — then the same key's *release* re-ran the installed-list
   filter and rebuilt the tree, wiping the results it had just rendered. Search appeared
