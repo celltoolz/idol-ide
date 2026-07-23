@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -92,6 +93,83 @@ def accept_tos(
         after_fn(0, on_done, ok, msg)
 
     threading.Thread(target=_run, daemon=True).start()
+
+
+# ── Output stream cleanup ─────────────────────────────────────────────────────
+# Conda writes TTY-oriented output even when piped: spinners drawn with
+# backspaces, parallel download bars redrawn via \r + ESC[A cursor-up
+# codes, and clear-line runs of spaces. Rendered verbatim in the Output
+# panel's Text widget this is unreadable, so _stream routes every line
+# through _StreamCleaner first.
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b.")
+
+# `pillow-11.1.0        | 902 KB    | ########## | 100% `
+_PROGRESS_RE = re.compile(
+    r"^(.+?) +\| +[\d.]+ +[KMGTP]?i?B +\|.*\| +(\d+)% *$")
+
+_DOWNLOAD_HEADER = "Downloading and Extracting Packages"
+
+
+class _StreamCleaner:
+    """Per-run line filter that makes conda's TTY output plain-text safe.
+
+    feed(line) returns the cleaned line (newline-terminated) or None when
+    the line is redraw noise that should not reach the Output panel:
+    backspaces are applied, ANSI escapes stripped, each download bar shown
+    only once at 100%, and the cursor-dance blank lines dropped.
+    """
+
+    def __init__(self) -> None:
+        self._bars_done: set[str] = set()
+        self._in_downloads = False
+        self._last_blank = False
+
+    def feed(self, line: str) -> str | None:
+        line = line.rstrip("\r\n")
+        if "\b" in line:
+            line = self._apply_backspaces(line)
+        line = _ANSI_RE.sub("", line)
+
+        if line.startswith(_DOWNLOAD_HEADER):
+            self._in_downloads = True
+        elif self._in_downloads and line.strip() and not _PROGRESS_RE.match(line):
+            # First real line after the bars ends the download section
+            # (drops the dangling clear-line "done" tail on the way out).
+            self._in_downloads = False
+            if line.strip() == "done":
+                return None
+
+        m = _PROGRESS_RE.match(line)
+        if m:
+            name, pct = m.group(1).strip(), int(m.group(2))
+            if pct < 100 or name in self._bars_done:
+                return None
+            self._bars_done.add(name)
+            self._last_blank = False
+            return line.rstrip() + "\n"
+
+        if not line.strip():
+            # Inside the download section blanks are pure cursor padding;
+            # elsewhere collapse runs of blanks to a single one.
+            if self._in_downloads or self._last_blank:
+                return None
+            self._last_blank = True
+            return "\n"
+
+        self._last_blank = False
+        return line + "\n"
+
+    @staticmethod
+    def _apply_backspaces(line: str) -> str:
+        out: list[str] = []
+        for ch in line:
+            if ch == "\b":
+                if out:
+                    out.pop()
+            else:
+                out.append(ch)
+        return "".join(out)
 
 
 class CondaManager:
@@ -214,13 +292,16 @@ class CondaManager:
 
     def _stream(self, cmd: list[str], on_line: Callable[[str], None],
                 env: dict[str, str] | None) -> int:
-        """Run *cmd* streaming stdout lines via after_fn; returns the exit code."""
+        """Run *cmd* streaming cleaned stdout lines via after_fn; returns the exit code."""
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, env=env,
         )
+        cleaner = _StreamCleaner()
         for line in proc.stdout:
-            self._after(0, on_line, line)
+            cleaned = cleaner.feed(line)
+            if cleaned is not None:
+                self._after(0, on_line, cleaned)
         proc.wait()
         return proc.returncode
 
