@@ -187,7 +187,22 @@ Use a fresh name for each new feature branch (don't reuse merged names). Master 
 - **Debugger:** global hotkeys (F5/F10/F11/Shift+F11/Shift+F5) need a low-level keyboard hook (pynput or keyboard lib) to fire when IDOL doesn't have focus; hook installed only during active debug session
 - **Codegen:** removing the last widget reference to a handler method silently drops its body on next regen; should warn "handler `_on_x` has a body but nothing calls it — remove?"
 - **Codegen:** `_`-prefixed methods with decorators (e.g. `@staticmethod def _helper()`) lose their decorator on regen — event stub bodies are extracted separately and the `def` line is rebuilt by codegen, so decorator info is never captured. Uncommon pattern for event handlers but worth fixing eventually; would require plumbing decorator data through `extract_event_bodies` and `generate()`.
-- **Codegen — widget-rename reference rewrite (known misses):** renaming a widget rewrites `self.<old_id>` references in user code to `self.<new_id>` (`persistence.rename_self_attributes`, a `tokenize`-based pass that is string/comment-safe and substring-safe). It deliberately does **not** catch:
+- **Terminal — ConPTY-repainted rows have no wrap flag (latent resize desync):** the
+  terminal's resize reflow decides which rows form one logical line via the
+  `idol_wrapped` flag, set when text flows naturally past the right edge (2026-07-23
+  fixes: drawn spaces at the boundary now count, and EL/ED erases clear the flag). But
+  rows that ConPTY *repaints* with explicit cursor positioning (CUP + row text — e.g.
+  parts of its post-resize repaint or diff updates) never wrap naturally, so they carry
+  no flag even when the console's own buffer records them as wrapped. On the next
+  resize, IDOL's reflow splits those lines where conhost merges them, the two layouts
+  disagree about which row content sits on, and later absolutely-positioned output
+  (echoed commands, prompt redraws) can land rows away from where pyte has the prompt —
+  same symptom family as the fixed cursor/echo bugs. No known repro since the
+  2026-07-23 fixes; if a misplaced cursor/echo reappears after a resize, suspect this
+  first and capture what was on screen just before. A real fix likely means resyncing
+  from ConPTY's authoritative repaint rather than inferring wrap state client-side
+  (pyte has no access to conhost's wrap records). Windows-only; Linux PTYs never
+  repaint rows with absolute positioning this way. renaming a widget rewrites `self.<old_id>` references in user code to `self.<new_id>` (`persistence.rename_self_attributes`, a `tokenize`-based pass that is string/comment-safe and substring-safe). It deliberately does **not** catch:
   - **String-based attribute access** — `getattr(self, "canvas1")` / `setattr(...)` / `eval("self.canvas1")`; the id lives in a string literal, invisible to a token scan.
   - **Derived generated attrs** — `self.canvas1_vsb` / `_hsb` / `_frame` (Treeview scrollbar/frame). These are a single `NAME` token (`canvas1_vsb` ≠ `canvas1`), so they're skipped. Codegen regenerates them with the new id anyway; only a *direct user reference* to the suffixed attr would break. Fixable by also mapping the known suffixed forms.
   - **f-string internals on Python < 3.12** — `f"{self.canvas1}"` is one `STRING` token pre-3.12, so the inner reference isn't rewritten. Fine on 3.12+ (PEP 701 tokenizes f-string contents).
