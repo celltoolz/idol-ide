@@ -9745,34 +9745,137 @@ class IDOL(Tk):
             self._lsp.set_python_environment(path)
 
     def _on_designer_install_pillow(self) -> None:
+        from utils.conda_env import is_conda_env
+
+        output = self._output.output
+        try:
+            self._output._set_active("output")
+        except Exception:
+            pass
+
+        # Conda interpreters install the conda `pillow` package (same name,
+        # same product on both conda and PyPI) so conda's resolver stays
+        # consistent; pip is the fallback when no conda exe can be located.
+        if is_conda_env(self._active_python):
+            conda = getattr(self._pkg_panel, "_conda", None)
+            if conda is None:
+                from editor.conda_manager import CondaManager
+
+                conda = CondaManager(self._safe_after)
+            conda.set_python(self._active_python)
+            if conda.available:
+                self._conda_install_pillow(conda, output)
+                return
+            output.write(
+                "\nconda executable not found — installing Pillow with pip.\n",
+                tag="info")
+        self._pip_install_pillow(output)
+
+    def _pip_install_pillow(self, output) -> None:
         pip = getattr(self._pkg_panel, "_pip", None)
         if pip is None:
             from editor.pip_manager import PipManager
 
             pip = PipManager(self._safe_after)
         pip.set_python(self._active_python)
-        output = self._output.output
-        try:
-            self._output._set_active("output")
-        except Exception:
-            pass
         output.write("\n$ pip install pillow\n", tag="cmd")
-
-        def _on_line(line):
-            output.write(line)
-
-        def _on_done():
-            output.write("✓ Pillow installed.\n", tag="info")
-            self._props_panel._pil_available = True
-            self._props_panel._update_pil_warning_row("prop__image", True)
-            self._add_to_requirements("Pillow")
-
-        pip.run_operation(
-            ["install", "pillow"],
-            on_line=_on_line,
-            on_done=_on_done,
+        pip.install(
+            "pillow",
+            on_line=output.write,
+            on_done=lambda: self._on_pillow_install_done(output, conda=False),
             on_error=lambda e: output.write(e + "\n", tag="err"),
         )
+
+    def _conda_install_pillow(self, conda, output) -> None:
+        # Conda installs download from Anaconda's channels, which require
+        # accepted Terms of Service — same gate as the Package Manager panel.
+        from editor import conda_manager as conda_backend
+        from widgets.conda_tos_dialog import CondaTosDialog
+
+        def _exec() -> None:
+            output.write("\n$ conda install -y pillow\n", tag="cmd")
+            conda.install(
+                "pillow",
+                on_line=output.write,
+                on_done=lambda: self._on_pillow_install_done(output, conda=True),
+                on_error=lambda e: output.write(e + "\n", tag="err"),
+            )
+
+        def _on_accept_done(ok: bool, msg: str) -> None:
+            if ok:
+                _exec()
+            else:
+                output.write(
+                    f"Could not accept the Terms of Service: {msg}\n", tag="err")
+
+        def _on_tos(pending: dict) -> None:
+            if not pending:
+                _exec()
+                return
+            CondaTosDialog(
+                self, pending,
+                on_accept=lambda: conda_backend.accept_tos(
+                    conda.conda_exe, self._safe_after, _on_accept_done),
+                on_decline=lambda: output.write(
+                    "Pillow install cancelled — conda Terms of Service "
+                    "not accepted\n", tag="err"),
+            )
+
+        output.write("\nChecking conda Terms of Service…\n", tag="info")
+        conda_backend.fetch_tos_pending(conda.conda_exe, self._safe_after, _on_tos)
+
+    def _on_pillow_install_done(self, output, conda: bool) -> None:
+        # Both backends fire on_done even when the install failed — probe the
+        # interpreter before reporting success or touching the deps file.
+        panel = self._props_panel
+        panel._pil_available = None
+
+        def _result(ok: bool) -> None:
+            if ok:
+                output.write("✓ Pillow installed.\n", tag="info")
+                if conda:
+                    self._add_to_environment_yml("pillow")
+                else:
+                    self._add_to_requirements("Pillow")
+            else:
+                output.write("✗ Pillow install failed — see output above.\n",
+                             tag="err")
+            panel._update_pil_warning_row("prop__image", ok)
+
+        panel._check_pil_async(_result)
+
+    def _add_to_environment_yml(self, package: str) -> None:
+        """Append *package* to the project's environment.yml dependencies if
+        not already listed. Falls back to requirements.txt when the project
+        has no environment.yml (e.g. a pre-existing conda env opened as a
+        plain folder)."""
+        import re as _re
+        root = str(getattr(self._sidebar.explorer, "_root", "") or "")
+        if not root:
+            return
+        yml = Path(root) / "environment.yml"
+        if not yml.is_file():
+            self._add_to_requirements(package.capitalize())
+            return
+        try:
+            text = yml.read_text(encoding="utf-8")
+            if _re.search(
+                rf"^\s*-\s*{_re.escape(package)}\s*([=<>!~].*)?$",
+                text, _re.MULTILINE | _re.IGNORECASE,
+            ):
+                return
+            lines = text.splitlines(keepends=True)
+            for i, ln in enumerate(lines):
+                if ln.strip() == "dependencies:":
+                    lines.insert(i + 1, f"  - {package}\n")
+                    break
+            else:
+                if text and not text.endswith("\n"):
+                    lines.append("\n")
+                lines.append(f"dependencies:\n  - {package}\n")
+            yml.write_text("".join(lines), encoding="utf-8")
+        except Exception:
+            pass
 
     def _add_to_requirements(self, package: str) -> None:
         """Append *package* to the project's requirements.txt if not already listed."""
