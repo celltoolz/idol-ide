@@ -64,6 +64,25 @@ _HINTS = [
     "e.g. pdf parser",
 ]
 
+# Hints shown while the search source is conda — names that exist on conda
+# channels (some under different names than PyPI, e.g. python-graphviz).
+_CONDA_HINTS = [
+    "Search conda…",
+    "e.g. pytorch",
+    "e.g. numpy",
+    "e.g. python-graphviz",
+    "e.g. ffmpeg",
+    "e.g. image processing",
+    "e.g. cudatoolkit",
+    "e.g. pandas",
+    "e.g. machine learning",
+    "e.g. mkl",
+]
+
+# Placeholder detection must match either set — the entry can still hold the
+# other source's hint right after a toggle.
+_ALL_HINTS = set(_HINTS) | set(_CONDA_HINTS)
+
 # Curated well-known packages per category — promoted in PyPI search results
 _FEATURED: dict[str, list[str]] = {
     "Networking & Web":       ["requests", "httpx", "aiohttp", "urllib3", "scrapy",
@@ -260,6 +279,18 @@ class PackageManagerPanel(tk.Frame):
                        bg=_ACCENT if active else _INPUT_BG)
         self._search_btn.config(
             text="conda ↗" if source == "conda" else "PyPI ↗")
+        # Placeholder follows the source: swap the displayed hint (and restart
+        # the cycle) unless the user is typing a real query.
+        if (not self._hint_focused
+                and self._search_entry.get() in _ALL_HINTS):
+            self._hint_idx = 0
+            self._search_entry.delete(0, "end")
+            self._search_entry.insert(0, self._active_hints()[0])
+            self._search_entry.config(fg=_DIM)
+
+    def _active_hints(self) -> list[str]:
+        """The rotating hint set for the current search source."""
+        return _CONDA_HINTS if self._search_source == "conda" else _HINTS
 
     def _notify(self, msg: str) -> None:
         """One-line notice in the Output panel, if available."""
@@ -321,7 +352,7 @@ class PackageManagerPanel(tk.Frame):
         self._hint_idx = 0
         self._hint_focused = False
         self._hint_after_id = None
-        self._search_entry.insert(0, _HINTS[0])
+        self._search_entry.insert(0, self._active_hints()[0])
         self._search_entry.config(fg=_DIM)
         self._search_entry.bind("<FocusIn>",    lambda _: self._search_focus_in())
         self._search_entry.bind("<FocusOut>",   lambda _: self._search_focus_out())
@@ -415,25 +446,27 @@ class PackageManagerPanel(tk.Frame):
 
     def _search_focus_in(self) -> None:
         self._hint_focused = True
-        if self._search_entry.get() in _HINTS:
+        if self._search_entry.get() in _ALL_HINTS:
             self._search_entry.delete(0, "end")
             self._search_entry.config(fg=_FG)
 
     def _search_focus_out(self) -> None:
         self._hint_focused = False
         if not self._search_entry.get().strip():
+            hints = self._active_hints()
             self._search_entry.delete(0, "end")
-            self._search_entry.insert(0, _HINTS[self._hint_idx])
+            self._search_entry.insert(0, hints[self._hint_idx % len(hints)])
             self._search_entry.config(fg=_DIM)
 
     def _cycle_hint(self) -> None:
         """Advance the hint text every 3 s while unfocused and empty."""
         if not self._hint_focused:
             current = self._search_entry.get()
-            if current in _HINTS or not current.strip():
-                self._hint_idx = (self._hint_idx + 1) % len(_HINTS)
+            if current in _ALL_HINTS or not current.strip():
+                hints = self._active_hints()
+                self._hint_idx = (self._hint_idx + 1) % len(hints)
                 self._search_entry.delete(0, "end")
-                self._search_entry.insert(0, _HINTS[self._hint_idx])
+                self._search_entry.insert(0, hints[self._hint_idx])
                 self._search_entry.config(fg=_DIM)
         try:
             self.after(3000, self._cycle_hint)
@@ -526,7 +559,7 @@ class PackageManagerPanel(tk.Frame):
 
     def _filter_installed(self) -> None:
         raw = self._search_var.get().strip()
-        if not raw or raw in _HINTS:
+        if not raw or raw in _ALL_HINTS:
             self._populate_grouped()
             return
 
@@ -583,7 +616,7 @@ class PackageManagerPanel(tk.Frame):
 
     def _do_search(self) -> None:
         query = self._search_var.get().strip()
-        if not query or query in _HINTS:
+        if not query or query in _ALL_HINTS:
             return
         if self._search_source == "conda":
             self._do_conda_search(query)
