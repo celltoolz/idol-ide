@@ -25,7 +25,7 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 ## Canvas
 
 - **Dotted-grid design surface** — form rendered at real size with a simulated title bar and drop shadow
-- **Widgets render realistically** — relief styles (raised, sunken, groove, ridge, solid, flat), disabled state, password dots, progress bars, checked checkboxes, and more; changing the `relief` property in the Properties panel updates the canvas immediately
+- **Widgets render realistically** — relief styles (raised, sunken, groove, ridge, solid, flat) drawn at the actual border width, disabled state, password dots, progress bars, checked checkboxes, and more; changing the `relief` or border property in the Properties panel updates the canvas immediately
 - **Click to select** — blue dashed border + 8 white resize handles appear on the selected widget
 - **Click the title bar** — selects the form and reveals its resize handles (dashed border + 8 corner/edge handles)
 - **Drag to move** — repositions with 8px snap-to-grid; hold **Shift** while dragging for 1px precision
@@ -95,6 +95,22 @@ Undo/Redo is snapshot-based (max 50 states). Every mutation — move, resize, ad
 
 Right-side panel with a **control selector dropdown** at the top and Property/Value columns below. Click any value to edit inline; geometry updates live as you drag on the canvas.
 
+### Section Headers
+
+Widget properties are grouped under inline section headers so related settings sit
+together, mirroring the existing Variable and Layout headers:
+
+- **(top, ungrouped)** — `name`, geometry (`x`/`y`/`width`/`height`), `parent`, and
+  each widget's content props (text, values, image, …)
+- **Appearance** — visual styling collected in one place: `bg`, `fg`, `font`, the
+  border controls (`borderwidth`/`bd`/`highlightthickness`), `relief`, and
+  selection/cursor colours. Colour rows carry a live swatch. The header appears only
+  for widgets that actually have styling props — Combobox, Treeview, Progressbar, and
+  Separator have none, so no header is shown.
+- **State / Validation / Variable** — behavioural sections (below), shown only when
+  the widget supports them
+- **Layout** — the `anchor` resize-pinning picker
+
 ### Font Picker
 
 The `font` property row opens a font chooser dialog pre-populated with the widget's current family, size, and style. Supports bold, italic, underline, and overstrike. The chosen font is stored as a `"Family size style"` string (e.g. `"Arial 12 bold"`) and emitted in generated code as a font **tuple** — `('Segoe UI', 12, 'bold')` — so multi-word family names (Segoe UI, Times New Roman, …) are valid; a bare spaced-family string would otherwise be parsed by Tk as a list and crash with `expected integer`.
@@ -143,7 +159,7 @@ Label, Button, and Canvas widgets support an `image` property. Click the row to 
 The **Canvas** widget (the drawing surface — distinct from the design canvas) has a few extra properties:
 
 - **`sizing`** — `sizable` (default): the canvas fills its placed bounds and can be resized freely. `fit image`: the canvas locks to the natural pixel dimensions of its background image and resize handles are disabled. Setting a background image defaults `sizing` to `sizable`; choosing **fit image** snaps the widget to the image size.
-- **`highlightthickness`** and **`bd`** — integer border controls (the old True/False `border` prop was split into these two). Both default to `0` so a freshly dropped Canvas has no highlight ring or border.
+- **`highlightthickness`**, **`bd`**, and **`relief`** — border controls grouped under the **Appearance** header. `highlightthickness` (focus ring) and `bd` (border width) are integers defaulting to `0` (the old True/False `border` prop was split into these two); each shows a hover **×** to omit it entirely and fall back to tkinter's default. **`relief`** (flat / sunken / raised / groove / ridge / solid) stays greyed out until `bd` is greater than `0` — a relief has nothing to draw without a border — and the design canvas renders it at the correct thickness so it matches the running app.
 - **Canvas items** — shapes, text, lines, and images placed inside the canvas are managed in the [Canvas Item Designer](#canvas-item-designer) (double-click the canvas), not the Properties panel.
 
 ### Form Properties

@@ -2928,8 +2928,9 @@ class DesignerProperties(tk.Frame):
                     or key in _colorize_reserved:
                 continue
             seen.add(key)
-            # Canvas appearance props render grouped under the Appearance header below.
-            if d.type == "Canvas" and key in ("bg", "highlightthickness", "bd", "relief"):
+            # Appearance props (colours, font, border) render grouped under the
+            # Appearance header below — for every widget type.
+            if key in _APPEARANCE_KEYS:
                 continue
             if key in ("_ci_orig_w", "_ci_orig_h"):
                 continue
@@ -2960,14 +2961,23 @@ class DesignerProperties(tk.Frame):
                 continue  # #0 heading is irrelevant when the tree column is hidden
             val = d.props.get(key, defaults.get(key, ""))
             self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), _display(val))
-        # Color props — always show, apply swatches
-        for key in color_props:
-            val = d.props.get(key, "")
-            if key not in seen:
-                self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), val)
+        # ── Appearance section (colours, font, border) — grouped under a header ─
+        appearance_keys = [k for k in _APPEARANCE_ORDER
+                           if k in defaults or k in d.props or k in color_props]
+        if appearance_keys:
+            self._props_insert("appearance__section", "Appearance", "", kind="header")
+            for key in appearance_keys:
                 seen.add(key)
-            if val:
-                self._props_set_swatch(f"prop__{key}", val.upper())
+                # relief on a Canvas is only meaningful when border (bd) > 0.
+                if key == "relief" and d.type == "Canvas" and not self._canvas_bd_gt0(d):
+                    self._props_insert("prop__relief",
+                                       _PROP_LABELS.get("relief", "relief"),
+                                       "(set border > 0)", kind="readonly")
+                    continue
+                disp = _display(d.props.get(key, defaults.get(key, "")))
+                self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), disp)
+                if key in color_props and disp:
+                    self._props_set_swatch(f"prop__{key}", disp.upper())
         # State row + conditional color props
         if reg.get("state_prop"):
             current_state = d.props.get("state", "normal")
@@ -3017,27 +3027,6 @@ class DesignerProperties(tk.Frame):
             self._props_insert("var__type",    "  type",
                                vb.var_type if vb else var_types[0])
             self._props_insert("var__initial", "  initial", vb.initial if vb else "")
-        # Canvas Appearance section — grouped header; relief is gated on bd > 0.
-        if d.type == "Canvas":
-            self._props_insert("appearance__section", "Appearance", "", kind="header")
-            bg_val = d.props.get("bg", "")
-            self._props_insert("prop__bg", _PROP_LABELS.get("bg", "bg"), bg_val)
-            if bg_val:
-                self._props_set_swatch("prop__bg", bg_val.upper())
-            ht = d.props.get("highlightthickness", 0)
-            self._props_insert("prop__highlightthickness",
-                               _PROP_LABELS.get("highlightthickness", "highlightthickness"),
-                               "" if ht is None else str(ht))
-            bd = d.props.get("bd", 0)
-            self._props_insert("prop__bd", _PROP_LABELS.get("bd", "bd"),
-                               "" if bd is None else str(bd))
-            if self._canvas_bd_gt0(d):
-                self._props_insert("prop__relief", _PROP_LABELS.get("relief", "relief"),
-                                   _display(d.props.get("relief", "")))
-            else:
-                self._props_insert("prop__relief", _PROP_LABELS.get("relief", "relief"),
-                                   "(set border > 0)", kind="readonly")
-
         # Layout / anchor section
         self._props_insert("anchor__section", "Layout", "", kind="header")
         anchor_disp = _ANCHOR_DISPLAY.get(d.anchor, d.anchor or "(none)")
@@ -4904,6 +4893,16 @@ _PROP_LABELS: dict[str, str] = {
 
 # Props that store int-or-None; None means "omit from generated code entirely"
 _NULLABLE_INT_PROPS: frozenset[str] = frozenset({"highlightthickness", "bd"})
+
+# Visual-styling props grouped under the "Appearance" section header, in display
+# order. A widget shows the header only for the keys it actually has. Colours in
+# this list get a swatch when they're also in the widget's color_props.
+_APPEARANCE_ORDER: list[str] = [
+    "bg", "fg", "font",
+    "highlightthickness", "borderwidth", "bd", "relief",
+    "insertbackground", "selectbackground", "selectforeground",
+]
+_APPEARANCE_KEYS: frozenset[str] = frozenset(_APPEARANCE_ORDER)
 
 _VALIDATE_LABELS: dict[str, str] = {
     "validatecommand": "  --vcmd",
