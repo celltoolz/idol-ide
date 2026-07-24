@@ -2632,14 +2632,53 @@ def _text(c, x, y, x2, y2, txt, anchor="center", color="#111111", bold=False):
     c.create_text(cx, cy, text=txt, fill=color, font=font, anchor=anchor)
 
 
+def _bevel_sides(c, x, y, x2, y2, bd, tl_color, br_color):
+    """Fill a bd-thick 3D border just inside (x,y)-(x2,y2): top+left in tl_color,
+    bottom+right in br_color. Corners miter at 45° like tkinter's beveled borders."""
+    c.create_polygon(x, y, x2, y, x2 - bd, y + bd, x + bd, y + bd,
+                     fill=tl_color, outline=tl_color)          # top
+    c.create_polygon(x, y, x + bd, y + bd, x + bd, y2 - bd, x, y2,
+                     fill=tl_color, outline=tl_color)          # left
+    c.create_polygon(x, y2, x + bd, y2 - bd, x2 - bd, y2 - bd, x2, y2,
+                     fill=br_color, outline=br_color)          # bottom
+    c.create_polygon(x2, y, x2, y2, x2 - bd, y2 - bd, x2 - bd, y + bd,
+                     fill=br_color, outline=br_color)          # right
+
+
 def _relief_border(c, x, y, x2, y2, relief, bd=2):
-    """Draw a tkinter-style relief border. Does nothing for flat/empty."""
+    """Draw a tkinter-style relief border. Does nothing for flat/empty.
+
+    bd 1-2 use a hand-tuned line rendering that matches tkinter pixel-for-pixel.
+    bd >= 3 fills the full border thickness with mitred bevel polygons, so the
+    preview grows with the border width just like the running app.
+    """
     light, mid, dark = "#ffffff", "#c0c0c0", "#808080"
     if not relief or relief == "flat":
         return
     if relief == "solid":
-        c.create_rectangle(x, y, x2, y2, outline="#000000", fill="")
+        if bd >= 3:
+            _bevel_sides(c, x, y, x2, y2, bd, "#000000", "#000000")
+        else:
+            c.create_rectangle(x, y, x2, y2, outline="#000000", fill="")
         return
+
+    if bd >= 3:
+        # Full-thickness bevels — WYSIWYG for borders wider than the 1-2px path.
+        if relief == "raised":
+            _bevel_sides(c, x, y, x2, y2, bd, light, dark)
+        elif relief == "sunken":
+            _bevel_sides(c, x, y, x2, y2, bd, dark, light)
+        elif relief in ("groove", "ridge"):
+            h = max(1, bd // 2)
+            if relief == "ridge":
+                o_tl, o_br, i_tl, i_br = light, dark, dark, light
+            else:  # groove
+                o_tl, o_br, i_tl, i_br = dark, light, light, dark
+            _bevel_sides(c, x, y, x2, y2, h, o_tl, o_br)
+            _bevel_sides(c, x + h, y + h, x2 - h, y2 - h, bd - h, i_tl, i_br)
+        return
+
+    # bd 1-2: hand-tuned line rendering (unchanged — matches tkinter exactly).
     if relief == "raised":
         tl, br, tl2, br2 = light, dark,  light, mid
     elif relief == "sunken":
