@@ -2870,6 +2870,17 @@ class DesignerProperties(tk.Frame):
 
     # ── Populate helpers ──────────────────────────────────────────────────────
 
+    @staticmethod
+    def _canvas_bd_gt0(d: "WidgetDescriptor | None") -> bool:
+        """True when a Canvas widget's border (bd) is > 0, so relief is visible."""
+        if d is None:
+            return False
+        bd = d.props.get("bd", 0)
+        try:
+            return bd is not None and int(bd) > 0
+        except (ValueError, TypeError):
+            return False
+
     def _populate_props(self, d: WidgetDescriptor, reg: dict) -> None:
         self._props_clear()
         # Name
@@ -2917,6 +2928,9 @@ class DesignerProperties(tk.Frame):
                     or key in _colorize_reserved:
                 continue
             seen.add(key)
+            # Canvas appearance props render grouped under the Appearance header below.
+            if d.type == "Canvas" and key in ("bg", "highlightthickness", "bd", "relief"):
+                continue
             if key in ("_ci_orig_w", "_ci_orig_h"):
                 continue
             # Internal CI binding maps — the Canvas Item Connector owns these; never
@@ -3003,6 +3017,27 @@ class DesignerProperties(tk.Frame):
             self._props_insert("var__type",    "  type",
                                vb.var_type if vb else var_types[0])
             self._props_insert("var__initial", "  initial", vb.initial if vb else "")
+        # Canvas Appearance section — grouped header; relief is gated on bd > 0.
+        if d.type == "Canvas":
+            self._props_insert("appearance__section", "Appearance", "", kind="header")
+            bg_val = d.props.get("bg", "")
+            self._props_insert("prop__bg", _PROP_LABELS.get("bg", "bg"), bg_val)
+            if bg_val:
+                self._props_set_swatch("prop__bg", bg_val.upper())
+            ht = d.props.get("highlightthickness", 0)
+            self._props_insert("prop__highlightthickness",
+                               _PROP_LABELS.get("highlightthickness", "highlightthickness"),
+                               "" if ht is None else str(ht))
+            bd = d.props.get("bd", 0)
+            self._props_insert("prop__bd", _PROP_LABELS.get("bd", "bd"),
+                               "" if bd is None else str(bd))
+            if self._canvas_bd_gt0(d):
+                self._props_insert("prop__relief", _PROP_LABELS.get("relief", "relief"),
+                                   _display(d.props.get("relief", "")))
+            else:
+                self._props_insert("prop__relief", _PROP_LABELS.get("relief", "relief"),
+                                   "(set border > 0)", kind="readonly")
+
         # Layout / anchor section
         self._props_insert("anchor__section", "Layout", "", kind="header")
         anchor_disp = _ANCHOR_DISPLAY.get(d.anchor, d.anchor or "(none)")
@@ -3191,6 +3226,11 @@ class DesignerProperties(tk.Frame):
             elif iid.startswith("comp__dtitle__") and iid != "comp__dtitle__header":
                 prop_key = iid[14:]   # strip "comp__dtitle__"
                 self._show_hint(self._dtitle_conn_hint(prop_key))
+            elif iid == "prop__relief" and self._current_widget \
+                    and self._current_widget.type == "Canvas" \
+                    and not self._canvas_bd_gt0(self._current_widget):
+                self._show_hint("Relief needs a border. Set the border (bd) above 0 "
+                                "to enable raised / sunken / groove / ridge / solid.")
             else:
                 key = iid.split("__", 1)[-1] if "__" in iid else iid
                 hint = _PROP_HINTS.get(iid) or _PROP_HINTS.get(key)
@@ -3367,7 +3407,12 @@ class DesignerProperties(tk.Frame):
             if self._on_install_pillow:
                 self._on_install_pillow()
             return
-        if row in ("var__section", "geo__parent", "anchor__section"):
+        if row in ("var__section", "geo__parent", "anchor__section", "appearance__section"):
+            return
+        # Canvas relief is greyed/non-editable until border (bd) > 0.
+        if row == "prop__relief" and self._current_widget \
+                and self._current_widget.type == "Canvas" \
+                and not self._canvas_bd_gt0(self._current_widget):
             return
         if row == "nb__tab":
             self._open_nb_tab_picker(row)
@@ -4159,7 +4204,7 @@ class DesignerProperties(tk.Frame):
         "wraplength", "resolution", "tickinterval", "increment", "maximum",
         "char_width", "char_height", "onvalue", "offvalue", "labelanchor",
         "selectmode", "wrap", "exportselection", "from_", "to",
-        "image", "compound",
+        "image", "compound", "highlightthickness", "bd",
     }
 
     def _is_prop_clearable(self, row_iid: str) -> bool:
@@ -4600,6 +4645,8 @@ class DesignerProperties(tk.Frame):
                         self._props_set(row_iid, "")
                         if self._on_prop_change:
                             self._on_prop_change(d.id, key, None)
+                        if d.type == "Canvas" and key == "bd":
+                            self.load_widget(d)   # relief gating follows bd
                     else:
                         # Blank entry — revert display to current value, no commit
                         old = d.props.get(key, 0)
@@ -4615,6 +4662,8 @@ class DesignerProperties(tk.Frame):
                 d.props[key] = val
                 if self._on_prop_change:
                     self._on_prop_change(d.id, key, val)
+                if d.type == "Canvas" and key == "bd":
+                    self.load_widget(d)   # relief gating follows bd
                 return
             parsed = _parse_value(raw, d.props.get(key))
             d.props[key] = parsed

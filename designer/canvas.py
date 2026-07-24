@@ -3161,6 +3161,15 @@ def _draw_canvas_widget(c, x, y, x2, y2, text, props):
             show_border = True
     outline = "#808080" if show_border else ""
     c.create_rectangle(x, y, x2, y2, fill=bg, outline=outline)
+    # Relief is only visible with a border (bd) > 0 — WYSIWYG mirrors tkinter.
+    try:
+        _bd = props.get("bd", 0)
+        bd_i = 0 if _bd is None else int(_bd)
+    except (ValueError, TypeError):
+        bd_i = 0
+    relief = props.get("relief", "") or "flat"
+    if bd_i > 0 and relief != "flat":
+        _relief_border(c, x, y, x2, y2, relief, bd_i)
     img_path = props.get("image", "")
     if img_path:
         photo = _load_preview_image(c, img_path, x2 - x, y2 - y)

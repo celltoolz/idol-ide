@@ -482,11 +482,11 @@ REGISTRY: dict[str, dict] = {
         "label":        "Canvas",
         "tk_class":     "tk.Canvas",
         "default_size": (200, 150),
-        "default_props": {"bg": "", "image": "", "sizing": "sizable", "highlightthickness": 0, "bd": 0, "_canvas_tags": []},
+        "default_props": {"bg": "", "image": "", "sizing": "sizable", "highlightthickness": 0, "bd": 0, "relief": "", "_canvas_tags": []},
         "events":       _SIMPLE_EVENTS + _KEY_EVENTS,
         "draw_preview": _draw_canvas_palette,
         "color_props":  ["bg"],
-        "prop_choices": {"sizing": ["sizable", "fit image"], "border": ["True", "False"]},
+        "prop_choices": {"sizing": ["sizable", "fit image"], "relief": _RELIEF},
     },
     "CanvasRect": {
         "label": "Rectangle", "is_canvas_item": True,
