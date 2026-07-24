@@ -566,7 +566,7 @@ Image components now have a **`parent`** property (shown as a `canvas_ref` kind 
 | `Global` | Shared by all canvases on the form — appears in every canvas's IMAGES palette |
 | `<canvas_id>` | Associated with a specific canvas — appears only in that canvas's IMAGES palette |
 
-When a `CanvasImage` item is placed in CI mode, an Image component named `{canvas_id}_ci` is **auto-created** (or updated) on the original form with `parent = canvas_id`. Its `paths` list stays in sync with placed CanvasImage items — **but only for paths not already provided by another Image component** targeting the same canvas (or `Global`). Since codegen resolves a CI image item to the first Image component that has its path, an overlapping `_ci` component would be dead code; so when every CI image path is already covered, the `_ci` component is omitted (and removed if it existed) instead of lingering and reappearing on load.
+When a `CanvasImage` item is placed in CI mode, an Image component named `{canvas_id}_ci` is **auto-created** (or updated) on the original form with `parent = canvas_id`. Its `paths` list stays in sync with placed CanvasImage items — **but only for paths not already provided by another Image component** targeting the same canvas (or `Global`). Since another Image component already lists that path in the canvas's IMAGES palette, an overlapping `_ci` component would duplicate it; so when every CI image path is already covered, the `_ci` component is omitted (and removed if it existed) instead of lingering and reappearing on load.
 
 ### Code Generation
 
@@ -595,10 +595,29 @@ def _button_click(self, event):
 Methods are generated in the `# ── Events ──` section and bodies survive regeneration just like widget
 event stubs — a saved/user-edited body always takes precedence over the injected default.
 
+**Image items** — each `CanvasImage` item generates **its own** `PhotoImage`, resized with
+`Image.resize(...)` to the item's own display size — the `width`/`height` you set in the CI inspector,
+matching the design canvas WYSIWYG:
+
+```python
+self._canvas1_ci_img1_img = ImageTk.PhotoImage(
+    Image.open(os.path.join(os.path.dirname(__file__), "images/btnRed.png"))
+    .resize((10, 10), Image.LANCZOS)
+)
+self.canvas1.create_image(32, 32, image=self._canvas1_ci_img1_img, anchor="nw", tags='canvasimage1')
+```
+
+The image is *per item*, not the shared `Image` component's `PhotoImage` (two items can reuse one path
+at different sizes, so a shared image can't satisfy both), and the attribute is namespaced by canvas id
+(`_{canvas}_{item}_img`) because item ids are only unique per canvas — a shared name would let one
+`PhotoImage` clobber another and get garbage-collected (Tk holds no strong reference). The auto
+`{canvas}_ci` Image component's own natural-size `PhotoImage` is still emitted so it stays a valid named
+reference in your code, but the items no longer point at it.
+
 **Resize scaling** — canvas items track the canvas through both kinds of resize, whether or not the canvas has a background image:
 
-- *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size, so the running app looks like the designer.
-- *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes, lines, and item images scale with the canvas; **text font size and line thickness scale too**, by a uniform factor (the geometric mean of the horizontal and vertical scale, `(_sx * _sy) ** 0.5`) so they grow proportionally on both single- and dual-axis stretches.
+- *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size (and resizes each image item's `PhotoImage` to match), so the running app looks like the designer.
+- *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes and lines scale with the canvas; **each image item's `PhotoImage` is re-rendered from disk at its own base size × the live stretch factor** (so the inspector size is honoured, not the natural file size); **text font size and line thickness scale too**, by a uniform factor (the geometric mean of the horizontal and vertical scale, `(_sx * _sy) ** 0.5`) so they grow proportionally on both single- and dual-axis stretches.
 
 ### Double-Click Navigation from CI Items
 
