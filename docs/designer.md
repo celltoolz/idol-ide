@@ -459,6 +459,8 @@ The **Canvas Item Designer** (CI mode) lets you place and edit canvas items dire
 - **Escape** — first press de-arms the active placement tool; second press exits CI mode
 - **Right-click on canvas → Exit Canvas Edit Mode**
 
+De-arming a tool always returns to the pointer, including the separate **armed-image highlight** in the IMAGES panel — an armed `CanvasImage` row un-highlights on Escape (or any tool cancel), not just the widget-type row. Exiting CI mode also cancels any armed tool first, so the crosshair cursor and armed highlight never bleed into normal designer mode regardless of how you leave (Escape, the right-click menu, or programmatically).
+
 On exit, the sub-form descriptors are converted back into `CanvasItemDescriptor` objects on the original canvas widget and the full form re-renders.
 
 ### Ghost Overlay

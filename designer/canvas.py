@@ -310,6 +310,10 @@ class DesignerCanvas(tk.Canvas):
         """Exit CI editing: convert sub-form widgets back and restore original form."""
         if not self._ci_sub_form or self._ci_original_form is None:
             return
+        # De-arm any placement tool (incl. an armed CanvasImage) so the crosshair /
+        # armed highlight never bleeds into normal designer mode. Runs while still in
+        # CI mode, so the palette's reset can clear its IMAGES-panel highlight.
+        self.cancel_tool()
         from .model import widget_to_ci
         orig = self._ci_original_form
         w = orig.get_widget(self._ci_widget_id)

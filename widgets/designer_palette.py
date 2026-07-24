@@ -219,6 +219,12 @@ class DesignerPalette(tk.Frame):
 
     def reset_to_pointer(self) -> None:
         self._apply_selection(None)
+        # Also drop the armed CanvasImage highlight in the IMAGES panel — it is a
+        # separate highlight from the widget-row selection, so _apply_selection(None)
+        # alone leaves the image row looking armed after the tool is cancelled.
+        if self._ci_img_armed_path is not None:
+            self._ci_img_armed_path = None
+            self._rebuild_ci_images()
 
     def enter_ci_mode(
         self,

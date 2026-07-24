@@ -17,6 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and the tab padding is trimmed to `(4, 2)` for a tighter strip.
 
 ### Fixed
+- **An armed CanvasImage now de-arms back to the pointer.** In the Canvas Item Designer,
+  arming an image sets two highlights — the `CanvasImage` type row *and* the image's row in
+  the IMAGES panel — but cancelling the tool only cleared the former, so the image row stayed
+  highlighted and looked armed after Escape. `DesignerPalette.reset_to_pointer()` now also
+  clears the IMAGES-panel armed highlight (`_ci_img_armed_path`) and rebuilds the list. In
+  addition, `DesignCanvas.exit_canvas_item_mode()` now cancels any armed tool before leaving CI
+  mode, so the crosshair cursor and armed highlight can no longer bleed into normal designer
+  mode when you exit via the right-click menu or programmatically (not just via Escape).
 - **Resized canvas-item images now render at their set size in the generated app.** When you
   resized a `CanvasImage` in the Canvas Item inspector, the design canvas showed it correctly
   but codegen pointed `create_image()` at the shared `Image` component's natural-size
