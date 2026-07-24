@@ -146,6 +146,8 @@ Codegen emits a `_apply_anchor_layout()` method that is called in `__init__` aft
 
 When multiple widgets are selected, the Properties panel shows the **intersection** of all their shared property names. Values that differ across the selection are shown blank; typing a new value applies it to all selected widgets at once. Color pickers, enum dropdowns, and text fields all work in multi-select. The font picker and list editor are single-select only.
 
+Shared appearance props (colours, font, border, relief) group under the same **Appearance** header used in single-select, and colour rows show their swatch.
+
 ### Image Properties
 
 Label, Button, and Canvas widgets support an `image` property. Click the row to open a file picker — the selected file is automatically copied into `<project>/images/` so the generated app is self-contained. A live thumbnail scaled to the widget bounds appears on the canvas immediately.
