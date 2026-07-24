@@ -1128,27 +1128,37 @@ class DesignerProperties(tk.Frame):
             if k not in ordered_keys:
                 ordered_keys.append(k)
 
-        seen: set[str] = set()
-        for key in ordered_keys:
-            if key in seen:
-                continue
-            seen.add(key)
-            vals = [str(d.props.get(key, regs[i].get("default_props", {}).get(key, "")))
-                    for i, d in enumerate(descriptors)]
-            display_val = _display(vals[0]) if len(set(vals)) == 1 else ""
-            self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), display_val)
-
         all_color_sets = [set(r.get("color_props", [])) for r in regs]
         shared_colors  = set.intersection(*all_color_sets) if all_color_sets else set()
-        for key in shared_colors:
-            if key in seen:
+
+        def _shared_display(key: str) -> str:
+            """Blank when the value differs across the selection, else the shared value."""
+            raws = [d.props.get(key, regs[i].get("default_props", {}).get(key, ""))
+                    for i, d in enumerate(descriptors)]
+            return _display(raws[0]) if len({str(v) for v in raws}) == 1 else ""
+
+        seen: set[str] = set()
+        # Content props (non-appearance) render ungrouped first.
+        for key in ordered_keys:
+            if key in seen or key in _APPEARANCE_KEYS:
                 continue
             seen.add(key)
-            vals        = [d.props.get(key, "") for d in descriptors]
-            display_val = vals[0] if len(set(vals)) == 1 else ""
-            self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), display_val)
-            if display_val:
-                self._props_set_swatch(f"prop__{key}", display_val.upper())
+            self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key),
+                               _shared_display(key))
+
+        # ── Appearance section (shared colours, font, border) ─────────────────
+        appearance_keys = [k for k in _APPEARANCE_ORDER
+                           if k in shared_keys or k in shared_colors]
+        if appearance_keys:
+            self._props_insert("appearance__section", "Appearance", "", kind="header")
+            for key in appearance_keys:
+                if key in seen:
+                    continue
+                seen.add(key)
+                display_val = _shared_display(key)
+                self._props_insert(f"prop__{key}", _PROP_LABELS.get(key, key), display_val)
+                if key in shared_colors and display_val:
+                    self._props_set_swatch(f"prop__{key}", display_val.upper())
 
         # Layout / anchor section
         self._props_insert("anchor__section", "Layout", "", kind="header")
