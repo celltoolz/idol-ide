@@ -25,18 +25,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   addition, `DesignCanvas.exit_canvas_item_mode()` now cancels any armed tool before leaving CI
   mode, so the crosshair cursor and armed highlight can no longer bleed into normal designer
   mode when you exit via the right-click menu or programmatically (not just via Escape).
-- **Resized canvas-item images now render at their set size in the generated app.** When you
-  resized a `CanvasImage` in the Canvas Item inspector, the design canvas showed it correctly
-  but codegen pointed `create_image()` at the shared `Image` component's natural-size
-  `PhotoImage` — so the running app ignored the size. Each image item now generates its own
-  `ImageTk.PhotoImage(Image.open(...).resize((w, h), LANCZOS))` sized to the item's display box
-  (pre-scaled for any designer canvas resize), matching the WYSIWYG preview. The per-item
-  attribute is namespaced by canvas id (`_{canvas}_{item}_img`) so two canvases sharing an item
-  id can't clobber each other's image (Tk keeps no strong reference, so a clobbered image would
-  be garbage-collected). On a size-changing anchor, the `<Configure>` handler re-renders each
-  item's image at `base size × live stretch factor` instead of the old natural×scale of the
-  shared image. The auto `{canvas}_ci` Image component's own `PhotoImage` is still emitted so it
-  stays a valid named reference in your code.
 - **Designer property-panel tab style now lands in the theme that is rendered.** The
   panel is built before the main notebook, so its `Props.TNotebook.Tab` config ran while
   the native startup ttk theme was still active; when the notebook later switched the app
