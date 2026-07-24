@@ -2625,8 +2625,40 @@ def _tag(fn):
     return wrapper
 
 
-def _text(c, x, y, x2, y2, txt, anchor="center", color="#111111", bold=False):
-    font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
+def _widget_font(props):
+    """Resolve a widget's stored ``font`` prop into a canvas font tuple so the
+    design surface renders text WYSIWYG. Returns ``None`` when no font is set,
+    letting callers fall back to the design-canvas default.
+
+    Accepts the two shapes a form can hold:
+      • tuple  — ``("Family", size)`` or ``("Family", size, "bold italic")``
+        (what the font picker writes)
+      • string — legacy ``"Family size style…"`` specs from older forms
+    """
+    spec = props.get("font", "")
+    if not spec:
+        return None
+    if isinstance(spec, (tuple, list)):
+        parts = [p for p in spec if p not in ("", None)]
+    else:
+        toks = str(spec).split()
+        size_idx = next((i for i, t in enumerate(toks)
+                         if t.lstrip("-").isdigit()), None)
+        if size_idx is None:
+            parts = [" ".join(toks)] if toks else []
+        else:
+            family = " ".join(toks[:size_idx])
+            styles = [s for s in toks[size_idx + 1:]
+                      if s in ("bold", "italic", "underline",
+                               "overstrike", "roman", "normal")]
+            parts = ([family] if family else []) + [int(toks[size_idx])] + styles
+    return tuple(parts) if parts else None
+
+
+def _text(c, x, y, x2, y2, txt, anchor="center", color="#111111", bold=False,
+          font=None):
+    if font is None:
+        font = (UI_FONT, 9, "bold") if bold else (UI_FONT, 9)
     cx = (x + x2) // 2 if anchor == "center" else x + 6
     cy = (y + y2) // 2
     c.create_text(cx, cy, text=txt, fill=color, font=font, anchor=anchor)
@@ -2763,6 +2795,7 @@ def _draw_button(c, x, y, x2, y2, text, props):
     if disabled:
         fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
     relief = props.get("relief", "") or "raised"
+    fnt = _widget_font(props)
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     img_path = props.get("image", "")
@@ -2773,9 +2806,9 @@ def _draw_button(c, x, y, x2, y2, text, props):
         else:
             c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
                           fill="#ce9178", font=("TkDefaultFont", 6))
-            _text(c, x, y, x2, y2, text or "Button", color=fg)
+            _text(c, x, y, x2, y2, text or "Button", color=fg, font=fnt)
     else:
-        _text(c, x, y, x2, y2, text or "Button", color=fg)
+        _text(c, x, y, x2, y2, text or "Button", color=fg, font=fnt)
 
 
 @_tag
@@ -2785,6 +2818,7 @@ def _draw_label(c, x, y, x2, y2, text, props):
     if props.get("state", "normal") == "disabled":
         fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
     relief = props.get("relief", "") or "flat"
+    fnt = _widget_font(props)
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     img_path = props.get("image", "")
@@ -2795,9 +2829,9 @@ def _draw_label(c, x, y, x2, y2, text, props):
         else:
             c.create_text(x2 - 4, y + 4, text="[img]", anchor="ne",
                           fill="#ce9178", font=("TkDefaultFont", 6))
-            _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
+            _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg, font=fnt)
     else:
-        _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg)
+        _text(c, x, y, x2, y2, text or "Label", anchor="w", color=fg, font=fnt)
 
 
 @_tag
@@ -2809,14 +2843,15 @@ def _draw_entry(c, x, y, x2, y2, text, props):
         bg = props.get("disabledbackground", bg) or bg
         fg = props.get("disabledforeground", "#aaaaaa") or "#aaaaaa"
     relief = props.get("relief", "") or "sunken"
+    fnt = _widget_font(props)
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     show = props.get("show", "")
     placeholder = props.get("placeholder", "")
     if show:
-        _text(c, x, y, x2, y2, "•" * 6, anchor="w", color=fg)
+        _text(c, x, y, x2, y2, "•" * 6, anchor="w", color=fg, font=fnt)
     elif placeholder:
-        _text(c, x, y, x2, y2, placeholder, anchor="w", color="#aaaaaa")
+        _text(c, x, y, x2, y2, placeholder, anchor="w", color="#aaaaaa", font=fnt)
     if state != "disabled":
         c.create_line(x+6, y+4, x+6, y2-4, fill=fg, width=1)
 
@@ -2829,7 +2864,7 @@ def _draw_text(c, x, y, x2, y2, text, props):
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     fg = "#cccccc" if state == "disabled" else "#aaaaaa"
-    _text(c, x, y, x2, y2, "Text", anchor="w", color=fg)
+    _text(c, x, y, x2, y2, "Text", anchor="w", color=fg, font=_widget_font(props))
 
 
 @_tag
@@ -2845,7 +2880,8 @@ def _draw_checkbutton(c, x, y, x2, y2, text, props):
     check_color = "#abadb3" if disabled else "#0078d4"
     c.create_line(bx+2, by+6, bx+5, by+10, fill=check_color, width=2)
     c.create_line(bx+5, by+10, bx+11, by+2, fill=check_color, width=2)
-    _text(c, bx + 18, y, x2, y2, text or "Check", anchor="w", color=fg)
+    _text(c, bx + 18, y, x2, y2, text or "Check", anchor="w", color=fg,
+          font=_widget_font(props))
 
 
 @_tag
@@ -2860,7 +2896,8 @@ def _draw_radiobutton(c, x, y, x2, y2, text, props):
     c.create_oval(cx2-6, cy2-6, cx2+6, cy2+6, fill="#ffffff", outline="#abadb3")
     dot_color = "#abadb3" if disabled else "#0078d4"
     c.create_oval(cx2-3, cy2-3, cx2+3, cy2+3, fill=dot_color, outline="")
-    _text(c, cx2 + 12, y, x2, y2, text or "Radio", anchor="w", color=fg)
+    _text(c, cx2 + 12, y, x2, y2, text or "Radio", anchor="w", color=fg,
+          font=_widget_font(props))
 
 
 @_tag
@@ -2890,6 +2927,7 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
     sfg    = props.get("selectforeground", "#ffffff")  or "#ffffff"
     alt_bg = props.get("colorize_altbg", "") if props.get("colorize") else ""
     relief = props.get("relief", "") or "sunken"
+    fnt = _widget_font(props) or (UI_FONT, 8)
     c.create_rectangle(x, y, x2, y2, fill=bg, outline="")
     _relief_border(c, x, y, x2, y2, relief, _get_bd(props))
     row_h = 18
@@ -2902,13 +2940,13 @@ def _draw_listbox(c, x, y, x2, y2, text, props):
         if i == 0:
             c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill=sbg, outline="")
             c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
-                          fill=sfg, font=(UI_FONT, 8))
+                          fill=sfg, font=fnt)
         else:
             row_bg = (alt_bg if (i % 2 == 0 and alt_bg) else bg)
             if row_bg != bg:
                 c.create_rectangle(x+1, ry+1, x2-1, ry+row_h, fill=row_bg, outline="")
             c.create_text(x+5, ry+row_h//2, text=label, anchor="w",
-                          fill=fg, font=(UI_FONT, 8))
+                          fill=fg, font=fnt)
 
 
 @_tag
@@ -3077,6 +3115,7 @@ def _draw_labelframe(c, x, y, x2, y2, text, props):
     label = text or "Group"
     relief = props.get("relief", "") or "groove"
     bd = _get_bd(props)
+    fnt = _widget_font(props) or (UI_FONT, 8)
     anchor = props.get("labelanchor", "nw") or "nw"
     lw = len(label) * 6 + 8
     lh = 16
@@ -3103,11 +3142,11 @@ def _draw_labelframe(c, x, y, x2, y2, text, props):
     # Erase the border at the label position to create the notch
     c.create_rectangle(notch[0], notch[1], notch[2], notch[3], fill=bg, outline="")
     if edge == "s":
-        c.create_text(notch[0]+4, y2-8, text=label, anchor="w", fill=fg, font=(UI_FONT, 8))
+        c.create_text(notch[0]+4, y2-8, text=label, anchor="w", fill=fg, font=fnt)
     elif edge in ("w", "e"):
-        c.create_text(notch[0]+4, notch[1]+8, text=label, anchor="w", fill=fg, font=(UI_FONT, 8))
+        c.create_text(notch[0]+4, notch[1]+8, text=label, anchor="w", fill=fg, font=fnt)
     else:
-        c.create_text(notch[0]+4, by, text=label, anchor="w", fill=fg, font=(UI_FONT, 8))
+        c.create_text(notch[0]+4, by, text=label, anchor="w", fill=fg, font=fnt)
 
 
 @_tag
@@ -3148,7 +3187,7 @@ def _draw_spinbox(c, x, y, x2, y2, text, props):
     c.create_text(x2-8, mid+4, text="▼", fill=btn_fg, font=(UI_FONT, 6))
     values = props.get("values", [])
     val = str(values[0]) if values else str(props.get("from_", "0"))
-    _text(c, x, y, x2-16, y2, val, anchor="w", color=fg)
+    _text(c, x, y, x2-16, y2, val, anchor="w", color=fg, font=_widget_font(props))
 
 
 @_tag
