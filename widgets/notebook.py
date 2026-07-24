@@ -25,9 +25,7 @@ class CustomNotebook(ttk.Notebook):
         split_label: str = "Open in Split Editor",
         **kwargs
     ):
-        if not self.__class__.__initialized:
-            self._initialize_style()
-            self.__class__.__initialized = True
+        self.ensure_style()
 
         kwargs["style"] = "CustomNotebook"
         super().__init__(*args, **kwargs)
@@ -467,6 +465,19 @@ class CustomNotebook(ttk.Notebook):
             self.select(tabs[idx - 1])
 
     # ── Style initialization ──────────────────────────────────────────────────
+
+    @classmethod
+    def ensure_style(cls):
+        """Install the app's custom ttk theme once, idempotently.
+
+        Safe to call before any CustomNotebook exists — panels that derive
+        styles from this theme (e.g. the designer's Props.TNotebook) call this
+        first so their style config lands in the active `selectedtab` theme
+        rather than the startup native theme, which would drop it on switch.
+        """
+        if not cls.__initialized:
+            cls._initialize_style()
+            cls.__initialized = True
 
     @classmethod
     def _initialize_style(cls):

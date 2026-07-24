@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 from designer.model import FormModel, VariableBinding, WidgetDescriptor
 from designer.registry import REGISTRY
 from widgets.guide_window import GuideWindow, GuidePage
+from widgets.notebook import CustomNotebook
 from widgets.scrollbar import VerticalScrollbar
 from utils.ui_font import UI_FONT
 
@@ -182,13 +183,29 @@ class DesignerProperties(tk.Frame):
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
         # Notebook: Properties | Events
+        # The app's custom ttk theme must be active before we configure derived
+        # styles — this panel is built before the main CustomNotebook exists, so
+        # ensure the theme now or our tab styling would land in the startup
+        # native theme and be dropped when `selectedtab` takes over.
+        CustomNotebook.ensure_style()
         nb_style = ttk.Style()
-        nb_style.configure("Props.TNotebook",        background="#252526", borderwidth=0)
-        nb_style.configure("Props.TNotebook.Tab",    background="#1e1e1e", foreground="#858585",
-                           padding=(8, 3))
+        nb_style.configure("Props.TNotebook",        borderwidth=0)
+        # No bg overrides on the notebook or its tabs — inherit the app theme's
+        # default grey tab strip and grey tabs with black text; only bold the
+        # selected tab so it is easy to see which view is active.
+        nb_style.configure("Props.TNotebook.Tab",    padding=(4, 2), font=(UI_FONT, 9))
         nb_style.map("Props.TNotebook.Tab",
-                     background=[("selected", "#252526")],
-                     foreground=[("selected", "#cccccc")])
+                     font=[("selected", (UI_FONT, 9, "bold"))])
+        # Drop the dotted focus ring ttk draws on the selected tab: rebuild the
+        # tab layout without the Notebook.focus element (default layout nests
+        # Notebook.label inside Notebook.focus).
+        nb_style.layout("Props.TNotebook.Tab", [
+            ("Notebook.tab", {"sticky": "nswe", "children": [
+                ("Notebook.padding", {"side": "top", "sticky": "nswe", "children": [
+                    ("Notebook.label", {"side": "top", "sticky": ""}),
+                ]}),
+            ]}),
+        ])
 
         # Status bar — fixed height so text changes never cause panel redraws
         _hint_frame = tk.Frame(self, bg="#252526", height=48)

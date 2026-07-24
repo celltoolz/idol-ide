@@ -5,6 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-24] — Designer property-panel polish
+
+### Added
+- **The selected Properties-panel tab renders in bold.** The Properties / Events /
+  Handlers / Order tabs now show the active tab's label in bold, so it is obvious at a
+  glance which view you are editing. The tabs keep their existing grey / black-text look;
+  only the active tab's label goes bold, via a `font` state-map on the
+  `Props.TNotebook.Tab` style (`selected` → bold). The tab layout is also rebuilt without
+  the `Notebook.focus` element, so the selected tab no longer draws a dotted focus ring,
+  and the tab padding is trimmed to `(4, 2)` for a tighter strip.
+
+### Fixed
+- **Designer property-panel tab style now lands in the theme that is rendered.** The
+  panel is built before the main notebook, so its `Props.TNotebook.Tab` config ran while
+  the native startup ttk theme was still active; when the notebook later switched the app
+  to its `selectedtab` theme, that config was silently dropped — which is why the new bold
+  state-map had no effect. `CustomNotebook.ensure_style()` is a new idempotent classmethod
+  that installs the app theme once; the designer panel calls it before styling its tabs so
+  the config takes.
+
+---
+
 ## [2026-07-23] — Conda search fixes, source-aware hints, conda guides, terminal cursor fixes
 
 ### Fixed
