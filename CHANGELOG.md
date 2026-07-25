@@ -70,6 +70,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     round-trip — for every visible row of every frame; it is now one call per render.
 
 ### Changed
+- **Closing a project now saves it, and the "unsaved changes" prompt is gone.** Every path that
+  tears a project down — Close Project, Open Project, New Project, New Workspace, and quitting —
+  wrote only `~/.idol/session.json`, never the project's own `.idol-project`. Reopening the
+  project therefore restored whatever state it had at the last *explicit* **Save Project**, so
+  anything opened since — a split pane, a newly opened tab — was simply missing. They now all
+  go through `_autosave_workspace()`, which writes the project file when the root has one and
+  refreshes the auto-session either way.
+  - **No prompt.** The dialog asked "you have unsaved changes, save before closing?" but
+    answering Yes ran `workspace_save()`, which writes the *project file* — it never wrote your
+    edited source file to disk. So the question promised something it did not do, and the
+    honest answer to it was always "it doesn't matter": dirty buffer content is written to
+    `~/.idol/tmp` scratch files referenced from the project file, so a dirty tab reopens dirty
+    with its edits intact and the file on disk untouched. `file_exit` has worked this way for a
+    while — *"No prompts on exit — dirty tabs are auto-saved to temp files so nothing is
+    lost"* — the project paths were simply inconsistent with it. Prompts still appear where a
+    real decision exists: closing an individual tab, and moving a file with unsaved changes in
+    the Explorer.
+  - IDOL only ever *updates* an existing `.idol-project`. Closing a plain folder you opened
+    will not leave a project file behind.
+  - `_has_dirty_tabs()` lost its last caller and is removed; `_all_tab_ids()` stays.
 - **Split editor tabs are project-scoped.** Closing a project now closes the split pane and its
   tabs. `_teardown_project` only ever iterated the main notebook, so the previous project's
   split files stayed open on top of the new one — open project A with a split, then open

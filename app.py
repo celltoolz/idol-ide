@@ -3333,8 +3333,7 @@ class IDOL(Tk):
 
         # Only consider tabs that have a real codeview — excludes Welcome,
         # Package Manager, Learning Mode, and any other special tabs. Both
-        # panes: the split is torn down with the project, so work living only
-        # in the split still has to raise the save prompt.
+        # panes, since the split is torn down with the project.
         editor_tabs = [t for t in self._all_tab_ids() if self._codeviews.get(t) is not None]
         has_editor_content = any(
             self._titles.get(t) != "Untitled"
@@ -3343,23 +3342,15 @@ class IDOL(Tk):
             for t in editor_tabs
         )
         # Designer counts if a form is loaded AND has unsaved changes.
-        # An empty canvas or a freshly-saved form doesn't trigger the prompt.
+        # An empty canvas or a freshly-saved form doesn't count.
         has_designer_content = (
             getattr(self._design_canvas, "form", None) is not None
             and (self._designer_dirty or self._designer_forms_dirty)
         )
-        has_project = has_editor_content or has_designer_content
-        if has_project:
-            answer = askyesnocancel(
-                "New Project",
-                "Would you like to save your current project before creating a new one?",
-            )
-            if answer is None:
-                return  # Cancel — keep current project open
-            if answer:
-                self.workspace_save()
-            else:
-                session_utils.save(self)
+        if has_editor_content or has_designer_content:
+            # No prompt — see `_autosave_workspace`. A blank workspace has
+            # nothing worth writing, hence the guard.
+            self._autosave_workspace()
             self._teardown_project()
 
         ProjectWizard(self, on_complete=self._on_project_created)
@@ -3815,7 +3806,9 @@ class IDOL(Tk):
             if result:  # Yes
                 self._designer_autosave()
         self._exiting = True
-        session_utils.save(self)
+        # Project file as well as the auto-session: quitting with a project
+        # open and reopening it later is the same round trip as closing it.
+        self._autosave_workspace()
         if self._ai_chat_panel:
             self._ai_chat_panel.auto_save_history()
         self.quit()
@@ -3833,27 +3826,47 @@ class IDOL(Tk):
             tabs += list(self._notebook_r.tabs())
         return tabs
 
-    def _has_dirty_tabs(self) -> bool:
-        """Return True if any open tab has unsaved changes.
+    def _project_file_path(self, root: str | Path | None = None) -> str | None:
+        """The `.idol-project` file for *root* (default: the explorer root).
 
-        Both panes: this gates the "save before closing?" prompt in front of
-        `_teardown_project`, which now closes the split too — checking only the
-        main notebook would discard unsaved split work without ever asking.
+        Prefers `<dir>/<dirname>.idol-project`, the name `workspace_save`
+        writes, and falls back to the first `*.idol-project` in the folder.
+        Returns None when the folder has no project file — a folder you merely
+        opened is not a project, and nothing here ever creates one.
         """
-        return any(self._dirty.get(tid) for tid in self._all_tab_ids())
+        root = str(root if root is not None else (self._sidebar.explorer._root or ""))
+        if not root or not os.path.isdir(root):
+            return None
+        p = Path(root)
+        candidate = p / f"{p.name}.idol-project"
+        if candidate.is_file():
+            return str(candidate)
+        others = sorted(p.glob("*.idol-project"))
+        return str(others[0]) if others else None
+
+    def _autosave_workspace(self) -> None:
+        """Persist workspace state before the project is torn down or we exit.
+
+        Writes the project's own `.idol-project` when the root has one — that
+        is the file reopening the project reads, and writing only the
+        auto-session (as every caller used to) is why a closed-and-reopened
+        project came back without its split tabs or layout. The auto-session
+        is refreshed too, since that is what a cold start reads.
+
+        This saves *bookkeeping* only — which tabs are open, the split, the
+        sash, the interpreter. Unsaved buffer content rides along as
+        `~/.idol/tmp` scratch files referenced from the same file (see
+        `session._tab_entry`), which is what makes closing without a prompt
+        safe. It never creates a project file where none exists.
+        """
+        proj = self._project_file_path()
+        if proj:
+            session_utils.save(self, proj)
+        session_utils.save(self)
 
     def workspace_new(self, *_) -> None:
         """Close the current workspace and open a fresh one."""
-        if self._has_dirty_tabs():
-            answer = askyesnocancel(
-                "New Workspace",
-                "You have unsaved changes.\n\nSave before creating a new workspace?",
-            )
-            if answer is None:
-                return
-            if answer:
-                self.workspace_save()
-        session_utils.save(self)
+        self._autosave_workspace()
         self._teardown_project()
 
     def _teardown_project(self, add_untitled: bool = True) -> None:
@@ -3914,17 +3927,8 @@ class IDOL(Tk):
         self._designer_project_type = "cli"
 
     def workspace_close(self, *_) -> None:
-        """Close the current project, prompting only when there are unsaved changes."""
-        if self._has_dirty_tabs():
-            answer = askyesnocancel(
-                "Close Project",
-                "You have unsaved changes.\n\nSave before closing?",
-            )
-            if answer is None:
-                return
-            if answer:
-                self.workspace_save()
-        session_utils.save(self)
+        """Close the current project. No prompt — see `_autosave_workspace`."""
+        self._autosave_workspace()
         self._teardown_project()
 
     def workspace_save(self, *_) -> None:
@@ -3945,15 +3949,8 @@ class IDOL(Tk):
         )
         if not path or not os.path.isfile(path):
             return
-        if self._has_dirty_tabs():
-            answer = askyesnocancel(
-                "Open Project",
-                "You have unsaved changes.\n\nSave before opening a new project?",
-            )
-            if answer is None:
-                return
-            if answer:
-                self.workspace_save()
+        # Save the outgoing project's state so it comes back as you left it.
+        self._autosave_workspace()
         # Full teardown of the current project (designer, LSP diags, tabs, etc.)
         self._teardown_project(add_untitled=False)
         if session_utils.restore(self, path):
@@ -4265,23 +4262,10 @@ class IDOL(Tk):
         # Find the .idol-project file inside the project directory
         from pathlib import Path as _P
 
-        proj_dir = _P(path)
-        candidate = proj_dir / f"{proj_dir.name}.idol-project"
-        if not candidate.is_file():
-            candidates = list(proj_dir.glob("*.idol-project"))
-            candidate = candidates[0] if candidates else None
-        if candidate and candidate.is_file():
+        candidate = self._project_file_path(path)
+        if candidate:
             # Reuse workspace_open flow without the file dialog
-            if self._has_dirty_tabs():
-                from tkinter.messagebox import askyesnocancel as _aync
-
-                answer = _aync(
-                    "Open Project", "You have unsaved changes.\n\nSave before opening?"
-                )
-                if answer is None:
-                    return
-                if answer:
-                    self.workspace_save()
+            self._autosave_workspace()
             self._teardown_project(add_untitled=False)
             if session_utils.restore(self, str(candidate)):
                 # Re-add so the project moves back to the top of the recent
