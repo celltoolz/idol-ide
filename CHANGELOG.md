@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-07-24] — Explorer root / terminal working directory
 
+### Added
+- **Explorer right-click → Open in Terminal.** The explicit counterpart to the removed
+  implicit `cd`: it points the live terminal at the selected folder (right-clicking a file
+  resolves to its containing folder) and reveals the terminal panel. If no shell is running
+  yet the new one starts there, and if the terminal is running in the background the `cd` is
+  applied silently when the tab is shown.
+
 ### Fixed
 - **Changing the Explorer root no longer `cd`s a running terminal.** `Set as Root Directory`,
   a breadcrumb folder click, and opening a file all funnel through

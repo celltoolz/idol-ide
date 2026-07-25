@@ -20,7 +20,8 @@ Open with `Ctrl+`` ` or the **>_** button in the nav toolbar.
 
 A new shell session starts in the current Explorer root. Once it is running, **IDOL never
 moves it behind your back** — changing the Explorer root (Set as Root Directory, a breadcrumb
-folder click, opening a file) only changes where the *next* session starts.
+folder click, opening a file) only changes where the *next* session starts. To move a live
+terminal, right-click a folder in the Explorer and choose **Open in Terminal**.
 
 ## Sessions Sidebar
 

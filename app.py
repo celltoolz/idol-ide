@@ -617,6 +617,7 @@ class IDOL(Tk):
             on_file_delete=self._on_explorer_file_delete,
             on_ref_navigate=self._ref_navigate,
             on_open_in_designer=self._open_form_json_in_designer,
+            on_open_in_terminal=self._open_dir_in_terminal,
         )
         self._sidebar.configure(width=self._startup_h_sash)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
@@ -3324,6 +3325,18 @@ class IDOL(Tk):
         self._sidebar.explorer.set_root(path)
         # set_root fires on_root_change which calls _on_explorer_root_change,
         # so the per-root wiring is already handled there.
+
+    def _open_dir_in_terminal(self, path: str) -> None:
+        """Explorer → Open in Terminal: cd the live terminal to *path* and reveal it."""
+        # cd first: a not-yet-started terminal then starts in *path*, and a
+        # running-but-hidden one has its pending cd applied by the reveal below.
+        self._output.cd_terminal(path)
+        # Reveal without toggling — view_show_panel would hide the panel when
+        # the terminal is already the active tab.
+        if not self.output_visible_var.get():
+            self.output_visible_var.set(True)
+            self.view_toggle_output()
+        self._output._set_active("terminal")
 
     def _on_explorer_root_change(self, root: str) -> None:
         """Called whenever the explorer navigates to a new root directory."""

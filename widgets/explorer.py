@@ -22,13 +22,15 @@ class FileExplorer(ttk.Frame):
                  on_file_move: Callable[[str, str], bool] | None = None,
                  on_root_change: Callable[[str], None] | None = None,
                  on_file_delete: Callable[[str], None] | None = None,
-                 on_open_in_designer: Callable[[str], None] | None = None) -> None:
+                 on_open_in_designer: Callable[[str], None] | None = None,
+                 on_open_in_terminal: Callable[[str], None] | None = None) -> None:
         super().__init__(parent, style="Explorer.TFrame")
         self._on_open = on_open_file
         self._on_file_move = on_file_move  # (old_path, new_path) -> bool (False = cancel)
         self._on_root_change = on_root_change
         self._on_file_delete = on_file_delete  # (path) -> None
         self._on_open_in_designer = on_open_in_designer
+        self._on_open_in_terminal = on_open_in_terminal  # (dir_path) -> None
         self._root: Path | None = None
 
         self._tree = ttk.Treeview(
@@ -74,6 +76,7 @@ class FileExplorer(ttk.Frame):
         self._menu.add_command(label="Open File",             command=self._open_selected)
         self._menu.add_command(label="Open in Designer",      command=self._open_in_designer_selected)
         self._menu.add_command(label="Set as Root Directory", command=self._set_selected_as_root)
+        self._menu.add_command(label="Open in Terminal",      command=self._open_selected_in_terminal)
         self._menu.add_separator()
         self._menu.add_command(label="New File",              command=self._new_file)
         self._menu.add_command(label="New Folder",            command=self._new_folder)
@@ -262,6 +265,10 @@ class FileExplorer(ttk.Frame):
                                   state="normal" if (is_form_json and self._on_open_in_designer) else "disabled")
         self._menu.entryconfigure("Set as Root Directory",
                                   state="normal" if not is_file and not is_parent and item else "disabled")
+        # Files are allowed too — they resolve to their containing folder.
+        has_path = bool(values and values[0] != self._LOADING)
+        self._menu.entryconfigure("Open in Terminal",
+                                  state="normal" if (has_path and self._on_open_in_terminal) else "disabled")
         self._menu.entryconfigure("Rename",
                                   state="normal" if is_item else "disabled")
         self._menu.entryconfigure("Delete",
@@ -277,6 +284,18 @@ class FileExplorer(ttk.Frame):
             if not path.is_dir():
                 path = path.parent
             self.set_root(str(path))
+
+    def _open_selected_in_terminal(self) -> None:
+        """Point the live terminal at the selected folder (or a file's folder)."""
+        if not self._menu_item or not self._on_open_in_terminal:
+            return
+        values = self._tree.item(self._menu_item, "values")
+        if not values or values[0] == self._LOADING:
+            return
+        path = Path(values[0])
+        if not path.is_dir():
+            path = path.parent
+        self._on_open_in_terminal(str(path))
 
     def _open_selected(self) -> None:
         if self._menu_item:

@@ -35,6 +35,7 @@ class Sidebar(ttk.Frame):
         on_file_delete: Callable[[str], None] | None = None,
         on_ref_navigate: Callable[[str | None, int, int], None] | None = None,
         on_open_in_designer: Callable[[str], None] | None = None,
+        on_open_in_terminal: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(parent, style="Sidebar.TFrame")
 
@@ -107,7 +108,8 @@ class Sidebar(ttk.Frame):
                                           on_file_move=on_file_move,
                                           on_root_change=on_root_change,
                                           on_file_delete=on_file_delete,
-                                          on_open_in_designer=on_open_in_designer)
+                                          on_open_in_designer=on_open_in_designer,
+                                          on_open_in_terminal=on_open_in_terminal)
 
         self.bind("<Configure>", self._on_configure)
 
