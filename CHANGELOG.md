@@ -54,6 +54,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the breadcrumb picker, so the two surfaces can't tell different stories about one folder.
 
 ### Fixed
+- **Designer double-click no longer jumps to the right line in the wrong pane.** With the split
+  editor open, double-clicking a widget to jump to its handler moved the caret in the *split*
+  pane's buffer — the correct line number applied to whatever file the split happened to be
+  showing. Two defects stacked: the jump selected the target tab on `self.notebook` only (a
+  no-op, or a `TclError`, when the tab lives in the split), and then navigated via
+  `_outline_navigate`, which follows `_active_pane` rather than the tab it was just handed.
+  `_enter_editor_mode` restores the split with `_set_active_pane("right")` on the way out of
+  the designer, so the active pane was reliably the wrong one.
+  - New `_reveal_tab(tab_id)` selects in whichever notebook owns the tab *and* syncs
+    `_active_pane`; the jump then drives the target's own codeview directly. When the file is
+    open in both panes the main one wins — the designer lives in the main content area, so
+    that is the pane about to be in front of you.
+  - The rule is written into `CONTRIBUTING.md`: the tab registries are flat across both
+    notebooks, so anything that finds a tab by path has to go through `_reveal_tab`.
+- **Problems panel / references / go-to-definition could raise on a split-pane file.**
+  `_open_file_at` had the same `self.notebook.select()` defect, which throws
+  `TclError: not managed by` when the target tab lives in the split. It now routes through
+  `_reveal_tab`, and a registry entry pointing at a tab that no longer exists falls through to
+  re-opening the file instead of failing silently.
 - **Explorer git status colours actually render now.** The M/A/U/D badges have been there for a
   long time, but always in plain white — the colour never reached the screen. `ttk.Treeview`
   resolves competing tag options by `tag_configure` **creation** order (earliest wins) and

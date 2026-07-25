@@ -1822,6 +1822,30 @@ class IDOL(Tk):
             return self._notebook_r
         return self.notebook
 
+    def _reveal_tab(self, tab_id: str) -> bool:
+        """Select *tab_id* in whichever pane owns it and make that pane active.
+
+        The tab registries (`_files`, `_codeviews`, `_titles`, …) are flat
+        across both notebooks, so any lookup by path can land on a split-pane
+        tab.  `self.notebook.select(<split tab>)` is a silent no-op, and
+        leaving `_active_pane` alone afterwards points `_current_codeview` at
+        the *other* pane — so a caller that reveals a tab one way and then
+        navigates the other way moves the caret in a buffer the user isn't
+        looking at.  Anything that jumps to a tab found by path must go
+        through here.  Returns False if the tab is gone.
+        """
+        if not tab_id:
+            return False
+        nb = self._which_notebook(tab_id)
+        if tab_id not in nb.tabs():
+            return False
+        try:
+            nb.select(tab_id)
+        except Exception:
+            return False
+        self._set_active_pane("right" if nb is self._notebook_r else "left")
+        return True
+
     def _close_tab(self, index: int, notebook: CustomNotebook | None = None) -> None:
         nb = notebook or self.notebook
         tabs = nb.tabs()
@@ -3247,12 +3271,15 @@ class IDOL(Tk):
             cv.scroll_to_line(max(0, line - 1))
             cv.canvas.focus_set()
 
-        # If already open in a tab, just switch to it
+        # If already open in a tab, just switch to it. `_reveal_tab` rather
+        # than `self.notebook.select`: the tab may live in the split, where
+        # selecting on the main notebook silently does nothing and the caret
+        # moves in a buffer that is never brought to the front.
         for tab_id, fp in self._files.items():
             if fp and os.path.normcase(fp) == os.path.normcase(path):
-                self.notebook.select(tab_id)
-                _seek(self._codeviews.get(tab_id))
-                return
+                if self._reveal_tab(tab_id):
+                    _seek(self._codeviews.get(tab_id))
+                    return
         # Otherwise open as a new tab
         if os.path.isfile(path):
             self._open_file(path)
@@ -8064,37 +8091,47 @@ class IDOL(Tk):
         py_path = _Path(root) / f"{form.name}.py"
         self._enter_editor_mode()
 
+        def _find_tab():
+            """Tab holding py_path — main pane first.
+
+            The designer occupies the main content area, so when the file
+            happens to be open in both panes that is the one the user is
+            about to be looking at.
+            """
+            for nb in (self.notebook, self._notebook_r):
+                if nb is None:
+                    continue
+                for tab_id in nb.tabs():
+                    fp = self._files.get(tab_id)
+                    if fp and _Path(fp) == py_path:
+                        return tab_id
+            return None
+
         def _navigate():
-            # Find or open the generated .py tab
-            target_tab = None
-            for tab_id, fp in self._files.items():
-                if fp and _Path(fp) == py_path:
-                    target_tab = tab_id
-                    break
+            target_tab = _find_tab()
             if target_tab is None:
-                if py_path.exists():
-                    self._open_file(str(py_path))
-                    for tab_id, fp in self._files.items():
-                        if fp and _Path(fp) == py_path:
-                            target_tab = tab_id
-                            break
-            if target_tab is None:
+                if not py_path.exists():
+                    return
+                self._open_file(str(py_path))       # always lands in main
+                target_tab = _find_tab()
+            cv = self._codeviews.get(target_tab) if target_tab else None
+            if cv is None or not self._reveal_tab(target_tab):
                 return
-            # Switch to the tab
-            for i, tid in enumerate(self.notebook.tabs()):
-                if tid == target_tab:
-                    self.notebook.select(i)
-                    break
-            cv = self._codeviews.get(target_tab)
-            if cv is None:
-                return
-            # Find `def method_name` and navigate
+            # Drive the target's own codeview rather than routing through
+            # `_outline_navigate`, which follows `_current_codeview` and would
+            # scroll whichever pane happened to be active — the split pane,
+            # if that's where the user was before opening the designer.
             search = f"def {method_name}"
             for lineno, line in enumerate(cv.get_text().splitlines(), 1):
                 if search in line:
-                    self._outline_navigate(lineno)
+                    cv.set_cursor(max(0, lineno - 1), 0)
+                    cv.scroll_to_line(max(0, lineno - 1))
+                    cv.canvas.focus_set()
                     return
 
+        # After _enter_editor_mode's own after(50) split restore, which ends
+        # with _set_active_pane("right") — same deadline, later registration,
+        # so this runs second and _reveal_tab gets the last word.
         self.after(50, _navigate)
 
     def _on_designer_selector_pick(self, widget_id: str | None) -> None:
