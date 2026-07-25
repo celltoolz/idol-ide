@@ -5,7 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [2026-07-25] — Empty-restore grey box
+## [2026-07-25] — Welcome tab, recent lists, and session restore
+
+### Added
+- **Missing entries in Recent Projects / Recent Files are flagged, not silently dropped.** A
+  recent entry whose folder or file no longer exists now shows a red **⊗**, a dimmed name, and
+  a `· not found` suffix on its path line. Clicking it names the old location, explains that it
+  may have been moved, renamed, or deleted, and asks before removing it. Previously the row
+  vanished the instant it was clicked, which reads as a misfire — the user never learned the
+  folder was gone, or where it had been.
+  - The ⊗ sits in a fixed-width marker gutter present on *every* row (blank when healthy), so
+    flagged entries stay aligned with the rest of the list.
 
 ### Fixed
 - **Welcome-tab paths no longer mix separators.** A path under your home directory was
@@ -34,18 +44,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   never changed again. Only `File → Open Project` (which does call it) kept the list fresh.
   The re-add uses the entry's own stored path string, so the dedupe matches exactly and can't
   leave a differently-spelled twin behind.
-
-### Added
-- **Missing entries in Recent Projects / Recent Files are flagged, not silently dropped.** A
-  recent entry whose folder or file no longer exists now shows a red **⊗**, a dimmed name, and
-  a `· not found` suffix on its path line. Clicking it names the old location, explains that it
-  may have been moved, renamed, or deleted, and asks before removing it. Previously the row
-  vanished the instant it was clicked, which reads as a misfire — the user never learned the
-  folder was gone, or where it had been.
-  - The ⊗ sits in a fixed-width marker gutter present on *every* row (blank when healthy), so
-    flagged entries stay aligned with the rest of the list.
-
-### Fixed
 - **Recent-list rows now tint as a unit on hover.** The `×` button is a child of the row but
   was left out of the hover handler, so it stayed dark against the highlight and the whole row
   flicked back to un-hovered as the pointer crossed onto it. The row's containing frame had the
