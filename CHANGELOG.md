@@ -53,6 +53,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   their existing per-file M/A/U/D badges, using the same palette and the same priority rule as
   the breadcrumb picker, so the two surfaces can't tell different stories about one folder.
 
+### Changed
+- **One caret in a split, two current-line highlights.** The two behaviours were exactly
+  backwards: every pane drew its own blinking caret, while the current-line highlight was the
+  thing gated on focus. So a split showed two live-looking insertion points when only one of
+  them could take your typing, and the pane you weren't in lost its place entirely.
+  - The caret (primary *and* multi-cursor secondaries) is now focus-gated; the highlight never
+    is. Both panes keep their highlight even when neither has focus — you clicked into the
+    terminal or the explorer, and the editors should still show where you left off.
+  - `_blink_cursor` now skips its toggle-and-repaint when the pane is unfocused. It was
+    re-rendering the inactive pane twice a second to draw a caret that is no longer there.
+    `<FocusIn>`/`<FocusOut>` already repaint, so nothing is missed, and `<FocusIn>` also resets
+    the blink phase — otherwise a pane that went dark mid-blink could take up to 500 ms to show
+    a caret after a click, which reads as a dropped click.
+  - The focus check moved out of the per-row draw loop. It was a `focus_get()` — a Tcl
+    round-trip — for every visible row of every frame; it is now one call per render.
+
 ### Fixed
 - **Designer double-click no longer jumps to the right line in the wrong pane.** With the split
   editor open, double-clicking a widget to jump to its handler moved the caret in the *split*

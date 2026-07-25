@@ -894,7 +894,10 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         c.bind("<Shift-Button-5>",
                lambda _: (self.xview("scroll", +1, "units"), "break")[1])
         c.bind("<Key>",              self._on_key)
-        c.bind("<FocusIn>",          lambda _: self.render())
+        # Reset the blink phase on focus-in: the pane may have gone dark
+        # mid-blink, and a caret that takes up to 500 ms to show up after a
+        # click reads as a dropped click.
+        c.bind("<FocusIn>",          lambda _: (self._reset_blink(), self.render()))
         c.bind("<FocusOut>",         self._on_canvas_focus_out)
         # Virtual events fired by app.edit_undo/redo and the right-click
         # context menu so menu-triggered undo/redo reaches our stack.
@@ -924,6 +927,11 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # tracks what's actually on screen rather than the longest
         # line anywhere in the file.
         max_drawn_x = 0
+
+        # Does this pane own the keyboard? Gates the caret only. Computed
+        # once per frame — it used to be a `focus_get()` per *visible row*,
+        # which is a Tcl round-trip each, ~40 a frame for nothing.
+        has_focus = self._has_focus()
 
         # Tier-2 per-render computations — bracket pair under cursor and
         # the word to highlight occurrences of.
@@ -1040,14 +1048,12 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
 
             y = (v_row - self.scroll_y) * self._line_h
 
-            # Current-line highlight (only when no selection)
-            try:
-                _focused = self.canvas.focus_get()
-            except KeyError:
-                _focused = None
+            # Current-line highlight (only when no selection). Deliberately
+            # NOT focus-gated: in a split, both panes keep showing where their
+            # caret is, so the inactive pane doesn't lose its place. The caret
+            # itself is what's focus-gated — see `_draw_caret` below.
             if (self.highlight_active_line
-                    and i == self.cur_line and self.sel_anchor is None
-                    and _focused is self.canvas):
+                    and i == self.cur_line and self.sel_anchor is None):
                 hl_color = self._active_line_color or self._palette["current_line_bg"]
                 c.create_rectangle(self._gutter_w, y, w, y + self._line_h,
                                    fill=hl_color, outline="")
@@ -1200,15 +1206,17 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
                     (dots_x - 2, y, dots_x + dots_w + 4, y + self._line_h, i)
                 )
 
-            # Caret
-            if (i == self.cur_line and self.cursor_visible
+            # Caret — only in the focused pane. Two panes each blinking their
+            # own caret reads as two live insertion points; only one of them
+            # can take your typing, so only one gets to blink.
+            if (i == self.cur_line and self.cursor_visible and has_focus
                     and self.sel_anchor is None):
                 cx = text_x0 + self._measure_to_col(line, self.cur_col)
                 c.create_line(cx, y + 1, cx, y + self._line_h - 1,
                               fill=self._palette["caret"], width=1)
 
             # Secondary carets (multi-cursor) — same blinking | as primary
-            if self.cursor_visible and self._mc_cursors:
+            if self.cursor_visible and has_focus and self._mc_cursors:
                 for mc_l, mc_c in self._mc_cursors:
                     if mc_l == i:
                         mcx = text_x0 + self._measure_to_col(
@@ -1587,9 +1595,27 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
 
     # ── Cursor & blink ────────────────────────────────────────────────────────
 
+    def _has_focus(self) -> bool:
+        """True when this pane's canvas owns the keyboard focus.
+
+        `focus_get()` is toplevel-wide, so in a split both panes ask the same
+        question and exactly one gets True. KeyError comes back when focus
+        sits on a widget Tk can't map to a Python object (a foreign or
+        just-destroyed window) — not ours either way.
+        """
+        try:
+            return self.canvas.focus_get() is self.canvas
+        except KeyError:
+            return False
+
     def _blink_cursor(self) -> None:
-        self.cursor_visible = not self.cursor_visible
-        self.render()
+        # An unfocused pane draws no caret, so toggling and repainting it
+        # twice a second would be pure churn — in a split that was a full
+        # re-render of the inactive pane at 2 Hz, forever. Focus changes
+        # repaint via the <FocusIn>/<FocusOut> bindings, so nothing is missed.
+        if self._has_focus():
+            self.cursor_visible = not self.cursor_visible
+            self.render()
         self.after(500, self._blink_cursor)
 
     def _reset_blink(self) -> None:

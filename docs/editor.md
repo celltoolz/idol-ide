@@ -59,6 +59,12 @@ A thin bar between the tab row and the editor showing the full file path and cur
 | **Split pane × button** | True close — prompts for any unsaved changes, then destroys the pane |
 | **Individual tab ×** in split | Closes that tab; if it was the last, the split pane closes |
 
+### Caret and current-line highlight
+
+Only the **focused** pane draws a blinking caret. Two carets blinking at once reads as two live insertion points when only one of them can take your typing.
+
+Both panes keep their **current-line highlight** at all times, including when neither has focus (you clicked into the terminal, the explorer, the AI panel). The highlight is a "you were here" marker, so losing it on every focus change means losing your place in the pane you are about to come back to.
+
 ### Hide / show
 
 The SPLIT button hides and re-shows the split pane **without closing or discarding any tabs**. All open split tabs survive behind the scenes. Click SPLIT again (or `Ctrl+\`) to restore them exactly as you left them.
