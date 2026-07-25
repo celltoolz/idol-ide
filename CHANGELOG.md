@@ -7,7 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-07-25] — Empty-restore grey box
 
+### Added
+- **Missing entries in Recent Projects / Recent Files are flagged, not silently dropped.** A
+  recent entry whose folder or file no longer exists now shows a red **⊗**, a dimmed name, and
+  a `· not found` suffix on its path line. Clicking it names the old location, explains that it
+  may have been moved, renamed, or deleted, and asks before removing it. Previously the row
+  vanished the instant it was clicked, which reads as a misfire — the user never learned the
+  folder was gone, or where it had been.
+  - The ⊗ sits in a fixed-width marker gutter present on *every* row (blank when healthy), so
+    flagged entries stay aligned with the rest of the list.
+
 ### Fixed
+- **Recent-list rows now tint as a unit on hover.** The `×` button is a child of the row but
+  was left out of the hover handler, so it stayed dark against the highlight and the whole row
+  flicked back to un-hovered as the pointer crossed onto it. The row's containing frame had the
+  same problem. Found while adding the ⊗ marker.
 - **A session whose files have all moved no longer opens to a blank grey panel.** Each saved
   tab is skipped individually when its file is missing, but `restore()` reported success as
   long as the session *file* had tabs in it — and every caller only runs its own
