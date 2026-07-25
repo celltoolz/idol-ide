@@ -29,6 +29,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   open / create / close now route through a new `app._set_project_root()` — explorer plus an
   explicit `cd_terminal()` — while `_set_explorer_root()` stays terminal-neutral for casual
   re-rooting.
+- **`File → Open` no longer re-roots the Explorer.** Opening a file from anywhere outside the
+  tree used to yank the Explorer to that file's folder — the other half of the same legacy
+  shortcut, since re-rooting was how the terminal used to get there. The tree now stays put;
+  the root moves only for a project open, `Set as Root Directory`, or a breadcrumb folder
+  click. `_open_file()`'s `update_explorer` flag is gone with it: every internal caller
+  already passed `False`, so the parameter only existed to express the behaviour being
+  removed. Launching as `python main.py <file>` still roots at the file's folder (no project
+  and no session restore in that path, so the tree would otherwise come up empty), and
+  designer code-gen navigation picks up the fix for free — it opened generated `.py` files
+  with the re-rooting default.
 
 ---
 

@@ -102,9 +102,8 @@ class Sidebar(ttk.Frame):
         self._sash3 = self._make_sash(2, 3)
 
         self._explorer_hdr = self._make_header("EXPLORER",  self._toggle_explorer)
-        # Wrap callback so clicks from the tree don't reset the explorer root
         self.explorer      = FileExplorer(self,
-                                          on_open_file=lambda p: on_file_open(p, update_explorer=False),
+                                          on_open_file=on_file_open,
                                           on_file_move=on_file_move,
                                           on_root_change=on_root_change,
                                           on_file_delete=on_file_delete,

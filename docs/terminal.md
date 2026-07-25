@@ -26,8 +26,8 @@ move it:
 - **Explorer right-click → Open in Terminal** — the explicit "take me there" action
 
 Everything else leaves a running shell alone. Re-rooting the Explorer without switching
-projects (Set as Root Directory, a breadcrumb folder click, opening a file) only changes where
-the *next* session starts.
+projects (Set as Root Directory, a breadcrumb folder click) only changes where the *next*
+session starts, and opening a file does not move the Explorer root at all.
 
 ## Sessions Sidebar
 

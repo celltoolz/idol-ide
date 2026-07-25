@@ -350,7 +350,7 @@ Implemented and stable:
 - Split editor with scroll sync; scroll lock (hardware Scroll Lock key synced on startup)
 - Find/Replace
 - **Explorer** — rename, delete, drag/drop file/folder, new file/folder, context menus, unsaved-change guard on move; **Set as Root Directory** re-roots the tree only and **Open in Terminal** `cd`s the live terminal — the two halves are deliberately separate
-- **Explorer root vs. terminal cwd** — two app-level helpers, and the distinction is load-bearing: `_set_explorer_root()` moves the tree only (Set as Root, breadcrumb click, File > Open) and `BottomPanel.set_cwd()` records the start dir for the *next* shell; `_set_project_root()` moves both and is used only by project open / create / close, which additionally `cd`s the live shell via `BottomPanel.cd_terminal()`. Never re-add an implicit `cd` to `set_cwd`
+- **Explorer root vs. terminal cwd** — two app-level helpers, and the distinction is load-bearing: `_set_explorer_root()` moves the tree only (Set as Root, breadcrumb click) and `BottomPanel.set_cwd()` records the start dir for the *next* shell; `_set_project_root()` moves both and is used only by project open / create / close (plus the `python main.py <file>` launch, which has no project or session to restore), and additionally `cd`s the live shell via `BottomPanel.cd_terminal()`. `_open_file()` touches **neither** — opening a file is not a workspace change. Never re-add an implicit `cd` to `set_cwd`, and never re-root from a file-open path
 - **Outline panel** — symbol tree with locals drill-down (instance attrs, nested defs, color-coded sections)
 - References panel
 - Git integration: staging, unstaging, commit, push, diff view, health panel (smart warnings + fix wizard), Add to .gitignore

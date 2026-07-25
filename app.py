@@ -559,6 +559,10 @@ class IDOL(Tk):
         self._start_highlight_loop()
 
         if initial_file and os.path.isfile(initial_file):
+            # Launched as `python main.py <file>` — no project and no session
+            # restore, so the file's own folder is the closest thing to a
+            # workspace.  _open_file itself never touches the root.
+            self._set_project_root(os.path.dirname(os.path.abspath(initial_file)))
             self._open_file(initial_file)
         elif not session_utils.restore(self):
             if recent_utils.get_show_on_startup():
@@ -3239,9 +3243,9 @@ class IDOL(Tk):
                 self.notebook.select(tab_id)
                 _seek(self._codeviews.get(tab_id))
                 return
-        # Otherwise open as a new tab — navigation must not reset the explorer root
+        # Otherwise open as a new tab
         if os.path.isfile(path):
-            self._open_file(path, update_explorer=False)
+            self._open_file(path)
             _seek(self._current_codeview)
 
     # ── Active-line highlight loop ────────────────────────────────────────────
@@ -3457,7 +3461,7 @@ class IDOL(Tk):
         # Open the project entry point
         entry = os.path.join(project_path, "main.py")
         if os.path.isfile(entry):
-            self._open_file(entry, update_explorer=False)
+            self._open_file(entry)
             self._set_run_entry(entry)
         # For GUI projects, also open the generated form file as the active tab
         if project_type == "gui":
@@ -3466,7 +3470,7 @@ class IDOL(Tk):
                 self.designer_generate_code()
                 _form_py = os.path.join(project_path, f"{_active_form.name}.py")
                 if os.path.isfile(_form_py):
-                    self._open_file(_form_py, update_explorer=False)
+                    self._open_file(_form_py)
             self._enter_designer_mode()
         recent_utils.add_project(project_path)
         # Auto-create the project file so "Open Project" works immediately
@@ -3485,9 +3489,7 @@ class IDOL(Tk):
         if path:
             self._open_file(path)
 
-    def _open_file(
-        self, path: str, update_explorer: bool = True, select: bool = True
-    ) -> None:
+    def _open_file(self, path: str, select: bool = True) -> None:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -3516,10 +3518,10 @@ class IDOL(Tk):
         recent_utils.add_file(path)
         if self._welcome_panel:
             self._welcome_panel.refresh()
-        # Only update the explorer root when opening externally (File > Open),
-        # not when clicking a file inside the tree (would reset root unexpectedly)
-        if update_explorer:
-            self._set_explorer_root(path)
+        # Opening a file never re-roots the explorer.  The root belongs to the
+        # project: only opening a project or Explorer → Set as Root Directory
+        # moves it.  (File > Open used to yank the tree to the file's folder,
+        # a leftover from when that was also how you got the terminal there.)
 
         if replace:
             tabs = self.notebook.tabs()
@@ -8655,8 +8657,8 @@ class IDOL(Tk):
 
                 py_path = str(_Path(root) / f"{name}.py")
                 if _Path(py_path).exists():
-                    self._open_file(py_path, update_explorer=False, select=False)
-                # Refresh explorer so new files appear without triggering a terminal cd
+                    self._open_file(py_path, select=False)
+                # Refresh explorer so new files appear without re-rooting the tree
                 self._sidebar.explorer.refresh()
 
         def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
@@ -8800,7 +8802,7 @@ class IDOL(Tk):
                 if existing_tab:
                     self.notebook.select(existing_tab)
                 else:
-                    self._open_file(py_str, update_explorer=False)
+                    self._open_file(py_str)
         except Exception as exc:
             from tkinter.messagebox import showerror
 
@@ -8846,7 +8848,7 @@ class IDOL(Tk):
                 if existing_tab:
                     self.notebook.select(existing_tab)
                 else:
-                    self._open_file(py_str, update_explorer=False)
+                    self._open_file(py_str)
         except Exception as exc:
             from tkinter.messagebox import showerror
 
