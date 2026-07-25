@@ -9,6 +9,7 @@ from tkinter import Menu, simpledialog, messagebox, ttk
 from typing import Callable
 from widgets.scrollbar import VerticalScrollbar
 
+from editor.git_manager import STATUS_COLORS, folder_status, status_colors
 from utils import bind_right_click
 from utils.ui_font import UI_FONT
 
@@ -47,14 +48,19 @@ class FileExplorer(ttk.Frame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        # Git status tags are configured FIRST on purpose. ttk.Treeview
+        # resolves competing tag options by tag_configure *creation* order —
+        # earliest wins — and ignores the order of the item's own tag list
+        # entirely. A `file`/`folder` tag created first therefore beats every
+        # git colour no matter how the item's tags are arranged, which is why
+        # these decorations rendered as plain text for so long. Re-configuring
+        # a tag later (apply_theme) does not change its priority, so this one
+        # ordering is what makes git status visible at all.
+        for _st, _color in STATUS_COLORS.items():
+            self._tree.tag_configure(f"git_{_st}", foreground=_color)
         self._tree.tag_configure("folder",     foreground="#8be9fd")
         self._tree.tag_configure("file",       foreground="#f8f8f2")
         self._tree.tag_configure("parent_dir", foreground="#6272a4")
-        # Git status tags
-        self._tree.tag_configure("git_M", foreground="#e2c08d")
-        self._tree.tag_configure("git_A", foreground="#73c991")
-        self._tree.tag_configure("git_U", foreground="#cccccc")
-        self._tree.tag_configure("git_D", foreground="#f14c4c")
 
         self._tree.bind("<<TreeviewOpen>>",    self._on_node_expand)
         self._tree.bind("<Double-Button-1>",   self._on_double_click)
@@ -118,11 +124,19 @@ class FileExplorer(ttk.Frame):
         self._populate("", root)
 
     def apply_git_status(self, status_map: dict[str, str]) -> None:
-        """Recolour and badge visible tree items to reflect git status.
+        """Recolour and badge tree items to reflect git status.
 
-        *status_map* maps absolute path → 'M' | 'A' | 'U' | 'D'.
-        Uses both tag colours (where the theme supports it) and a text suffix
-        so the status is always visible regardless of platform/theme.
+        *status_map* maps absolute path → 'M' | 'A' | 'U' | 'D'.  A file
+        carries its own status letter; a folder carries a ● standing for the
+        highest-priority status anywhere beneath it (`folder_status`), so a
+        collapsed folder still says there is something inside worth opening.
+        Colour and letter both come from the shared `git_manager` palette, so
+        this tree, the breadcrumb file picker, and the source control panel
+        can't tell three different stories about the same file.
+
+        The text badge is kept alongside the colour deliberately: it survives
+        themes and platforms where tag foregrounds are unreliable, and it is
+        the only cue a colour-blind reader gets.
         """
         norm_map = {os.path.normcase(k): v for k, v in status_map.items()}
 
@@ -134,17 +148,23 @@ class FileExplorer(ttk.Frame):
                 return
             values = self._tree.item(item, "values")
             if values and values[0] != self._LOADING:
-                norm   = os.path.normcase(str(values[0]))
-                status = norm_map.get(norm)
-                # Tag colours (put git tag first for priority)
+                path = str(values[0])
+                if "folder" in item_tags:
+                    status = folder_status(path, status_map)
+                    badge  = "●" if status else ""
+                else:
+                    status = norm_map.get(os.path.normcase(path))
+                    badge  = status or ""
+                # Base tags stay on the item so a folder that goes clean can
+                # get its folder colour back; the git tag wins by virtue of
+                # having been created first (see __init__).
                 base_tags = [t for t in item_tags if not t.startswith("git_")]
-                new_tags  = ([f"git_{status}"] + base_tags) if status else base_tags
+                new_tags  = (base_tags + [f"git_{status}"]) if status else base_tags
                 self._tree.item(item, tags=new_tags)
-                # Text badge — works on every platform/theme
-                name     = Path(values[0]).name
-                prefix   = "  "
-                new_text = f"{prefix}{name} {status}" if status else f"{prefix}{name}"
-                self._tree.item(item, text=new_text)
+                name = Path(path).name
+                self._tree.item(
+                    item, text=f"  {name} {badge}" if badge else f"  {name}"
+                )
             for child in self._tree.get_children(item):
                 _update(child)
 
@@ -166,21 +186,17 @@ class FileExplorer(ttk.Frame):
                   foreground=[("selected", fg)])
         style.configure("Explorer.TFrame", background=bg)
         self._tree.tag_configure("file", foreground=fg)
+        # Status colours follow the theme's lightness; the palette itself is
+        # owned by git_manager so every surface stays in step.
+        for st, color in status_colors(kind).items():
+            self._tree.tag_configure(f"git_{st}", foreground=color)
         if kind == "light":
             self._tree.tag_configure("folder",     foreground="#0070c8")  # blue
             self._tree.tag_configure("parent_dir", foreground="#888888")  # gray
-            self._tree.tag_configure("git_M",      foreground="#b06800")  # amber
-            self._tree.tag_configure("git_A",      foreground="#2a8040")  # dark-green
-            self._tree.tag_configure("git_U",      foreground="#8b6914")  # mustard
-            self._tree.tag_configure("git_D",      foreground="#c00030")  # dark-red
             self._drag_line.config(bg="#0070c8")
         else:
             self._tree.tag_configure("folder",     foreground="#8be9fd")  # cyan
             self._tree.tag_configure("parent_dir", foreground="#6272a4")  # muted purple
-            self._tree.tag_configure("git_M",      foreground="#e2c08d")  # tan
-            self._tree.tag_configure("git_A",      foreground="#73c991")  # bright-green
-            self._tree.tag_configure("git_U",      foreground="#cccccc")  # light-grey
-            self._tree.tag_configure("git_D",      foreground="#f14c4c")  # bright-red
             self._drag_line.config(bg="#569cd6")
 
     # ── Internal ──────────────────────────────────────────────────────────────

@@ -49,7 +49,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     a row's children generically, so rows can carry a badge without the selection band
     developing a hole where the old hardcoded three-widget repaint didn't reach.
 
+- **The Explorer tree gets the same decorations.** Folders now carry the rolled-up `●` next to
+  their existing per-file M/A/U/D badges, using the same palette and the same priority rule as
+  the breadcrumb picker, so the two surfaces can't tell different stories about one folder.
+
 ### Fixed
+- **Explorer git status colours actually render now.** The M/A/U/D badges have been there for a
+  long time, but always in plain white — the colour never reached the screen. `ttk.Treeview`
+  resolves competing tag options by `tag_configure` **creation** order (earliest wins) and
+  ignores the order of the item's own tag list entirely, so the `file` / `folder` tags —
+  configured first — beat every `git_*` tag no matter how `apply_git_status` arranged them.
+  The old code put the git tag first in the item's tag list and commented it as "for priority",
+  which is the reverse of how Tk actually behaves. Configuring the `git_*` tags first in
+  `__init__` fixes it; re-configuring on theme change does not disturb the priority. The
+  gotcha is now written down in `CONTRIBUTING.md`, because nothing about the API hints at it.
 - **Docs no longer claim folder crumbs re-root the Explorer.** They never have — `on_set_root`
   is an available `BreadcrumbBar` hook that `app.py` deliberately leaves unwired, so a stray
   crumb click can't yank the tree out from under you. Re-rooting stays an explicit Explorer →

@@ -12,12 +12,12 @@ Open with `Ctrl+Shift+P`. Fuzzy-searches all commands.
 
 - Lazy loading with directory navigation and drag-to-resize sash
 - **Right-click menu** — New File, New Folder, Rename, Delete, Set as Root Directory, Open in Terminal, Add to .gitignore
-- **The root only moves when you ask it to** — opening a project, **Set as Root Directory**, or clicking a folder crumb in the breadcrumb bar. `File → Open` opens the file in a tab and leaves the tree exactly where it was
+- **The root only moves when you ask it to** — opening a project or **Set as Root Directory**. `File → Open` opens the file in a tab and leaves the tree exactly where it was, and breadcrumb crumbs never move it
 - **Set as Root Directory** re-roots the tree only. It does not `cd` a running terminal — a shell you already have open stays where you left it
 - **Open in Terminal** is the opposite half: it `cd`s the terminal to the selected folder (a file resolves to its containing folder) and brings the terminal panel up. If no shell is running yet, the new one starts there
 - New File / New Folder uses an **inline text field** directly in the tree (no dialog)
 - Drag and drop files between folders with unsaved-changes prompt
-- M/A/U/D badges on files showing git status
+- **Git status decorations** — files carry an `M` / `A` / `U` / `D` badge and take that status's colour; folders carry a coloured `●` for the highest-priority status anywhere beneath them, so a collapsed folder still tells you there is something inside to deal with. Colours and the folder roll-up rule are shared with the breadcrumb file picker — see [Git status decorations](git.md#status-decorations). The badge letter is kept alongside the colour on purpose: it is the cue that survives a colour-blind reader and any theme where tag foregrounds misbehave
 
 ## Outline Panel
 

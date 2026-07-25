@@ -455,9 +455,13 @@ class BreadcrumbBar(tk.Frame):
                 font=(UI_FONT, 9, "bold"), width=2, anchor="e", padx=6, pady=0,
             )
             badge.pack(side="right", fill="y")
+            # A decorated row takes the status colour on the name as well as
+            # the badge — folders included. The Explorer tree can only carry
+            # one foreground per row, so tinting the name is the only way its
+            # folder dots read as coloured at all; matching here keeps the two
+            # surfaces telling the same story about the same folder.
             nl = tk.Label(row, text=label, bg=_PICK_BG,
-                          fg=(git_manager.STATUS_COLORS.get(status)
-                              if (status and not is_dir)
+                          fg=(git_manager.STATUS_COLORS.get(status) if status
                               else (_FG_DIR if is_dir else _FG_FILE)),
                           font=(UI_FONT, 9), anchor="w", padx=4, pady=0)
             nl.pack(side="left", fill="y")
