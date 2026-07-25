@@ -626,7 +626,7 @@ on stretch — see *Resize scaling* below.)
 
 **Resize scaling** — canvas items track the canvas through both kinds of resize, whether or not the canvas has a background image:
 
-- *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size (and resizes each image item's `PhotoImage` to match), so the running app looks like the designer.
+- *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size (and resizes each image item's `PhotoImage` to match), so the running app looks like the designer. The canvas's recorded design size is kept as its original; if you later change the canvas's `width`/`height` in the Properties panel, the row shows `(original: N)` with a hover `×` that resets it back to that design size.
 - *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes and lines scale with the canvas; **each image item's `PhotoImage` is re-rendered from disk at its own base size × the live stretch factor** (so the inspector size is honoured, not the natural file size); **text font size and line thickness scale too**, by a uniform factor (the geometric mean of the horizontal and vertical scale, `(_sx * _sy) ** 0.5`) so they grow proportionally on both single- and dual-axis stretches.
 
 ### Double-Click Navigation from CI Items

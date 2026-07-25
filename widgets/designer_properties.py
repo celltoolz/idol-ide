@@ -3289,12 +3289,14 @@ class DesignerProperties(tk.Frame):
         row = self._props_rows[idx]
         iid = row["iid"]
         val = row["value"]
-        # Reset-to-natural 'x' on a resized CanvasImage width/height row: shown only
-        # when the row carries an "orig" (its value differs from the natural size).
+        # Reset-to-original 'x' on a width/height row that carries an "orig": a
+        # resized CanvasImage (→ its image's natural size) or a Canvas resized in
+        # CI mode (→ its recorded _ci_orig design size). Shown only when the value
+        # actually differs from that original (i.e. the row has an "orig").
         reset_to = (row.get("orig")
                     if iid in ("geo__width", "geo__height")
                     and self._current_widget is not None
-                    and self._current_widget.type == "CanvasImage"
+                    and self._current_widget.type in ("CanvasImage", "Canvas")
                     else None)
         clearable = (self._is_prop_clearable(iid) and val
                      and (iid != "anchor__value" or val != "(none)"))
