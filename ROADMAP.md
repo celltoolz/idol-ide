@@ -240,7 +240,7 @@ imports — no interpreter awareness needed.)
 - Line move/duplicate: Alt+Up/Down moves current line or selected block; Shift+Alt+Down duplicates below
 - Split editor with scroll sync and scroll lock (hardware Scroll Lock key synced on startup)
 - Minimap, sticky scroll, fold markers
-- Breadcrumb bar: path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
+- Breadcrumb bar: path crumbs, filename-crumb directory picker (folders first, current file pre-selected, folder drill-in, pick opens a new tab in the clicked pane), symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
 - Find/Replace; Ctrl+/ comment toggle; word occurrence highlights
 - Zen mode (F10), sidebar toggle (Ctrl+B)
 

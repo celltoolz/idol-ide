@@ -35,13 +35,14 @@ Live scaled-down view of the full file with hover zoom preview and mouse wheel s
 
 A thin bar between the tab row and the editor showing the full file path and current symbol scope.
 
-- **Path crumbs** — each folder segment is clickable to set it as the Explorer root
+- **Path crumbs** — the folder segments leading to the file, shown dimmed. They are display-only: re-rooting the Explorer is Explorer → **Set as Root Directory**, deliberately not a stray click on a breadcrumb
+- **File picker** — click the **filename** crumb to list the folder the file lives in: subfolders first, then files, both alphabetical. The current file is pre-selected and scrolled into view when the list opens. Picking a file opens it in a new tab (in the pane whose breadcrumb you clicked, so a split-pane pick stays in the split). Clicking a folder drills into it; a `‹ ..` row appears once you have drilled below the starting folder
 - **Symbol crumbs** — updates live as the cursor moves; shows class › method hierarchy in the active color scheme
 - **Sibling picker** — click any symbol crumb to see all peer symbols at that scope level and jump to one
 - **Locals drill-down** — a `›` appears after the innermost crumb when locals exist; click to open a picker showing all local variables, loop targets, and nested definitions inside that function
 - **Syntax-highlighted footer** — hover any local to see its source line rendered with the active theme's token colors
 - **Marquee scroll** — when the source preview overflows the footer width it smoothly ping-pongs left and right
-- Keyboard navigation (↑↓ Enter Escape) in both pickers; scrollable for large symbol lists
+- Keyboard navigation (↑↓ Enter Escape) in all three pickers; scrollable for large lists
 
 ## Split Editor
 

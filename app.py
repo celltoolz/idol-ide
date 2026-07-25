@@ -1618,6 +1618,8 @@ class IDOL(Tk):
         # "breadcrumb widget" for the existing breadcrumb registry —
         # app.py uses _breadcrumbs[tab_id] for outline / path crumbs.
         self._breadcrumbs[tab_id] = cv.breadcrumb
+        # Filename-crumb directory picker opens into this pane.
+        cv.breadcrumb.set_open_file_handler(self._open_file)
 
         # Mark clean once the after-idle setup settles, so the initial
         # load doesn't show as a dirty buffer.
@@ -3343,8 +3345,8 @@ class IDOL(Tk):
         The project-level counterpart to `_set_explorer_root`.  Opening,
         creating, or closing a project is a deliberate "I work somewhere else
         now" action, so a running shell follows it.  Casual root changes (Set
-        as Root Directory, a breadcrumb click, File > Open) go through
-        `_set_explorer_root` and leave the shell where the user left it.
+        as Root Directory, File > Open) go through `_set_explorer_root` and
+        leave the shell where the user left it.
         """
         self._set_explorer_root(path)
         self._output.cd_terminal(path)
@@ -3536,6 +3538,31 @@ class IDOL(Tk):
                 self._close_tab(tabs.index(prev_tab_id))
         elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
             self.notebook.select(prev_tab_id)
+
+    def _open_file_in_split(self, path: str) -> None:
+        """Open *path* as a new tab in the split (right) pane.
+
+        The split-pane counterpart to `_open_file`, used by that pane's
+        breadcrumb file picker so the pick lands in the pane it was made in.
+        Falls back to the main pane when there is no split notebook.
+        """
+        if self._notebook_r is None:
+            self._open_file(path)
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as exc:
+            showerror("Open Error", str(exc))
+            return
+
+        self._ensure_split_shown()
+        self._new_tab_in(self._notebook_r, os.path.basename(path), content,
+                         filepath=path)
+        recent_utils.add_file(path)
+        if self._welcome_panel:
+            self._welcome_panel.refresh()
+        self._set_active_pane("right")
 
     def _on_explorer_file_delete(self, path: str) -> None:
         """Called by the explorer after a file is deleted from disk.
@@ -9502,6 +9529,8 @@ class IDOL(Tk):
         self._indent_sizes[tab_id] = 4
         self._codeviews[tab_id] = cv
         self._breadcrumbs[tab_id] = cv.breadcrumb
+        # Filename-crumb directory picker opens into this pane, not main.
+        cv.breadcrumb.set_open_file_handler(self._open_file_in_split)
         self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
 
         pal = cv._palette

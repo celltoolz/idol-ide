@@ -5,6 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-25] — Breadcrumb file picker
+
+### Added
+- **Clicking the filename crumb opens a file picker for the folder the file lives in.** VS Code
+  parity: subfolders first, then files, both alphabetical, and the current file is pre-selected
+  and scrolled into view when the list opens — so the dropdown tells you where you are before
+  you touch it. Picking a file opens it in a new tab; clicking a folder drills into it, and a
+  `‹ ..` row appears once you have drilled below the starting folder so the trip is reversible.
+  - The pick lands in the pane whose breadcrumb was clicked. A split-pane breadcrumb opens into
+    the split (`_open_file_in_split`), not the main notebook — opening in the other half of the
+    screen from the one you clicked in is the kind of thing you only forgive once.
+  - Rows bind `<ButtonRelease-1>`, not `<Button-1>`, so dismissing the popup can't drop a click
+    through onto the editor canvas underneath.
+  - `BreadcrumbBar._finalise_popup` now honours a caller-set `selected_idx[0]` as the initially
+    highlighted row and takes an `on_activate` override, so the shared popup machinery serves
+    "open this path" as well as the symbol pickers' "jump to this line".
+  - File icons are deliberately not drawn yet — they land with the theming pass.
+
+### Fixed
+- **Docs no longer claim folder crumbs re-root the Explorer.** They never have — `on_set_root`
+  is an available `BreadcrumbBar` hook that `app.py` deliberately leaves unwired, so a stray
+  crumb click can't yank the tree out from under you. Re-rooting stays an explicit Explorer →
+  **Set as Root Directory**. Corrected in `docs/editor.md`, `CONTRIBUTING.md`, and the
+  `breadcrumb_bar.py` / `_set_project_root` docstrings.
+
+---
+
 ## [2026-07-25] — Welcome tab, recent lists, and session restore
 
 ### Added
