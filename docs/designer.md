@@ -509,7 +509,7 @@ Selecting a CI item loads it into the existing **Properties** and **Events** tab
 | `id` | Readonly — auto-numbered (e.g. `ci_rect1`) |
 | `type` | Readonly — item kind |
 | `x`, `y` | Position within the canvas |
-| `width`, `height` | Item dimensions |
+| `width`, `height` | Item dimensions. For a **CanvasImage** whose size differs from the picture's natural pixel size, the row shows `(original: N)` and a hover **`×`** that resets that dimension to natural — returning the item to natural size lets codegen reuse the shared component image instead of a per-item resize |
 | `tags` | Click to open the tag editor dialog |
 | `image_path` | CanvasImage only — click to open an image dropdown |
 | `fill`, `outline` | Color picker (rect, oval, line) |

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-24] — Designer property-panel polish
 
 ### Added
+- **CanvasImage items show their natural size with a one-click reset.** In the Canvas Item
+  Designer, a `CanvasImage` whose `width`/`height` differs from the picture's natural pixel size
+  now shows `(original: N)` next to that geometry row (mirroring the Canvas widget's own
+  original-size hint) plus a hover `×` that resets the dimension to natural. Resetting to natural
+  lets codegen drop the per-item resized `PhotoImage` and reuse the shared component image, so it
+  doubles as the quickest way to shrink generated code.
 - **The selected Properties-panel tab renders in bold.** The Properties / Events /
   Handlers / Order tabs now show the active tab's label in bold, so it is obvious at a
   glance which view you are editing. The tabs keep their existing grey / black-text look;
