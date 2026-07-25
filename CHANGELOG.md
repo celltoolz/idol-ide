@@ -5,6 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-24] — Portable `.idol-project` files
+
+### Changed
+- **A project folder can now be moved, renamed, or copied and still open.** `.idol-project`
+  files stored absolute paths throughout, so relocating a project left every open tab,
+  breakpoint, pinned run entry, and the project-local `.venv` pointing at the old location.
+  Named saves now store paths *inside* the project folder relative to it (`utils/session.py`
+  `_rel`/`_abs`), and resolve them against the file's own directory on load. Paths outside the
+  project — a system interpreter, the `~/.idol/tmp` scratch files, a tab opened from elsewhere
+  — stay absolute, since there is nothing meaningful to relativize against; restore's existing
+  `isfile`/`isdir` guards skip whatever no longer resolves.
+  - Only true descendants are relativized. A `../..` chain would break the moment the folder
+    moved to a different nesting depth, which is the exact case this exists to survive.
+  - **No format version field.** `os.path.isabs()` is the discriminator, so all-absolute files
+    written by earlier versions load unchanged.
+  - `explorer_root` is written as `"."` and ignored on load — a project file's root is always
+    the folder it lives in. Deriving it is what makes a copied folder correct *before* any
+    repair logic runs, rather than relying on repair to catch it.
+  - The auto-session (`~/.idol/session.json`) is unaffected: it is machine-global with no base
+    directory, and stays absolute.
+- **Tab serialisation is no longer duplicated.** The main and split notebooks had two
+  byte-identical ~45-line copies of the dirty-check / temp-file / embed logic; they now share
+  `_tab_entry()`. Two copies of path handling is precisely how a path ends up relativized in
+  one pane and not the other.
+
+---
+
 ## [2026-07-24] — Explorer root / terminal working directory
 
 ### Added

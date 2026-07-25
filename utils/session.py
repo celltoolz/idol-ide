@@ -17,6 +17,45 @@ SESSION_FILE = Path.home() / ".idol" / "session.json"
 TMP_DIR = Path.home() / ".idol" / "tmp"
 
 
+# ── Portable paths ────────────────────────────────────────────────────────────
+# A named `.idol-project` save stores every path that lives inside the project
+# folder as a POSIX path relative to that folder, so the whole directory can be
+# copied or moved and still open.  Paths outside it (a system interpreter, the
+# ~/.idol/tmp scratch files, a tab opened from elsewhere) stay absolute — they
+# are not part of the project and there is nothing meaningful to relativize
+# against.  The auto-session (~/.idol/session.json) passes base=None and keeps
+# everything absolute: it is machine-global and has no base directory.
+#
+# No format version is needed.  os.path.isabs() is the discriminator, so
+# project files written by older versions — which are absolute throughout —
+# load unchanged.
+
+
+def _rel(path: str | None, base: str | None) -> str | None:
+    """Return *path* relative to *base* when it lives inside it, else absolute.
+
+    Only true descendants are relativized: a `../..` chain would break the
+    moment the project folder moved to a different depth, which is exactly
+    what this is meant to survive.
+    """
+    if not path or not base:
+        return path
+    ap = os.path.abspath(path)
+    ab = os.path.abspath(base)
+    if os.path.normcase(ap) == os.path.normcase(ab):
+        return "."
+    if os.path.normcase(ap).startswith(os.path.normcase(ab) + os.sep):
+        return Path(os.path.relpath(ap, ab)).as_posix()
+    return ap
+
+
+def _abs(path: str | None, base: str | None) -> str | None:
+    """Resolve *path* against *base* when it is relative. Inverse of `_rel`."""
+    if not path or not base or os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(base, path))
+
+
 def peek_layout(filepath: str | Path | None = None) -> dict:
     """Read just the layout block from a session file without any side effects.
 
@@ -30,15 +69,76 @@ def peek_layout(filepath: str | Path | None = None) -> dict:
         return {}
 
 
+def _tab_entry(app: "IDOL", tab_id: str, cv, base: str | None) -> dict:
+    """Serialise one editor tab.
+
+    For files that exist on disk only the path is stored; unsaved / dirty tabs
+    get their content written to ~/.idol/tmp so the session JSON stays small
+    and the work survives a restart.  Shared by the main and split notebooks —
+    they serialise identically, and a second copy of this is how a path would
+    end up relativized in one pane but not the other.
+    """
+    fp    = app._files.get(tab_id)
+    title = app._titles.get(tab_id, "Untitled")
+    dirty = app._dirty.get(tab_id, False)
+
+    entry: dict = {"title": title, "filepath": _rel(fp, base)}
+
+    if dirty and fp and Path(fp).is_file():
+        # Verify the dirty flag isn't spurious — if content matches disk,
+        # treat the tab as clean so it doesn't come back as unsaved on restore.
+        try:
+            cur = (cv.get_text() if hasattr(cv, "get_text")
+                   else cv.get("1.0", "end-1c"))
+            if cur == Path(fp).read_text(encoding="utf-8"):
+                dirty = False
+        except Exception:
+            pass
+
+    if dirty:
+        # Duck-type the editor so both `CodeView` (tk.Text) and the
+        # canvas-rendered `CanvasCodeView` (explicit `get_text`) work —
+        # utils/ can't import from widgets/ per project rules.
+        content = (cv.get_text() if hasattr(cv, "get_text")
+                   else cv.get("1.0", "end-1c"))
+        existing = app._temp_files.get(tab_id)
+        if existing:
+            tmp_path = Path(existing)
+        else:
+            ext = Path(fp).suffix if fp else ".py"
+            TMP_DIR.mkdir(parents=True, exist_ok=True)
+            tmp_path = TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}{ext}"
+            app._temp_files[tab_id] = str(tmp_path)
+        try:
+            # Absolute by design — machine-local scratch, not project content.
+            tmp_path.write_text(content, encoding="utf-8")
+            entry["temp_file"] = str(tmp_path)
+        except Exception:
+            entry["content"] = content  # fallback if write fails
+    elif fp is None:
+        # New empty tab — embed the (likely empty) content directly
+        entry["content"] = (cv.get_text() if hasattr(cv, "get_text")
+                            else cv.get("1.0", "end-1c"))
+
+    return entry
+
+
 def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     """Serialise open tabs, explorer root, and sash layout to *filepath*.
 
     Saves to SESSION_FILE when no path is given (auto-session).
     For files that exist on disk, only the path is stored. For unsaved / dirty
     tabs the content is embedded directly so no work is lost.
+
+    A named `.idol-project` save is **portable**: paths inside the project
+    folder are stored relative to it, so the folder can be moved or copied and
+    still open.  See the `_rel` / `_abs` block above.
     """
     target = Path(filepath) if filepath else SESSION_FILE
     target.parent.mkdir(parents=True, exist_ok=True)
+    # A named project save relativizes against its own folder; the auto-session
+    # has no base directory and stays absolute.
+    base = str(target.parent) if filepath else None
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     tabs_data = []
@@ -46,50 +146,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         cv = app._codeviews.get(tab_id)
         if cv is None:
             continue
-        fp    = app._files.get(tab_id)
-        title = app._titles.get(tab_id, "Untitled")
-        dirty = app._dirty.get(tab_id, False)
-
-        entry: dict = {"title": title, "filepath": fp}
-
-        if dirty and fp and Path(fp).is_file():
-            # Verify the dirty flag isn't spurious — if content matches disk,
-            # treat the tab as clean so it doesn't come back as unsaved on restore.
-            try:
-                cur = (cv.get_text() if hasattr(cv, "get_text")
-                       else cv.get("1.0", "end-1c"))
-                if cur == Path(fp).read_text(encoding="utf-8"):
-                    dirty = False
-            except Exception:
-                pass
-
-        if dirty:
-            # Write unsaved content to a temp file so the session JSON stays
-            # small and the content survives restarts without a save prompt.
-            # Duck-type the editor so both `CodeView` (tk.Text) and the
-            # canvas-rendered `CanvasCodeView` (explicit `get_text`)
-            # work — utils/ can't import from widgets/ per project rules.
-            content = (cv.get_text() if hasattr(cv, "get_text")
-                       else cv.get("1.0", "end-1c"))
-            existing = app._temp_files.get(tab_id)
-            if existing:
-                tmp_path = Path(existing)
-            else:
-                ext = Path(fp).suffix if fp else ".py"
-                TMP_DIR.mkdir(parents=True, exist_ok=True)
-                tmp_path = TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}{ext}"
-                app._temp_files[tab_id] = str(tmp_path)
-            try:
-                tmp_path.write_text(content, encoding="utf-8")
-                entry["temp_file"] = str(tmp_path)
-            except Exception:
-                entry["content"] = content  # fallback if write fails
-        elif fp is None:
-            # New empty tab — embed the (likely empty) content directly
-            entry["content"] = (cv.get_text() if hasattr(cv, "get_text")
-                                else cv.get("1.0", "end-1c"))
-
-        tabs_data.append(entry)
+        tabs_data.append(_tab_entry(app, tab_id, cv, base))
 
     active_index = 0
     try:
@@ -105,38 +162,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
             cv = app._codeviews.get(tab_id)
             if cv is None:
                 continue
-            fp    = app._files.get(tab_id)
-            title = app._titles.get(tab_id, "Untitled")
-            dirty = app._dirty.get(tab_id, False)
-            entry: dict = {"title": title, "filepath": fp}
-            if dirty and fp and Path(fp).is_file():
-                try:
-                    cur = (cv.get_text() if hasattr(cv, "get_text")
-                           else cv.get("1.0", "end-1c"))
-                    if cur == Path(fp).read_text(encoding="utf-8"):
-                        dirty = False
-                except Exception:
-                    pass
-            if dirty:
-                content = (cv.get_text() if hasattr(cv, "get_text")
-                           else cv.get("1.0", "end-1c"))
-                existing = app._temp_files.get(tab_id)
-                if existing:
-                    tmp_path = Path(existing)
-                else:
-                    ext = Path(fp).suffix if fp else ".py"
-                    TMP_DIR.mkdir(parents=True, exist_ok=True)
-                    tmp_path = TMP_DIR / f"idol_tmp_{uuid.uuid4().hex[:12]}{ext}"
-                    app._temp_files[tab_id] = str(tmp_path)
-                try:
-                    tmp_path.write_text(content, encoding="utf-8")
-                    entry["temp_file"] = str(tmp_path)
-                except Exception:
-                    entry["content"] = content
-            elif fp is None:
-                entry["content"] = (cv.get_text() if hasattr(cv, "get_text")
-                                    else cv.get("1.0", "end-1c"))
-            split_tabs_data.append(entry)
+            split_tabs_data.append(_tab_entry(app, tab_id, cv, base))
         try:
             split_active_index = list(app._notebook_r.tabs()).index(
                 app._notebook_r.select()
@@ -213,7 +239,7 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     layout["run_target"] = app._run_target_var.get()
     layout["run_action"] = app._run_action_var.get()
     layout["run_cwd_mode"] = app._run_cwd_mode_var.get()
-    layout["run_entry"] = getattr(app, "_run_entry_file", "") or ""
+    layout["run_entry"] = _rel(getattr(app, "_run_entry_file", "") or "", base)
 
     # Split editor
     layout["split_active"] = getattr(app, "_split_active", False)
@@ -271,10 +297,13 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     else:
         layout["ai_panel_width"] = app._ai_panel_width
 
-    explorer_root = str(app._sidebar.explorer._root or os.getcwd())
+    # In a project file this is always the file's own folder, so it is written
+    # as "." and ignored on restore — deriving it from where the file actually
+    # lives is what makes a copied project correct before any repair runs.
+    explorer_root = _rel(str(app._sidebar.explorer._root or os.getcwd()), base)
 
     breakpoints = {
-        fp: sorted(lines)
+        _rel(fp, base): sorted(lines)
         for fp, lines in app._breakpoints.items()
         if lines
     }
@@ -293,11 +322,13 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
     # instead (restore re-activates via the terminal's conda activation).
     from utils.conda_env import conda_prefix_for
     _conda_prefix = (conda_prefix_for(_interp_path) or "") if _interp_path else ""
+    # A project-local .venv / .conda relativizes; a system or global-conda
+    # interpreter is outside the project and stays absolute.
     interpreter = {
-        "path":          _interp_path,
+        "path":          _rel(_interp_path, base),
         "label":         getattr(app, "_active_python_label", ""),
-        "venv_activate": _venv_activate,
-        "conda_prefix":  _conda_prefix,
+        "venv_activate": _rel(_venv_activate, base),
+        "conda_prefix":  _rel(_conda_prefix, base),
     }
 
     try:
@@ -338,18 +369,22 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     if not tabs:
         return False
 
+    # Paths in a project file are relative to the file's own folder; the
+    # auto-session stores everything absolute and passes base=None.
+    base = str(target.parent) if filepath else None
+
     # ── Breakpoints — restore before tabs so _new_tab() applies gutter dots ──
     saved_bp = data.get("breakpoints", {})
     for fp, lines in saved_bp.items():
         if lines:
-            app._breakpoints[fp] = set(lines)
+            app._breakpoints[_abs(fp, base)] = set(lines)
     if saved_bp:
         app.after_idle(app._refresh_debug_breakpoints)
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     app._restoring = True
     for entry in tabs:
-        fp       = entry.get("filepath")
+        fp       = _abs(entry.get("filepath"), base)
         title    = entry.get("title", "Untitled")
         content  = entry.get("content")
         tmp_file = entry.get("temp_file")
@@ -397,7 +432,7 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     if split_tabs and split_was_active and hasattr(app, "_build_right_pane"):
         app._build_right_pane()
         for entry in split_tabs:
-            fp       = entry.get("filepath")
+            fp       = _abs(entry.get("filepath"), base)
             title    = entry.get("title", "Untitled")
             content  = entry.get("content")
             tmp_file = entry.get("temp_file")
@@ -434,18 +469,29 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
             app._split_shown = False
 
     # ── Explorer root ─────────────────────────────────────────────────────────
-    root = data.get("explorer_root")
-    if root and not os.path.isdir(root):
-        root = str(Path.home())
+    if base:
+        # A project file's root is wherever the file itself lives — never the
+        # stored value.  This is what makes a copied or moved project folder
+        # open correctly with no repair step at all.
+        root = base
+    else:
+        root = data.get("explorer_root")
+        if root and not os.path.isdir(root):
+            root = str(Path.home())
     if root:
         # Project-level: the terminal follows the restored root too.
         app._set_project_root(root)
 
+    # run_entry is consumed by the deferred _apply_pane_sashes below, so
+    # normalise it in place rather than threading *base* through the callback.
+    if base and layout_data.get("run_entry"):
+        layout_data["run_entry"] = _abs(layout_data["run_entry"], base)
+
     # ── Interpreter ───────────────────────────────────────────────────────────
     interp = data.get("interpreter", {})
-    interp_path  = interp.get("path", "")
+    interp_path  = _abs(interp.get("path", ""), base)
     interp_label    = interp.get("label", "")
-    venv_activate   = interp.get("venv_activate", "")
+    venv_activate   = _abs(interp.get("venv_activate", ""), base)
     if interp_path and os.path.isfile(interp_path) and hasattr(app, "_set_active_interpreter"):
         app._set_active_interpreter(interp_path, interp_label or "Python")
     if venv_activate and os.path.isfile(venv_activate) and hasattr(app, "_schedule_venv_activation_if_needed"):
@@ -461,7 +507,7 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
         if _venv_under_root:
             app._schedule_venv_activation_if_needed(venv_activate)
 
-    conda_prefix = interp.get("conda_prefix", "")
+    conda_prefix = _abs(interp.get("conda_prefix", ""), base)
     if (conda_prefix and os.path.isdir(conda_prefix)
             and hasattr(app, "_schedule_conda_activation_if_needed")):
         # Same containment guard as venvs: only re-activate a project-local

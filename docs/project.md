@@ -23,11 +23,18 @@ The wizard includes paginated guides covering:
 ## Project Files
 
 `File → New Project` auto-creates a `<name>.idol-project` file in the project root (where `<name>` matches the project name) storing:
+
 - Open tabs
 - Layout (sash widths, active panels)
 - Active interpreter
 - Breakpoints
 - Appearance settings
+
+### The project folder is portable
+
+Everything inside the project folder is stored **relative to the folder itself**, so you can move it, rename it, copy it to another drive, or sync it to another machine and it still opens. Your `.venv`, your open tabs, your breakpoints, and your pinned run entry all follow.
+
+Paths that point *outside* the project stay absolute, because there is nothing meaningful to make them relative to — a system-wide Python interpreter, or a tab you opened from some other folder. Those are checked when the project opens and quietly skipped if they no longer exist, so a project copied to a machine with a different Python layout still opens cleanly with whatever does resolve.
 
 **Save / Open / Close Project** — `File → Save Project` saves silently; `File → Open Project` restores the full project state including interpreter selection. The Open Project file dialog opens at the current Explorer root (or the working directory if none is set).
 
