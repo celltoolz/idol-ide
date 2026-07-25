@@ -23,6 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   terminal session starts in and leaves running shells alone. The live-`cd` behaviour moved
   to a new explicit `BottomPanel.cd_terminal()` (which also drops the old 250 ms coalescing
   timer — an explicit user action does not need debouncing).
+- **…but opening a project still takes the terminal with it.** Decoupling root changes from
+  the shell would otherwise have caught the one case where the move *is* wanted, including
+  the documented "closing a project returns the terminal to your home directory". Project
+  open / create / close now route through a new `app._set_project_root()` — explorer plus an
+  explicit `cd_terminal()` — while `_set_explorer_root()` stays terminal-neutral for casual
+  re-rooting.
 
 ---
 

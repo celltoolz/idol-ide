@@ -3326,6 +3326,18 @@ class IDOL(Tk):
         # set_root fires on_root_change which calls _on_explorer_root_change,
         # so the per-root wiring is already handled there.
 
+    def _set_project_root(self, path: str) -> None:
+        """Open *path* as the project root — explorer **and** live terminal both move.
+
+        The project-level counterpart to `_set_explorer_root`.  Opening,
+        creating, or closing a project is a deliberate "I work somewhere else
+        now" action, so a running shell follows it.  Casual root changes (Set
+        as Root Directory, a breadcrumb click, File > Open) go through
+        `_set_explorer_root` and leave the shell where the user left it.
+        """
+        self._set_explorer_root(path)
+        self._output.cd_terminal(path)
+
     def _open_dir_in_terminal(self, path: str) -> None:
         """Explorer → Open in Terminal: cd the live terminal to *path* and reveal it."""
         # cd first: a not-yet-started terminal then starts in *path*, and a
@@ -3395,7 +3407,7 @@ class IDOL(Tk):
             self._refresh_generate_code_state()
         else:
             self._hide_mode_bar()
-        self._set_explorer_root(project_path)
+        self._set_project_root(project_path)
         self._git = None
         self._start_git()
         if venv_activate_path and os.path.isfile(venv_activate_path):
@@ -3800,7 +3812,7 @@ class IDOL(Tk):
             self._set_active_interpreter(_sys.executable, "Python")
             self._on_venv_deactivated()
         self._set_run_entry(None)
-        self._set_explorer_root(str(Path.home()))
+        self._set_project_root(str(Path.home()))
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
         # Reset designer state

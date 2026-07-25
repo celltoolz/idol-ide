@@ -18,10 +18,16 @@ Open with `Ctrl+`` ` or the **>_** button in the nav toolbar.
 
 ### Working directory
 
-A new shell session starts in the current Explorer root. Once it is running, **IDOL never
-moves it behind your back** — changing the Explorer root (Set as Root Directory, a breadcrumb
-folder click, opening a file) only changes where the *next* session starts. To move a live
-terminal, right-click a folder in the Explorer and choose **Open in Terminal**.
+A new shell session starts in the current Explorer root. Once it is running, only two things
+move it:
+
+- **Opening, creating, or closing a project** — the shell follows to the new project root, or
+  back to your home directory on close
+- **Explorer right-click → Open in Terminal** — the explicit "take me there" action
+
+Everything else leaves a running shell alone. Re-rooting the Explorer without switching
+projects (Set as Root Directory, a breadcrumb folder click, opening a file) only changes where
+the *next* session starts.
 
 ## Sessions Sidebar
 

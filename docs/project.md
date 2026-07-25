@@ -31,6 +31,8 @@ The wizard includes paginated guides covering:
 
 **Save / Open / Close Project** — `File → Save Project` saves silently; `File → Open Project` restores the full project state including interpreter selection. The Open Project file dialog opens at the current Explorer root (or the working directory if none is set).
 
+Opening, creating, or closing a project moves the **terminal** as well as the Explorer: a running shell is `cd`'d to the new project root (or back to your home directory on close), and a shell you have not started yet will open there. This is deliberate — a project switch is the one root change that takes the terminal with it. See [Working directory](terminal.md#working-directory).
+
 ## Interpreter & Environment
 
 ### Interpreter Statusbar

@@ -438,7 +438,8 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     if root and not os.path.isdir(root):
         root = str(Path.home())
     if root:
-        app._set_explorer_root(root)
+        # Project-level: the terminal follows the restored root too.
+        app._set_project_root(root)
 
     # ── Interpreter ───────────────────────────────────────────────────────────
     interp = data.get("interpreter", {})
