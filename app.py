@@ -8855,10 +8855,13 @@ class IDOL(Tk):
         Called just before codegen reads the file so user edits are captured
         before the extraction pass runs, not silently discarded.
         """
-        target = str(py_path)
+        # Match on normalized absolute paths (see _generate_one_form's refresh
+        # loop) so a relatively-opened tab is still found and its edits saved.
+        target = os.path.normcase(os.path.abspath(str(py_path)))
         for tab_id, path in self._files.items():
-            if path == target and self._dirty.get(tab_id):
-                self._write_file(tab_id, target)
+            if (path and os.path.normcase(os.path.abspath(str(path))) == target
+                    and self._dirty.get(tab_id)):
+                self._write_file(tab_id, path)
                 break
 
     def _generate_one_form(self, form, root: str) -> None:
@@ -8948,9 +8951,14 @@ class IDOL(Tk):
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)
 
-        # If the generated file is open in a tab, refresh it in place
+        # If the generated file is open in a tab, refresh it in place. Compare
+        # normalized absolute paths (not Path ==), which also matches when one
+        # side is relative and the other absolute — a plain Path == misses that
+        # and leaves the tab showing stale pre-generation code until reopened.
+        # Refresh every matching tab so a file open in the split view updates too.
+        target = os.path.normcase(os.path.abspath(str(py_path)))
         for tab_id, fp in list(self._files.items()):
-            if fp and _Path(fp) == py_path:
+            if fp and os.path.normcase(os.path.abspath(str(fp))) == target:
                 cv = self._codeviews.get(tab_id)
                 if cv:
                     scroll = cv.scroll_y
@@ -8960,7 +8968,6 @@ class IDOL(Tk):
                     cv.set_cursor(*saved_cursor)
                     self._dirty[tab_id] = False
                     self._refresh_tab_title(tab_id)
-                break
 
     # ── Split editor ──────────────────────────────────────────────────────────
 
