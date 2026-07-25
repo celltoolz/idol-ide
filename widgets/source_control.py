@@ -7,6 +7,7 @@ from tkinter import Frame, Label, Menu, ttk
 from typing import Callable
 from widgets.scrollbar import VerticalScrollbar
 
+from editor.git_manager import STATUS_COLORS
 from utils import bind_right_click
 from utils.git_diagnostics import (
     classify_file, analyze_files, health_checks, git_installed, git_identity_ok,
@@ -26,12 +27,9 @@ _DIM      = "#858585"
 _BTN_BG   = "#0e639c"
 _BTN_ACT  = "#1177bb"
 
-STATUS_COLORS = {
-    "M": "#e2c08d",
-    "A": "#73c991",
-    "U": "#cccccc",
-    "D": "#f14c4c",
-}
+# STATUS_COLORS is imported from editor.git_manager above — one source of
+# truth so this panel, the explorer, and the breadcrumb picker can't drift
+# apart on what "modified" looks like.
 STATUS_LABELS = {"M": "M", "A": "A", "U": "U", "D": "D"}
 
 

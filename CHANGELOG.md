@@ -23,6 +23,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     "open this path" as well as the symbol pickers' "jump to this line".
   - File icons are deliberately not drawn yet — they land with the theming pass.
 
+- **Git status decorations in the breadcrumb file picker.** Every file row now carries a
+  right-aligned `M` / `A` / `U` / `D` letter and takes that status's colour; every folder row
+  carries a coloured `●` standing for the highest-priority status anywhere beneath it, so you
+  can see there is something to deal with inside a folder without opening it.
+  - **Folder roll-up priority** — `Modified (3) > Added / Untracked (2) > Deleted (1) > none`,
+    a plain max reduction in the new `git_manager.folder_status()`. A folder holding one
+    modified file and ten untracked ones reads as *modified*: the tracked edit is the thing
+    standing between you and a clean commit. Nothing changed underneath means no dot at all,
+    so a quiet tree stays quiet. This is VS Code's propagation rule minus the two states IDOL
+    can't produce yet — merge conflicts and diagnostics — both queued in `ROADMAP.md` with
+    notes on what each needs first. They slot in above `M` without touching the roll-up.
+  - **One palette, one place.** `STATUS_COLORS` was defined twice (`editor/git_manager.py` and
+    `widgets/source_control.py`) with different values for `U`. It now lives once in
+    `git_manager`, alongside `STATUS_COLORS_LIGHT` and `STATUS_PRIORITY`, and everything else
+    imports it.
+  - **Untracked is green, not grey.** It was the one status you couldn't see at a glance, and
+    grey reads as "disabled" rather than "new". Untracked and Added now share a green — to the
+    reader they are the same story, a file git isn't tracking yet.
+  - A deleted file is gone from disk, so a directory listing can never show a row for it. The
+    red folder dot is how a deletion surfaces in the picker; the Source Control panel remains
+    the place to see deletions by name.
+  - `.git` is excluded from the listing — repo internals are never something you open.
+  - `_highlight_rows()` replaces four copies of the picker selection-repaint loop and repaints
+    a row's children generically, so rows can carry a badge without the selection band
+    developing a hole where the old hardcoded three-widget repaint didn't reach.
+
 ### Fixed
 - **Docs no longer claim folder crumbs re-root the Explorer.** They never have — `on_set_root`
   is an available `BreadcrumbBar` hook that `app.py` deliberately leaves unwired, so a stray

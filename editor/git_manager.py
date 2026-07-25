@@ -14,13 +14,55 @@ from typing import Callable
 # Matches unified-diff hunk headers: @@ -old[,cnt] +new[,cnt] @@
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
-# Status colours (used by explorer / tabs)
+# Status colours — the single source of truth for every M/A/U/D decoration
+# in the app (explorer tree, breadcrumb file picker, tabs, source control).
+# Added and untracked share a green because they are the same story to the
+# reader: a file git isn't tracking yet.
 STATUS_COLORS = {
-    "M": "#e2c08d",   # yellow  — modified
-    "A": "#73c991",   # green   — added / staged
-    "U": "#cccccc",   # grey    — untracked
-    "D": "#f14c4c",   # red     — deleted
+    "M": "#e2c08d",   # tan    — modified
+    "A": "#73c991",   # green  — added / staged
+    "U": "#73c991",   # green  — untracked
+    "D": "#f14c4c",   # red    — deleted
 }
+
+# Same four states, darkened for light themes (the dark values wash out on a
+# white background).
+STATUS_COLORS_LIGHT = {
+    "M": "#b06800",   # amber
+    "A": "#2a8040",   # dark green
+    "U": "#2a8040",   # dark green
+    "D": "#c00030",   # dark red
+}
+
+# Decoration precedence, used to roll a folder's contents into one colour.
+# Highest wins: one modified file outranks ten untracked ones, matching VS
+# Code's propagation rule.  Merge conflicts and diagnostics belong above "M"
+# once IDOL can detect them — see ROADMAP.
+STATUS_PRIORITY = {"M": 3, "A": 2, "U": 2, "D": 1}
+
+
+def status_colors(kind: str = "dark") -> dict[str, str]:
+    """STATUS_COLORS for a *kind* of theme ("dark" | "light")."""
+    return STATUS_COLORS_LIGHT if kind == "light" else STATUS_COLORS
+
+
+def folder_status(dir_path: str, status_map: dict[str, str]) -> str | None:
+    """Roll every status under *dir_path* into the one that should colour it.
+
+    Returns the winning status char, or None when nothing under the folder
+    has one.  "A" and "U" tie deliberately — they share a colour, so which
+    of the two is returned never reaches the screen.
+    """
+    prefix = os.path.normcase(os.path.abspath(dir_path)) + os.sep
+    best: str | None = None
+    best_rank = 0
+    for path, status in status_map.items():
+        if not os.path.normcase(os.path.abspath(path)).startswith(prefix):
+            continue
+        rank = STATUS_PRIORITY.get(status, 0)
+        if rank > best_rank:
+            best, best_rank = status, rank
+    return best
 
 # Gutter strip colours
 GUTTER_COLORS = {

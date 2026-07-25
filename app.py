@@ -1620,6 +1620,7 @@ class IDOL(Tk):
         self._breadcrumbs[tab_id] = cv.breadcrumb
         # Filename-crumb directory picker opens into this pane.
         cv.breadcrumb.set_open_file_handler(self._open_file)
+        cv.breadcrumb.set_git_status_provider(lambda: self._git_status)
 
         # Mark clean once the after-idle setup settles, so the initial
         # load doesn't show as a dirty buffer.
@@ -9531,6 +9532,7 @@ class IDOL(Tk):
         self._breadcrumbs[tab_id] = cv.breadcrumb
         # Filename-crumb directory picker opens into this pane, not main.
         cv.breadcrumb.set_open_file_handler(self._open_file_in_split)
+        cv.breadcrumb.set_git_status_provider(lambda: self._git_status)
         self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
 
         pal = cv._palette

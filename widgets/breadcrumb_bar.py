@@ -15,6 +15,7 @@ import os
 import tkinter as tk
 from typing import Callable
 
+from editor import git_manager
 from widgets.learning_manager import LearningManager
 from widgets.scrollbar import VerticalScrollbar
 from utils.ui_font import UI_FONT
@@ -57,6 +58,7 @@ class BreadcrumbBar(tk.Frame):
         self._on_navigate = on_navigate
         self._on_set_root = on_set_root
         self._on_open_file = on_open_file
+        self._git_status_provider: Callable[[], dict[str, str]] | None = None
         self._get_line = get_line
         self._highlight_fn = highlight_fn
         self._last_line: int = -1
@@ -127,6 +129,17 @@ class BreadcrumbBar(tk.Frame):
         """
         self._on_open_file = fn
         self.invalidate()
+
+    def set_git_status_provider(
+        self, fn: Callable[[], dict[str, str]] | None
+    ) -> None:
+        """Wire a getter for the live {path: 'M'|'A'|'U'|'D'} map.
+
+        A getter rather than a pushed snapshot: the picker is built on click
+        and thrown away on dismiss, so reading through at open time is always
+        current and there is no invalidation to plumb when git status polls.
+        """
+        self._git_status_provider = fn
 
     # ── Rendering ──────────────────────────────────────────────────────────────
 
@@ -287,9 +300,7 @@ class BreadcrumbBar(tk.Frame):
         ROW_H = 26
 
         def _highlight(idx: int) -> None:
-            for i, (r, nl, ll, _) in enumerate(rows):
-                bg = _PICK_SEL if i == idx else _PICK_BG
-                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+            _highlight_rows(rows, idx)
 
         def _navigate(payload) -> None:
             self._close_picker()
@@ -375,6 +386,8 @@ class BreadcrumbBar(tk.Frame):
 
         dirs, files = [], []
         for e in entries:
+            if e.name == ".git":
+                continue          # repo internals, never something you open
             try:
                 (dirs if e.is_dir() else files).append((e.name, e.path))
             except OSError:
@@ -394,6 +407,11 @@ class BreadcrumbBar(tk.Frame):
         if not items:
             return
 
+        # Git decorations — read fresh at open time. The picker is short-lived,
+        # so there is nothing to keep in sync afterwards.
+        status_map = self._git_status_provider() if self._git_status_provider else {}
+        norm_status = {_norm(p): s for p, s in status_map.items()} if status_map else {}
+
         ROW_H, MAX_H, popup_w = 26, 14 * 26, 300
         popup, inner, canvas, vsb, rows, sel, _ = self._make_popup(anchor, popup_w)
 
@@ -401,9 +419,7 @@ class BreadcrumbBar(tk.Frame):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
 
         def _highlight(idx):
-            for i, (r, nl, ll, _) in enumerate(rows):
-                bg = _PICK_SEL if i == idx else _PICK_BG
-                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+            _highlight_rows(rows, idx)
 
         def _activate(path) -> None:
             self._close_picker()
@@ -416,16 +432,33 @@ class BreadcrumbBar(tk.Frame):
 
         cur_norm = _norm(current) if current else None
         for label, path, is_dir in items:
+            # Files show their own status letter; folders show a dot standing
+            # for the highest-priority status anywhere beneath them. ".." is
+            # a navigation affordance, not a real entry — never decorated.
+            if label == "..":
+                status = None
+            elif is_dir:
+                status = git_manager.folder_status(path, status_map)
+            else:
+                status = norm_status.get(_norm(path))
+
             row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
             row.pack(fill="x"); row.pack_propagate(False)
-            # Chevron sits in the row's second label so `_highlight`'s
-            # three-widget recolor still covers every visible pixel.
             ll = tk.Label(row, text=("‹" if label == ".." else "›") if is_dir else "",
                           bg=_PICK_BG, fg=_FG_SEP, font=(UI_FONT, 9),
                           width=2, anchor="w", pady=0)
             ll.pack(side="left", fill="y")
+            badge = tk.Label(
+                row,
+                text=("" if not status else ("●" if is_dir else status)),
+                bg=_PICK_BG, fg=git_manager.STATUS_COLORS.get(status or "", _FG_DIM),
+                font=(UI_FONT, 9, "bold"), width=2, anchor="e", padx=6, pady=0,
+            )
+            badge.pack(side="right", fill="y")
             nl = tk.Label(row, text=label, bg=_PICK_BG,
-                          fg=_FG_DIR if is_dir else _FG_FILE,
+                          fg=(git_manager.STATUS_COLORS.get(status)
+                              if (status and not is_dir)
+                              else (_FG_DIR if is_dir else _FG_FILE)),
                           font=(UI_FONT, 9), anchor="w", padx=4, pady=0)
             nl.pack(side="left", fill="y")
 
@@ -438,7 +471,7 @@ class BreadcrumbBar(tk.Frame):
             def _leave(_): _highlight(sel[0])
             def _click(_, p=path): _activate(p)
 
-            for w in (row, nl, ll):
+            for w in (row, nl, ll, badge):
                 w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
                 # ButtonRelease, not Button — a Button-1 bind lets the release
                 # fall through to the editor canvas once the popup is gone.
@@ -466,9 +499,7 @@ class BreadcrumbBar(tk.Frame):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
 
         def _highlight(idx):
-            for i, (r, nl, ll, _) in enumerate(rows):
-                bg = _PICK_SEL if i == idx else _PICK_BG
-                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+            _highlight_rows(rows, idx)
 
         for tag, name, lineno in symbols:
             fg = _TAG_FG.get(tag, _FG_FILE)
@@ -645,9 +676,7 @@ class BreadcrumbBar(tk.Frame):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
 
         def _highlight(idx):
-            for i, (r, nl, ll, _) in enumerate(rows):
-                bg = _PICK_SEL if i == idx else _PICK_BG
-                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+            _highlight_rows(rows, idx)
 
         # Top "IN <SCOPE>" header
         hdr = tk.Frame(inner, bg=_PICK_BG, height=HDR_H)
@@ -753,6 +782,21 @@ class BreadcrumbBar(tk.Frame):
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
+
+def _highlight_rows(rows: list, idx: int) -> None:
+    """Paint row *idx* as selected and every other row as background.
+
+    Recolours each row frame plus all of its children, so a picker is free to
+    put as many labels in a row as it needs (name, chevron, status badge)
+    without the selection band developing holes.
+    """
+    for i, row in enumerate(rows):
+        bg = _PICK_SEL if i == idx else _PICK_BG
+        frame = row[0]
+        frame.configure(bg=bg)
+        for w in frame.winfo_children():
+            w.configure(bg=bg)
+
 
 def _norm(path: str) -> str:
     """Case- and separator-normalised path, for identity comparisons only."""
