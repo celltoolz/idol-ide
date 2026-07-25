@@ -70,6 +70,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     round-trip — for every visible row of every frame; it is now one call per render.
 
 ### Fixed
+- **Opening a project with the split editor already open no longer spawns a second split.**
+  `session.restore()` called `_build_right_pane()` unconditionally whenever the saved session
+  had split tabs, without checking whether a right pane was already up — so the existing pane
+  stayed on screen while every widget slot (`_nb_frame_r`, `_notebook_r`, `_lock_btn`,
+  `_split_mode_bar_spacer`) was overwritten to point at the new one. The first pane became
+  unreachable: SPLIT toggled the new pane while the orphan sat there, which is why closing the
+  split left one behind.
+  - `_build_right_pane` is now idempotent — it disposes of any existing pane first, so there
+    is exactly one right pane afterwards no matter who calls it or when. The silent teardown
+    is split out as `_dispose_split_pane()`, which `_close_split` also uses after its prompts.
+  - Fixes the `TclError: invalid command name …!label3` some users saw when hovering the
+    scroll-lock `⇕` button: with two panes built, `_lock_btn` pointed at one of them, and
+    destroying that one left the survivor's hover handler configuring a dead widget. The
+    hover handlers now recolour the widget they are bound to, captured by default arg, and
+    `_dispose_split_pane` clears the slots it owns.
 - **Designer double-click no longer jumps to the right line in the wrong pane.** With the split
   editor open, double-clicking a widget to jump to its handler moved the caret in the *split*
   pane's buffer — the correct line number applied to whatever file the split happened to be

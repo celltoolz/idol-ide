@@ -466,6 +466,7 @@ class IDOL(Tk):
         self._nb_frame_r = None
         self._scroll_locked: bool = False
         self._lock_btn = None
+        self._split_mode_bar_spacer = None
         self._syncing_scroll: bool = False
 
         # Settings
@@ -4870,14 +4871,14 @@ class IDOL(Tk):
         before = self._designer_frame if self._designer_mode else self.notebook
         self._mode_bar.pack(fill="x", side="top", before=before)
         self._refresh_mode_bar()
-        if self._split_active and hasattr(self, "_split_mode_bar_spacer"):
+        if self._split_active and self._split_mode_bar_spacer:
             self._split_mode_bar_spacer.pack(fill="x", before=self._notebook_r)
 
     def _hide_mode_bar(self) -> None:
         """Remove the mode bar and force editor mode."""
         self._enter_editor_mode()
         self._mode_bar.pack_forget()
-        if hasattr(self, "_split_mode_bar_spacer"):
+        if self._split_mode_bar_spacer:
             self._split_mode_bar_spacer.pack_forget()
 
     def _refresh_mode_bar(self) -> None:
@@ -9305,8 +9306,19 @@ class IDOL(Tk):
         self.after_idle(lambda: _enforce(8))
 
     def _build_right_pane(self) -> None:
-        """Create the right notebook frame and wire it up."""
+        """Create the right notebook frame and wire it up.
+
+        Idempotent by construction: any existing pane is disposed of first, so
+        there is exactly one right pane afterwards. Without this, a caller that
+        builds while a pane is already up adds a *second* frame to
+        `_split_pane` and overwrites every widget slot — the first pane stays
+        on screen, unreachable, and `_close_split` then destroys the wrong one.
+        `session.restore()` did exactly that when a project was opened with the
+        split already open, which is how two SPLIT panes ended up side by side.
+        """
         import tkinter as tk
+
+        self._dispose_split_pane()
 
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
@@ -9349,16 +9361,20 @@ class IDOL(Tk):
             padx=4,
         )
         self._lock_btn.pack(side="right")
-        self._lock_btn.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
-        self._lock_btn.bind(
+        # Hover handlers recolour the widget they are bound to, captured by
+        # default arg — not `self._lock_btn`, which is a single slot that can
+        # point at a destroyed label (`TclError: invalid command name`).
+        _lock = self._lock_btn
+        _lock.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
+        _lock.bind(
             "<Enter>",
-            lambda _: self._lock_btn.config(
+            lambda _, b=_lock: b.config(
                 fg="#1a9fd4" if self._scroll_locked else "#cccccc"
             ),
         )
-        self._lock_btn.bind(
+        _lock.bind(
             "<Leave>",
-            lambda _: self._lock_btn.config(
+            lambda _, b=_lock: b.config(
                 fg="#007acc" if self._scroll_locked else "#555555"
             ),
         )
@@ -9495,16 +9511,31 @@ class IDOL(Tk):
         """X button: close all split tabs (with unsaved-changes prompts) and destroy pane."""
         if not self._split_active or self._notebook_r is None:
             return
-        self._patched_scroll_pair = None
-        for cv in (self._get_left_cv(), self._get_right_cv()):
-            if cv is not None:
-                cv.on_scroll = None
         # Prompt for each dirty tab
         for tab_id in list(self._notebook_r.tabs()):
             if not self._confirm_close_tab(tab_id):
                 return  # user cancelled
-        # All confirmed — clean up state
-        for tab_id in list(self._notebook_r.tabs()):
+        self._dispose_split_pane()
+
+    def _dispose_split_pane(self) -> None:
+        """Tear the right pane down to nothing — no prompts, nothing left behind.
+
+        Every widget reference `_build_right_pane` sets (`_nb_frame_r`,
+        `_notebook_r`, `_lock_btn`, `_split_mode_bar_spacer`) is a *single
+        slot*, so a second pane silently orphans the first: still on screen,
+        still bound, but unreachable — and the stale `_lock_btn` then throws
+        `TclError: invalid command name` the moment the live pane is closed.
+        Callers that want a right pane must go through `_build_right_pane`,
+        which calls this first; callers that want it gone call this directly.
+        Safe to call when there is no pane.
+        """
+        if self._notebook_r is None and self._nb_frame_r is None:
+            return
+        self._patched_scroll_pair = None
+        for cv in (self._get_left_cv(), self._get_right_cv()):
+            if cv is not None:
+                cv.on_scroll = None
+        for tab_id in list(self._notebook_r.tabs() if self._notebook_r else ()):
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)
@@ -9521,11 +9552,20 @@ class IDOL(Tk):
             if closed_path and closed_path.endswith(".py"):
                 for srv in self._each_lsp():
                     srv.close_file(closed_path)
-        if self._split_shown:
-            self._split_pane.forget(self._nb_frame_r)
-        self._nb_frame_r.destroy()
+        if self._nb_frame_r is not None:
+            # forget() unconditionally: `_split_shown` can be False while the
+            # frame is still managed (a desynced flag is exactly how the
+            # duplicate pane went unnoticed), and forgetting an unmanaged
+            # child is harmless.
+            try:
+                self._split_pane.forget(self._nb_frame_r)
+            except Exception:
+                pass
+            self._nb_frame_r.destroy()
         self._nb_frame_r = None
         self._notebook_r = None
+        self._lock_btn = None
+        self._split_mode_bar_spacer = None
         self._split_active = False
         self._split_shown = False
         self._split_was_shown = False
