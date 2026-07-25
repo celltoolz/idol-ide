@@ -8869,6 +8869,37 @@ class IDOL(Tk):
                 self._write_file(tab_id, path)
                 break
 
+    def _ci_image_natural_sizes(self, form, root) -> "dict[str, tuple[int, int]]":
+        """Natural (unresized) pixel size of every CI image path in *form*.
+
+        Opens each unique image once via PIL (design-time work the pure codegen
+        layer can't do) so codegen can skip the per-item resized PhotoImage when an
+        item is already at its natural size. Unreadable images are simply omitted —
+        codegen then falls back to the always-safe per-item resize for them.
+        """
+        import os
+        sizes: dict[str, tuple[int, int]] = {}
+        paths = {
+            ci.props["image_path"].replace("\\", "/")
+            for w in form.widgets if w.type == "Canvas"
+            for ci in w.canvas_items
+            if ci.kind == "image" and ci.props.get("image_path")
+        }
+        if not paths:
+            return sizes
+        try:
+            from PIL import Image
+        except Exception:
+            return sizes
+        for rel in paths:
+            abs_path = os.path.join(str(root), rel.replace("/", os.sep))
+            try:
+                with Image.open(abs_path) as img:
+                    sizes[rel] = (img.width, img.height)
+            except Exception:
+                continue
+        return sizes
+
     def _generate_one_form(self, form, root: str) -> None:
         from pathlib import Path as _Path
         from designer.codegen import generate as _gen
@@ -8947,6 +8978,7 @@ class IDOL(Tk):
             if form.form_type == "main"
             else None,
             dialog_modes=dialog_modes or None,
+            image_natural_sizes=self._ci_image_natural_sizes(form, root),
         )
         # Rewrite self.<old_id> references in spliced user code to follow widget
         # renames. The generated regions already use the new id, so this only

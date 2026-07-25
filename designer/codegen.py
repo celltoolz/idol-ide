@@ -120,7 +120,8 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
              user_imports: str = "",
              event_signatures: dict[str, tuple[str, str]] | None = None,
              linked_dialogs: list[str] | None = None,
-             dialog_modes: dict[str, str] | None = None) -> str:
+             dialog_modes: dict[str, str] | None = None,
+             image_natural_sizes: dict[str, tuple[int, int]] | None = None) -> str:
     """Return Python source for *form*.
 
     event_bodies:   {method_name: dedented_body_str} — user event handler code.
@@ -129,6 +130,11 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
     helpers:        full source of public helper methods (user-written).
     linked_dialogs: dialog class names owned by this form; generates _open_X methods.
     dialog_modes:   {dialog_name: "hide"|"destroy"} — controls opener body pattern.
+    image_natural_sizes: {rel_path: (w, h)} natural pixel size per image, resolved by
+                    the caller (which has PIL + the project dir). Lets a CI image item
+                    drawn at natural size skip its per-item resized PhotoImage and reuse
+                    the shared component image. Omitted/unknown paths fall back to the
+                    always-safe per-item resize.
     """
     bodies   = dict(event_bodies or {})
     sigs     = event_signatures or {}
@@ -321,7 +327,7 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
         out.extend(cb_build)
 
     # Canvas item designer items (create_* + tag_bind calls)
-    ci_build = _canvas_items_build_lines(form)
+    ci_build = _canvas_items_build_lines(form, image_natural_sizes or {})
     if ci_build:
         out.extend(ci_build)
 
@@ -1450,6 +1456,26 @@ def _img_ref(comp_id: str, key: str) -> str:
     return f'self.{comp_id}["{key}"]' if key else f"self.{comp_id}"
 
 
+def _ci_shared_image_ref(form: FormModel, img_path: str) -> str | None:
+    """Shared Image-component expression for a CI image at its natural size.
+
+    A CI image item drawn at its natural (unresized) display size can reuse the
+    Image component's own PhotoImage — no per-item resized copy needed — which is
+    both correct (the component loads at natural size) and far less generated code
+    when many items share one image. Returns ``self.name`` / ``self.name["stem"]``
+    for the first Image component listing this path, or ``None`` if none does.
+    """
+    import os as _os
+    if not img_path:
+        return None
+    for comp in form.components:
+        if comp.type == "Image" and img_path in comp.props.get("paths", []):
+            paths = comp.props.get("paths", [])
+            stem = _os.path.splitext(_os.path.basename(img_path))[0]
+            return _img_ref(comp.id, stem if len(paths) > 1 else "")
+    return None
+
+
 def _canvas_button_build_lines(form: FormModel) -> list[str]:
     """Return indented _build_ui lines for canvas image buttons on Image components."""
     import os as _os
@@ -1555,7 +1581,8 @@ def _component_handler_lines(form: FormModel, bodies: dict[str, str]) -> list[st
     return lines
 
 
-def _canvas_items_build_lines(form: FormModel) -> list[str]:
+def _canvas_items_build_lines(form: FormModel,
+                              natural_sizes: "dict[str, tuple[int, int]] | None" = None) -> list[str]:
     """Return indented _build_ui lines for canvas items created via the Canvas Item Designer."""
     lines: list[str] = []
     _BINDINGS_CI: dict[str, str] = {
@@ -1594,17 +1621,26 @@ def _canvas_items_build_lines(form: FormModel) -> list[str]:
             if item.kind == "image":
                 img_path = item.props.get("image_path", "")
                 _rel = img_path.replace("\\", "/") if img_path else ""
-                # Each image item owns a PhotoImage resized to its own display size
-                # (item box pre-scaled for a designer canvas resize), so the item's
-                # width/height set in the Canvas Item inspector render at runtime —
-                # matching the design canvas. A shared component image can't do this
-                # (two items may reuse one path at different sizes).
+                # Display size = item box pre-scaled for any designer canvas resize.
                 _idw = max(1, round(item.width  * w.width  / _ci_orig_w))
                 _idh = max(1, round(item.height * w.height / _ci_orig_h))
-                if _rel:
-                    # Namespaced by canvas id — item ids are only unique per canvas,
-                    # so two canvases sharing "ci_img1" must not clobber one attribute
-                    # (Tk holds no strong ref; a clobbered PhotoImage would be GC'd).
+                # Natural-size fast path (static canvas only): when the item renders
+                # at the image's natural pixel size, reuse the shared Image-component
+                # PhotoImage instead of emitting a per-item resized copy — identical
+                # pixels, far less generated code when many items share one image. A
+                # stretching (size-anchored) canvas still gets a per-item image so it
+                # can re-render on <Configure>. Unknown natural size (no PIL / missing
+                # file) falls through to the always-safe per-item resize.
+                _nat = (natural_sizes or {}).get(_rel)
+                _shared_ref = _ci_shared_image_ref(form, img_path) if _rel else None
+                if (not _runtime and _shared_ref is not None
+                        and _nat is not None and (_idw, _idh) == tuple(_nat)):
+                    img_ref = _shared_ref
+                elif _rel:
+                    # Per-item resized PhotoImage. Namespaced by canvas id — item ids
+                    # are only unique per canvas, so two canvases sharing "ci_img1"
+                    # must not clobber one attribute (Tk holds no strong ref; a
+                    # clobbered PhotoImage would be GC'd).
                     img_ref = f"self._{canvas_name}_{item.id}_img"
                     lines.append(f"        {img_ref} = ImageTk.PhotoImage(")
                     lines.append(f'            Image.open(os.path.join(os.path.dirname(__file__), "{_rel}"))')

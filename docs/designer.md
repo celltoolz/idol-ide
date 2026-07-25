@@ -597,9 +597,16 @@ def _button_click(self, event):
 Methods are generated in the `# ── Events ──` section and bodies survive regeneration just like widget
 event stubs — a saved/user-edited body always takes precedence over the injected default.
 
-**Image items** — each `CanvasImage` item generates **its own** `PhotoImage`, resized with
-`Image.resize(...)` to the item's own display size — the `width`/`height` you set in the CI inspector,
-matching the design canvas WYSIWYG:
+**Image items** — an image item at its picture's **natural** size reuses the shared `Image` component's
+`PhotoImage` directly — no per-item copy, minimal code:
+
+```python
+self.canvas1.create_image(48, 480, image=self.button_states["btnUp"], anchor="nw", tags='button00')
+```
+
+Only when you **resize** an item (its `width`/`height` no longer matches the image's natural size) does it
+generate **its own** `PhotoImage`, resized with `Image.resize(...)` to the item's display size so it matches
+the design canvas WYSIWYG:
 
 ```python
 self._canvas1_ci_img1_img = ImageTk.PhotoImage(
@@ -609,12 +616,13 @@ self._canvas1_ci_img1_img = ImageTk.PhotoImage(
 self.canvas1.create_image(32, 32, image=self._canvas1_ci_img1_img, anchor="nw", tags='canvasimage1')
 ```
 
-The image is *per item*, not the shared `Image` component's `PhotoImage` (two items can reuse one path
-at different sizes, so a shared image can't satisfy both), and the attribute is namespaced by canvas id
+The per-item image is *per item*, not the shared `Image` component's `PhotoImage` (two items can reuse one
+path at different sizes, so a shared image can't satisfy both), and the attribute is namespaced by canvas id
 (`_{canvas}_{item}_img`) because item ids are only unique per canvas — a shared name would let one
-`PhotoImage` clobber another and get garbage-collected (Tk holds no strong reference). The auto
-`{canvas}_ci` Image component's own natural-size `PhotoImage` is still emitted so it stays a valid named
-reference in your code, but the items no longer point at it.
+`PhotoImage` clobber another and get garbage-collected (Tk holds no strong reference). The `Image`
+component's own natural-size `PhotoImage` is always emitted, so it stays a valid named reference in your code
+whether or not any item points at it. (A size-changing anchor always uses per-item images so it can re-render
+on stretch — see *Resize scaling* below.)
 
 **Resize scaling** — canvas items track the canvas through both kinds of resize, whether or not the canvas has a background image:
 
