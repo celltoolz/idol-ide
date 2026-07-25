@@ -16,6 +16,12 @@ Full VT100 PTY shell with a **canvas-driven renderer** for pixel-perfect output 
 
 Open with `Ctrl+`` ` or the **>_** button in the nav toolbar.
 
+### Working directory
+
+A new shell session starts in the current Explorer root. Once it is running, **IDOL never
+moves it behind your back** — changing the Explorer root (Set as Root Directory, a breadcrumb
+folder click, opening a file) only changes where the *next* session starts.
+
 ## Sessions Sidebar
 
 The terminal hosts **multiple shell sessions at once** in a VS Code-style sidebar on the right.

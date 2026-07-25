@@ -3320,13 +3320,16 @@ class IDOL(Tk):
         ProjectWizard(self, on_complete=self._on_project_created)
 
     def _set_explorer_root(self, path: str) -> None:
-        """Set explorer root and sync terminal cwd."""
+        """Set the explorer's root directory."""
         self._sidebar.explorer.set_root(path)
         # set_root fires on_root_change which calls _on_explorer_root_change,
-        # so set_cwd is already handled there — nothing else needed here.
+        # so the per-root wiring is already handled there.
 
     def _on_explorer_root_change(self, root: str) -> None:
         """Called whenever the explorer navigates to a new root directory."""
+        # Records the start directory for the *next* terminal session only — a
+        # running shell is left alone.  Explorer → Open in Terminal is the
+        # explicit way to move a live terminal.
         self._output.set_cwd(root)
         self._git = None
         self._start_git()

@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-24] — Explorer root / terminal working directory
+
+### Fixed
+- **Changing the Explorer root no longer `cd`s a running terminal.** `Set as Root Directory`,
+  a breadcrumb folder click, and opening a file all funnel through
+  `_on_explorer_root_change`, which used to push the new root into the live shell — so
+  re-rooting the tree teleported whatever you were doing in the terminal to a different
+  directory. `BottomPanel.set_cwd()` is now state-only: it records the directory the *next*
+  terminal session starts in and leaves running shells alone. The live-`cd` behaviour moved
+  to a new explicit `BottomPanel.cd_terminal()` (which also drops the old 250 ms coalescing
+  timer — an explicit user action does not need debouncing).
+
+---
+
 ## [2026-07-24] — Designer property-panel polish
 
 ### Added
