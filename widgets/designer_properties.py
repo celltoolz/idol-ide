@@ -119,6 +119,9 @@ class DesignerProperties(tk.Frame):
         self._prop_clearing:  bool                      = False
         self._ev_clearing:    bool                      = False
         self._prop_clear_iid: str | None                = None
+        # When the clear 'x' means "reset this row to a value" (CanvasImage
+        # width/height → natural) rather than "clear to empty", holds that value.
+        self._prop_clear_reset_to: str | None           = None
         self._ev_btn_iid:     str | None                = None
         # Component mode state
         self._comp_mode:      bool                      = False
@@ -871,6 +874,23 @@ class DesignerProperties(tk.Frame):
                 if ev_method == method:
                     return f"Connected to {w.id}.{ev_key}"
         return ""
+
+    def _ci_natural_size(self, image_path: str) -> "tuple[int, int] | None":
+        """Natural (w, h) of a canvas-item image, resolved against the project dir.
+
+        Used to show the '(original: w/h)' hint and the reset-to-natural 'x' on a
+        CanvasImage's width/height rows. Returns None if the image can't be read.
+        """
+        if not image_path or not self._project_dir:
+            return None
+        import os
+        resolved = os.path.join(self._project_dir, image_path.replace("/", os.sep))
+        try:
+            from PIL import Image
+            with Image.open(resolved) as img:
+                return (img.width, img.height)
+        except Exception:
+            return None
 
     def _form_image_hint(self) -> str:
         """Dynamic hint for the form__image property row."""
@@ -2913,6 +2933,8 @@ class DesignerProperties(tk.Frame):
         # Name
         self._props_insert("widget__name", "name", d.id)
         # Geometry
+        _ci_nat = (self._ci_natural_size(d.props.get("image_path", ""))
+                   if d.type == "CanvasImage" else None)
         for key in ("x", "y", "width", "height"):
             val = str(getattr(d, key))
             orig = None
@@ -2924,6 +2946,11 @@ class DesignerProperties(tk.Frame):
                 _ch = d.props.get("_ci_orig_h")
                 if _ch is not None and _ch != d.height:
                     orig = str(_ch)
+            elif _ci_nat and key in ("width", "height"):
+                # A resized CanvasImage shows its natural size + a reset-to-natural 'x'
+                _target = _ci_nat[0] if key == "width" else _ci_nat[1]
+                if _target != getattr(d, key):
+                    orig = str(_target)
             self._props_insert(f"geo__{key}", key, val, orig=orig)
         # Parent container (read-only)
         parent_val = d.parent_id if d.parent_id else "(form)"
@@ -3262,7 +3289,18 @@ class DesignerProperties(tk.Frame):
         row = self._props_rows[idx]
         iid = row["iid"]
         val = row["value"]
-        if self._is_prop_clearable(iid) and val and (iid != "anchor__value" or val != "(none)"):
+        # Reset-to-original 'x' on a width/height row that carries an "orig": a
+        # resized CanvasImage (→ its image's natural size) or a Canvas resized in
+        # CI mode (→ its recorded _ci_orig design size). Shown only when the value
+        # actually differs from that original (i.e. the row has an "orig").
+        reset_to = (row.get("orig")
+                    if iid in ("geo__width", "geo__height")
+                    and self._current_widget is not None
+                    and self._current_widget.type in ("CanvasImage", "Canvas")
+                    else None)
+        clearable = (self._is_prop_clearable(iid) and val
+                     and (iid != "anchor__value" or val != "(none)"))
+        if reset_to or clearable:
             bbox = self._props_bbox(iid)
             if bbox:
                 x, y, w, h = bbox
@@ -3270,9 +3308,11 @@ class DesignerProperties(tk.Frame):
                 self._prop_clear_btn.place(x=x + w - bw, y=y, width=bw, height=h)
                 self._prop_clear_btn.lift()
                 self._prop_clear_iid = iid
+                self._prop_clear_reset_to = reset_to
                 return
         self._prop_clear_btn.place_forget()
         self._prop_clear_iid = None
+        self._prop_clear_reset_to = None
 
     def _on_prop_canvas_leave(self, event: tk.Event) -> None:
         dest = self.winfo_containing(event.x_root, event.y_root)
@@ -4534,8 +4574,19 @@ class DesignerProperties(tk.Frame):
         row = self._prop_clear_iid
         if not row:
             return
+        reset_to = self._prop_clear_reset_to
         self._prop_clear_iid = None
+        self._prop_clear_reset_to = None
         self._prop_clear_btn.place_forget()
+        # Reset a resized CanvasImage dimension back to the image's natural size.
+        # Commit like a normal geo edit, then reload so the '(original)' hint and
+        # 'x' clear now that the value matches natural.
+        if reset_to is not None:
+            self._props_set(row, reset_to)
+            self._commit_prop(row, reset_to)
+            if self._current_widget is not None:
+                self.load_widget(self._current_widget)
+            return
         if row == "anchor__value":
             self._props_set(row, "(none)")
             self._commit_prop(row, "")

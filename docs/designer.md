@@ -509,7 +509,7 @@ Selecting a CI item loads it into the existing **Properties** and **Events** tab
 | `id` | Readonly — auto-numbered (e.g. `ci_rect1`) |
 | `type` | Readonly — item kind |
 | `x`, `y` | Position within the canvas |
-| `width`, `height` | Item dimensions |
+| `width`, `height` | Item dimensions. For a **CanvasImage** whose size differs from the picture's natural pixel size, the row shows `(original: N)` and a hover **`×`** that resets that dimension to natural — returning the item to natural size lets codegen reuse the shared component image instead of a per-item resize |
 | `tags` | Click to open the tag editor dialog |
 | `image_path` | CanvasImage only — click to open an image dropdown |
 | `fill`, `outline` | Color picker (rect, oval, line) |
@@ -568,7 +568,7 @@ Image components now have a **`parent`** property (shown as a `canvas_ref` kind 
 | `Global` | Shared by all canvases on the form — appears in every canvas's IMAGES palette |
 | `<canvas_id>` | Associated with a specific canvas — appears only in that canvas's IMAGES palette |
 
-When a `CanvasImage` item is placed in CI mode, an Image component named `{canvas_id}_ci` is **auto-created** (or updated) on the original form with `parent = canvas_id`. Its `paths` list stays in sync with placed CanvasImage items — **but only for paths not already provided by another Image component** targeting the same canvas (or `Global`). Since codegen resolves a CI image item to the first Image component that has its path, an overlapping `_ci` component would be dead code; so when every CI image path is already covered, the `_ci` component is omitted (and removed if it existed) instead of lingering and reappearing on load.
+When a `CanvasImage` item is placed in CI mode, an Image component named `{canvas_id}_ci` is **auto-created** (or updated) on the original form with `parent = canvas_id`. Its `paths` list stays in sync with placed CanvasImage items — **but only for paths not already provided by another Image component** targeting the same canvas (or `Global`). Since another Image component already lists that path in the canvas's IMAGES palette, an overlapping `_ci` component would duplicate it; so when every CI image path is already covered, the `_ci` component is omitted (and removed if it existed) instead of lingering and reappearing on load.
 
 ### Code Generation
 
@@ -597,10 +597,37 @@ def _button_click(self, event):
 Methods are generated in the `# ── Events ──` section and bodies survive regeneration just like widget
 event stubs — a saved/user-edited body always takes precedence over the injected default.
 
+**Image items** — an image item at its picture's **natural** size reuses the shared `Image` component's
+`PhotoImage` directly — no per-item copy, minimal code:
+
+```python
+self.canvas1.create_image(48, 480, image=self.button_states["btnUp"], anchor="nw", tags='button00')
+```
+
+Only when you **resize** an item (its `width`/`height` no longer matches the image's natural size) does it
+generate **its own** `PhotoImage`, resized with `Image.resize(...)` to the item's display size so it matches
+the design canvas WYSIWYG:
+
+```python
+self._canvas1_ci_img1_img = ImageTk.PhotoImage(
+    Image.open(os.path.join(os.path.dirname(__file__), "images/btnRed.png"))
+    .resize((10, 10), Image.LANCZOS)
+)
+self.canvas1.create_image(32, 32, image=self._canvas1_ci_img1_img, anchor="nw", tags='canvasimage1')
+```
+
+The per-item image is *per item*, not the shared `Image` component's `PhotoImage` (two items can reuse one
+path at different sizes, so a shared image can't satisfy both), and the attribute is namespaced by canvas id
+(`_{canvas}_{item}_img`) because item ids are only unique per canvas — a shared name would let one
+`PhotoImage` clobber another and get garbage-collected (Tk holds no strong reference). The `Image`
+component's own natural-size `PhotoImage` is always emitted, so it stays a valid named reference in your code
+whether or not any item points at it. (A size-changing anchor always uses per-item images so it can re-render
+on stretch — see *Resize scaling* below.)
+
 **Resize scaling** — canvas items track the canvas through both kinds of resize, whether or not the canvas has a background image:
 
-- *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size, so the running app looks like the designer.
-- *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes, lines, and item images scale with the canvas; **text font size and line thickness scale too**, by a uniform factor (the geometric mean of the horizontal and vertical scale, `(_sx * _sy) ** 0.5`) so they grow proportionally on both single- and dual-axis stretches.
+- *Resized in the designer* — if you resize the Canvas widget after placing items, the generated code places the items at the matching scaled position and size (and resizes each image item's `PhotoImage` to match), so the running app looks like the designer. The canvas's recorded design size is kept as its original; if you later change the canvas's `width`/`height` in the Properties panel, the row shows `(original: N)` with a hover `×` that resets it back to that design size.
+- *Stretched at runtime* — if the Canvas has a size-changing **anchor** (`all`, `top`, `bottom`, `left`, `right`), codegen also emits a `<Configure>` handler that repositions and resizes every item live as the window grows or shrinks. Shapes and lines scale with the canvas; **each image item's `PhotoImage` is re-rendered from disk at its own base size × the live stretch factor** (so the inspector size is honoured, not the natural file size); **text font size and line thickness scale too**, by a uniform factor (the geometric mean of the horizontal and vertical scale, `(_sx * _sy) ** 0.5`) so they grow proportionally on both single- and dual-axis stretches.
 
 ### Double-Click Navigation from CI Items
 
@@ -747,7 +774,7 @@ Key points:
 
 ## Code Generation
 
-**Auto-generation** — code is regenerated automatically 1.5 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+G`).
+**Auto-generation** — code is regenerated automatically 0.6 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+G`).
 
 ```python
 import tkinter as tk

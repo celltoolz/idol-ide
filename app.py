@@ -328,6 +328,11 @@ def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
 
 _RESERVED_CANVAS_TAGS = frozenset(("all", "current"))
 
+# Debounce window (ms) for silent designer auto code-gen. Resets on every canvas
+# or property change, so it fires this long after the last edit. Kept short so a
+# quick switch to the editor tab shows freshly generated code without a stale gap.
+_AUTOGEN_DEBOUNCE_MS = 600
+
 def _is_valid_canvas_tag(tag: str) -> bool:
     """Return True if tag is safe to use as a Tkinter canvas tag name."""
     if not tag or " " in tag:
@@ -3655,10 +3660,10 @@ class IDOL(Tk):
         self._schedule_autogen()
 
     def _schedule_autogen(self) -> None:
-        """Debounced auto code-gen: resets the 1.5s timer on every change."""
+        """Debounced auto code-gen: resets the timer on every change."""
         if self._autogen_after_id:
             self.after_cancel(self._autogen_after_id)
-        self._autogen_after_id = self.after(1500, self._run_autogen)
+        self._autogen_after_id = self.after(_AUTOGEN_DEBOUNCE_MS, self._run_autogen)
 
     def _run_autogen(self) -> None:
         """Timer callback — silently regenerate code for the active form."""
@@ -8855,11 +8860,45 @@ class IDOL(Tk):
         Called just before codegen reads the file so user edits are captured
         before the extraction pass runs, not silently discarded.
         """
-        target = str(py_path)
+        # Match on normalized absolute paths (see _generate_one_form's refresh
+        # loop) so a relatively-opened tab is still found and its edits saved.
+        target = os.path.normcase(os.path.abspath(str(py_path)))
         for tab_id, path in self._files.items():
-            if path == target and self._dirty.get(tab_id):
-                self._write_file(tab_id, target)
+            if (path and os.path.normcase(os.path.abspath(str(path))) == target
+                    and self._dirty.get(tab_id)):
+                self._write_file(tab_id, path)
                 break
+
+    def _ci_image_natural_sizes(self, form, root) -> "dict[str, tuple[int, int]]":
+        """Natural (unresized) pixel size of every CI image path in *form*.
+
+        Opens each unique image once via PIL (design-time work the pure codegen
+        layer can't do) so codegen can skip the per-item resized PhotoImage when an
+        item is already at its natural size. Unreadable images are simply omitted —
+        codegen then falls back to the always-safe per-item resize for them.
+        """
+        import os
+        sizes: dict[str, tuple[int, int]] = {}
+        paths = {
+            ci.props["image_path"].replace("\\", "/")
+            for w in form.widgets if w.type == "Canvas"
+            for ci in w.canvas_items
+            if ci.kind == "image" and ci.props.get("image_path")
+        }
+        if not paths:
+            return sizes
+        try:
+            from PIL import Image
+        except Exception:
+            return sizes
+        for rel in paths:
+            abs_path = os.path.join(str(root), rel.replace("/", os.sep))
+            try:
+                with Image.open(abs_path) as img:
+                    sizes[rel] = (img.width, img.height)
+            except Exception:
+                continue
+        return sizes
 
     def _generate_one_form(self, form, root: str) -> None:
         from pathlib import Path as _Path
@@ -8939,6 +8978,7 @@ class IDOL(Tk):
             if form.form_type == "main"
             else None,
             dialog_modes=dialog_modes or None,
+            image_natural_sizes=self._ci_image_natural_sizes(form, root),
         )
         # Rewrite self.<old_id> references in spliced user code to follow widget
         # renames. The generated regions already use the new id, so this only
@@ -8948,9 +8988,14 @@ class IDOL(Tk):
         checksum = _cs(py_path)
         _save(form, json_path, py_checksum=checksum)
 
-        # If the generated file is open in a tab, refresh it in place
+        # If the generated file is open in a tab, refresh it in place. Compare
+        # normalized absolute paths (not Path ==), which also matches when one
+        # side is relative and the other absolute — a plain Path == misses that
+        # and leaves the tab showing stale pre-generation code until reopened.
+        # Refresh every matching tab so a file open in the split view updates too.
+        target = os.path.normcase(os.path.abspath(str(py_path)))
         for tab_id, fp in list(self._files.items()):
-            if fp and _Path(fp) == py_path:
+            if fp and os.path.normcase(os.path.abspath(str(fp))) == target:
                 cv = self._codeviews.get(tab_id)
                 if cv:
                     scroll = cv.scroll_y
@@ -8960,7 +9005,6 @@ class IDOL(Tk):
                     cv.set_cursor(*saved_cursor)
                     self._dirty[tab_id] = False
                     self._refresh_tab_title(tab_id)
-                break
 
     # ── Split editor ──────────────────────────────────────────────────────────
 

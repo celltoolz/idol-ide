@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-24] — Designer property-panel polish
 
 ### Added
+- **One-click reset for changed width/height in the designer.** A geometry row that shows an
+  `(original: N)` hint now also gets a hover `×` that resets that dimension to its original value.
+  This applies to a **CanvasImage** item (resets to the picture's natural pixel size — which also
+  lets codegen drop the per-item resized `PhotoImage` and reuse the shared component image) and to
+  a **Canvas** widget that was resized in CI mode (resets to its recorded design size). Previously
+  the `(original: N)` hint was display-only.
 - **The selected Properties-panel tab renders in bold.** The Properties / Events /
   Handlers / Order tabs now show the active tab's label in bold, so it is obvious at a
   glance which view you are editing. The tabs keep their existing grey / black-text look;
@@ -17,6 +23,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and the tab padding is trimmed to `(4, 2)` for a tighter strip.
 
 ### Fixed
+- **The open editor tab now refreshes after designer code-gen.** Regeneration already
+  rewrote an open `.py` tab in place, but matched the tab with `Path(fp) == py_path`, which
+  on Windows is `False` when one path is relative and the other absolute — so the tab could
+  keep showing stale pre-generation code until closed and reopened. The refresh loop (and the
+  `_autosave_form_py` pre-read save, which had the same mismatch and could silently drop edits)
+  now compare normalized absolute paths, and every matching tab is refreshed so a file open in
+  the split view updates in both panes. The auto-gen debounce was also shortened from 1.5 s to
+  0.6 s (`_AUTOGEN_DEBOUNCE_MS`) so switching to the editor right after an edit shows fresh code
+  with much less lag.
 - **An armed CanvasImage now de-arms back to the pointer.** In the Canvas Item Designer,
   arming an image sets two highlights — the `CanvasImage` type row *and* the image's row in
   the IMAGES panel — but cancelling the tool only cleared the former, so the image row stayed
@@ -25,6 +40,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   addition, `DesignCanvas.exit_canvas_item_mode()` now cancels any armed tool before leaving CI
   mode, so the crosshair cursor and armed highlight can no longer bleed into normal designer
   mode when you exit via the right-click menu or programmatically (not just via Escape).
+- **Resized canvas-item images now render at their set size in the generated app.** When you
+  resized a `CanvasImage` in the Canvas Item inspector, the design canvas showed it correctly
+  but codegen pointed `create_image()` at the shared `Image` component's natural-size
+  `PhotoImage` — so the running app ignored the size. A **resized** image item now generates its
+  own `ImageTk.PhotoImage(Image.open(...).resize((w, h), LANCZOS))` sized to the item's display
+  box (pre-scaled for any designer canvas resize), matching the WYSIWYG preview. The per-item
+  attribute is namespaced by canvas id (`_{canvas}_{item}_img`) so two canvases sharing an item
+  id can't clobber each other's image (Tk keeps no strong reference, so a clobbered image would
+  be garbage-collected). On a size-changing anchor, the `<Configure>` handler re-renders each
+  item's image at `base size × live stretch factor` instead of the old natural×scale of the
+  shared image. An image item left at its **natural** size skips the per-item copy entirely and
+  reuses the shared component image (`create_image(image=self.comp["stem"])`) — identical pixels
+  with far less generated code, so a canvas of many same-size buttons stays as compact as before
+  the resize feature existed. The natural size is measured once per image via PIL at the app
+  layer (`_ci_image_natural_sizes`) and passed into codegen. The auto `{canvas}_ci` Image
+  component's own `PhotoImage` is still emitted so it stays a valid named reference in your code.
 - **Designer property-panel tab style now lands in the theme that is rendered.** The
   panel is built before the main notebook, so its `Props.TNotebook.Tab` config ran while
   the native startup ttk theme was still active; when the notebook later switched the app
