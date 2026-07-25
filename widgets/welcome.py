@@ -642,7 +642,9 @@ def _shorten_path(path: str, max_len: int = 50) -> str:
         p = Path(path)
         home = Path.home()
         try:
-            rel = "~/" + str(p.relative_to(home))
+            # os.sep, not "/" — str(relative_to(...)) already uses the native
+            # separator, so a hardcoded "/" produced "~/Desktop\vscode\..."
+            rel = "~" + os.sep + str(p.relative_to(home))
         except ValueError:
             rel = str(p)
         if len(rel) > max_len:

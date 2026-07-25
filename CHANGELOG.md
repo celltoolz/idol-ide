@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-25] — Empty-restore grey box
 
 ### Fixed
+- **Welcome-tab paths no longer mix separators.** A path under your home directory was
+  abbreviated by gluing a hardcoded `"~/"` onto `str(Path.relative_to(home))`, which already
+  uses the native separator — producing `~/Desktop\vscode\notepad` on Windows. It now uses
+  `os.sep`, so displayed paths are `\` on Windows and `/` on macOS/Linux throughout.
 - **Opening a file from the Welcome tab no longer renames it to "● Untitled".** `_new_tab`
   wires the editor's `on_change` hook *before* seeding its content and only adds/selects the
   new tab afterwards — so the initial `set_text` fires `_on_content_changed` synchronously
