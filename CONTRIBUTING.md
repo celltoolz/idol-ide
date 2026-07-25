@@ -21,6 +21,11 @@ Three responsibilities, nothing else:
 2. Show splash screen
 3. Instantiate `IDOL` and call `mainloop()`
 
+The splash dismisses on `<ButtonRelease-1>`, never `<Button-1>` — destroying a window on
+press hands the release to whatever is underneath, which on first launch is the Welcome
+tab (its rows bind `ButtonRelease-1`). A press also cancels the auto-dismiss timer so it
+can't close the window partway through a click and re-open the same gap.
+
 ### `app.py` — the application
 The `IDOL` class (`tk.Tk` subclass). Owns the complete object graph: notebook, all
 panels, menus, keybindings, session save/restore, file open/save, LSP, Git, terminal,

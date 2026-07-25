@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-25] — Empty-restore grey box
 
 ### Fixed
+- **Clicking the splash away no longer clicks whatever is behind it.** The splash dismissed on
+  `<Button-1>`, destroying itself while the mouse button was still down — so the matching
+  release was delivered to whatever the pointer now sat over. On first launch that is the
+  Welcome tab, whose rows bind `<ButtonRelease-1>`, so dismissing the splash silently activated
+  a link underneath it. It now dismisses on release, and a press cancels the auto-dismiss timer
+  so that timer can't re-open the same gap partway through a click. This is the existing
+  popup-row rule (bind `ButtonRelease-1`, never `Button-1`) applied to the one window that
+  still broke it.
 - **Opening a recent project moves it back to the top of the list.** `add_project()` has always
   deduped and inserted at position 0, but `_welcome_open_project` — the path every Recent
   Projects row goes through — never called it, so the list was ordered by *first* open and
