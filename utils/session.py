@@ -714,12 +714,36 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # spuriously marked tabs dirty.  Clear tabs whose content matches disk.
     app.after(350, lambda: _cleanup_dirty_flags(app))
 
+    # ── Never hand back an empty notebook ─────────────────────────────────────
+    # Every tab is skipped individually when its file is gone, so a session
+    # whose files have all moved (a renamed project folder is the usual way)
+    # restores zero tabs while still reporting success — and callers only run
+    # their own fallback when this returns False.  The result was a bare grey
+    # panel with no tabs at all.  Seed the same thing a cold start would.
+    if not app.notebook.tabs():
+        app.after_idle(lambda: _seed_empty_notebook(app))
+
     if migrated_from:
         # A note, not a question — the file the user opened is the ground truth
         # about where the project lives, so there was nothing to decide.
         app.after(600, lambda: _report_migration(app, migrated_from, base))
 
     return True
+
+
+def _seed_empty_notebook(app: "IDOL") -> None:
+    """Open Welcome (or a blank tab) when a restore produced no tabs at all."""
+    if app.notebook.tabs():
+        return  # something else filled it in the meantime
+    try:
+        from utils import recent as _recent
+
+        if _recent.get_show_on_startup():
+            app.view_welcome()
+        else:
+            app._new_tab("Untitled", "")
+    except Exception:
+        pass
 
 
 def _report_migration(app: "IDOL", old_root: str, new_root: str) -> None:

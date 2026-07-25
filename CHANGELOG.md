@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-25] — Empty-restore grey box
+
+### Fixed
+- **A session whose files have all moved no longer opens to a blank grey panel.** Each saved
+  tab is skipped individually when its file is missing, but `restore()` reported success as
+  long as the session *file* had tabs in it — and every caller only runs its own
+  Welcome/Untitled fallback when restore returns `False`. Rename a project folder outside
+  IDOL and every path missed at once, so the restore "succeeded" with zero tabs and nothing
+  filled the notebook: an editor area with no tabs at all, which cleared itself on the next
+  launch (by which point the session had been overwritten). `restore()` now seeds whatever a
+  cold start would — the Welcome tab, or a blank one, per the **Show on startup** preference.
+
+---
+
 ## [2026-07-24] — Portable `.idol-project` files
 
 ### Added

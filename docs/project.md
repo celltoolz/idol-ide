@@ -90,6 +90,8 @@ On exit, IDOL auto-saves:
 
 Session data is written to `~/.idol/session.json`. Named project saves write to `<name>.idol-project` in the project root.
 
+A saved tab whose file has since been deleted or moved is skipped on restore. If that turns out to be *every* tab — renaming a project folder outside IDOL is the usual way — you get the Welcome tab (or a blank one, depending on your **Show on startup** setting) rather than an empty editor.
+
 ## Status Bar
 
 The status bar (bottom of the window) shows:
