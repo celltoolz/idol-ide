@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-25] — Empty-restore grey box
 
 ### Fixed
+- **Opening a file from the Welcome tab no longer renames it to "● Untitled".** `_new_tab`
+  wires the editor's `on_change` hook *before* seeding its content and only adds/selects the
+  new tab afterwards — so the initial `set_text` fires `_on_content_changed` synchronously
+  while the **previous** tab is still the selected one. When that was a non-editor tab, the
+  fall-through branch flagged it dirty, and `_refresh_tab_title` renders a tab with no
+  `_titles` entry as `Untitled` with an unsaved marker. The dirty-tracking block now requires
+  the current tab to actually own an editor. This affected any file opened while a Welcome,
+  Packages, or Learn tab was focused, not just Recent Files.
 - **Clicking the splash away no longer clicks whatever is behind it.** The splash dismissed on
   `<Button-1>`, destroying itself while the mouse button was still down — so the matching
   release was delivered to whatever the pointer now sat over. On first launch that is the

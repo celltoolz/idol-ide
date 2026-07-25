@@ -1993,9 +1993,16 @@ class IDOL(Tk):
         cv = self._current_codeview
         text: str | None = None
 
-        if tab_id:
+        # `cv is not None` gates the whole block: the current tab must actually
+        # own an editor.  _new_tab wires `on_change` before it calls set_text
+        # and only adds/selects the tab afterwards, so the initial load fires
+        # this synchronously while the *previous* tab is still selected — and
+        # when that was a non-editor tab (Welcome, Packages, Learn) the `elif`
+        # below flagged it dirty, which renamed it to "● Untitled" because it
+        # has no `_titles` entry to fall back on.
+        if tab_id and cv is not None:
             clean_crc = self._clean_crcs.get(tab_id)
-            if clean_crc is not None and cv:
+            if clean_crc is not None:
                 # Fetch text once — reused below for outline/LSP too.
                 text = _cv_text(cv)
                 current_crc = zlib.crc32(text.encode())
