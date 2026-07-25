@@ -4197,7 +4197,13 @@ class IDOL(Tk):
                 if answer:
                     self.workspace_save()
             self._teardown_project(add_untitled=False)
-            if not session_utils.restore(self, str(candidate)):
+            if session_utils.restore(self, str(candidate)):
+                # Re-add so the project moves back to the top of the recent
+                # list, matching the File > Open Project path.  *path* is the
+                # entry's own stored string, so the dedupe inside add_project
+                # matches exactly and can't leave a differently-spelled twin.
+                recent_utils.add_project(path)
+            else:
                 self.view_welcome()
         else:
             showerror("Open Project", f"Could not find a project file in:\n{path}")

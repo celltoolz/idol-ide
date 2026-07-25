@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-07-25] — Empty-restore grey box
 
+### Fixed
+- **Opening a recent project moves it back to the top of the list.** `add_project()` has always
+  deduped and inserted at position 0, but `_welcome_open_project` — the path every Recent
+  Projects row goes through — never called it, so the list was ordered by *first* open and
+  never changed again. Only `File → Open Project` (which does call it) kept the list fresh.
+  The re-add uses the entry's own stored path string, so the dedupe matches exactly and can't
+  leave a differently-spelled twin behind.
+
 ### Added
 - **Missing entries in Recent Projects / Recent Files are flagged, not silently dropped.** A
   recent entry whose folder or file no longer exists now shows a red **⊗**, a dimmed name, and

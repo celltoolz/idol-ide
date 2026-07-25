@@ -48,7 +48,7 @@ On first launch (or whenever no editor tabs are open), IDOL shows a **Welcome** 
 
 - **Start** — quick links to New File, Open File, Open Folder, New Project, and Open Project
 - **Explore** — one-click access to Learning Mode, the GUI Designer, and the Package Manager
-- **Recent Projects / Recent Files** — last 10 of each, persisted in `~/.idol/recent.json`; click to reopen, × to remove
+- **Recent Projects / Recent Files** — last 10 of each, persisted in `~/.idol/recent.json`; click to reopen, × to remove. Opening an entry moves it back to the top, so the list stays ordered by when you last used it
   - An entry whose folder or file is no longer on disk is flagged with a red **⊗** and reads `· not found` under the name. Click it and IDOL tells you where it used to be and offers to drop it from the list — the entry is never removed without asking
 - **What's New** — live view of `CHANGELOG.md` with ‹ › navigation between milestone sections
 - **Tips** — rotating keyboard shortcut hints at the bottom
