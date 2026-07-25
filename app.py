@@ -559,6 +559,10 @@ class IDOL(Tk):
         self._start_highlight_loop()
 
         if initial_file and os.path.isfile(initial_file):
+            # Launched as `python main.py <file>` — no project and no session
+            # restore, so the file's own folder is the closest thing to a
+            # workspace.  _open_file itself never touches the root.
+            self._set_project_root(os.path.dirname(os.path.abspath(initial_file)))
             self._open_file(initial_file)
         elif not session_utils.restore(self):
             if recent_utils.get_show_on_startup():
@@ -617,6 +621,7 @@ class IDOL(Tk):
             on_file_delete=self._on_explorer_file_delete,
             on_ref_navigate=self._ref_navigate,
             on_open_in_designer=self._open_form_json_in_designer,
+            on_open_in_terminal=self._open_dir_in_terminal,
         )
         self._sidebar.configure(width=self._startup_h_sash)
         self._h_pane.add(self._sidebar, minsize=220, stretch="never")
@@ -1988,9 +1993,16 @@ class IDOL(Tk):
         cv = self._current_codeview
         text: str | None = None
 
-        if tab_id:
+        # `cv is not None` gates the whole block: the current tab must actually
+        # own an editor.  _new_tab wires `on_change` before it calls set_text
+        # and only adds/selects the tab afterwards, so the initial load fires
+        # this synchronously while the *previous* tab is still selected — and
+        # when that was a non-editor tab (Welcome, Packages, Learn) the `elif`
+        # below flagged it dirty, which renamed it to "● Untitled" because it
+        # has no `_titles` entry to fall back on.
+        if tab_id and cv is not None:
             clean_crc = self._clean_crcs.get(tab_id)
-            if clean_crc is not None and cv:
+            if clean_crc is not None:
                 # Fetch text once — reused below for outline/LSP too.
                 text = _cv_text(cv)
                 current_crc = zlib.crc32(text.encode())
@@ -3238,9 +3250,9 @@ class IDOL(Tk):
                 self.notebook.select(tab_id)
                 _seek(self._codeviews.get(tab_id))
                 return
-        # Otherwise open as a new tab — navigation must not reset the explorer root
+        # Otherwise open as a new tab
         if os.path.isfile(path):
-            self._open_file(path, update_explorer=False)
+            self._open_file(path)
             _seek(self._current_codeview)
 
     # ── Active-line highlight loop ────────────────────────────────────────────
@@ -3320,13 +3332,40 @@ class IDOL(Tk):
         ProjectWizard(self, on_complete=self._on_project_created)
 
     def _set_explorer_root(self, path: str) -> None:
-        """Set explorer root and sync terminal cwd."""
+        """Set the explorer's root directory."""
         self._sidebar.explorer.set_root(path)
         # set_root fires on_root_change which calls _on_explorer_root_change,
-        # so set_cwd is already handled there — nothing else needed here.
+        # so the per-root wiring is already handled there.
+
+    def _set_project_root(self, path: str) -> None:
+        """Open *path* as the project root — explorer **and** live terminal both move.
+
+        The project-level counterpart to `_set_explorer_root`.  Opening,
+        creating, or closing a project is a deliberate "I work somewhere else
+        now" action, so a running shell follows it.  Casual root changes (Set
+        as Root Directory, a breadcrumb click, File > Open) go through
+        `_set_explorer_root` and leave the shell where the user left it.
+        """
+        self._set_explorer_root(path)
+        self._output.cd_terminal(path)
+
+    def _open_dir_in_terminal(self, path: str) -> None:
+        """Explorer → Open in Terminal: cd the live terminal to *path* and reveal it."""
+        # cd first: a not-yet-started terminal then starts in *path*, and a
+        # running-but-hidden one has its pending cd applied by the reveal below.
+        self._output.cd_terminal(path)
+        # Reveal without toggling — view_show_panel would hide the panel when
+        # the terminal is already the active tab.
+        if not self.output_visible_var.get():
+            self.output_visible_var.set(True)
+            self.view_toggle_output()
+        self._output._set_active("terminal")
 
     def _on_explorer_root_change(self, root: str) -> None:
         """Called whenever the explorer navigates to a new root directory."""
+        # Records the start directory for the *next* terminal session only — a
+        # running shell is left alone.  Explorer → Open in Terminal is the
+        # explicit way to move a live terminal.
         self._output.set_cwd(root)
         self._git = None
         self._start_git()
@@ -3379,7 +3418,7 @@ class IDOL(Tk):
             self._refresh_generate_code_state()
         else:
             self._hide_mode_bar()
-        self._set_explorer_root(project_path)
+        self._set_project_root(project_path)
         self._git = None
         self._start_git()
         if venv_activate_path and os.path.isfile(venv_activate_path):
@@ -3429,7 +3468,7 @@ class IDOL(Tk):
         # Open the project entry point
         entry = os.path.join(project_path, "main.py")
         if os.path.isfile(entry):
-            self._open_file(entry, update_explorer=False)
+            self._open_file(entry)
             self._set_run_entry(entry)
         # For GUI projects, also open the generated form file as the active tab
         if project_type == "gui":
@@ -3438,7 +3477,7 @@ class IDOL(Tk):
                 self.designer_generate_code()
                 _form_py = os.path.join(project_path, f"{_active_form.name}.py")
                 if os.path.isfile(_form_py):
-                    self._open_file(_form_py, update_explorer=False)
+                    self._open_file(_form_py)
             self._enter_designer_mode()
         recent_utils.add_project(project_path)
         # Auto-create the project file so "Open Project" works immediately
@@ -3457,9 +3496,7 @@ class IDOL(Tk):
         if path:
             self._open_file(path)
 
-    def _open_file(
-        self, path: str, update_explorer: bool = True, select: bool = True
-    ) -> None:
+    def _open_file(self, path: str, select: bool = True) -> None:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -3488,10 +3525,10 @@ class IDOL(Tk):
         recent_utils.add_file(path)
         if self._welcome_panel:
             self._welcome_panel.refresh()
-        # Only update the explorer root when opening externally (File > Open),
-        # not when clicking a file inside the tree (would reset root unexpectedly)
-        if update_explorer:
-            self._set_explorer_root(path)
+        # Opening a file never re-roots the explorer.  The root belongs to the
+        # project: only opening a project or Explorer → Set as Root Directory
+        # moves it.  (File > Open used to yank the tree to the file's folder,
+        # a leftover from when that was also how you got the terminal there.)
 
         if replace:
             tabs = self.notebook.tabs()
@@ -3784,7 +3821,7 @@ class IDOL(Tk):
             self._set_active_interpreter(_sys.executable, "Python")
             self._on_venv_deactivated()
         self._set_run_entry(None)
-        self._set_explorer_root(str(Path.home()))
+        self._set_project_root(str(Path.home()))
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
         # Reset designer state
@@ -4167,7 +4204,13 @@ class IDOL(Tk):
                 if answer:
                     self.workspace_save()
             self._teardown_project(add_untitled=False)
-            if not session_utils.restore(self, str(candidate)):
+            if session_utils.restore(self, str(candidate)):
+                # Re-add so the project moves back to the top of the recent
+                # list, matching the File > Open Project path.  *path* is the
+                # entry's own stored string, so the dedupe inside add_project
+                # matches exactly and can't leave a differently-spelled twin.
+                recent_utils.add_project(path)
+            else:
                 self.view_welcome()
         else:
             showerror("Open Project", f"Could not find a project file in:\n{path}")
@@ -8627,8 +8670,8 @@ class IDOL(Tk):
 
                 py_path = str(_Path(root) / f"{name}.py")
                 if _Path(py_path).exists():
-                    self._open_file(py_path, update_explorer=False, select=False)
-                # Refresh explorer so new files appear without triggering a terminal cd
+                    self._open_file(py_path, select=False)
+                # Refresh explorer so new files appear without re-rooting the tree
                 self._sidebar.explorer.refresh()
 
         def _lbtn(parent, text, cmd, bg, fg, hover, bold=False):
@@ -8772,7 +8815,7 @@ class IDOL(Tk):
                 if existing_tab:
                     self.notebook.select(existing_tab)
                 else:
-                    self._open_file(py_str, update_explorer=False)
+                    self._open_file(py_str)
         except Exception as exc:
             from tkinter.messagebox import showerror
 
@@ -8818,7 +8861,7 @@ class IDOL(Tk):
                 if existing_tab:
                     self.notebook.select(existing_tab)
                 else:
-                    self._open_file(py_str, update_explorer=False)
+                    self._open_file(py_str)
         except Exception as exc:
             from tkinter.messagebox import showerror
 

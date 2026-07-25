@@ -23,13 +23,28 @@ The wizard includes paginated guides covering:
 ## Project Files
 
 `File → New Project` auto-creates a `<name>.idol-project` file in the project root (where `<name>` matches the project name) storing:
+
 - Open tabs
 - Layout (sash widths, active panels)
 - Active interpreter
 - Breakpoints
 - Appearance settings
 
+### The project folder is portable
+
+Everything inside the project folder is stored **relative to the folder itself**, so you can move it, rename it, copy it to another drive, or sync it to another machine and it still opens. Your `.venv`, your open tabs, your breakpoints, and your pinned run entry all follow.
+
+Paths that point *outside* the project stay absolute, because there is nothing meaningful to make them relative to — a system-wide Python interpreter, or a tab you opened from some other folder. Those are checked when the project opens and quietly skipped if they no longer exist, so a project copied to a machine with a different Python layout still opens cleanly with whatever does resolve.
+
+### Projects made before this change
+
+A project file written by an older version of IDOL stores absolute paths. Open one and IDOL repairs it for you: if the folder has moved, every path that pointed inside the old location is re-pointed at the new one, and the file is rewritten in the portable format. It happens on open, without a prompt — the project file you just opened is the authority on where the project lives, so there is nothing to confirm. A note appears in the Output panel telling you where it used to be.
+
+This runs once per project. After that the file is portable and nothing needs repairing again.
+
 **Save / Open / Close Project** — `File → Save Project` saves silently; `File → Open Project` restores the full project state including interpreter selection. The Open Project file dialog opens at the current Explorer root (or the working directory if none is set).
+
+Opening, creating, or closing a project moves the **terminal** as well as the Explorer: a running shell is `cd`'d to the new project root (or back to your home directory on close), and a shell you have not started yet will open there. This is deliberate — a project switch is the one root change that takes the terminal with it. See [Working directory](terminal.md#working-directory).
 
 ## Interpreter & Environment
 
@@ -74,6 +89,8 @@ On exit, IDOL auto-saves:
 - **Designer state** — open forms, active canvas, and the Set as Main selection; if the designer was active, it re-opens automatically on the next launch with the same forms loaded
 
 Session data is written to `~/.idol/session.json`. Named project saves write to `<name>.idol-project` in the project root.
+
+A saved tab whose file has since been deleted or moved is skipped on restore. If that turns out to be *every* tab — renaming a project folder outside IDOL is the usual way — you get the Welcome tab (or a blank one, depending on your **Show on startup** setting) rather than an empty editor.
 
 ## Status Bar
 

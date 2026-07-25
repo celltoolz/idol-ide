@@ -35,6 +35,7 @@ class Sidebar(ttk.Frame):
         on_file_delete: Callable[[str], None] | None = None,
         on_ref_navigate: Callable[[str | None, int, int], None] | None = None,
         on_open_in_designer: Callable[[str], None] | None = None,
+        on_open_in_terminal: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(parent, style="Sidebar.TFrame")
 
@@ -101,13 +102,13 @@ class Sidebar(ttk.Frame):
         self._sash3 = self._make_sash(2, 3)
 
         self._explorer_hdr = self._make_header("EXPLORER",  self._toggle_explorer)
-        # Wrap callback so clicks from the tree don't reset the explorer root
         self.explorer      = FileExplorer(self,
-                                          on_open_file=lambda p: on_file_open(p, update_explorer=False),
+                                          on_open_file=on_file_open,
                                           on_file_move=on_file_move,
                                           on_root_change=on_root_change,
                                           on_file_delete=on_file_delete,
-                                          on_open_in_designer=on_open_in_designer)
+                                          on_open_in_designer=on_open_in_designer,
+                                          on_open_in_terminal=on_open_in_terminal)
 
         self.bind("<Configure>", self._on_configure)
 

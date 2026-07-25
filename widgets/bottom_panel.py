@@ -155,7 +155,6 @@ class BottomPanel(ttk.Frame):
         super().__init__(master, **kwargs)
         self._active: str = "output"
         self._cwd = cwd
-        self._cwd_after_id: Optional[str] = None
         self._pending_cd: Optional[str] = None
         self._terminal_first_show: bool = True
         self._flash_job: Optional[str] = None
@@ -358,21 +357,26 @@ class BottomPanel(ttk.Frame):
         self._set_active("debug")
 
     def set_cwd(self, cwd: str) -> None:
+        """Record *cwd* as the directory the next terminal session starts in.
+
+        Deliberately does **not** ``cd`` a running shell — re-rooting the
+        explorer is a tree-view operation, and yanking the user's live shell
+        out from under it is never what they asked for.  Use `cd_terminal()`
+        for the explicit "take me there" action.
+        """
         self._cwd = cwd
         self.terminal._cwd = cwd
-        if self._cwd_after_id is not None:
-            self.after_cancel(self._cwd_after_id)
-        self._cwd_after_id = self.after(250, self._apply_cwd)
 
-    def _apply_cwd(self) -> None:
-        self._cwd_after_id = None
-        if not self._cwd:
-            return
-        if self._active == "terminal" and self.terminal._running:
-            self.terminal.send_text(f'cd "{self._cwd}"\r')
-        elif self.terminal._running:
+    def cd_terminal(self, cwd: str) -> None:
+        """Change the live terminal's directory to *cwd* (explicit user action)."""
+        self.set_cwd(cwd)
+        if not cwd or not self.terminal._running:
+            return  # a not-yet-started terminal picks _cwd up in start()
+        if self._active == "terminal":
+            self.terminal.send_text(f'cd "{cwd}"\r')
+        else:
             # Terminal is running but not the active tab — defer until shown
-            self._pending_cd = self._cwd
+            self._pending_cd = cwd
 
     def update_problems(self, entries: list[dict]) -> None:
         self.problems.update(entries)

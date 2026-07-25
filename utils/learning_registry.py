@@ -92,7 +92,8 @@ REGISTRY: dict[str, dict[str, str]] = {
         "what": "A tree view of your project folder — browse, open, rename, and organize files.",
         "how": (
             "Click any file to open it in a new tab. "
-            "Right-click for options: New File, New Folder, Rename, Delete, Set as Root Directory, Add to .gitignore. "
+            "Right-click for options: New File, New Folder, Rename, Delete, Set as Root Directory, "
+            "Open in Terminal, Add to .gitignore. "
             "Drag files between folders to move them. "
             "Click a folder path in the breadcrumb bar to set it as the explorer root."
         ),

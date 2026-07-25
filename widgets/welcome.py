@@ -22,6 +22,7 @@ _BLUE_H   = "#1a9fd4"
 _GREEN    = "#4ec9b0"
 _SECTION  = "#569cd6"
 _SEP      = "#3c3c3c"
+_RED      = "#f14c4c"
 
 _TIPS = [
     "Drag a tab past the right edge to open the Split Editor",
@@ -458,6 +459,7 @@ class WelcomePanel(tk.Frame):
                 proj["name"], proj.get("path", ""),
                 lambda p=proj["path"]: self._open_recent_project(p),
                 lambda p=proj["path"]: self._remove_recent_project(p),
+                missing=not os.path.isdir(proj.get("path", "")),
             )
 
     def _populate_recent_files(self) -> None:
@@ -477,6 +479,7 @@ class WelcomePanel(tk.Frame):
                 f["name"], f.get("path", ""),
                 lambda p=f["path"]: self._open_recent_file(p),
                 lambda p=f["path"]: self._remove_recent_file(p),
+                missing=not os.path.isfile(f.get("path", "")),
             )
 
     def _recent_row(
@@ -486,24 +489,44 @@ class WelcomePanel(tk.Frame):
         path: str,
         on_open: Callable,
         on_remove: Callable,
+        missing: bool = False,
     ) -> None:
+        """One recent-project / recent-file row.
+
+        *missing* marks an entry whose target is no longer on disk: a red ⊗
+        replaces the row's indent, the name loses its link colour, and the
+        path line says so.  The row stays clickable — clicking explains what
+        happened and offers to drop it, which beats the entry silently
+        vanishing the moment it is clicked.
+        """
         row = tk.Frame(parent, bg=_BG, cursor="hand2")
         row.pack(fill="x", pady=1)
+
+        # Fixed-width marker gutter on *every* row, blank when the entry is
+        # fine — showing it only for missing rows would shift their text out
+        # of line with the rest of the list.
+        icon_lbl = tk.Label(
+            row, text="⊗" if missing else "", width=2,
+            bg=_BG, fg=_RED, font=(UI_FONT, 10), anchor="n",
+        )
+        icon_lbl.pack(side="left", anchor="n")
 
         # Name + path stacked
         text_col = tk.Frame(row, bg=_BG)
         text_col.pack(side="left", fill="x", expand=True)
 
+        name_fg  = _DIM if missing else _BLUE
         name_lbl = tk.Label(
-            text_col, text=f"  {name}",
-            bg=_BG, fg=_BLUE, font=(UI_FONT, 10), anchor="w",
+            text_col, text=name,
+            bg=_BG, fg=name_fg, font=(UI_FONT, 10), anchor="w",
         )
         name_lbl.pack(fill="x")
 
         short_path = _shorten_path(path)
         path_lbl = tk.Label(
-            text_col, text=f"    {short_path}",
-            bg=_BG, fg=_DIM, font=(UI_FONT, 8), anchor="w",
+            text_col,
+            text=f"  {short_path}" + ("  ·  not found" if missing else ""),
+            bg=_BG, fg=_RED if missing else _DIM, font=(UI_FONT, 8), anchor="w",
         )
         path_lbl.pack(fill="x")
 
@@ -514,23 +537,50 @@ class WelcomePanel(tk.Frame):
         )
         x_lbl.pack(side="right")
 
-        # Hover / click bindings
-        for widget in (row, text_col, name_lbl, path_lbl):
-            widget.bind("<Enter>",    lambda _, r=row, n=name_lbl, pl=path_lbl: _hover_row(r, n, pl, True))
-            widget.bind("<Leave>",    lambda _, r=row, n=name_lbl, pl=path_lbl: _hover_row(r, n, pl, False))
-            widget.bind("<ButtonRelease-1>", lambda _, fn=on_open: fn())
-        x_lbl.bind("<Enter>",    lambda _: x_lbl.config(fg="#e8e8e8"))
-        x_lbl.bind("<Leave>",    lambda _: x_lbl.config(fg=_DIM))
+        # Hover / click bindings.  Every widget in the row tints — including the
+        # ×, which is a child of the row: leaving it out both left a dark square
+        # at the right edge and un-tinted the whole row as the pointer crossed
+        # onto it.  Only the non-× widgets open the entry.
+        tinted   = [w for w in (row, text_col, name_lbl, path_lbl, icon_lbl, x_lbl) if w]
+        hover_fg = name_fg if missing else _BLUE_H
+        for widget in tinted:
+            widget.bind("<Enter>", lambda _, t=tinted, n=name_lbl, h=hover_fg:
+                        _hover_row(t, n, True, h))
+            widget.bind("<Leave>", lambda _, t=tinted, n=name_lbl, f=name_fg:
+                        _hover_row(t, n, False, f))
+            if widget is not x_lbl:
+                widget.bind("<ButtonRelease-1>", lambda _, fn=on_open: fn())
+        x_lbl.bind("<Enter>", lambda _: x_lbl.config(fg="#e8e8e8"), add=True)
+        x_lbl.bind("<Leave>", lambda _: x_lbl.config(fg=_DIM), add=True)
         x_lbl.bind("<ButtonRelease-1>", lambda _, fn=on_remove: fn())
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
     def _open_recent_project(self, path: str) -> None:
         if not os.path.isdir(path):
-            _recent.remove_project(path)
-            self.refresh()
+            if self._confirm_forget("project folder", path):
+                _recent.remove_project(path)
+                self.refresh()
             return
         self._cbs["open_project"](path)
+
+    def _confirm_forget(self, kind: str, path: str) -> bool:
+        """Explain that *path* is gone and ask whether to drop it from the list.
+
+        The entry used to disappear the instant it was clicked, which reads as
+        a misfire rather than an answer — the user never learns the folder was
+        renamed or deleted, or where it used to be.
+        """
+        from tkinter import messagebox
+
+        return bool(messagebox.askyesno(
+            "Not Found",
+            f"This {kind} no longer exists:\n\n{path}\n\n"
+            "It may have been moved, renamed, or deleted.\n\n"
+            "Remove it from the list?",
+            icon="error",
+            parent=self,
+        ))
 
     def _remove_recent_project(self, path: str) -> None:
         _recent.remove_project(path)
@@ -538,8 +588,9 @@ class WelcomePanel(tk.Frame):
 
     def _open_recent_file(self, path: str) -> None:
         if not os.path.isfile(path):
-            _recent.remove_file(path)
-            self.refresh()
+            if self._confirm_forget("file", path):
+                _recent.remove_file(path)
+                self.refresh()
             return
         self._cbs["open_file"](path)
 
@@ -591,7 +642,9 @@ def _shorten_path(path: str, max_len: int = 50) -> str:
         p = Path(path)
         home = Path.home()
         try:
-            rel = "~/" + str(p.relative_to(home))
+            # os.sep, not "/" — str(relative_to(...)) already uses the native
+            # separator, so a hardcoded "/" produced "~/Desktop\vscode\..."
+            rel = "~" + os.sep + str(p.relative_to(home))
         except ValueError:
             rel = str(p)
         if len(rel) > max_len:
@@ -603,9 +656,13 @@ def _shorten_path(path: str, max_len: int = 50) -> str:
         return path
 
 
-def _hover_row(row: tk.Frame, name_lbl: tk.Label, path_lbl: tk.Label, enter: bool) -> None:
+def _hover_row(widgets: list, name_lbl: tk.Label, enter: bool, name_fg: str) -> None:
+    """Tint a whole recent-list row. *name_fg* is the name colour for this state.
+
+    Takes the row's widgets as a list because a missing entry carries an extra
+    ⊗ label that must be re-tinted along with everything else.
+    """
     bg = "#2a2d2e" if enter else _BG
-    fg = _BLUE_H if enter else _BLUE
-    row.config(bg=bg)
-    name_lbl.config(bg=bg, fg=fg)
-    path_lbl.config(bg=bg)
+    for w in widgets:
+        w.config(bg=bg)
+    name_lbl.config(fg=name_fg)

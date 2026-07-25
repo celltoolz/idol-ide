@@ -5,6 +5,140 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-25] — Welcome tab, recent lists, and session restore
+
+### Added
+- **Missing entries in Recent Projects / Recent Files are flagged, not silently dropped.** A
+  recent entry whose folder or file no longer exists now shows a red **⊗**, a dimmed name, and
+  a `· not found` suffix on its path line. Clicking it names the old location, explains that it
+  may have been moved, renamed, or deleted, and asks before removing it. Previously the row
+  vanished the instant it was clicked, which reads as a misfire — the user never learned the
+  folder was gone, or where it had been.
+  - The ⊗ sits in a fixed-width marker gutter present on *every* row (blank when healthy), so
+    flagged entries stay aligned with the rest of the list.
+
+### Fixed
+- **Welcome-tab paths no longer mix separators.** A path under your home directory was
+  abbreviated by gluing a hardcoded `"~/"` onto `str(Path.relative_to(home))`, which already
+  uses the native separator — producing `~/Desktop\vscode\notepad` on Windows. It now uses
+  `os.sep`, so displayed paths are `\` on Windows and `/` on macOS/Linux throughout.
+- **Opening a file from the Welcome tab no longer renames it to "● Untitled".** `_new_tab`
+  wires the editor's `on_change` hook *before* seeding its content and only adds/selects the
+  new tab afterwards — so the initial `set_text` fires `_on_content_changed` synchronously
+  while the **previous** tab is still the selected one. When that was a non-editor tab, the
+  fall-through branch flagged it dirty, and `_refresh_tab_title` renders a tab with no
+  `_titles` entry as `Untitled` with an unsaved marker. The dirty-tracking block now requires
+  the current tab to actually own an editor. This affected any file opened while a Welcome,
+  Packages, or Learn tab was focused, not just Recent Files.
+- **Clicking the splash away no longer clicks whatever is behind it.** The splash dismissed on
+  `<Button-1>`, destroying itself while the mouse button was still down — so the matching
+  release was delivered to whatever the pointer now sat over. On first launch that is the
+  Welcome tab, whose rows bind `<ButtonRelease-1>`, so dismissing the splash silently activated
+  a link underneath it. It now dismisses on release, and a press cancels the auto-dismiss timer
+  so that timer can't re-open the same gap partway through a click. This is the existing
+  popup-row rule (bind `ButtonRelease-1`, never `Button-1`) applied to the one window that
+  still broke it.
+- **Opening a recent project moves it back to the top of the list.** `add_project()` has always
+  deduped and inserted at position 0, but `_welcome_open_project` — the path every Recent
+  Projects row goes through — never called it, so the list was ordered by *first* open and
+  never changed again. Only `File → Open Project` (which does call it) kept the list fresh.
+  The re-add uses the entry's own stored path string, so the dedupe matches exactly and can't
+  leave a differently-spelled twin behind.
+- **Recent-list rows now tint as a unit on hover.** The `×` button is a child of the row but
+  was left out of the hover handler, so it stayed dark against the highlight and the whole row
+  flicked back to un-hovered as the pointer crossed onto it. The row's containing frame had the
+  same problem. Found while adding the ⊗ marker.
+- **A session whose files have all moved no longer opens to a blank grey panel.** Each saved
+  tab is skipped individually when its file is missing, but `restore()` reported success as
+  long as the session *file* had tabs in it — and every caller only runs its own
+  Welcome/Untitled fallback when restore returns `False`. Rename a project folder outside
+  IDOL and every path missed at once, so the restore "succeeded" with zero tabs and nothing
+  filled the notebook: an editor area with no tabs at all, which cleared itself on the next
+  launch (by which point the session had been overwritten). `restore()` now seeds whatever a
+  cold start would — the Welcome tab, or a blank one, per the **Show on startup** preference.
+
+---
+
+## [2026-07-24] — Portable `.idol-project` files
+
+### Added
+- **Projects saved by older versions are repaired on open.** An absolute `explorer_root`
+  marks a pre-portable file. If it also disagrees with where the file actually sits, the
+  folder was moved or copied, so every path under the old root is re-pointed at the new one
+  (`_remap_moved_project`) — tabs, breakpoints, the pinned run entry, and a project-local
+  `.venv`/`.conda`. Paths that were already outside the project are left alone; a move says
+  nothing about them. The file is then rewritten in the portable format, so this runs **once
+  per project** rather than on every open.
+  - **No prompt.** The project file you opened is the authority on where the project lives,
+    so there was nothing to decide. A note goes to the Output panel naming the old location.
+  - The rewrite is a pure JSON transform (`_portable_copy`), deliberately *not* a `save()`
+    call: at open time the live app state is still settling (layout stages, designer load)
+    and `save()` would serialise a half-restored session.
+  - `~/.idol/tmp` scratch files are excluded from the remap — they belong to this machine,
+    not to the project folder that moved.
+
+### Changed
+- **A project folder can now be moved, renamed, or copied and still open.** `.idol-project`
+  files stored absolute paths throughout, so relocating a project left every open tab,
+  breakpoint, pinned run entry, and the project-local `.venv` pointing at the old location.
+  Named saves now store paths *inside* the project folder relative to it (`utils/session.py`
+  `_rel`/`_abs`), and resolve them against the file's own directory on load. Paths outside the
+  project — a system interpreter, the `~/.idol/tmp` scratch files, a tab opened from elsewhere
+  — stay absolute, since there is nothing meaningful to relativize against; restore's existing
+  `isfile`/`isdir` guards skip whatever no longer resolves.
+  - Only true descendants are relativized. A `../..` chain would break the moment the folder
+    moved to a different nesting depth, which is the exact case this exists to survive.
+  - **No format version field.** `os.path.isabs()` is the discriminator, so all-absolute files
+    written by earlier versions load unchanged.
+  - `explorer_root` is written as `"."` and ignored on load — a project file's root is always
+    the folder it lives in. Deriving it is what makes a copied folder correct *before* any
+    repair logic runs, rather than relying on repair to catch it.
+  - The auto-session (`~/.idol/session.json`) is unaffected: it is machine-global with no base
+    directory, and stays absolute.
+- **Tab serialisation is no longer duplicated.** The main and split notebooks had two
+  byte-identical ~45-line copies of the dirty-check / temp-file / embed logic; they now share
+  `_tab_entry()`. Two copies of path handling is precisely how a path ends up relativized in
+  one pane and not the other.
+
+---
+
+## [2026-07-24] — Explorer root / terminal working directory
+
+### Added
+- **Explorer right-click → Open in Terminal.** The explicit counterpart to the removed
+  implicit `cd`: it points the live terminal at the selected folder (right-clicking a file
+  resolves to its containing folder) and reveals the terminal panel. If no shell is running
+  yet the new one starts there, and if the terminal is running in the background the `cd` is
+  applied silently when the tab is shown.
+
+### Fixed
+- **Changing the Explorer root no longer `cd`s a running terminal.** `Set as Root Directory`,
+  a breadcrumb folder click, and opening a file all funnel through
+  `_on_explorer_root_change`, which used to push the new root into the live shell — so
+  re-rooting the tree teleported whatever you were doing in the terminal to a different
+  directory. `BottomPanel.set_cwd()` is now state-only: it records the directory the *next*
+  terminal session starts in and leaves running shells alone. The live-`cd` behaviour moved
+  to a new explicit `BottomPanel.cd_terminal()` (which also drops the old 250 ms coalescing
+  timer — an explicit user action does not need debouncing).
+- **…but opening a project still takes the terminal with it.** Decoupling root changes from
+  the shell would otherwise have caught the one case where the move *is* wanted, including
+  the documented "closing a project returns the terminal to your home directory". Project
+  open / create / close now route through a new `app._set_project_root()` — explorer plus an
+  explicit `cd_terminal()` — while `_set_explorer_root()` stays terminal-neutral for casual
+  re-rooting.
+- **`File → Open` no longer re-roots the Explorer.** Opening a file from anywhere outside the
+  tree used to yank the Explorer to that file's folder — the other half of the same legacy
+  shortcut, since re-rooting was how the terminal used to get there. The tree now stays put;
+  the root moves only for a project open, `Set as Root Directory`, or a breadcrumb folder
+  click. `_open_file()`'s `update_explorer` flag is gone with it: every internal caller
+  already passed `False`, so the parameter only existed to express the behaviour being
+  removed. Launching as `python main.py <file>` still roots at the file's folder (no project
+  and no session restore in that path, so the tree would otherwise come up empty), and
+  designer code-gen navigation picks up the fix for free — it opened generated `.py` files
+  with the re-rooting default.
+
+---
+
 ## [2026-07-24] — Designer property-panel polish
 
 ### Added

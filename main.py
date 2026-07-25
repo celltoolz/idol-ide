@@ -56,10 +56,33 @@ def _show_splash(app: tk.Tk) -> None:
         except Exception:
             pass
 
+    auto_id = splash.after(_SPLASH_MS, _dismiss)
+
+    def _press(_=None):
+        """Hold the splash open until the button comes back up.
+
+        Dismissing on press destroyed the splash while the button was still
+        down, so the release was delivered to whatever the pointer now sat
+        over — the Welcome tab underneath, whose rows bind
+        <ButtonRelease-1> — and clicking the splash away silently activated
+        a link behind it.  Cancelling the auto-dismiss here keeps the timer
+        from re-opening that same gap mid-click.
+        """
+        nonlocal auto_id
+        if auto_id is not None:
+            try:
+                splash.after_cancel(auto_id)
+            except Exception:
+                pass
+            auto_id = None
+
+    def _arm():
+        splash.bind("<Button-1>", _press)
+        splash.bind("<ButtonRelease-1>", lambda _: _dismiss())
+
     # Delay click-to-dismiss by 500ms — on macOS the launch click can fire
-    # <Button-1> on the splash immediately and dismiss it before it's seen.
-    splash.after(500, lambda: splash.bind("<Button-1>", lambda _: _dismiss()))
-    splash.after(_SPLASH_MS, _dismiss)
+    # on the splash immediately and dismiss it before it's seen.
+    splash.after(500, _arm)
 
 
 if __name__ == "__main__":
