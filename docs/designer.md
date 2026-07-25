@@ -766,7 +766,7 @@ Key points:
 
 ## Code Generation
 
-**Auto-generation** — code is regenerated automatically 1.5 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+G`).
+**Auto-generation** — code is regenerated automatically 0.6 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+G`).
 
 ```python
 import tkinter as tk

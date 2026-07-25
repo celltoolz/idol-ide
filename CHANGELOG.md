@@ -17,6 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and the tab padding is trimmed to `(4, 2)` for a tighter strip.
 
 ### Fixed
+- **The open editor tab now refreshes after designer code-gen.** Regeneration already
+  rewrote an open `.py` tab in place, but matched the tab with `Path(fp) == py_path`, which
+  on Windows is `False` when one path is relative and the other absolute — so the tab could
+  keep showing stale pre-generation code until closed and reopened. The refresh loop (and the
+  `_autosave_form_py` pre-read save, which had the same mismatch and could silently drop edits)
+  now compare normalized absolute paths, and every matching tab is refreshed so a file open in
+  the split view updates in both panes. The auto-gen debounce was also shortened from 1.5 s to
+  0.6 s (`_AUTOGEN_DEBOUNCE_MS`) so switching to the editor right after an edit shows fresh code
+  with much less lag.
 - **An armed CanvasImage now de-arms back to the pointer.** In the Canvas Item Designer,
   arming an image sets two highlights — the `CanvasImage` type row *and* the image's row in
   the IMAGES panel — but cancelling the tool only cleared the former, so the image row stayed

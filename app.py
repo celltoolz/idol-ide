@@ -328,6 +328,11 @@ def _breadcrumb_highlight(cv_ref: list, text: str) -> list[tuple[str, str]]:
 
 _RESERVED_CANVAS_TAGS = frozenset(("all", "current"))
 
+# Debounce window (ms) for silent designer auto code-gen. Resets on every canvas
+# or property change, so it fires this long after the last edit. Kept short so a
+# quick switch to the editor tab shows freshly generated code without a stale gap.
+_AUTOGEN_DEBOUNCE_MS = 600
+
 def _is_valid_canvas_tag(tag: str) -> bool:
     """Return True if tag is safe to use as a Tkinter canvas tag name."""
     if not tag or " " in tag:
@@ -3655,10 +3660,10 @@ class IDOL(Tk):
         self._schedule_autogen()
 
     def _schedule_autogen(self) -> None:
-        """Debounced auto code-gen: resets the 1.5s timer on every change."""
+        """Debounced auto code-gen: resets the timer on every change."""
         if self._autogen_after_id:
             self.after_cancel(self._autogen_after_id)
-        self._autogen_after_id = self.after(1500, self._run_autogen)
+        self._autogen_after_id = self.after(_AUTOGEN_DEBOUNCE_MS, self._run_autogen)
 
     def _run_autogen(self) -> None:
         """Timer callback — silently regenerate code for the active form."""
