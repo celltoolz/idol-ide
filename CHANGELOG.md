@@ -7,6 +7,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-07-24] — Portable `.idol-project` files
 
+### Added
+- **Projects saved by older versions are repaired on open.** An absolute `explorer_root`
+  marks a pre-portable file. If it also disagrees with where the file actually sits, the
+  folder was moved or copied, so every path under the old root is re-pointed at the new one
+  (`_remap_moved_project`) — tabs, breakpoints, the pinned run entry, and a project-local
+  `.venv`/`.conda`. Paths that were already outside the project are left alone; a move says
+  nothing about them. The file is then rewritten in the portable format, so this runs **once
+  per project** rather than on every open.
+  - **No prompt.** The project file you opened is the authority on where the project lives,
+    so there was nothing to decide. A note goes to the Output panel naming the old location.
+  - The rewrite is a pure JSON transform (`_portable_copy`), deliberately *not* a `save()`
+    call: at open time the live app state is still settling (layout stages, designer load)
+    and `save()` would serialise a half-restored session.
+  - `~/.idol/tmp` scratch files are excluded from the remap — they belong to this machine,
+    not to the project folder that moved.
+
 ### Changed
 - **A project folder can now be moved, renamed, or copied and still open.** `.idol-project`
   files stored absolute paths throughout, so relocating a project left every open tab,

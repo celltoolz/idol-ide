@@ -37,8 +37,12 @@ def _rel(path: str | None, base: str | None) -> str | None:
     Only true descendants are relativized: a `../..` chain would break the
     moment the project folder moved to a different depth, which is exactly
     what this is meant to survive.
+
+    An already-relative path is returned untouched — it is already portable,
+    and `abspath()` would otherwise resolve it against the process CWD, which
+    has nothing to do with the project.  That makes this idempotent.
     """
-    if not path or not base:
+    if not path or not base or not os.path.isabs(path):
         return path
     ap = os.path.abspath(path)
     ab = os.path.abspath(base)
@@ -67,6 +71,90 @@ def peek_layout(filepath: str | Path | None = None) -> dict:
         return json.loads(path.read_text(encoding="utf-8")).get("layout", {})
     except Exception:
         return {}
+
+
+def _under(path: str | None, root: str) -> bool:
+    """True when *path* is *root* itself or lives inside it.
+
+    A relative path is never "under" anything here — it is already portable,
+    and resolving it would pull in the process CWD.
+    """
+    if not path or not os.path.isabs(path):
+        return False
+    ap, ar = os.path.normcase(os.path.abspath(path)), os.path.normcase(os.path.abspath(root))
+    return ap == ar or ap.startswith(ar + os.sep)
+
+
+def _remap_moved_project(data: dict, old_root: str, new_root: str) -> None:
+    """Re-point every stored path that lived under *old_root* at *new_root*.
+
+    Only needed for project files written before paths went relative — a
+    portable file needs no remapping, because nothing in it names the old
+    location in the first place.  Paths outside *old_root* are left alone:
+    they were never project content, so a move says nothing about them.
+
+    `temp_file` is deliberately skipped — those live in ~/.idol/tmp and belong
+    to this machine, not to the project folder that moved.
+    """
+    def remap(p: str | None) -> str | None:
+        if not _under(p, old_root):
+            return p
+        rel = os.path.relpath(os.path.abspath(p), os.path.abspath(old_root))
+        return os.path.normpath(os.path.join(new_root, rel))
+
+    for key in ("tabs", "split_tabs"):
+        for entry in data.get(key, []) or []:
+            if entry.get("filepath"):
+                entry["filepath"] = remap(entry["filepath"])
+
+    bps = data.get("breakpoints")
+    if isinstance(bps, dict):
+        data["breakpoints"] = {remap(fp): lines for fp, lines in bps.items()}
+
+    interp = data.get("interpreter")
+    if isinstance(interp, dict):
+        for key in ("path", "venv_activate", "conda_prefix"):
+            if interp.get(key):
+                interp[key] = remap(interp[key])
+
+    layout = data.get("layout")
+    if isinstance(layout, dict) and layout.get("run_entry"):
+        layout["run_entry"] = remap(layout["run_entry"])
+
+    data["explorer_root"] = new_root
+
+
+def _portable_copy(data: dict, base: str) -> dict:
+    """Return *data* with every project-internal path relativized against *base*.
+
+    A pure JSON transform: used to rewrite a legacy project file at open time
+    without re-serialising live app state, which at that moment is still
+    settling (layout stages, designer load) and would capture a half-restored
+    session.
+    """
+    out = json.loads(json.dumps(data))  # deep copy — never mutate the caller's
+
+    for key in ("tabs", "split_tabs"):
+        for entry in out.get(key, []) or []:
+            if entry.get("filepath"):
+                entry["filepath"] = _rel(entry["filepath"], base)
+
+    bps = out.get("breakpoints")
+    if isinstance(bps, dict):
+        out["breakpoints"] = {_rel(fp, base): lines for fp, lines in bps.items()}
+
+    interp = out.get("interpreter")
+    if isinstance(interp, dict):
+        for key in ("path", "venv_activate", "conda_prefix"):
+            if interp.get(key):
+                interp[key] = _rel(interp[key], base)
+
+    layout = out.get("layout")
+    if isinstance(layout, dict) and layout.get("run_entry"):
+        layout["run_entry"] = _rel(layout["run_entry"], base)
+
+    out["explorer_root"] = "."
+    return out
 
 
 def _tab_entry(app: "IDOL", tab_id: str, cv, base: str | None) -> dict:
@@ -373,6 +461,29 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # auto-session stores everything absolute and passes base=None.
     base = str(target.parent) if filepath else None
 
+    # ── Legacy project files ──────────────────────────────────────────────────
+    # An absolute `explorer_root` means the file predates portable paths.  If it
+    # also disagrees with where the file actually sits, the folder was moved or
+    # copied, so every path under the old root is re-pointed at the new one.
+    # Either way the file is rewritten in the portable format, so this runs once
+    # per project rather than on every open.
+    migrated_from = ""
+    if base:
+        stored_root = data.get("explorer_root") or ""
+        if stored_root and os.path.isabs(stored_root):
+            same = (os.path.normcase(os.path.abspath(stored_root))
+                    == os.path.normcase(os.path.abspath(base)))
+            if not same:
+                _remap_moved_project(data, stored_root, base)
+                migrated_from = stored_root
+            try:
+                target.write_text(
+                    json.dumps(_portable_copy(data, base), indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass  # read-only location — the in-memory fix still applies
+
     # ── Breakpoints — restore before tabs so _new_tab() applies gutter dots ──
     saved_bp = data.get("breakpoints", {})
     for fp, lines in saved_bp.items():
@@ -603,7 +714,24 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
     # spuriously marked tabs dirty.  Clear tabs whose content matches disk.
     app.after(350, lambda: _cleanup_dirty_flags(app))
 
+    if migrated_from:
+        # A note, not a question — the file the user opened is the ground truth
+        # about where the project lives, so there was nothing to decide.
+        app.after(600, lambda: _report_migration(app, migrated_from, base))
+
     return True
+
+
+def _report_migration(app: "IDOL", old_root: str, new_root: str) -> None:
+    """Tell the user their project was relocated — in the Output panel, not a dialog."""
+    try:
+        app._output.output.write(
+            f"This project was last opened at {old_root}\n"
+            f"It now lives in {new_root} — paths have been updated and saved.\n",
+            "info",
+        )
+    except Exception:
+        pass
 
 
 def _cleanup_dirty_flags(app: "IDOL") -> None:
