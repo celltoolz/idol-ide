@@ -69,7 +69,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - The focus check moved out of the per-row draw loop. It was a `focus_get()` — a Tcl
     round-trip — for every visible row of every frame; it is now one call per render.
 
+### Changed
+- **Split editor tabs are project-scoped.** Closing a project now closes the split pane and its
+  tabs. `_teardown_project` only ever iterated the main notebook, so the previous project's
+  split files stayed open on top of the new one — open project A with a split, then open
+  project B, and B's split showed A's files alongside its own. The session file already saved
+  and restored `split_tabs` per project; only the teardown half was missing.
+  - Teardown keeps the `~/.idol/tmp` scratch files for dirty split tabs and forgets only the
+    mapping. Every caller saves the session immediately before tearing down and that save
+    *references* those files — deleting them would restore the project with its unsaved work
+    gone. The main-pane teardown has always worked this way; the split's own close path
+    deletes them, which is still right when you close the split yourself.
+
 ### Fixed
+- **Unsaved work in a split tab now raises the save prompt.** `_has_dirty_tabs` checked only
+  the main notebook, so closing or switching projects could discard a dirty split tab without
+  asking. It — and the "do you want to save this project" check in **New Project** — now count
+  both panes via the new `_all_tab_ids()`. This mattered much more once teardown started
+  closing the split.
 - **Opening a project with the split editor already open no longer spawns a second split.**
   `session.restore()` called `_build_right_pane()` unconditionally whenever the saved session
   had split tabs, without checking whether a right pane was already up — so the existing pane

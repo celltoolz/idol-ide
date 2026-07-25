@@ -3332,8 +3332,10 @@ class IDOL(Tk):
         from widgets.project_wizard import ProjectWizard
 
         # Only consider tabs that have a real codeview — excludes Welcome,
-        # Package Manager, Learning Mode, and any other special tabs.
-        editor_tabs = [t for t in self.notebook.tabs() if self._codeviews.get(t) is not None]
+        # Package Manager, Learning Mode, and any other special tabs. Both
+        # panes: the split is torn down with the project, so work living only
+        # in the split still has to raise the save prompt.
+        editor_tabs = [t for t in self._all_tab_ids() if self._codeviews.get(t) is not None]
         has_editor_content = any(
             self._titles.get(t) != "Untitled"
             or self._dirty.get(t)
@@ -3824,9 +3826,21 @@ class IDOL(Tk):
         # quit() triggers another destroy() before the process exits.
         self.file_exit()
 
+    def _all_tab_ids(self) -> list[str]:
+        """Every open editor tab id, both panes."""
+        tabs = list(self.notebook.tabs())
+        if self._notebook_r is not None:
+            tabs += list(self._notebook_r.tabs())
+        return tabs
+
     def _has_dirty_tabs(self) -> bool:
-        """Return True if any open tab has unsaved changes."""
-        return any(self._dirty.get(tid) for tid in self.notebook.tabs())
+        """Return True if any open tab has unsaved changes.
+
+        Both panes: this gates the "save before closing?" prompt in front of
+        `_teardown_project`, which now closes the split too — checking only the
+        main notebook would discard unsaved split work without ever asking.
+        """
+        return any(self._dirty.get(tid) for tid in self._all_tab_ids())
 
     def workspace_new(self, *_) -> None:
         """Close the current workspace and open a fresh one."""
@@ -3843,7 +3857,16 @@ class IDOL(Tk):
         self._teardown_project()
 
     def _teardown_project(self, add_untitled: bool = True) -> None:
-        """Close all tabs and reset to a clean blank state (no save prompt)."""
+        """Close all tabs and reset to a clean blank state (no save prompt).
+
+        The split pane goes with them. Split tabs belong to the project that
+        was open when they were opened — the session file already saves and
+        restores them per project — so leaving the pane up would carry one
+        project's files into the next one.
+        """
+        # Temp files are kept: every caller saves the session immediately
+        # before this, and that save references them.
+        self._dispose_split_pane(keep_temp_files=True)
         for tab_id in list(self.notebook.tabs()):
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
@@ -9517,8 +9540,15 @@ class IDOL(Tk):
                 return  # user cancelled
         self._dispose_split_pane()
 
-    def _dispose_split_pane(self) -> None:
+    def _dispose_split_pane(self, keep_temp_files: bool = False) -> None:
         """Tear the right pane down to nothing — no prompts, nothing left behind.
+
+        *keep_temp_files* leaves the `~/.idol/tmp` scratch files for dirty tabs
+        on disk, forgetting only the mapping. Project teardown needs this: the
+        session has just been saved and *references* those files, so deleting
+        them here would restore the project with its unsaved work gone. The
+        main-pane teardown loop has always popped without unlinking for the
+        same reason.
 
         Every widget reference `_build_right_pane` sets (`_nb_frame_r`,
         `_notebook_r`, `_lock_btn`, `_split_mode_bar_spacer`) is a *single
@@ -9544,7 +9574,7 @@ class IDOL(Tk):
             self._breadcrumbs.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
             _tmp = self._temp_files.pop(tab_id, None)
-            if _tmp:
+            if _tmp and not keep_temp_files:
                 try:
                     Path(_tmp).unlink(missing_ok=True)
                 except Exception:

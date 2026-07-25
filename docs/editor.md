@@ -75,6 +75,8 @@ Entering **Designer mode** also hides the split automatically; returning to Edit
 
 Split tabs are saved and restored across app restarts — including dirty/unsaved files (stored in `~/.idol/tmp/` just like main-pane tabs). The split state, sash position, and active tab index all survive a restart.
 
+**Split tabs belong to the project they were opened in.** Closing a project closes the split pane along with its tabs, and opening a project restores that project's split — never the previous one's. Unsaved work in a split tab raises the same save prompt as unsaved work in the main pane.
+
 ### Scroll lock
 
 The ⇕ button (in the split header) syncs both panes to the same scroll position. The hardware **Scroll Lock key** also toggles it — IDOL reads the key state on startup.
