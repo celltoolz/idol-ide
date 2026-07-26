@@ -365,7 +365,7 @@ Implemented and stable:
 - Git integration: staging, unstaging, commit, push, diff view, health panel (smart warnings + fix wizard), Add to .gitignore
 - **Git guides** — install guide (Windows/macOS/Linux), identity guide (git config + GitHub account + `gh auth login`), remote guide, first commit guide
 - **Commit History panel** — last 50 commits, file diff on click, filter bar, load more
-- Integrated PTY terminal (pyte VT100 screen buffer) with venv detection (activate/deactivate/switch toolbar); live-buffer reflow on column resize (VS Code style)
+- Integrated PTY terminal (pyte VT100 screen buffer) with venv detection (activate/deactivate/switch toolbar); live-buffer reflow on column resize (VS Code style); **focus-aware block cursor** — `TerminalPanel._has_focus()` gates solid-vs-hollow in `_draw_screen_rows`, with `<FocusIn>`/`<FocusOut>` bound to `_redraw_screen` because an idle terminal has no other reason to repaint
 - **Terminal debug mode** — launch debugpy in terminal, attach DAP client
 - **Output panel** — copy button and right-click context menu; inline stdin bar for `input()` support
 - **Run Line / Run Selection** — right-click to execute in output panel

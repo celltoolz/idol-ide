@@ -91,6 +91,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     offered, just under its own name. Index entries whose file is gone are pruned on read.
 
 ### Changed
+- **The terminal's block cursor goes hollow when it loses focus.** A solid block in an
+  unfocused pane reads as the live one. It is now solid only while the terminal owns the
+  keyboard and a hollow outline otherwise, the way real terminal emulators behave — so with the
+  editor, the split, and the terminal all on screen, the solid block is always the one your
+  next keystroke goes to. Pairs with the split-editor caret change in this same release: every
+  place IDOL shows an insertion point now says whether it is the live one.
+  - `<FocusIn>`/`<FocusOut>` trigger the repaint. An idle terminal has no other reason to
+    redraw, so without them the cursor would keep its old look until the next byte of output,
+    which may never come.
 - **The Welcome tab's right-hand lists scroll independently, five rows at a time.** Recent
   Projects, Recent Files and the new Unsaved Files list are all unbounded, and at full length they
   pushed the rest of the page into a long scroll where nothing was reachable without hunting.
