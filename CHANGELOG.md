@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [2026-07-25] — Breadcrumb file picker
+## [2026-07-25] — IDE Polish
 
 ### Added
 - **Clicking the filename crumb opens a file picker for the folder the file lives in.** VS Code
