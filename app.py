@@ -3561,6 +3561,33 @@ class IDOL(Tk):
         elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
             self.notebook.select(prev_tab_id)
 
+    def _open_temp_file(self, tmp_path: str, title: str, origin: str = "") -> None:
+        """Reopen a recovered scratch file as the dirty tab it used to be.
+
+        Mirrors what `session.restore` does for an unsaved tab: the buffer
+        holds the scratch content, the tab keeps its original name and target
+        file, and it comes back **dirty** — so Ctrl+S writes to the real file
+        and the scratch file stays claimed until then, rather than being
+        orphaned a second time.
+        """
+        try:
+            content = Path(tmp_path).read_text(encoding="utf-8")
+        except Exception as exc:
+            showerror("Open Unsaved File", str(exc))
+            return
+
+        self._new_tab(title, content, filepath=origin or None)
+        tab_id = self.notebook.tabs()[-1]
+        self._temp_files[tab_id] = tmp_path
+        # after_idle, so this lands after _new_tab's own _reset_dirty_after_load
+        # (after_idle is FIFO) — otherwise the tab would come back clean and
+        # the unsaved marker would be lost.
+        def _mark_dirty(tid=tab_id):
+            self._dirty[tid] = True
+            self._refresh_tab_title(tid)
+
+        self.after_idle(_mark_dirty)
+
     def _open_file_in_split(self, path: str) -> None:
         """Open *path* as a new tab in the split (right) pane.
 
@@ -4240,6 +4267,8 @@ class IDOL(Tk):
             on_learning=self.view_learning_mode,
             on_designer=self._enter_designer_mode,
             on_packages=self.view_package_manager,
+            on_open_temp=self._open_temp_file,
+            get_open_temps=lambda: set(self._temp_files.values()),
         )
         panel.pack(fill="both", expand=True)
         self.notebook.add(frame, text="  Welcome  ")

@@ -69,6 +69,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - The focus check moved out of the per-row draw loop. It was a `focus_get()` — a Tcl
     round-trip — for every visible row of every frame; it is now one call per render.
 
+### Added
+- **TEMP FILES on the Welcome tab — unsaved work you can no longer reach.** IDOL never throws
+  an unsaved buffer away: closing a project (or quitting) writes every dirty tab to a scratch
+  file under `~/.idol/tmp`, so reopening brings it back untouched. But with *no project open*,
+  closing the project left those scratch files with nothing pointing at them — the work was
+  still on disk and simply unreachable. The new section lists exactly those.
+  - Rows are named after the tab they came from, with the file the buffer was headed for (or
+    *never saved to a file*) and how long ago it was written. Clicking one reopens it as a
+    **dirty** tab still targeting its original file, so `Ctrl+S` writes where you always meant
+    it to go; the file on disk is untouched until then. × discards the contents for good,
+    after a confirmation.
+  - Scratch files backing a tab that is open right now are filtered out. That work isn't lost,
+    and offering to "recover" it would just open a second copy of a buffer already on screen.
+  - Making this possible needed a name for each scratch file: they are `idol_tmp_<uuid>.py` and
+    carry no trace of their origin, so a recovery list could only have shown a wall of uuids.
+    `utils/session.py` now keeps `~/.idol/tmp/index.json` mapping each scratch file to its
+    tab's title and target path, written next to the scratch file itself. The listing is the
+    union of disk and index with disk winning, so a scratch file the index never learned about
+    — written before this existed, or orphaned by a crash between the two writes — is still
+    offered, just under its own name. Index entries whose file is gone are pruned on read.
+
 ### Changed
 - **Closing a project now saves it, and the "unsaved changes" prompt is gone.** Every path that
   tears a project down — Close Project, Open Project, New Project, New Workspace, and quitting —

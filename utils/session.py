@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -157,6 +158,111 @@ def _portable_copy(data: dict, base: str) -> dict:
     return out
 
 
+# ── Scratch-file index ────────────────────────────────────────────────────────
+# A scratch file is named `idol_tmp_<uuid>.<ext>` and carries no trace of the
+# tab it came from.  That is fine while a session still references it, but the
+# scratch file outlives the session on purpose: closing a project keeps it (the
+# project may be reopened) and so does closing the app.  Once nothing points at
+# it, the only way to offer it back to the user is to have written down what it
+# was — hence this index, maintained beside the files it describes.
+
+def _tmp_index_path() -> Path:
+    # Derived at call time, not import time: TMP_DIR is a module attribute
+    # that tests reassign to keep the developer's real ~/.idol out of it.
+    return TMP_DIR / "index.json"
+
+
+def _tmp_index_load() -> dict:
+    try:
+        data = json.loads(_tmp_index_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _tmp_index_write(index: dict) -> None:
+    try:
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
+        _tmp_index_path().write_text(json.dumps(index, indent=2), encoding="utf-8")
+    except Exception:
+        pass  # an unwritable index costs a nicer label, never the content
+
+
+def _tmp_index_record(tmp_path: str, title: str, filepath: str | None) -> None:
+    """Note what tab a scratch file holds, so it can be named when offered back."""
+    index = _tmp_index_load()
+    index[str(tmp_path)] = {
+        "title":    title,
+        "filepath": filepath or "",
+        "saved":    datetime.now().isoformat(timespec="seconds"),
+    }
+    _tmp_index_write(index)
+
+
+def list_temp_files(exclude: set[str] | None = None) -> list[dict]:
+    """Recoverable scratch files, newest first.
+
+    Each entry is ``{path, title, filepath, saved, size}``.  *saved* is an ISO
+    string (falling back to the file's mtime) and *filepath* is "" for a tab
+    that never had a file.
+
+    *exclude* drops paths still backing an open tab: that work is not lost, and
+    offering to "recover" it would just open a second copy of a buffer the user
+    is already looking at.
+
+    The listing is the union of what is on disk and what the index knows, and
+    disk wins.  A scratch file with no index entry — written before the index
+    existed, or orphaned by a crash between the two writes — is still offered,
+    just under its own name.  Index entries whose file is gone are pruned here,
+    which is the only place that housekeeping needs to happen.
+    """
+    exclude = {os.path.normcase(os.path.abspath(p)) for p in (exclude or set())}
+    index = _tmp_index_load()
+    try:
+        on_disk = [p for p in TMP_DIR.iterdir()
+                   if p.is_file() and p.name != _tmp_index_path().name]
+    except OSError:
+        return []
+
+    live = {str(p) for p in on_disk}
+    if set(index) - live:
+        _tmp_index_write({k: v for k, v in index.items() if k in live})
+
+    out: list[dict] = []
+    for p in on_disk:
+        if os.path.normcase(os.path.abspath(str(p))) in exclude:
+            continue
+        try:
+            stat = p.stat()
+        except OSError:
+            continue
+        meta = index.get(str(p), {})
+        out.append({
+            "path":     str(p),
+            "title":    meta.get("title") or p.name,
+            "filepath": meta.get("filepath", ""),
+            "saved":    meta.get("saved") or datetime.fromtimestamp(
+                stat.st_mtime).isoformat(timespec="seconds"),
+            "size":     stat.st_size,
+            "mtime":    stat.st_mtime,
+        })
+    out.sort(key=lambda e: e["mtime"], reverse=True)
+    return out
+
+
+def forget_temp_file(path: str) -> bool:
+    """Delete a scratch file and drop its index entry. True if the file is gone."""
+    ok = True
+    try:
+        Path(path).unlink(missing_ok=True)
+    except Exception:
+        ok = False
+    index = _tmp_index_load()
+    if index.pop(str(path), None) is not None:
+        _tmp_index_write(index)
+    return ok
+
+
 def _tab_entry(app: "IDOL", tab_id: str, cv, base: str | None) -> dict:
     """Serialise one editor tab.
 
@@ -201,6 +307,7 @@ def _tab_entry(app: "IDOL", tab_id: str, cv, base: str | None) -> dict:
             # Absolute by design — machine-local scratch, not project content.
             tmp_path.write_text(content, encoding="utf-8")
             entry["temp_file"] = str(tmp_path)
+            _tmp_index_record(str(tmp_path), title, fp)
         except Exception:
             entry["content"] = content  # fallback if write fails
     elif fp is None:

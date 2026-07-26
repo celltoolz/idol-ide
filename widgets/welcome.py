@@ -10,6 +10,7 @@ from tkinter import ttk
 from typing import Callable
 
 from utils import recent as _recent
+from utils import session as _session
 from utils.ui_font import UI_FONT
 
 _BG       = "#1e1e1e"
@@ -23,6 +24,7 @@ _GREEN    = "#4ec9b0"
 _SECTION  = "#569cd6"
 _SEP      = "#3c3c3c"
 _RED      = "#f14c4c"
+_AMBER    = "#e2c08d"
 
 _TIPS = [
     "Drag a tab past the right edge to open the Split Editor",
@@ -89,6 +91,8 @@ class WelcomePanel(tk.Frame):
         on_learning: Callable,
         on_designer: Callable,
         on_packages: Callable,
+        on_open_temp: Callable | None = None,
+        get_open_temps: Callable[[], set] | None = None,
         **kwargs,
     ):
         super().__init__(parent, bg=_BG, **kwargs)
@@ -101,7 +105,12 @@ class WelcomePanel(tk.Frame):
             "learning":     on_learning,
             "designer":     on_designer,
             "packages":     on_packages,
+            "open_temp":    on_open_temp,
         }
+        # Scratch files backing a tab that is open right now are filtered out
+        # of the recovery list — that work is not lost, and offering it would
+        # only open a second copy of a buffer already on screen.
+        self._get_open_temps = get_open_temps
         self._tip_cycle = itertools.cycle(_TIPS)
         self._tip_after_id = None
 
@@ -258,6 +267,13 @@ class WelcomePanel(tk.Frame):
         self._recent_files_list = tk.Frame(right, bg=_BG)
         self._recent_files_list.pack(fill="x")
         self._populate_recent_files()
+
+        tk.Frame(right, bg=_BG, height=16).pack()
+
+        self._section(right, "TEMP FILES")
+        self._temp_files_list = tk.Frame(right, bg=_BG)
+        self._temp_files_list.pack(fill="x")
+        self._populate_temp_files()
 
     def _build_footer(self, parent: tk.Frame) -> None:
         tk.Frame(parent, bg=_SEP, height=1).pack(fill="x")
@@ -482,6 +498,75 @@ class WelcomePanel(tk.Frame):
                 missing=not os.path.isfile(f.get("path", "")),
             )
 
+    def _populate_temp_files(self) -> None:
+        """Unsaved buffers whose tab is gone — the recovery list.
+
+        Closing a project (or the app) keeps the scratch file for every dirty
+        tab, because the session that references it may be reopened. When it
+        isn't — you had an unsaved tab with no project open, and closed the
+        project — the work is still on disk with nothing pointing at it. This
+        is that pointer.
+        """
+        for w in self._temp_files_list.winfo_children():
+            w.destroy()
+
+        open_now = set()
+        if self._get_open_temps:
+            try:
+                open_now = set(self._get_open_temps() or ())
+            except Exception:
+                pass
+        try:
+            entries = _session.list_temp_files(exclude=open_now)
+        except Exception:
+            entries = []
+
+        if not entries:
+            tk.Label(
+                self._temp_files_list,
+                text="  No unsaved files to recover",
+                bg=_BG, fg=_DIM, font=(UI_FONT, 9), anchor="w",
+            ).pack(fill="x")
+            return
+
+        for e in entries:
+            origin = e.get("filepath") or ""
+            # Where it came from beats where it is parked: the scratch path is
+            # a uuid under ~/.idol/tmp and tells the user nothing.
+            subtitle = _shorten_path(origin) if origin else "never saved to a file"
+            self._recent_row(
+                self._temp_files_list,
+                e["title"],
+                f"{subtitle}  ·  {_when(e['saved'])}",
+                lambda p=e["path"], t=e["title"], o=origin: self._open_temp_file(p, t, o),
+                lambda p=e["path"], t=e["title"]: self._discard_temp_file(p, t),
+                name_fg=_AMBER,
+                path_is_literal=True,
+            )
+
+    def _open_temp_file(self, path: str, title: str, origin: str) -> None:
+        if not self._cbs.get("open_temp"):
+            return
+        if not os.path.isfile(path):
+            self.refresh()
+            return
+        self._cbs["open_temp"](path, title, origin)
+        self.refresh()
+
+    def _discard_temp_file(self, path: str, title: str) -> None:
+        from tkinter import messagebox
+
+        if not messagebox.askyesno(
+            "Discard Unsaved File",
+            f'Permanently delete the unsaved contents of "{title}"?\n\n'
+            "This cannot be undone.",
+            icon="warning",
+            parent=self,
+        ):
+            return
+        _session.forget_temp_file(path)
+        self._populate_temp_files()
+
     def _recent_row(
         self,
         parent: tk.Frame,
@@ -490,14 +575,21 @@ class WelcomePanel(tk.Frame):
         on_open: Callable,
         on_remove: Callable,
         missing: bool = False,
+        name_fg: str | None = None,
+        path_is_literal: bool = False,
     ) -> None:
-        """One recent-project / recent-file row.
+        """One recent-project / recent-file / temp-file row.
 
         *missing* marks an entry whose target is no longer on disk: a red ⊗
         replaces the row's indent, the name loses its link colour, and the
         path line says so.  The row stays clickable — clicking explains what
         happened and offers to drop it, which beats the entry silently
         vanishing the moment it is clicked.
+
+        *name_fg* overrides the link colour (temp-file rows use amber, the
+        same "unsaved" signal the git decorations use).  *path_is_literal*
+        takes the second line as given instead of running it through
+        `_shorten_path` — temp rows put their origin plus an age there.
         """
         row = tk.Frame(parent, bg=_BG, cursor="hand2")
         row.pack(fill="x", pady=1)
@@ -515,14 +607,14 @@ class WelcomePanel(tk.Frame):
         text_col = tk.Frame(row, bg=_BG)
         text_col.pack(side="left", fill="x", expand=True)
 
-        name_fg  = _DIM if missing else _BLUE
+        name_fg  = _DIM if missing else (name_fg or _BLUE)
         name_lbl = tk.Label(
             text_col, text=name,
             bg=_BG, fg=name_fg, font=(UI_FONT, 10), anchor="w",
         )
         name_lbl.pack(fill="x")
 
-        short_path = _shorten_path(path)
+        short_path = path if path_is_literal else _shorten_path(path)
         path_lbl = tk.Label(
             text_col,
             text=f"  {short_path}" + ("  ·  not found" if missing else ""),
@@ -633,9 +725,40 @@ class WelcomePanel(tk.Frame):
         """Rebuild the recent lists (call when a project/file is opened)."""
         self._populate_recent_projects()
         self._populate_recent_files()
+        self._populate_temp_files()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _when(iso: str) -> str:
+    """'12 minutes ago' / 'yesterday' / '3 Aug' from an ISO timestamp.
+
+    An age is what tells you whether a recovered buffer is the thing you were
+    just working on or something you abandoned last month; an exact timestamp
+    makes you do that subtraction yourself.
+    """
+    from datetime import datetime as _dt
+
+    try:
+        then = _dt.fromisoformat(iso)
+    except Exception:
+        return ""
+    secs = (_dt.now() - then).total_seconds()
+    if secs < 90:
+        return "just now"
+    mins = secs / 60
+    if mins < 60:
+        return f"{int(mins)} minutes ago"
+    hours = mins / 60
+    if hours < 24:
+        n = int(hours)
+        return "1 hour ago" if n == 1 else f"{n} hours ago"
+    days = hours / 24
+    if days < 2:
+        return "yesterday"
+    if days < 7:
+        return f"{int(days)} days ago"
+    return then.strftime("%-d %b") if os.name != "nt" else then.strftime("%#d %b")
 
 def _shorten_path(path: str, max_len: int = 50) -> str:
     try:
