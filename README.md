@@ -85,7 +85,7 @@ ruff diagnostics on every keystroke (three severity tiers, cascade suppression),
 
 <img src="screenshots/navigation_search-outline-explorer-references.gif" width="100%">
 
-Command palette (`Ctrl+Shift+P`), AST-based Outline panel, File Explorer with inline new-file/rename, Find References, and breadcrumb bar with locals drill-down and sibling picker.
+Command palette (`Ctrl+Shift+P`), AST-based Outline panel, File Explorer with inline new-file/rename, Find References, and a breadcrumb bar with a filename-crumb file picker, locals drill-down, and sibling picker.
 
 → **[Full navigation docs](docs/navigation.md)**
 

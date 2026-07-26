@@ -977,6 +977,12 @@ class TerminalPanel(ttk.Frame):
         self._canvas.grid(row=0, column=0, sticky="nswe")
         vs.grid(row=0, column=1, sticky="ns")
 
+        # Repaint on focus change so the block cursor switches between solid
+        # and hollow immediately. Nothing else redraws on its own when the
+        # terminal is idle — without these the cursor keeps its old look
+        # until the next byte of output arrives, which may be never.
+        self._canvas.bind("<FocusIn>",         lambda _: self._redraw_screen())
+        self._canvas.bind("<FocusOut>",        lambda _: self._redraw_screen())
         self._canvas.bind("<ButtonPress-1>",   self._on_click)
         self._canvas.bind("<ButtonRelease-1>", self._on_release)
         self._canvas.bind("<B1-Motion>",       self._on_drag)
@@ -1083,6 +1089,19 @@ class TerminalPanel(ttk.Frame):
             col += len(text)
         return " "
 
+    def _has_focus(self) -> bool:
+        """True when the terminal canvas owns the keyboard focus.
+
+        `focus_get()` is toplevel-wide, so this answers "are keystrokes coming
+        here" rather than "is this widget interesting". KeyError comes back
+        when focus sits on a widget Tk cannot map to a Python object (a
+        foreign or just-destroyed window) — not ours either way.
+        """
+        try:
+            return self._canvas.focus_get() is self._canvas
+        except (KeyError, tk.TclError):
+            return False
+
     def _draw_screen_rows(self) -> None:
         """Draw current pyte screen rows tagged 'live'. Draws cursor on top."""
         sb = self._sb_phys_rows
@@ -1101,14 +1120,35 @@ class TerminalPanel(ttk.Frame):
             if row_idx == cur_y and cursor_visible:
                 cx = cur_x * self._char_w
                 cy = canvas_row * self._char_h
-                self._canvas.create_rectangle(
-                    cx, cy, cx + self._char_w, cy + self._char_h,
-                    fill=_DEFAULT_FG, outline="", tags=("cursor", "live"),
-                )
+                if self._has_focus():
+                    # Focused: solid block, character knocked out in the
+                    # background colour.
+                    self._canvas.create_rectangle(
+                        cx, cy, cx + self._char_w, cy + self._char_h,
+                        fill=_DEFAULT_FG, outline="", tags=("cursor", "live"),
+                    )
+                    char_fill = _DEFAULT_BG
+                else:
+                    # Unfocused: hollow block. Real terminals do this, and it
+                    # is the only thing that distinguishes "typing goes here"
+                    # from "this is where typing *would* go" — a solid block
+                    # in an unfocused pane reads as the live one.
+                    # Inset by half a pixel so the 1px outline lands inside
+                    # the cell instead of bleeding into the neighbours.
+                    self._canvas.create_rectangle(
+                        cx + 0.5, cy + 0.5,
+                        cx + self._char_w - 0.5, cy + self._char_h - 0.5,
+                        fill="", outline=_DEFAULT_FG, width=1,
+                        tags=("cursor", "live"),
+                    )
+                    # No filled block behind it, so the glyph keeps its own
+                    # colour — drawing it in the background colour would make
+                    # it vanish.
+                    char_fill = _DEFAULT_FG
                 self._canvas.create_text(
                     cx, cy,
                     text=self._char_at_cursor(segs, cur_x),
-                    fill=_DEFAULT_BG, anchor="nw",
+                    fill=char_fill, anchor="nw",
                     font=self._font,
                     tags=("cursor", "live"),
                 )

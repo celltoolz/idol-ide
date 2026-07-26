@@ -59,6 +59,12 @@ Completed sessions live at the bottom as a historical record.
 
 - **References code-peek zoom** — hovering a row in the References panel shows a small floating zoom window with the reference's surrounding code, similar to the minimap zoom but smaller. Exact sizing/layout TBD in a dedicated design session before implementation.
 
+- **Merge conflicts + diagnostics in the status decoration priority** — `editor/git_manager.STATUS_PRIORITY` currently ranks `M(3) > A/U(2) > D(1)`, which decides the colour of a folder dot in the breadcrumb file picker and the Explorer. VS Code ranks two states *above* modified that IDOL can't yet produce:
+  - **Merge conflicts** — `git status --porcelain` reports these as `UU`/`AA`/`DD`/`AU`/`UA`/`UD`/`DU`, but `_parse_status` collapses everything unrecognised to `"M"`, so a conflict is currently indistinguishable from an edit. Needs a `"C"` state end-to-end (parser → `STATUS_COLORS` → source control panel) before it can be ranked. Do this as part of the Git source-control work, not as a decoration-only change.
+  - **Diagnostics (error/warning counts)** — IDOL has the data already (`pyflakes_linter` + LSP feed the Problems panel) but it is per-open-buffer, not per-path-on-disk, so it can't decorate a file the user has never opened. Needs a workspace-wide diagnostic index first.
+
+  Both slot in above `"M"` in `STATUS_PRIORITY` with no other changes to the roll-up — `folder_status()` is already a plain max-priority reduction.
+
 - **More bundled themes** — add 2–3 popular themes as `themes/*.json`. Candidates: `github-dark`, `one-dark`, `solarized-dark`.
 
 - **Internationalization (i18n)** — UI localization (active Czech user base). `gettext`-based; `utils/i18n.py`; `locale/<lang>/LC_MESSAGES/idol.po + .mo`; language setting in `~/.idol/settings.json`; auto-detect OS locale; hot-swap via `retranslate_ui()`. Use a dedicated `feature/i18n` branch — touches every file.
@@ -240,7 +246,7 @@ imports — no interpreter awareness needed.)
 - Line move/duplicate: Alt+Up/Down moves current line or selected block; Shift+Alt+Down duplicates below
 - Split editor with scroll sync and scroll lock (hardware Scroll Lock key synced on startup)
 - Minimap, sticky scroll, fold markers
-- Breadcrumb bar: path crumbs, symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
+- Breadcrumb bar: path crumbs, filename-crumb directory picker (folders first, current file pre-selected, folder drill-in, pick opens a new tab in the clicked pane), symbol crumbs, sibling picker, locals drill-down, marquee scroll footer
 - Find/Replace; Ctrl+/ comment toggle; word occurrence highlights
 - Zen mode (F10), sidebar toggle (Ctrl+B)
 

@@ -35,13 +35,15 @@ Live scaled-down view of the full file with hover zoom preview and mouse wheel s
 
 A thin bar between the tab row and the editor showing the full file path and current symbol scope.
 
-- **Path crumbs** — each folder segment is clickable to set it as the Explorer root
+- **Path crumbs** — the folder segments leading to the file, shown dimmed. They are display-only: re-rooting the Explorer is Explorer → **Set as Root Directory**, deliberately not a stray click on a breadcrumb
+- **File picker** — click the **filename** crumb to list the folder the file lives in: subfolders first, then files, both alphabetical. The current file is pre-selected and scrolled into view when the list opens. Picking a file opens it in a new tab (in the pane whose breadcrumb you clicked, so a split-pane pick stays in the split). Clicking a folder drills into it; a `‹ ..` row appears once you have drilled below the starting folder
+- **Git status in the picker** — each file row carries a right-aligned `M` / `A` / `U` / `D` letter and takes that status's colour; each folder row carries a coloured `●` standing for the highest-priority status anywhere beneath it (see [Git status decorations](git.md#status-decorations)). A deleted file is gone from disk and so can never appear as a row — the red folder dot is how a deletion surfaces here. `.git` is not listed
 - **Symbol crumbs** — updates live as the cursor moves; shows class › method hierarchy in the active color scheme
 - **Sibling picker** — click any symbol crumb to see all peer symbols at that scope level and jump to one
 - **Locals drill-down** — a `›` appears after the innermost crumb when locals exist; click to open a picker showing all local variables, loop targets, and nested definitions inside that function
 - **Syntax-highlighted footer** — hover any local to see its source line rendered with the active theme's token colors
 - **Marquee scroll** — when the source preview overflows the footer width it smoothly ping-pongs left and right
-- Keyboard navigation (↑↓ Enter Escape) in both pickers; scrollable for large symbol lists
+- Keyboard navigation (↑↓ Enter Escape) in all three pickers; scrollable for large lists
 
 ## Split Editor
 
@@ -57,6 +59,12 @@ A thin bar between the tab row and the editor showing the full file path and cur
 | **Split pane × button** | True close — prompts for any unsaved changes, then destroys the pane |
 | **Individual tab ×** in split | Closes that tab; if it was the last, the split pane closes |
 
+### Caret and current-line highlight
+
+Only the **focused** pane draws a blinking caret. Two carets blinking at once reads as two live insertion points when only one of them can take your typing.
+
+Both panes keep their **current-line highlight** at all times, including when neither has focus (you clicked into the terminal, the explorer, the AI panel). The highlight is a "you were here" marker, so losing it on every focus change means losing your place in the pane you are about to come back to.
+
 ### Hide / show
 
 The SPLIT button hides and re-shows the split pane **without closing or discarding any tabs**. All open split tabs survive behind the scenes. Click SPLIT again (or `Ctrl+\`) to restore them exactly as you left them.
@@ -66,6 +74,8 @@ Entering **Designer mode** also hides the split automatically; returning to Edit
 ### Session persistence
 
 Split tabs are saved and restored across app restarts — including dirty/unsaved files (stored in `~/.idol/tmp/` just like main-pane tabs). The split state, sash position, and active tab index all survive a restart.
+
+**Split tabs belong to the project they were opened in.** Closing a project closes the split pane along with its tabs, and opening a project restores that project's split — never the previous one's. Unsaved work in a split tab raises the same save prompt as unsaved work in the main pane.
 
 ### Scroll lock
 

@@ -1,7 +1,11 @@
 """BreadcrumbBar — thin bar showing file path + current symbol scope.
 
 Sits between the tab row and the editor content inside each tab frame.
-Path folder crumbs are clickable (sets explorer root).
+Path folder crumbs are display-only — `on_set_root` is an available hook but
+app.py deliberately leaves it unwired, so a stray crumb click can't yank the
+Explorer tree out from under you (that's Explorer → Set as Root Directory).
+The filename crumb is clickable (opens a sibling-*file* picker listing the
+containing directory; folders drill in, files open in a new tab).
 Symbol crumbs are clickable (opens a sibling-symbol picker dropdown).
 """
 
@@ -11,6 +15,7 @@ import os
 import tkinter as tk
 from typing import Callable
 
+from editor import git_manager
 from widgets.learning_manager import LearningManager
 from widgets.scrollbar import VerticalScrollbar
 from utils.ui_font import UI_FONT
@@ -31,6 +36,8 @@ _TAG_FG: dict[str, str] = {
     "function": "#ffb86c",
 }
 
+_FG_DIR = "#c5c5c5"   # folder rows in the directory picker
+
 
 class BreadcrumbBar(tk.Frame):
     """Horizontal breadcrumb bar for a single editor tab."""
@@ -44,11 +51,14 @@ class BreadcrumbBar(tk.Frame):
         on_set_root: Callable[[str], None] | None = None,
         get_line: Callable[[int], str] | None = None,
         highlight_fn: Callable[[str], list[tuple[str, str]]] | None = None,
+        on_open_file: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(parent, bg=_BG, height=self.HEIGHT)
         self.pack_propagate(False)
         self._on_navigate = on_navigate
         self._on_set_root = on_set_root
+        self._on_open_file = on_open_file
+        self._git_status_provider: Callable[[], dict[str, str]] | None = None
         self._get_line = get_line
         self._highlight_fn = highlight_fn
         self._last_line: int = -1
@@ -110,6 +120,27 @@ class BreadcrumbBar(tk.Frame):
         self._last_line = -1
         self._last_key = ()
 
+    def set_open_file_handler(self, fn: Callable[[str], None] | None) -> None:
+        """Wire the callback the directory picker fires when a file is chosen.
+
+        The bar is constructed by `CanvasCodeView`, which has no notion of
+        tabs — app.py wires this per tab so the file lands in the pane that
+        owns this breadcrumb.
+        """
+        self._on_open_file = fn
+        self.invalidate()
+
+    def set_git_status_provider(
+        self, fn: Callable[[], dict[str, str]] | None
+    ) -> None:
+        """Wire a getter for the live {path: 'M'|'A'|'U'|'D'} map.
+
+        A getter rather than a pushed snapshot: the picker is built on click
+        and thrown away on dismiss, so reading through at open time is always
+        current and there is no invalidation to plumb when git status polls.
+        """
+        self._git_status_provider = fn
+
     # ── Rendering ──────────────────────────────────────────────────────────────
 
     def _render(
@@ -143,6 +174,20 @@ class BreadcrumbBar(tk.Frame):
                 lbl.bind("<Button-1>", lambda _, p=folder_path: LearningManager.fire_click(self) if LearningManager.is_active() else self._on_set_root(p))
                 lbl.bind("<Enter>", lambda _, l=lbl: l.config(fg=_FG_FILE))
                 lbl.bind("<Leave>", lambda _, l=lbl, f=fg: l.config(fg=f))
+            elif is_last_path and filepath and self._on_open_file:
+                # Filename crumb → directory picker (VS Code parity).
+                # `filepath`'s own dirname, not the crumb chain — the chain
+                # may be elided with "…" and can't be reconstructed.
+                folder = os.path.dirname(os.path.abspath(filepath))
+                lbl.config(cursor="hand2")
+                lbl.bind(
+                    "<Button-1>",
+                    lambda _, w=lbl, d=folder, f=filepath:
+                        LearningManager.fire_click(self) if LearningManager.is_active()
+                        else self._show_directory(d, w, f),
+                )
+                lbl.bind("<Enter>", lambda _, l=lbl: l.config(bg=_BG_HOVER))
+                lbl.bind("<Leave>", lambda _, l=lbl: l.config(bg=_BG))
 
             if not is_last_path:
                 _sep(self._inner)
@@ -243,18 +288,23 @@ class BreadcrumbBar(tk.Frame):
 
     def _finalise_popup(self, popup, canvas, vsb, rows, selected_idx,
                         anchor: tk.Label, popup_w: int,
-                        content_h: int, max_h: int, footer_h: int = 0) -> None:
-        """Size, position, bind focus-loss and keyboard nav, then show."""
+                        content_h: int, max_h: int, footer_h: int = 0,
+                        on_activate: Callable[[object], None] | None = None) -> None:
+        """Size, position, bind focus-loss and keyboard nav, then show.
+
+        `selected_idx[0]` is honoured as the initially highlighted row, so a
+        caller can pre-select (and scroll to) a row before showing the popup.
+        `on_activate` overrides what Enter/space does with a row's payload —
+        the symbol pickers leave it None and navigate to a line number.
+        """
         ROW_H = 26
 
         def _highlight(idx: int) -> None:
-            for i, (r, nl, ll, _) in enumerate(rows):
-                bg = _PICK_SEL if i == idx else _PICK_BG
-                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+            _highlight_rows(rows, idx)
 
-        def _navigate(ln: int) -> None:
+        def _navigate(payload) -> None:
             self._close_picker()
-            self._on_navigate(ln)
+            (on_activate or self._on_navigate)(payload)
 
         popup_h = min(content_h, max_h) + 2 + footer_h
         if content_h <= max_h:
@@ -267,7 +317,14 @@ class BreadcrumbBar(tk.Frame):
         popup.geometry(f"{popup_w}x{popup_h}+{x}+{y}")
 
         if rows:
-            _highlight(0)
+            idx = max(0, min(selected_idx[0], len(rows) - 1))
+            selected_idx[0] = idx
+            _highlight(idx)
+            if idx:
+                # scrollregion is only set by the <Configure> handler, so the
+                # geometry has to be flushed before yview means anything.
+                canvas.update_idletasks()
+                canvas.yview_moveto(idx / len(rows))
 
         def _wheel(e):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
@@ -306,6 +363,129 @@ class BreadcrumbBar(tk.Frame):
         popup.bind("<FocusOut>", lambda _: popup.after(100, _check_focus))
         popup.focus_force()
 
+    # ── Directory picker (filename crumb click) ───────────────────────────────
+
+    def _show_directory(self, dirpath: str, anchor: tk.Label,
+                        current: str | None) -> None:
+        """List *dirpath*; files open in a new tab, folders drill in.
+
+        *current* is the tab's own file — it stays fixed across drill-downs so
+        the row for it can be pre-selected, and so `..` knows when it has
+        climbed back to the starting directory.
+        """
+        if self._picker and self._picker.winfo_exists():
+            self._close_picker()
+            return
+        if not self._on_open_file:
+            return
+
+        try:
+            entries = list(os.scandir(dirpath))
+        except OSError:
+            return
+
+        dirs, files = [], []
+        for e in entries:
+            if e.name == ".git":
+                continue          # repo internals, never something you open
+            try:
+                (dirs if e.is_dir() else files).append((e.name, e.path))
+            except OSError:
+                continue          # broken symlink / vanished mid-scan
+        dirs.sort(key=lambda p: p[0].lower())
+        files.sort(key=lambda p: p[0].lower())
+
+        # `..` only once we've drilled below the file's own directory —
+        # a first open matches the folder listing exactly.
+        base = os.path.dirname(os.path.abspath(current)) if current else dirpath
+        parent = os.path.dirname(dirpath)
+        items: list[tuple[str, str, bool]] = []      # (label, path, is_dir)
+        if _norm(dirpath) != _norm(base) and parent and parent != dirpath:
+            items.append(("..", parent, True))
+        items += [(n, p, True) for n, p in dirs]
+        items += [(n, p, False) for n, p in files]
+        if not items:
+            return
+
+        # Git decorations — read fresh at open time. The picker is short-lived,
+        # so there is nothing to keep in sync afterwards.
+        status_map = self._git_status_provider() if self._git_status_provider else {}
+        norm_status = {_norm(p): s for p, s in status_map.items()} if status_map else {}
+
+        ROW_H, MAX_H, popup_w = 26, 14 * 26, 300
+        popup, inner, canvas, vsb, rows, sel, _ = self._make_popup(anchor, popup_w)
+
+        def _wheel(e):
+            canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
+
+        def _highlight(idx):
+            _highlight_rows(rows, idx)
+
+        def _activate(path) -> None:
+            self._close_picker()
+            if os.path.isdir(path):
+                # Re-entering from inside the destroyed popup's own binding —
+                # defer so the drill-down Toplevel builds on a clean stack.
+                self.after(1, lambda p=path: self._show_directory(p, anchor, current))
+            else:
+                self._on_open_file(path)
+
+        cur_norm = _norm(current) if current else None
+        for label, path, is_dir in items:
+            # Files show their own status letter; folders show a dot standing
+            # for the highest-priority status anywhere beneath them. ".." is
+            # a navigation affordance, not a real entry — never decorated.
+            if label == "..":
+                status = None
+            elif is_dir:
+                status = git_manager.folder_status(path, status_map)
+            else:
+                status = norm_status.get(_norm(path))
+
+            row = tk.Frame(inner, bg=_PICK_BG, cursor="hand2", height=ROW_H)
+            row.pack(fill="x"); row.pack_propagate(False)
+            ll = tk.Label(row, text=("‹" if label == ".." else "›") if is_dir else "",
+                          bg=_PICK_BG, fg=_FG_SEP, font=(UI_FONT, 9),
+                          width=2, anchor="w", pady=0)
+            ll.pack(side="left", fill="y")
+            badge = tk.Label(
+                row,
+                text=("" if not status else ("●" if is_dir else status)),
+                bg=_PICK_BG, fg=git_manager.STATUS_COLORS.get(status or "", _FG_DIM),
+                font=(UI_FONT, 9, "bold"), width=2, anchor="e", padx=6, pady=0,
+            )
+            badge.pack(side="right", fill="y")
+            # A decorated row takes the status colour on the name as well as
+            # the badge — folders included. The Explorer tree can only carry
+            # one foreground per row, so tinting the name is the only way its
+            # folder dots read as coloured at all; matching here keeps the two
+            # surfaces telling the same story about the same folder.
+            nl = tk.Label(row, text=label, bg=_PICK_BG,
+                          fg=(git_manager.STATUS_COLORS.get(status) if status
+                              else (_FG_DIR if is_dir else _FG_FILE)),
+                          font=(UI_FONT, 9), anchor="w", padx=4, pady=0)
+            nl.pack(side="left", fill="y")
+
+            idx = len(rows)
+            rows.append((row, nl, ll, path))
+            if cur_norm is not None and not is_dir and _norm(path) == cur_norm:
+                sel[0] = idx
+
+            def _enter(_, i=idx): sel[0] = i; _highlight(i)
+            def _leave(_): _highlight(sel[0])
+            def _click(_, p=path): _activate(p)
+
+            for w in (row, nl, ll, badge):
+                w.bind("<Enter>", _enter); w.bind("<Leave>", _leave)
+                # ButtonRelease, not Button — a Button-1 bind lets the release
+                # fall through to the editor canvas once the popup is gone.
+                w.bind("<ButtonRelease-1>", _click)
+                w.bind("<MouseWheel>", _wheel)
+                w.bind("<Button-4>", _wheel); w.bind("<Button-5>", _wheel)
+
+        self._finalise_popup(popup, canvas, vsb, rows, sel, anchor, popup_w,
+                             len(items) * ROW_H, MAX_H, on_activate=_activate)
+
     # ── Sibling picker (crumb click) ──────────────────────────────────────────
 
     def _show_siblings(self, symbols: list[tuple[str, str, int]], anchor: tk.Label) -> None:
@@ -323,9 +503,7 @@ class BreadcrumbBar(tk.Frame):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
 
         def _highlight(idx):
-            for i, (r, nl, ll, _) in enumerate(rows):
-                bg = _PICK_SEL if i == idx else _PICK_BG
-                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+            _highlight_rows(rows, idx)
 
         for tag, name, lineno in symbols:
             fg = _TAG_FG.get(tag, _FG_FILE)
@@ -502,9 +680,7 @@ class BreadcrumbBar(tk.Frame):
             canvas.yview_scroll(-1 if (e.delta > 0 or e.num == 4) else 1, "units")
 
         def _highlight(idx):
-            for i, (r, nl, ll, _) in enumerate(rows):
-                bg = _PICK_SEL if i == idx else _PICK_BG
-                r.configure(bg=bg); nl.configure(bg=bg); ll.configure(bg=bg)
+            _highlight_rows(rows, idx)
 
         # Top "IN <SCOPE>" header
         hdr = tk.Frame(inner, bg=_PICK_BG, height=HDR_H)
@@ -610,6 +786,26 @@ class BreadcrumbBar(tk.Frame):
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
+
+def _highlight_rows(rows: list, idx: int) -> None:
+    """Paint row *idx* as selected and every other row as background.
+
+    Recolours each row frame plus all of its children, so a picker is free to
+    put as many labels in a row as it needs (name, chevron, status badge)
+    without the selection band developing holes.
+    """
+    for i, row in enumerate(rows):
+        bg = _PICK_SEL if i == idx else _PICK_BG
+        frame = row[0]
+        frame.configure(bg=bg)
+        for w in frame.winfo_children():
+            w.configure(bg=bg)
+
+
+def _norm(path: str) -> str:
+    """Case- and separator-normalised path, for identity comparisons only."""
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
 
 def _sep(parent: tk.Frame) -> None:
     tk.Label(

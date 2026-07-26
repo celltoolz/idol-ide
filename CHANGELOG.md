@@ -5,6 +5,199 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-25] — IDE Polish
+
+### Added
+- **Clicking the filename crumb opens a file picker for the folder the file lives in.** VS Code
+  parity: subfolders first, then files, both alphabetical, and the current file is pre-selected
+  and scrolled into view when the list opens — so the dropdown tells you where you are before
+  you touch it. Picking a file opens it in a new tab; clicking a folder drills into it, and a
+  `‹ ..` row appears once you have drilled below the starting folder so the trip is reversible.
+  - The pick lands in the pane whose breadcrumb was clicked. A split-pane breadcrumb opens into
+    the split (`_open_file_in_split`), not the main notebook — opening in the other half of the
+    screen from the one you clicked in is the kind of thing you only forgive once.
+  - Rows bind `<ButtonRelease-1>`, not `<Button-1>`, so dismissing the popup can't drop a click
+    through onto the editor canvas underneath.
+  - `BreadcrumbBar._finalise_popup` now honours a caller-set `selected_idx[0]` as the initially
+    highlighted row and takes an `on_activate` override, so the shared popup machinery serves
+    "open this path" as well as the symbol pickers' "jump to this line".
+  - File icons are deliberately not drawn yet — they land with the theming pass.
+
+- **Git status decorations in the breadcrumb file picker.** Every file row now carries a
+  right-aligned `M` / `A` / `U` / `D` letter and takes that status's colour; every folder row
+  carries a coloured `●` standing for the highest-priority status anywhere beneath it, so you
+  can see there is something to deal with inside a folder without opening it.
+  - **Folder roll-up priority** — `Modified (3) > Added / Untracked (2) > Deleted (1) > none`,
+    a plain max reduction in the new `git_manager.folder_status()`. A folder holding one
+    modified file and ten untracked ones reads as *modified*: the tracked edit is the thing
+    standing between you and a clean commit. Nothing changed underneath means no dot at all,
+    so a quiet tree stays quiet. This is VS Code's propagation rule minus the two states IDOL
+    can't produce yet — merge conflicts and diagnostics — both queued in `ROADMAP.md` with
+    notes on what each needs first. They slot in above `M` without touching the roll-up.
+  - **One palette, one place.** `STATUS_COLORS` was defined twice (`editor/git_manager.py` and
+    `widgets/source_control.py`) with different values for `U`. It now lives once in
+    `git_manager`, alongside `STATUS_COLORS_LIGHT` and `STATUS_PRIORITY`, and everything else
+    imports it.
+  - **Untracked is green, not grey.** It was the one status you couldn't see at a glance, and
+    grey reads as "disabled" rather than "new". Untracked and Added now share a green — to the
+    reader they are the same story, a file git isn't tracking yet.
+  - A deleted file is gone from disk, so a directory listing can never show a row for it. The
+    red folder dot is how a deletion surfaces in the picker; the Source Control panel remains
+    the place to see deletions by name.
+  - `.git` is excluded from the listing — repo internals are never something you open.
+  - `_highlight_rows()` replaces four copies of the picker selection-repaint loop and repaints
+    a row's children generically, so rows can carry a badge without the selection band
+    developing a hole where the old hardcoded three-widget repaint didn't reach.
+
+- **The Explorer tree gets the same decorations.** Folders now carry the rolled-up `●` next to
+  their existing per-file M/A/U/D badges, using the same palette and the same priority rule as
+  the breadcrumb picker, so the two surfaces can't tell different stories about one folder.
+
+### Changed
+- **One caret in a split, two current-line highlights.** The two behaviours were exactly
+  backwards: every pane drew its own blinking caret, while the current-line highlight was the
+  thing gated on focus. So a split showed two live-looking insertion points when only one of
+  them could take your typing, and the pane you weren't in lost its place entirely.
+  - The caret (primary *and* multi-cursor secondaries) is now focus-gated; the highlight never
+    is. Both panes keep their highlight even when neither has focus — you clicked into the
+    terminal or the explorer, and the editors should still show where you left off.
+  - `_blink_cursor` now skips its toggle-and-repaint when the pane is unfocused. It was
+    re-rendering the inactive pane twice a second to draw a caret that is no longer there.
+    `<FocusIn>`/`<FocusOut>` already repaint, so nothing is missed, and `<FocusIn>` also resets
+    the blink phase — otherwise a pane that went dark mid-blink could take up to 500 ms to show
+    a caret after a click, which reads as a dropped click.
+  - The focus check moved out of the per-row draw loop. It was a `focus_get()` — a Tcl
+    round-trip — for every visible row of every frame; it is now one call per render.
+
+### Added
+- **UNSAVED FILES on the Welcome tab — work you can no longer reach.** IDOL never throws
+  an unsaved buffer away: closing a project (or quitting) writes every dirty tab to a scratch
+  file under `~/.idol/tmp`, so reopening brings it back untouched. But with *no project open*,
+  closing the project left those scratch files with nothing pointing at them — the work was
+  still on disk and simply unreachable. The new section lists exactly those.
+  - Rows are named after the tab they came from, with the file the buffer was headed for (or
+    *never saved to a file*) and how long ago it was written. Clicking one reopens it as a
+    **dirty** tab still targeting its original file, so `Ctrl+S` writes where you always meant
+    it to go; the file on disk is untouched until then. × discards the contents for good,
+    after a confirmation.
+  - Scratch files backing a tab that is open right now are filtered out. That work isn't lost,
+    and offering to "recover" it would just open a second copy of a buffer already on screen.
+  - Making this possible needed a name for each scratch file: they are `idol_tmp_<uuid>.py` and
+    carry no trace of their origin, so a recovery list could only have shown a wall of uuids.
+    `utils/session.py` now keeps `~/.idol/tmp/index.json` mapping each scratch file to its
+    tab's title and target path, written next to the scratch file itself. The listing is the
+    union of disk and index with disk winning, so a scratch file the index never learned about
+    — written before this existed, or orphaned by a crash between the two writes — is still
+    offered, just under its own name. Index entries whose file is gone are pruned on read.
+
+### Changed
+- **The terminal's block cursor goes hollow when it loses focus.** A solid block in an
+  unfocused pane reads as the live one. It is now solid only while the terminal owns the
+  keyboard and a hollow outline otherwise, the way real terminal emulators behave — so with the
+  editor, the split, and the terminal all on screen, the solid block is always the one your
+  next keystroke goes to. Pairs with the split-editor caret change in this same release: every
+  place IDOL shows an insertion point now says whether it is the live one.
+  - `<FocusIn>`/`<FocusOut>` trigger the repaint. An idle terminal has no other reason to
+    redraw, so without them the cursor would keep its old look until the next byte of output,
+    which may never come.
+- **The Welcome tab's right-hand lists scroll independently, five rows at a time.** Recent
+  Projects, Recent Files and the new Unsaved Files list are all unbounded, and at full length they
+  pushed the rest of the page into a long scroll where nothing was reachable without hunting.
+  Each list now has its own viewport: five rows, its own scrollbar, and a wheel scroll aimed at
+  a list moves that list rather than the page. A list that fits shrinks to its content and
+  hides its scrollbar entirely.
+- **The Welcome tab uses IDOL's canvas scrollbar throughout.** The page scroll and the What's
+  New box were the last two `ttk.Scrollbar`s in the panel, drawing a native light trough
+  against the dark page — the only widgets on the tab that ignored the theme. `welcome.py` no
+  longer imports `ttk` at all.
+- **Closing a project now saves it, and the "unsaved changes" prompt is gone.** Every path that
+  tears a project down — Close Project, Open Project, New Project, New Workspace, and quitting —
+  wrote only `~/.idol/session.json`, never the project's own `.idol-project`. Reopening the
+  project therefore restored whatever state it had at the last *explicit* **Save Project**, so
+  anything opened since — a split pane, a newly opened tab — was simply missing. They now all
+  go through `_autosave_workspace()`, which writes the project file when the root has one and
+  refreshes the auto-session either way.
+  - **No prompt.** The dialog asked "you have unsaved changes, save before closing?" but
+    answering Yes ran `workspace_save()`, which writes the *project file* — it never wrote your
+    edited source file to disk. So the question promised something it did not do, and the
+    honest answer to it was always "it doesn't matter": dirty buffer content is written to
+    `~/.idol/tmp` scratch files referenced from the project file, so a dirty tab reopens dirty
+    with its edits intact and the file on disk untouched. `file_exit` has worked this way for a
+    while — *"No prompts on exit — dirty tabs are auto-saved to temp files so nothing is
+    lost"* — the project paths were simply inconsistent with it. Prompts still appear where a
+    real decision exists: closing an individual tab, and moving a file with unsaved changes in
+    the Explorer.
+  - IDOL only ever *updates* an existing `.idol-project`. Closing a plain folder you opened
+    will not leave a project file behind.
+  - `_has_dirty_tabs()` lost its last caller and is removed; `_all_tab_ids()` stays.
+- **Split editor tabs are project-scoped.** Closing a project now closes the split pane and its
+  tabs. `_teardown_project` only ever iterated the main notebook, so the previous project's
+  split files stayed open on top of the new one — open project A with a split, then open
+  project B, and B's split showed A's files alongside its own. The session file already saved
+  and restored `split_tabs` per project; only the teardown half was missing.
+  - Teardown keeps the `~/.idol/tmp` scratch files for dirty split tabs and forgets only the
+    mapping. Every caller saves the session immediately before tearing down and that save
+    *references* those files — deleting them would restore the project with its unsaved work
+    gone. The main-pane teardown has always worked this way; the split's own close path
+    deletes them, which is still right when you close the split yourself.
+
+### Fixed
+- **Unsaved work in a split tab now raises the save prompt.** `_has_dirty_tabs` checked only
+  the main notebook, so closing or switching projects could discard a dirty split tab without
+  asking. It — and the "do you want to save this project" check in **New Project** — now count
+  both panes via the new `_all_tab_ids()`. This mattered much more once teardown started
+  closing the split.
+- **Opening a project with the split editor already open no longer spawns a second split.**
+  `session.restore()` called `_build_right_pane()` unconditionally whenever the saved session
+  had split tabs, without checking whether a right pane was already up — so the existing pane
+  stayed on screen while every widget slot (`_nb_frame_r`, `_notebook_r`, `_lock_btn`,
+  `_split_mode_bar_spacer`) was overwritten to point at the new one. The first pane became
+  unreachable: SPLIT toggled the new pane while the orphan sat there, which is why closing the
+  split left one behind.
+  - `_build_right_pane` is now idempotent — it disposes of any existing pane first, so there
+    is exactly one right pane afterwards no matter who calls it or when. The silent teardown
+    is split out as `_dispose_split_pane()`, which `_close_split` also uses after its prompts.
+  - Fixes the `TclError: invalid command name …!label3` some users saw when hovering the
+    scroll-lock `⇕` button: with two panes built, `_lock_btn` pointed at one of them, and
+    destroying that one left the survivor's hover handler configuring a dead widget. The
+    hover handlers now recolour the widget they are bound to, captured by default arg, and
+    `_dispose_split_pane` clears the slots it owns.
+- **Designer double-click no longer jumps to the right line in the wrong pane.** With the split
+  editor open, double-clicking a widget to jump to its handler moved the caret in the *split*
+  pane's buffer — the correct line number applied to whatever file the split happened to be
+  showing. Two defects stacked: the jump selected the target tab on `self.notebook` only (a
+  no-op, or a `TclError`, when the tab lives in the split), and then navigated via
+  `_outline_navigate`, which follows `_active_pane` rather than the tab it was just handed.
+  `_enter_editor_mode` restores the split with `_set_active_pane("right")` on the way out of
+  the designer, so the active pane was reliably the wrong one.
+  - New `_reveal_tab(tab_id)` selects in whichever notebook owns the tab *and* syncs
+    `_active_pane`; the jump then drives the target's own codeview directly. When the file is
+    open in both panes the main one wins — the designer lives in the main content area, so
+    that is the pane about to be in front of you.
+  - The rule is written into `CONTRIBUTING.md`: the tab registries are flat across both
+    notebooks, so anything that finds a tab by path has to go through `_reveal_tab`.
+- **Problems panel / references / go-to-definition could raise on a split-pane file.**
+  `_open_file_at` had the same `self.notebook.select()` defect, which throws
+  `TclError: not managed by` when the target tab lives in the split. It now routes through
+  `_reveal_tab`, and a registry entry pointing at a tab that no longer exists falls through to
+  re-opening the file instead of failing silently.
+- **Explorer git status colours actually render now.** The M/A/U/D badges have been there for a
+  long time, but always in plain white — the colour never reached the screen. `ttk.Treeview`
+  resolves competing tag options by `tag_configure` **creation** order (earliest wins) and
+  ignores the order of the item's own tag list entirely, so the `file` / `folder` tags —
+  configured first — beat every `git_*` tag no matter how `apply_git_status` arranged them.
+  The old code put the git tag first in the item's tag list and commented it as "for priority",
+  which is the reverse of how Tk actually behaves. Configuring the `git_*` tags first in
+  `__init__` fixes it; re-configuring on theme change does not disturb the priority. The
+  gotcha is now written down in `CONTRIBUTING.md`, because nothing about the API hints at it.
+- **Docs no longer claim folder crumbs re-root the Explorer.** They never have — `on_set_root`
+  is an available `BreadcrumbBar` hook that `app.py` deliberately leaves unwired, so a stray
+  crumb click can't yank the tree out from under you. Re-rooting stays an explicit Explorer →
+  **Set as Root Directory**. Corrected in `docs/editor.md`, `CONTRIBUTING.md`, and the
+  `breadcrumb_bar.py` / `_set_project_root` docstrings.
+
+---
+
 ## [2026-07-25] — Welcome tab, recent lists, and session restore
 
 ### Added

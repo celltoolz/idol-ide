@@ -13,6 +13,7 @@ Full VT100 PTY shell with a **canvas-driven renderer** for pixel-perfect output 
 - **Extended TUI key forwarding** — Ctrl+Arrow (word navigation / tmux pane switching), Shift+Arrow (selection in text editors), Alt+Arrow (file manager navigation), and Insert are forwarded as proper escape sequences when the terminal has focus
 - **Auto-scroll pin for repainting TUI apps** — apps that repaint by cursor-up + redraw (Rich Live tables, Textual, etc.) are viewport-pinned to the top of the redrawn block so table borders stay flush; output that doesn't cursor-up remains bottom-pinned (keeping PSReadLine prompts anchored)
 - **Text selection** — click and drag to select; Copy via right-click or `Ctrl+Shift+C`; Paste via right-click or `Ctrl+Shift+V`
+- **Focus-aware block cursor** — a solid block while the terminal has the keyboard, a hollow outline when it doesn't, the way real terminal emulators behave. With the editor, the split, and the terminal all on screen at once, this is what tells you where your next keystroke actually lands
 
 Open with `Ctrl+`` ` or the **>_** button in the nav toolbar.
 

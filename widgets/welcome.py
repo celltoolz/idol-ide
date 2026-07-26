@@ -6,11 +6,12 @@ import os
 import re
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
 from typing import Callable
 
 from utils import recent as _recent
+from utils import session as _session
 from utils.ui_font import UI_FONT
+from widgets.scrollbar import VerticalScrollbar
 
 _BG       = "#1e1e1e"
 _BG2      = "#252526"
@@ -23,6 +24,10 @@ _GREEN    = "#4ec9b0"
 _SECTION  = "#569cd6"
 _SEP      = "#3c3c3c"
 _RED      = "#f14c4c"
+_AMBER    = "#e2c08d"
+
+# Rows visible in each right-column list before it starts scrolling.
+_ROWS_IN_VIEW = 5
 
 _TIPS = [
     "Drag a tab past the right edge to open the Split Editor",
@@ -75,6 +80,82 @@ def _trim_lines(lines: list[str]) -> list[str]:
     return ls
 
 
+class _ScrollList(tk.Frame):
+    """Row container that shows a fixed number of rows and scrolls the rest.
+
+    The three lists on the right column are unbounded — ten recent projects,
+    ten recent files, and however many unsaved buffers have piled up — and
+    letting all of them run full length pushes the page into a long scroll
+    where nothing is reachable without hunting. Each list gets its own
+    viewport instead.
+
+    Height comes from the rows actually rendered, not a hardcoded pixel
+    count, so it stays right if the row font or padding changes.
+    """
+
+    def __init__(self, parent, rows_in_view: int = 5, **kwargs):
+        super().__init__(parent, bg=_BG, **kwargs)
+        self._rows_in_view = rows_in_view
+
+        self._canvas = tk.Canvas(self, bg=_BG, highlightthickness=0, bd=0, height=1)
+        # height=1 on the scrollbar: it is a tk.Canvas, whose default requested
+        # height is 7c (~265 px). Left alone it out-requests the viewport and
+        # becomes what sizes this frame, quietly overriding the row count.
+        self._vsb = VerticalScrollbar(self, command=self._canvas.yview, height=1)
+        self._canvas.configure(yscrollcommand=self._vsb.set)
+        self._canvas.pack(side="left", fill="both", expand=True)
+
+        self.body = tk.Frame(self._canvas, bg=_BG)
+        self._win = self._canvas.create_window((0, 0), window=self.body, anchor="nw")
+        self.body.bind("<Configure>", lambda _: self._canvas.configure(
+            scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(
+            self._win, width=e.width))
+        # Bound once — these widgets outlive a repopulate, so re-binding them
+        # in sync() with add="+" would stack a new handler on every refresh.
+        for ev in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self._canvas.bind(ev, self._on_wheel)
+            self.bind(ev, self._on_wheel)
+
+    def sync(self) -> None:
+        """Resize to the row count and show/hide the scrollbar.
+
+        Call after repopulating `body`.
+        """
+        rows = self.body.winfo_children()
+        self.update_idletasks()
+        if rows:
+            # Measure the whole stack and divide: a row's own reqheight
+            # excludes the pack pady between rows, which would accumulate
+            # into a visibly short viewport by the fifth one.
+            row_h = self.body.winfo_reqheight() / len(rows)
+        else:
+            row_h = 20
+        shown = min(len(rows), self._rows_in_view) or 1
+        self._canvas.configure(height=max(1, int(round(row_h * shown))))
+
+        if len(rows) > self._rows_in_view:
+            self._vsb.pack(side="right", fill="y")
+        else:
+            self._vsb.pack_forget()
+            self._canvas.yview_moveto(0)
+
+        for w in self.body.winfo_children():
+            _bind_wheel_tree(w, self._on_wheel)
+
+    def _on_wheel(self, event):
+        # The page-level wheel handler is a bind_all, which fires on the "all"
+        # bindtag — last. Returning "break" from this widget-level binding
+        # keeps a scroll aimed at this list from also scrolling the page.
+        # When the list isn't scrollable there is nothing to claim, so the
+        # event is left alone and the page takes it as usual.
+        if not self._vsb.winfo_ismapped():
+            return None
+        up = getattr(event, "delta", 0) > 0 or getattr(event, "num", 0) == 4
+        self._canvas.yview_scroll(-1 if up else 1, "units")
+        return "break"
+
+
 class WelcomePanel(tk.Frame):
     """Scrollable welcome / home tab."""
 
@@ -89,6 +170,8 @@ class WelcomePanel(tk.Frame):
         on_learning: Callable,
         on_designer: Callable,
         on_packages: Callable,
+        on_open_temp: Callable | None = None,
+        get_open_temps: Callable[[], set] | None = None,
         **kwargs,
     ):
         super().__init__(parent, bg=_BG, **kwargs)
@@ -101,12 +184,21 @@ class WelcomePanel(tk.Frame):
             "learning":     on_learning,
             "designer":     on_designer,
             "packages":     on_packages,
+            "open_temp":    on_open_temp,
         }
+        # Scratch files backing a tab that is open right now are filtered out
+        # of the recovery list — that work is not lost, and offering it would
+        # only open a second copy of a buffer already on screen.
+        self._get_open_temps = get_open_temps
         self._tip_cycle = itertools.cycle(_TIPS)
         self._tip_after_id = None
 
         self._canvas = tk.Canvas(self, bg=_BG, highlightthickness=0)
-        self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        # The page scrollbar, and the changelog box's below, are the same
+        # canvas-drawn bar the rest of IDOL uses. The native one drew a light
+        # trough against the dark page -- the one widget on the Welcome tab
+        # that ignored the theme.
+        self._scroll = VerticalScrollbar(self, command=self._canvas.yview, height=1)
         self._canvas.configure(yscrollcommand=self._scroll.set)
         self._scroll.pack(side="right", fill="y")
         self._canvas.pack(side="left", fill="both", expand=True)
@@ -248,16 +340,26 @@ class WelcomePanel(tk.Frame):
         right.grid(row=0, column=1, sticky="nsew")
 
         self._section(right, "RECENT PROJECTS")
-        self._recent_projects_list = tk.Frame(right, bg=_BG)
-        self._recent_projects_list.pack(fill="x")
+        self._recent_projects_scroll = _ScrollList(right, rows_in_view=_ROWS_IN_VIEW)
+        self._recent_projects_scroll.pack(fill="x")
+        self._recent_projects_list = self._recent_projects_scroll.body
         self._populate_recent_projects()
 
         tk.Frame(right, bg=_BG, height=16).pack()
 
         self._section(right, "RECENT FILES")
-        self._recent_files_list = tk.Frame(right, bg=_BG)
-        self._recent_files_list.pack(fill="x")
+        self._recent_files_scroll = _ScrollList(right, rows_in_view=_ROWS_IN_VIEW)
+        self._recent_files_scroll.pack(fill="x")
+        self._recent_files_list = self._recent_files_scroll.body
         self._populate_recent_files()
+
+        tk.Frame(right, bg=_BG, height=16).pack()
+
+        self._section(right, "UNSAVED FILES")
+        self._temp_files_scroll = _ScrollList(right, rows_in_view=_ROWS_IN_VIEW)
+        self._temp_files_scroll.pack(fill="x")
+        self._temp_files_list = self._temp_files_scroll.body
+        self._populate_temp_files()
 
     def _build_footer(self, parent: tk.Frame) -> None:
         tk.Frame(parent, bg=_SEP, height=1).pack(fill="x")
@@ -371,7 +473,7 @@ class WelcomePanel(tk.Frame):
             cursor="arrow",
             selectbackground=_BG3,
         )
-        vsb = ttk.Scrollbar(txt_row, orient="vertical", command=self._cl_text.yview)
+        vsb = VerticalScrollbar(txt_row, command=self._cl_text.yview, height=1)
         self._cl_text.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
         self._cl_text.pack(side="left", fill="both", expand=True)
@@ -452,6 +554,7 @@ class WelcomePanel(tk.Frame):
                 text="  No recent projects",
                 bg=_BG, fg=_DIM, font=(UI_FONT, 9), anchor="w",
             ).pack(fill="x")
+            self._recent_projects_scroll.sync()
             return
         for proj in projects:
             self._recent_row(
@@ -461,6 +564,7 @@ class WelcomePanel(tk.Frame):
                 lambda p=proj["path"]: self._remove_recent_project(p),
                 missing=not os.path.isdir(proj.get("path", "")),
             )
+        self._recent_projects_scroll.sync()
 
     def _populate_recent_files(self) -> None:
         for w in self._recent_files_list.winfo_children():
@@ -472,6 +576,7 @@ class WelcomePanel(tk.Frame):
                 text="  No recent files",
                 bg=_BG, fg=_DIM, font=(UI_FONT, 9), anchor="w",
             ).pack(fill="x")
+            self._recent_files_scroll.sync()
             return
         for f in files:
             self._recent_row(
@@ -481,6 +586,78 @@ class WelcomePanel(tk.Frame):
                 lambda p=f["path"]: self._remove_recent_file(p),
                 missing=not os.path.isfile(f.get("path", "")),
             )
+        self._recent_files_scroll.sync()
+
+    def _populate_temp_files(self) -> None:
+        """Unsaved buffers whose tab is gone — the recovery list.
+
+        Closing a project (or the app) keeps the scratch file for every dirty
+        tab, because the session that references it may be reopened. When it
+        isn't — you had an unsaved tab with no project open, and closed the
+        project — the work is still on disk with nothing pointing at it. This
+        is that pointer.
+        """
+        for w in self._temp_files_list.winfo_children():
+            w.destroy()
+
+        open_now = set()
+        if self._get_open_temps:
+            try:
+                open_now = set(self._get_open_temps() or ())
+            except Exception:
+                pass
+        try:
+            entries = _session.list_temp_files(exclude=open_now)
+        except Exception:
+            entries = []
+
+        if not entries:
+            tk.Label(
+                self._temp_files_list,
+                text="  No unsaved files to recover",
+                bg=_BG, fg=_DIM, font=(UI_FONT, 9), anchor="w",
+            ).pack(fill="x")
+            self._temp_files_scroll.sync()
+            return
+
+        for e in entries:
+            origin = e.get("filepath") or ""
+            # Where it came from beats where it is parked: the scratch path is
+            # a uuid under ~/.idol/tmp and tells the user nothing.
+            subtitle = _shorten_path(origin) if origin else "never saved to a file"
+            self._recent_row(
+                self._temp_files_list,
+                e["title"],
+                f"{subtitle}  ·  {_when(e['saved'])}",
+                lambda p=e["path"], t=e["title"], o=origin: self._open_temp_file(p, t, o),
+                lambda p=e["path"], t=e["title"]: self._discard_temp_file(p, t),
+                name_fg=_AMBER,
+                path_is_literal=True,
+            )
+        self._temp_files_scroll.sync()
+
+    def _open_temp_file(self, path: str, title: str, origin: str) -> None:
+        if not self._cbs.get("open_temp"):
+            return
+        if not os.path.isfile(path):
+            self.refresh()
+            return
+        self._cbs["open_temp"](path, title, origin)
+        self.refresh()
+
+    def _discard_temp_file(self, path: str, title: str) -> None:
+        from tkinter import messagebox
+
+        if not messagebox.askyesno(
+            "Discard Unsaved File",
+            f'Permanently delete the unsaved contents of "{title}"?\n\n'
+            "This cannot be undone.",
+            icon="warning",
+            parent=self,
+        ):
+            return
+        _session.forget_temp_file(path)
+        self._populate_temp_files()
 
     def _recent_row(
         self,
@@ -490,14 +667,21 @@ class WelcomePanel(tk.Frame):
         on_open: Callable,
         on_remove: Callable,
         missing: bool = False,
+        name_fg: str | None = None,
+        path_is_literal: bool = False,
     ) -> None:
-        """One recent-project / recent-file row.
+        """One recent-project / recent-file / temp-file row.
 
         *missing* marks an entry whose target is no longer on disk: a red ⊗
         replaces the row's indent, the name loses its link colour, and the
         path line says so.  The row stays clickable — clicking explains what
         happened and offers to drop it, which beats the entry silently
         vanishing the moment it is clicked.
+
+        *name_fg* overrides the link colour (temp-file rows use amber, the
+        same "unsaved" signal the git decorations use).  *path_is_literal*
+        takes the second line as given instead of running it through
+        `_shorten_path` — temp rows put their origin plus an age there.
         """
         row = tk.Frame(parent, bg=_BG, cursor="hand2")
         row.pack(fill="x", pady=1)
@@ -515,14 +699,14 @@ class WelcomePanel(tk.Frame):
         text_col = tk.Frame(row, bg=_BG)
         text_col.pack(side="left", fill="x", expand=True)
 
-        name_fg  = _DIM if missing else _BLUE
+        name_fg  = _DIM if missing else (name_fg or _BLUE)
         name_lbl = tk.Label(
             text_col, text=name,
             bg=_BG, fg=name_fg, font=(UI_FONT, 10), anchor="w",
         )
         name_lbl.pack(fill="x")
 
-        short_path = _shorten_path(path)
+        short_path = path if path_is_literal else _shorten_path(path)
         path_lbl = tk.Label(
             text_col,
             text=f"  {short_path}" + ("  ·  not found" if missing else ""),
@@ -633,9 +817,53 @@ class WelcomePanel(tk.Frame):
         """Rebuild the recent lists (call when a project/file is opened)."""
         self._populate_recent_projects()
         self._populate_recent_files()
+        self._populate_temp_files()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _bind_wheel_tree(widget, handler) -> None:
+    """Bind the wheel on *widget* and every descendant.
+
+    A wheel event goes to the widget under the pointer, and these rows are
+    stacks of Frames and Labels — binding only the containing canvas would
+    miss every actual pixel of the list.
+    """
+    for ev in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        widget.bind(ev, handler)
+    for child in widget.winfo_children():
+        _bind_wheel_tree(child, handler)
+
+
+def _when(iso: str) -> str:
+    """'12 minutes ago' / 'yesterday' / '3 Aug' from an ISO timestamp.
+
+    An age is what tells you whether a recovered buffer is the thing you were
+    just working on or something you abandoned last month; an exact timestamp
+    makes you do that subtraction yourself.
+    """
+    from datetime import datetime as _dt
+
+    try:
+        then = _dt.fromisoformat(iso)
+    except Exception:
+        return ""
+    secs = (_dt.now() - then).total_seconds()
+    if secs < 90:
+        return "just now"
+    mins = secs / 60
+    if mins < 60:
+        return f"{int(mins)} minutes ago"
+    hours = mins / 60
+    if hours < 24:
+        n = int(hours)
+        return "1 hour ago" if n == 1 else f"{n} hours ago"
+    days = hours / 24
+    if days < 2:
+        return "yesterday"
+    if days < 7:
+        return f"{int(days)} days ago"
+    return then.strftime("%-d %b") if os.name != "nt" else then.strftime("%#d %b")
 
 def _shorten_path(path: str, max_len: int = 50) -> str:
     try:

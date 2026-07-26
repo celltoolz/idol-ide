@@ -42,7 +42,7 @@ A project file written by an older version of IDOL stores absolute paths. Open o
 
 This runs once per project. After that the file is portable and nothing needs repairing again.
 
-**Save / Open / Close Project** — `File → Save Project` saves silently; `File → Open Project` restores the full project state including interpreter selection. The Open Project file dialog opens at the current Explorer root (or the working directory if none is set).
+**Save / Open / Close Project** — `File → Save Project` saves silently; `File → Open Project` restores the full project state including interpreter selection; `File → Close Project` saves before it closes, with no prompt (see [Closing a project saves it](#closing-a-project-saves-it--there-is-no-prompt)). The Open Project file dialog opens at the current Explorer root (or the working directory if none is set).
 
 Opening, creating, or closing a project moves the **terminal** as well as the Explorer: a running shell is `cd`'d to the new project root (or back to your home directory on close), and a shell you have not started yet will open there. This is deliberate — a project switch is the one root change that takes the terminal with it. See [Working directory](terminal.md#working-directory).
 
@@ -89,6 +89,14 @@ On exit, IDOL auto-saves:
 - **Designer state** — open forms, active canvas, and the Set as Main selection; if the designer was active, it re-opens automatically on the next launch with the same forms loaded
 
 Session data is written to `~/.idol/session.json`. Named project saves write to `<name>.idol-project` in the project root.
+
+### Closing a project saves it — there is no prompt
+
+Closing a project, switching to another one, starting a new one, or quitting IDOL all write the current project's `.idol-project` file first, so it reopens exactly as you left it: the same tabs, the same split, the same layout. You do not have to remember to hit **Save Project** first.
+
+There is no "you have unsaved changes, save before closing?" dialog on any of these, because there is nothing to lose by not answering it. Unsaved buffer content is written to `~/.idol/tmp` scratch files that the project file points at, so a dirty tab comes back dirty, with your edits intact and the file on disk still untouched. This is the same rule IDOL already applied on exit. Prompts still appear where a decision is genuinely needed: closing an individual **tab**, and moving a file with unsaved changes in the Explorer.
+
+IDOL only ever *updates* a project file that already exists. A folder you simply opened is not a project, and closing it will not leave an `.idol-project` behind — use **File → Save Project** to make one.
 
 A saved tab whose file has since been deleted or moved is skipped on restore. If that turns out to be *every* tab — renaming a project folder outside IDOL is the usual way — you get the Welcome tab (or a blank one, depending on your **Show on startup** setting) rather than an empty editor.
 

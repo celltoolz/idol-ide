@@ -466,6 +466,7 @@ class IDOL(Tk):
         self._nb_frame_r = None
         self._scroll_locked: bool = False
         self._lock_btn = None
+        self._split_mode_bar_spacer = None
         self._syncing_scroll: bool = False
 
         # Settings
@@ -1618,6 +1619,9 @@ class IDOL(Tk):
         # "breadcrumb widget" for the existing breadcrumb registry —
         # app.py uses _breadcrumbs[tab_id] for outline / path crumbs.
         self._breadcrumbs[tab_id] = cv.breadcrumb
+        # Filename-crumb directory picker opens into this pane.
+        cv.breadcrumb.set_open_file_handler(self._open_file)
+        cv.breadcrumb.set_git_status_provider(lambda: self._git_status)
 
         # Mark clean once the after-idle setup settles, so the initial
         # load doesn't show as a dirty buffer.
@@ -1818,6 +1822,30 @@ class IDOL(Tk):
         if self._notebook_r and tab_id in self._notebook_r.tabs():
             return self._notebook_r
         return self.notebook
+
+    def _reveal_tab(self, tab_id: str) -> bool:
+        """Select *tab_id* in whichever pane owns it and make that pane active.
+
+        The tab registries (`_files`, `_codeviews`, `_titles`, …) are flat
+        across both notebooks, so any lookup by path can land on a split-pane
+        tab.  `self.notebook.select(<split tab>)` is a silent no-op, and
+        leaving `_active_pane` alone afterwards points `_current_codeview` at
+        the *other* pane — so a caller that reveals a tab one way and then
+        navigates the other way moves the caret in a buffer the user isn't
+        looking at.  Anything that jumps to a tab found by path must go
+        through here.  Returns False if the tab is gone.
+        """
+        if not tab_id:
+            return False
+        nb = self._which_notebook(tab_id)
+        if tab_id not in nb.tabs():
+            return False
+        try:
+            nb.select(tab_id)
+        except Exception:
+            return False
+        self._set_active_pane("right" if nb is self._notebook_r else "left")
+        return True
 
     def _close_tab(self, index: int, notebook: CustomNotebook | None = None) -> None:
         nb = notebook or self.notebook
@@ -3244,12 +3272,15 @@ class IDOL(Tk):
             cv.scroll_to_line(max(0, line - 1))
             cv.canvas.focus_set()
 
-        # If already open in a tab, just switch to it
+        # If already open in a tab, just switch to it. `_reveal_tab` rather
+        # than `self.notebook.select`: the tab may live in the split, where
+        # selecting on the main notebook silently does nothing and the caret
+        # moves in a buffer that is never brought to the front.
         for tab_id, fp in self._files.items():
             if fp and os.path.normcase(fp) == os.path.normcase(path):
-                self.notebook.select(tab_id)
-                _seek(self._codeviews.get(tab_id))
-                return
+                if self._reveal_tab(tab_id):
+                    _seek(self._codeviews.get(tab_id))
+                    return
         # Otherwise open as a new tab
         if os.path.isfile(path):
             self._open_file(path)
@@ -3301,8 +3332,9 @@ class IDOL(Tk):
         from widgets.project_wizard import ProjectWizard
 
         # Only consider tabs that have a real codeview — excludes Welcome,
-        # Package Manager, Learning Mode, and any other special tabs.
-        editor_tabs = [t for t in self.notebook.tabs() if self._codeviews.get(t) is not None]
+        # Package Manager, Learning Mode, and any other special tabs. Both
+        # panes, since the split is torn down with the project.
+        editor_tabs = [t for t in self._all_tab_ids() if self._codeviews.get(t) is not None]
         has_editor_content = any(
             self._titles.get(t) != "Untitled"
             or self._dirty.get(t)
@@ -3310,23 +3342,15 @@ class IDOL(Tk):
             for t in editor_tabs
         )
         # Designer counts if a form is loaded AND has unsaved changes.
-        # An empty canvas or a freshly-saved form doesn't trigger the prompt.
+        # An empty canvas or a freshly-saved form doesn't count.
         has_designer_content = (
             getattr(self._design_canvas, "form", None) is not None
             and (self._designer_dirty or self._designer_forms_dirty)
         )
-        has_project = has_editor_content or has_designer_content
-        if has_project:
-            answer = askyesnocancel(
-                "New Project",
-                "Would you like to save your current project before creating a new one?",
-            )
-            if answer is None:
-                return  # Cancel — keep current project open
-            if answer:
-                self.workspace_save()
-            else:
-                session_utils.save(self)
+        if has_editor_content or has_designer_content:
+            # No prompt — see `_autosave_workspace`. A blank workspace has
+            # nothing worth writing, hence the guard.
+            self._autosave_workspace()
             self._teardown_project()
 
         ProjectWizard(self, on_complete=self._on_project_created)
@@ -3343,8 +3367,8 @@ class IDOL(Tk):
         The project-level counterpart to `_set_explorer_root`.  Opening,
         creating, or closing a project is a deliberate "I work somewhere else
         now" action, so a running shell follows it.  Casual root changes (Set
-        as Root Directory, a breadcrumb click, File > Open) go through
-        `_set_explorer_root` and leave the shell where the user left it.
+        as Root Directory, File > Open) go through `_set_explorer_root` and
+        leave the shell where the user left it.
         """
         self._set_explorer_root(path)
         self._output.cd_terminal(path)
@@ -3536,6 +3560,58 @@ class IDOL(Tk):
                 self._close_tab(tabs.index(prev_tab_id))
         elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
             self.notebook.select(prev_tab_id)
+
+    def _open_temp_file(self, tmp_path: str, title: str, origin: str = "") -> None:
+        """Reopen a recovered scratch file as the dirty tab it used to be.
+
+        Mirrors what `session.restore` does for an unsaved tab: the buffer
+        holds the scratch content, the tab keeps its original name and target
+        file, and it comes back **dirty** — so Ctrl+S writes to the real file
+        and the scratch file stays claimed until then, rather than being
+        orphaned a second time.
+        """
+        try:
+            content = Path(tmp_path).read_text(encoding="utf-8")
+        except Exception as exc:
+            showerror("Open Unsaved File", str(exc))
+            return
+
+        self._new_tab(title, content, filepath=origin or None)
+        tab_id = self.notebook.tabs()[-1]
+        self._temp_files[tab_id] = tmp_path
+        # after_idle, so this lands after _new_tab's own _reset_dirty_after_load
+        # (after_idle is FIFO) — otherwise the tab would come back clean and
+        # the unsaved marker would be lost.
+        def _mark_dirty(tid=tab_id):
+            self._dirty[tid] = True
+            self._refresh_tab_title(tid)
+
+        self.after_idle(_mark_dirty)
+
+    def _open_file_in_split(self, path: str) -> None:
+        """Open *path* as a new tab in the split (right) pane.
+
+        The split-pane counterpart to `_open_file`, used by that pane's
+        breadcrumb file picker so the pick lands in the pane it was made in.
+        Falls back to the main pane when there is no split notebook.
+        """
+        if self._notebook_r is None:
+            self._open_file(path)
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as exc:
+            showerror("Open Error", str(exc))
+            return
+
+        self._ensure_split_shown()
+        self._new_tab_in(self._notebook_r, os.path.basename(path), content,
+                         filepath=path)
+        recent_utils.add_file(path)
+        if self._welcome_panel:
+            self._welcome_panel.refresh()
+        self._set_active_pane("right")
 
     def _on_explorer_file_delete(self, path: str) -> None:
         """Called by the explorer after a file is deleted from disk.
@@ -3757,7 +3833,9 @@ class IDOL(Tk):
             if result:  # Yes
                 self._designer_autosave()
         self._exiting = True
-        session_utils.save(self)
+        # Project file as well as the auto-session: quitting with a project
+        # open and reopening it later is the same round trip as closing it.
+        self._autosave_workspace()
         if self._ai_chat_panel:
             self._ai_chat_panel.auto_save_history()
         self.quit()
@@ -3768,26 +3846,67 @@ class IDOL(Tk):
         # quit() triggers another destroy() before the process exits.
         self.file_exit()
 
-    def _has_dirty_tabs(self) -> bool:
-        """Return True if any open tab has unsaved changes."""
-        return any(self._dirty.get(tid) for tid in self.notebook.tabs())
+    def _all_tab_ids(self) -> list[str]:
+        """Every open editor tab id, both panes."""
+        tabs = list(self.notebook.tabs())
+        if self._notebook_r is not None:
+            tabs += list(self._notebook_r.tabs())
+        return tabs
+
+    def _project_file_path(self, root: str | Path | None = None) -> str | None:
+        """The `.idol-project` file for *root* (default: the explorer root).
+
+        Prefers `<dir>/<dirname>.idol-project`, the name `workspace_save`
+        writes, and falls back to the first `*.idol-project` in the folder.
+        Returns None when the folder has no project file — a folder you merely
+        opened is not a project, and nothing here ever creates one.
+        """
+        root = str(root if root is not None else (self._sidebar.explorer._root or ""))
+        if not root or not os.path.isdir(root):
+            return None
+        p = Path(root)
+        candidate = p / f"{p.name}.idol-project"
+        if candidate.is_file():
+            return str(candidate)
+        others = sorted(p.glob("*.idol-project"))
+        return str(others[0]) if others else None
+
+    def _autosave_workspace(self) -> None:
+        """Persist workspace state before the project is torn down or we exit.
+
+        Writes the project's own `.idol-project` when the root has one — that
+        is the file reopening the project reads, and writing only the
+        auto-session (as every caller used to) is why a closed-and-reopened
+        project came back without its split tabs or layout. The auto-session
+        is refreshed too, since that is what a cold start reads.
+
+        This saves *bookkeeping* only — which tabs are open, the split, the
+        sash, the interpreter. Unsaved buffer content rides along as
+        `~/.idol/tmp` scratch files referenced from the same file (see
+        `session._tab_entry`), which is what makes closing without a prompt
+        safe. It never creates a project file where none exists.
+        """
+        proj = self._project_file_path()
+        if proj:
+            session_utils.save(self, proj)
+        session_utils.save(self)
 
     def workspace_new(self, *_) -> None:
         """Close the current workspace and open a fresh one."""
-        if self._has_dirty_tabs():
-            answer = askyesnocancel(
-                "New Workspace",
-                "You have unsaved changes.\n\nSave before creating a new workspace?",
-            )
-            if answer is None:
-                return
-            if answer:
-                self.workspace_save()
-        session_utils.save(self)
+        self._autosave_workspace()
         self._teardown_project()
 
     def _teardown_project(self, add_untitled: bool = True) -> None:
-        """Close all tabs and reset to a clean blank state (no save prompt)."""
+        """Close all tabs and reset to a clean blank state (no save prompt).
+
+        The split pane goes with them. Split tabs belong to the project that
+        was open when they were opened — the session file already saves and
+        restores them per project — so leaving the pane up would carry one
+        project's files into the next one.
+        """
+        # Temp files are kept: every caller saves the session immediately
+        # before this, and that save references them.
+        self._dispose_split_pane(keep_temp_files=True)
         for tab_id in list(self.notebook.tabs()):
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
@@ -3835,17 +3954,8 @@ class IDOL(Tk):
         self._designer_project_type = "cli"
 
     def workspace_close(self, *_) -> None:
-        """Close the current project, prompting only when there are unsaved changes."""
-        if self._has_dirty_tabs():
-            answer = askyesnocancel(
-                "Close Project",
-                "You have unsaved changes.\n\nSave before closing?",
-            )
-            if answer is None:
-                return
-            if answer:
-                self.workspace_save()
-        session_utils.save(self)
+        """Close the current project. No prompt — see `_autosave_workspace`."""
+        self._autosave_workspace()
         self._teardown_project()
 
     def workspace_save(self, *_) -> None:
@@ -3866,15 +3976,8 @@ class IDOL(Tk):
         )
         if not path or not os.path.isfile(path):
             return
-        if self._has_dirty_tabs():
-            answer = askyesnocancel(
-                "Open Project",
-                "You have unsaved changes.\n\nSave before opening a new project?",
-            )
-            if answer is None:
-                return
-            if answer:
-                self.workspace_save()
+        # Save the outgoing project's state so it comes back as you left it.
+        self._autosave_workspace()
         # Full teardown of the current project (designer, LSP diags, tabs, etc.)
         self._teardown_project(add_untitled=False)
         if session_utils.restore(self, path):
@@ -4164,6 +4267,8 @@ class IDOL(Tk):
             on_learning=self.view_learning_mode,
             on_designer=self._enter_designer_mode,
             on_packages=self.view_package_manager,
+            on_open_temp=self._open_temp_file,
+            get_open_temps=lambda: set(self._temp_files.values()),
         )
         panel.pack(fill="both", expand=True)
         self.notebook.add(frame, text="  Welcome  ")
@@ -4186,23 +4291,10 @@ class IDOL(Tk):
         # Find the .idol-project file inside the project directory
         from pathlib import Path as _P
 
-        proj_dir = _P(path)
-        candidate = proj_dir / f"{proj_dir.name}.idol-project"
-        if not candidate.is_file():
-            candidates = list(proj_dir.glob("*.idol-project"))
-            candidate = candidates[0] if candidates else None
-        if candidate and candidate.is_file():
+        candidate = self._project_file_path(path)
+        if candidate:
             # Reuse workspace_open flow without the file dialog
-            if self._has_dirty_tabs():
-                from tkinter.messagebox import askyesnocancel as _aync
-
-                answer = _aync(
-                    "Open Project", "You have unsaved changes.\n\nSave before opening?"
-                )
-                if answer is None:
-                    return
-                if answer:
-                    self.workspace_save()
+            self._autosave_workspace()
             self._teardown_project(add_untitled=False)
             if session_utils.restore(self, str(candidate)):
                 # Re-add so the project moves back to the top of the recent
@@ -4815,14 +4907,14 @@ class IDOL(Tk):
         before = self._designer_frame if self._designer_mode else self.notebook
         self._mode_bar.pack(fill="x", side="top", before=before)
         self._refresh_mode_bar()
-        if self._split_active and hasattr(self, "_split_mode_bar_spacer"):
+        if self._split_active and self._split_mode_bar_spacer:
             self._split_mode_bar_spacer.pack(fill="x", before=self._notebook_r)
 
     def _hide_mode_bar(self) -> None:
         """Remove the mode bar and force editor mode."""
         self._enter_editor_mode()
         self._mode_bar.pack_forget()
-        if hasattr(self, "_split_mode_bar_spacer"):
+        if self._split_mode_bar_spacer:
             self._split_mode_bar_spacer.pack_forget()
 
     def _refresh_mode_bar(self) -> None:
@@ -8036,37 +8128,47 @@ class IDOL(Tk):
         py_path = _Path(root) / f"{form.name}.py"
         self._enter_editor_mode()
 
+        def _find_tab():
+            """Tab holding py_path — main pane first.
+
+            The designer occupies the main content area, so when the file
+            happens to be open in both panes that is the one the user is
+            about to be looking at.
+            """
+            for nb in (self.notebook, self._notebook_r):
+                if nb is None:
+                    continue
+                for tab_id in nb.tabs():
+                    fp = self._files.get(tab_id)
+                    if fp and _Path(fp) == py_path:
+                        return tab_id
+            return None
+
         def _navigate():
-            # Find or open the generated .py tab
-            target_tab = None
-            for tab_id, fp in self._files.items():
-                if fp and _Path(fp) == py_path:
-                    target_tab = tab_id
-                    break
+            target_tab = _find_tab()
             if target_tab is None:
-                if py_path.exists():
-                    self._open_file(str(py_path))
-                    for tab_id, fp in self._files.items():
-                        if fp and _Path(fp) == py_path:
-                            target_tab = tab_id
-                            break
-            if target_tab is None:
+                if not py_path.exists():
+                    return
+                self._open_file(str(py_path))       # always lands in main
+                target_tab = _find_tab()
+            cv = self._codeviews.get(target_tab) if target_tab else None
+            if cv is None or not self._reveal_tab(target_tab):
                 return
-            # Switch to the tab
-            for i, tid in enumerate(self.notebook.tabs()):
-                if tid == target_tab:
-                    self.notebook.select(i)
-                    break
-            cv = self._codeviews.get(target_tab)
-            if cv is None:
-                return
-            # Find `def method_name` and navigate
+            # Drive the target's own codeview rather than routing through
+            # `_outline_navigate`, which follows `_current_codeview` and would
+            # scroll whichever pane happened to be active — the split pane,
+            # if that's where the user was before opening the designer.
             search = f"def {method_name}"
             for lineno, line in enumerate(cv.get_text().splitlines(), 1):
                 if search in line:
-                    self._outline_navigate(lineno)
+                    cv.set_cursor(max(0, lineno - 1), 0)
+                    cv.scroll_to_line(max(0, lineno - 1))
+                    cv.canvas.focus_set()
                     return
 
+        # After _enter_editor_mode's own after(50) split restore, which ends
+        # with _set_active_pane("right") — same deadline, later registration,
+        # so this runs second and _reveal_tab gets the last word.
         self.after(50, _navigate)
 
     def _on_designer_selector_pick(self, widget_id: str | None) -> None:
@@ -9240,8 +9342,19 @@ class IDOL(Tk):
         self.after_idle(lambda: _enforce(8))
 
     def _build_right_pane(self) -> None:
-        """Create the right notebook frame and wire it up."""
+        """Create the right notebook frame and wire it up.
+
+        Idempotent by construction: any existing pane is disposed of first, so
+        there is exactly one right pane afterwards. Without this, a caller that
+        builds while a pane is already up adds a *second* frame to
+        `_split_pane` and overwrites every widget slot — the first pane stays
+        on screen, unreachable, and `_close_split` then destroys the wrong one.
+        `session.restore()` did exactly that when a project was opened with the
+        split already open, which is how two SPLIT panes ended up side by side.
+        """
         import tkinter as tk
+
+        self._dispose_split_pane()
 
         self._nb_frame_r = ttk.Frame(self._split_pane)
         self._split_pane.add(self._nb_frame_r, weight=1)
@@ -9284,16 +9397,20 @@ class IDOL(Tk):
             padx=4,
         )
         self._lock_btn.pack(side="right")
-        self._lock_btn.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
-        self._lock_btn.bind(
+        # Hover handlers recolour the widget they are bound to, captured by
+        # default arg — not `self._lock_btn`, which is a single slot that can
+        # point at a destroyed label (`TclError: invalid command name`).
+        _lock = self._lock_btn
+        _lock.bind("<Button-1>", lambda _: self._toggle_scroll_lock())
+        _lock.bind(
             "<Enter>",
-            lambda _: self._lock_btn.config(
+            lambda _, b=_lock: b.config(
                 fg="#1a9fd4" if self._scroll_locked else "#cccccc"
             ),
         )
-        self._lock_btn.bind(
+        _lock.bind(
             "<Leave>",
-            lambda _: self._lock_btn.config(
+            lambda _, b=_lock: b.config(
                 fg="#007acc" if self._scroll_locked else "#555555"
             ),
         )
@@ -9430,16 +9547,38 @@ class IDOL(Tk):
         """X button: close all split tabs (with unsaved-changes prompts) and destroy pane."""
         if not self._split_active or self._notebook_r is None:
             return
-        self._patched_scroll_pair = None
-        for cv in (self._get_left_cv(), self._get_right_cv()):
-            if cv is not None:
-                cv.on_scroll = None
         # Prompt for each dirty tab
         for tab_id in list(self._notebook_r.tabs()):
             if not self._confirm_close_tab(tab_id):
                 return  # user cancelled
-        # All confirmed — clean up state
-        for tab_id in list(self._notebook_r.tabs()):
+        self._dispose_split_pane()
+
+    def _dispose_split_pane(self, keep_temp_files: bool = False) -> None:
+        """Tear the right pane down to nothing — no prompts, nothing left behind.
+
+        *keep_temp_files* leaves the `~/.idol/tmp` scratch files for dirty tabs
+        on disk, forgetting only the mapping. Project teardown needs this: the
+        session has just been saved and *references* those files, so deleting
+        them here would restore the project with its unsaved work gone. The
+        main-pane teardown loop has always popped without unlinking for the
+        same reason.
+
+        Every widget reference `_build_right_pane` sets (`_nb_frame_r`,
+        `_notebook_r`, `_lock_btn`, `_split_mode_bar_spacer`) is a *single
+        slot*, so a second pane silently orphans the first: still on screen,
+        still bound, but unreachable — and the stale `_lock_btn` then throws
+        `TclError: invalid command name` the moment the live pane is closed.
+        Callers that want a right pane must go through `_build_right_pane`,
+        which calls this first; callers that want it gone call this directly.
+        Safe to call when there is no pane.
+        """
+        if self._notebook_r is None and self._nb_frame_r is None:
+            return
+        self._patched_scroll_pair = None
+        for cv in (self._get_left_cv(), self._get_right_cv()):
+            if cv is not None:
+                cv.on_scroll = None
+        for tab_id in list(self._notebook_r.tabs() if self._notebook_r else ()):
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)
@@ -9448,7 +9587,7 @@ class IDOL(Tk):
             self._breadcrumbs.pop(tab_id, None)
             self._codeviews.pop(tab_id, None)
             _tmp = self._temp_files.pop(tab_id, None)
-            if _tmp:
+            if _tmp and not keep_temp_files:
                 try:
                     Path(_tmp).unlink(missing_ok=True)
                 except Exception:
@@ -9456,11 +9595,20 @@ class IDOL(Tk):
             if closed_path and closed_path.endswith(".py"):
                 for srv in self._each_lsp():
                     srv.close_file(closed_path)
-        if self._split_shown:
-            self._split_pane.forget(self._nb_frame_r)
-        self._nb_frame_r.destroy()
+        if self._nb_frame_r is not None:
+            # forget() unconditionally: `_split_shown` can be False while the
+            # frame is still managed (a desynced flag is exactly how the
+            # duplicate pane went unnoticed), and forgetting an unmanaged
+            # child is harmless.
+            try:
+                self._split_pane.forget(self._nb_frame_r)
+            except Exception:
+                pass
+            self._nb_frame_r.destroy()
         self._nb_frame_r = None
         self._notebook_r = None
+        self._lock_btn = None
+        self._split_mode_bar_spacer = None
         self._split_active = False
         self._split_shown = False
         self._split_was_shown = False
@@ -9502,6 +9650,9 @@ class IDOL(Tk):
         self._indent_sizes[tab_id] = 4
         self._codeviews[tab_id] = cv
         self._breadcrumbs[tab_id] = cv.breadcrumb
+        # Filename-crumb directory picker opens into this pane, not main.
+        cv.breadcrumb.set_open_file_handler(self._open_file_in_split)
+        cv.breadcrumb.set_git_status_provider(lambda: self._git_status)
         self.after_idle(lambda tid=tab_id: self._reset_dirty_after_load(tid))
 
         pal = cv._palette

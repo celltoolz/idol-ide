@@ -6,6 +6,29 @@
 - M/A/U/D badges on tabs and file explorer entries (Modified, Added, Untracked, Deleted)
 - Gutter diff strips showing added/modified/deleted lines inline in the editor
 
+## Status Decorations
+
+The same four states colour every surface that shows file status — the Explorer tree, the breadcrumb file picker, tab titles, and the Source Control panel. `editor/git_manager.py` owns the palette (`STATUS_COLORS`, plus `STATUS_COLORS_LIGHT` for light themes) so they cannot drift apart.
+
+| State | Badge | Colour | Meaning |
+|---|---|---|---|
+| Modified | `M` | tan | Tracked file with edits |
+| Added | `A` | green | New file, staged |
+| Untracked | `U` | green | New file, not staged — same story as Added, so same colour |
+| Deleted | `D` | red | Tracked file removed |
+
+### Folder roll-up
+
+A folder shows a coloured `●` standing for everything beneath it, not just its immediate children. When a folder holds a mix of states, the **highest-priority one wins** (`STATUS_PRIORITY`, a plain max reduction in `folder_status()`):
+
+```
+Modified (3)  >  Added / Untracked (2)  >  Deleted (1)  >  nothing (no dot)
+```
+
+So a folder with one modified file and ten untracked ones reads as **modified** — the tracked edit is the thing you need to deal with before committing. A folder with nothing changed under it gets no dot at all, so the tree stays quiet.
+
+This mirrors VS Code's propagation rule. VS Code ranks two more states above Modified — merge conflicts and diagnostics — which IDOL cannot produce yet; both are queued in `ROADMAP.md` and slot into `STATUS_PRIORITY` without touching the roll-up.
+
 ## Source Control Panel
 
 Open with `Ctrl+Shift+G`. Shows staged/unstaged file lists with full workflow:
