@@ -70,7 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     round-trip — for every visible row of every frame; it is now one call per render.
 
 ### Added
-- **TEMP FILES on the Welcome tab — unsaved work you can no longer reach.** IDOL never throws
+- **UNSAVED FILES on the Welcome tab — work you can no longer reach.** IDOL never throws
   an unsaved buffer away: closing a project (or quitting) writes every dirty tab to a scratch
   file under `~/.idol/tmp`, so reopening brings it back untouched. But with *no project open*,
   closing the project left those scratch files with nothing pointing at them — the work was
@@ -92,7 +92,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - **The Welcome tab's right-hand lists scroll independently, five rows at a time.** Recent
-  Projects, Recent Files and the new Temp Files list are all unbounded, and at full length they
+  Projects, Recent Files and the new Unsaved Files list are all unbounded, and at full length they
   pushed the rest of the page into a long scroll where nothing was reachable without hunting.
   Each list now has its own viewport: five rows, its own scrollbar, and a wheel scroll aimed at
   a list moves that list rather than the page. A list that fits shrinks to its content and

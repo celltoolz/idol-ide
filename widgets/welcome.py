@@ -355,7 +355,7 @@ class WelcomePanel(tk.Frame):
 
         tk.Frame(right, bg=_BG, height=16).pack()
 
-        self._section(right, "TEMP FILES")
+        self._section(right, "UNSAVED FILES")
         self._temp_files_scroll = _ScrollList(right, rows_in_view=_ROWS_IN_VIEW)
         self._temp_files_scroll.pack(fill="x")
         self._temp_files_list = self._temp_files_scroll.body
