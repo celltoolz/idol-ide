@@ -6,7 +6,6 @@ import os
 import re
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
 from typing import Callable
 
 from utils import recent as _recent
@@ -195,7 +194,11 @@ class WelcomePanel(tk.Frame):
         self._tip_after_id = None
 
         self._canvas = tk.Canvas(self, bg=_BG, highlightthickness=0)
-        self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        # The page scrollbar, and the changelog box's below, are the same
+        # canvas-drawn bar the rest of IDOL uses. The native one drew a light
+        # trough against the dark page -- the one widget on the Welcome tab
+        # that ignored the theme.
+        self._scroll = VerticalScrollbar(self, command=self._canvas.yview, height=1)
         self._canvas.configure(yscrollcommand=self._scroll.set)
         self._scroll.pack(side="right", fill="y")
         self._canvas.pack(side="left", fill="both", expand=True)
@@ -470,7 +473,7 @@ class WelcomePanel(tk.Frame):
             cursor="arrow",
             selectbackground=_BG3,
         )
-        vsb = ttk.Scrollbar(txt_row, orient="vertical", command=self._cl_text.yview)
+        vsb = VerticalScrollbar(txt_row, command=self._cl_text.yview, height=1)
         self._cl_text.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
         self._cl_text.pack(side="left", fill="both", expand=True)

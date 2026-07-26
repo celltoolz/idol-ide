@@ -91,6 +91,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     offered, just under its own name. Index entries whose file is gone are pruned on read.
 
 ### Changed
+- **The Welcome tab's right-hand lists scroll independently, five rows at a time.** Recent
+  Projects, Recent Files and the new Temp Files list are all unbounded, and at full length they
+  pushed the rest of the page into a long scroll where nothing was reachable without hunting.
+  Each list now has its own viewport: five rows, its own scrollbar, and a wheel scroll aimed at
+  a list moves that list rather than the page. A list that fits shrinks to its content and
+  hides its scrollbar entirely.
+- **The Welcome tab uses IDOL's canvas scrollbar throughout.** The page scroll and the What's
+  New box were the last two `ttk.Scrollbar`s in the panel, drawing a native light trough
+  against the dark page — the only widgets on the tab that ignored the theme. `welcome.py` no
+  longer imports `ttk` at all.
 - **Closing a project now saves it, and the "unsaved changes" prompt is gone.** Every path that
   tears a project down — Close Project, Open Project, New Project, New Workspace, and quitting —
   wrote only `~/.idol/session.json`, never the project's own `.idol-project`. Reopening the
