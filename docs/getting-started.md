@@ -59,6 +59,8 @@ On first launch (or whenever no editor tabs are open), IDOL shows a **Welcome** 
 - **Tips** — rotating keyboard shortcut hints at the bottom
 - **Show on startup** checkbox — uncheck to skip the Welcome tab on next launch (reopen anytime via **Help → Welcome**)
 
+Each of the three right-hand lists shows **five rows** and scrolls within itself, so a full set of recents can't push the rest of the page out of reach. The scrollbar appears only when a list actually overflows, and a wheel scroll aimed at a list moves that list rather than the page.
+
 ## First Steps
 
 1. **Open a file** — `Ctrl+O` or `File → Open File`
