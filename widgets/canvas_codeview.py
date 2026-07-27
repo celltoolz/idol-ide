@@ -427,6 +427,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if not text:
             return
         before_line = self.cur_line
+        self._push_undo("")
         self._insert_text(text)
         self._ensure_visible()
         self.render()

@@ -2628,8 +2628,8 @@ class IDOL(Tk):
             top.withdraw()
             cv = self._current_codeview
             if cv:
-                cv.insert("insert", text)
-                cv.focus_set()
+                cv.insert(text)
+                cv.canvas.focus_set()
 
         panel = ClipboardHistoryPanel(top, on_paste=_paste)
         panel.set_window(top)
