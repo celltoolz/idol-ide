@@ -191,17 +191,74 @@ def _run_checks(source: str, uri: str) -> list[dict]:
     return _run_fallback(source, filename)
 
 
+# IDOL's fallback rule set, used only when the file being linted has no ruff
+# config of its own. Written out rather than left to ruff's defaults because
+# those defaults are a moving target: 0.16 widened them from 59 rules to 413,
+# which turned a beginner's own file into a wall of style warnings overnight.
+# This is deliberately the pyflakes-and-real-errors set — the same thing a
+# user's project has been getting — and not IDOL's house style: the E7 rules
+# ruff.toml switches off are about *this* codebase's idioms, and imposing them
+# on someone else's code would be presumptuous.
+_IDOL_BASELINE_SELECT = "E4,E7,E9,F"
+
+# Filenames ruff itself treats as configuration.
+_RUFF_CONFIG_FILES = ("ruff.toml", ".ruff.toml")
+
+
+def _has_own_ruff_config(filename: str) -> bool:
+    """True when a ruff config governs *filename*.
+
+    Mirrors ruff's own discovery: walk up from the file's directory looking for
+    `ruff.toml` / `.ruff.toml`, or a `pyproject.toml` that actually carries a
+    `[tool.ruff]` section (a pyproject without one does not stop ruff's search).
+
+    Deliberately un-cached. It is a handful of `stat` calls against a run that
+    already spawns a subprocess, and caching would need invalidation the moment
+    a user added or removed a config mid-session.
+    """
+    if not filename:
+        return False
+    try:
+        d = os.path.dirname(os.path.abspath(filename))
+    except (OSError, ValueError):
+        return False
+    while True:
+        for name in _RUFF_CONFIG_FILES:
+            if os.path.isfile(os.path.join(d, name)):
+                return True
+        pyproject = os.path.join(d, "pyproject.toml")
+        if os.path.isfile(pyproject):
+            try:
+                with open(pyproject, encoding="utf-8", errors="replace") as fh:
+                    if "[tool.ruff" in fh.read():
+                        return True
+            except OSError:
+                pass
+        parent = os.path.dirname(d)
+        if parent == d:          # hit the filesystem root
+            return False
+        d = parent
+
+
 def _run_ruff(source: str, filename: str) -> list[dict] | None:
-    """Run `ruff check` via subprocess; return diagnostics or None on failure."""
+    """Run `ruff check` via subprocess; return diagnostics or None on failure.
+
+    A project that configures ruff gets **its own** rules — an IDE that quietly
+    overrode a deliberate lint setup would be worse than one that says nothing.
+    Only a project with no config falls back to `_IDOL_BASELINE_SELECT`.
+    """
+    cmd = [
+        _RUFF_EXE,
+        "check",
+        "--output-format=json",
+        "--stdin-filename", filename,
+    ]
+    if not _has_own_ruff_config(filename):
+        cmd += ["--select", _IDOL_BASELINE_SELECT]
+    cmd.append("-")             # read source from stdin
     try:
         proc = subprocess.run(
-            [
-                _RUFF_EXE,
-                "check",
-                "--output-format=json",
-                "--stdin-filename", filename,
-                "-",                    # read source from stdin
-            ],
+            cmd,
             input=source.encode("utf-8"),
             capture_output=True,
             timeout=15,
