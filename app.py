@@ -38,6 +38,7 @@ from editor.git_manager import GitManager, get_global_identity
 from menus.menubar import build_menubar
 from utils import session as session_utils
 from utils import recent as recent_utils
+from utils import clipboard_store
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
@@ -453,6 +454,9 @@ class IDOL(Tk):
         # Clipboard History
         self._clip_top: tk.Toplevel | None = None
         self._clip_panel: ClipboardHistoryPanel | None = None
+        # Project root the loaded history belongs to; None = scratch history.
+        self._clip_scope: str | None = None
+        self._clip_save_after_id: str | None = None
 
         # Canvas Editor sandbox — preview of the canvas-rendered editor
 
@@ -2613,6 +2617,63 @@ class IDOL(Tk):
             self._ensure_clip_panel()
         self._clip_panel.push(text, source=source)
 
+    # ── Clipboard history persistence ─────────────────────────────────────────
+
+    def _clip_scope_root(self) -> str | None:
+        """Project root owning the clipboard history, or None for scratch.
+
+        Deliberately the same test `_autosave_workspace` uses — a root with a
+        `.idol-project` in it — so the two always agree on which project is
+        open. A folder you merely opened is not a project and gets the scratch
+        history, which is also what `_autosave_workspace` declines to write a
+        project file for.
+
+        It inherits that test's one quirk: `Set as Root Directory` on a
+        subfolder leaves the project file out of view, so the history falls
+        back to scratch until the root moves back. Worth fixing at the source
+        (a tracked project root, rather than one re-derived from the explorer)
+        rather than by making this diverge from the session save.
+        """
+        proj = self._project_file_path()
+        return os.path.dirname(proj) if proj else None
+
+    def _schedule_clip_save(self) -> None:
+        """Debounced save of the active clipboard history.
+
+        Fired on every copy, so it coalesces: a burst of copies writes once.
+        """
+        if self._clip_save_after_id:
+            self.after_cancel(self._clip_save_after_id)
+        self._clip_save_after_id = self.after(800, self._save_clip_history)
+
+    def _save_clip_history(self) -> None:
+        """Write the panel's ring to whichever history it currently holds."""
+        if self._clip_save_after_id:
+            self.after_cancel(self._clip_save_after_id)
+            self._clip_save_after_id = None
+        if self._clip_panel is None:
+            return
+        clipboard_store.save(self._clip_scope, self._clip_panel.export_entries())
+
+    def _sync_clip_scope(self) -> None:
+        """Swap the clipboard history when the open project changes.
+
+        Saves the outgoing history before loading the incoming one, so the
+        project you just left keeps exactly what it had. Does nothing until
+        the panel exists — with no panel there is nothing to save, and
+        `_ensure_clip_panel` loads the right scope when one is finally made.
+        """
+        scope = self._clip_scope_root()
+        if self._clip_panel is None:
+            self._clip_scope = scope
+            return
+        if scope == self._clip_scope:
+            return
+        self._save_clip_history()          # flush the outgoing scope
+        self._clip_scope = scope
+        self._clip_panel.set_max(clipboard_store.max_for(scope))
+        self._clip_panel.load_entries(clipboard_store.load(scope))
+
     def _ensure_clip_panel(self) -> None:
         """Create the persistent clipboard history Toplevel on first use."""
         if self._clip_top is not None:
@@ -2631,11 +2692,17 @@ class IDOL(Tk):
                 cv.insert(text)
                 cv.canvas.focus_set()
 
-        panel = ClipboardHistoryPanel(top, on_paste=_paste)
+        panel = ClipboardHistoryPanel(top, on_paste=_paste,
+                                      on_change=self._schedule_clip_save)
         panel.set_window(top)
         panel.pack(fill="both", expand=True)
         self._clip_top = top
         self._clip_panel = panel
+        # The panel is created lazily — on first copy or first Ctrl+Shift+H —
+        # so this is where the current scope's history first gets loaded.
+        self._clip_scope = self._clip_scope_root()
+        panel.set_max(clipboard_store.max_for(self._clip_scope))
+        panel.load_entries(clipboard_store.load(self._clip_scope))
 
     def view_clipboard_history(self) -> None:
         """Toggle the Clipboard History overlay (Ctrl+H)."""
@@ -3404,6 +3471,9 @@ class IDOL(Tk):
         # running shell is left alone.  Explorer → Open in Terminal is the
         # explicit way to move a live terminal.
         self._output.set_cwd(root)
+        # Every project open / create / close funnels through here, so this is
+        # the one place the clipboard history has to follow the project.
+        self._sync_clip_scope()
         self._git = None
         self._start_git()
         if hasattr(self, "_props_panel") and self._props_panel:
@@ -3903,6 +3973,9 @@ class IDOL(Tk):
         if proj:
             session_utils.save(self, proj)
         session_utils.save(self)
+        # Flush any debounced clipboard save — a copy in the last 800 ms would
+        # otherwise be lost to the teardown that follows every caller here.
+        self._save_clip_history()
 
     def workspace_new(self, *_) -> None:
         """Close the current workspace and open a fresh one."""
