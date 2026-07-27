@@ -1701,7 +1701,44 @@ class IDOL(Tk):
 
         cv.on_completion_request = _on_completion
 
-        # ── Debug breakpoint gutter ─────────────────────────────────
+        self._wire_breakpoint_gutter(cv, tab_id, filepath)
+
+        # ── Right-click menu IDE actions ────────────────────────────
+        # Mirror the legacy `_on_editor_right_click` (app.py:2234).
+        # Each hook is set to the same app.py method the legacy
+        # CodeView menu invokes via virtual events; the engine
+        # decides when to include them based on selection + cursor
+        # word state.
+        cv.on_request_goto_definition = self._goto_definition
+        cv.on_can_goto_definition = lambda: bool(self._lsp and self._lsp.ready)
+        cv.on_request_find_references = self._find_references
+        cv.on_request_find_replace = self.edit_find_replace
+        cv.on_request_run_line = self._run_current_line
+        cv.on_request_run_selection = self._run_selection
+
+        # ── LSP hover ───────────────────────────────────────────────
+        cv.canvas.bind(
+            "<Motion>",
+            lambda e, _cv=cv, _tid=tab_id: self._on_hover_motion(
+                e, _cv, self._files.get(_tid) or ""
+            ),
+            add="+",
+        )
+        cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
+        cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("left"), add="+")
+
+    def _wire_breakpoint_gutter(self, cv, tab_id: str, filepath: str | None) -> None:
+        """Wire the canvas engine's debug gutter to the host breakpoint store.
+
+        Both panes must call this. `self._breakpoints` is the canonical,
+        pane-agnostic store the Debug panel, session save, and the DAP client
+        all read; the engine deliberately owns no state of its own. When
+        `on_breakpoint_toggle` is left unset the engine falls back to toggling
+        its private dot set (`canvas_codeview._on_click`), so a gutter click
+        *looks* like it worked while the breakpoint exists nowhere the rest of
+        the app can see it — which is exactly how split-pane breakpoints
+        silently never reached the Debug panel.
+        """
         # Click on the canvas's debug column → fires `on_breakpoint_
         # toggle(line_0)`. We convert to the 1-indexed convention the
         # host's breakpoint store uses, call `_on_breakpoint_toggle`,
@@ -1744,19 +1781,6 @@ class IDOL(Tk):
                 {ln - 1 for ln in self._breakpoints.get(filepath, set())}
             )
 
-        # ── Right-click menu IDE actions ────────────────────────────
-        # Mirror the legacy `_on_editor_right_click` (app.py:2234).
-        # Each hook is set to the same app.py method the legacy
-        # CodeView menu invokes via virtual events; the engine
-        # decides when to include them based on selection + cursor
-        # word state.
-        cv.on_request_goto_definition = self._goto_definition
-        cv.on_can_goto_definition = lambda: bool(self._lsp and self._lsp.ready)
-        cv.on_request_find_references = self._find_references
-        cv.on_request_find_replace = self.edit_find_replace
-        cv.on_request_run_line = self._run_current_line
-        cv.on_request_run_selection = self._run_selection
-
         # Line-shift handler for breakpoints — DORMANT for now. The
         # callback (same shift math as the legacy `_make_lines_changed`
         # path) is wired so it's ready when the engine starts firing
@@ -1787,17 +1811,6 @@ class IDOL(Tk):
             self._refresh_debug_breakpoints()
 
         cv.on_lines_changed = _canvas_lines_changed
-
-        # ── LSP hover ───────────────────────────────────────────────
-        cv.canvas.bind(
-            "<Motion>",
-            lambda e, _cv=cv, _tid=tab_id: self._on_hover_motion(
-                e, _cv, self._files.get(_tid) or ""
-            ),
-            add="+",
-        )
-        cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
-        cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("left"), add="+")
 
     def _confirm_close_tab(self, tab_id: str) -> bool:
         """Return True if the tab can be closed (not dirty, or user confirmed)."""
@@ -9670,6 +9683,12 @@ class IDOL(Tk):
             if filepath:
                 for srv in self._each_lsp():
                     srv.open_file(filepath, content)
+
+        # Same debug-gutter wiring the main pane gets. Without it the engine
+        # falls back to its private dot set and split-pane breakpoints never
+        # reach `self._breakpoints` — so they render but the Debug panel, the
+        # session file, and the debugger never see them.
+        self._wire_breakpoint_gutter(cv, tab_id, filepath)
 
         cv.canvas.bind(
             "<Motion>",

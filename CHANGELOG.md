@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-27] — Split-Pane and Designer Fixes
+
+### Fixed
+- **Breakpoints set in the split pane never reached the debugger.** Clicking the split pane's
+  gutter drew a red dot and nothing else happened: the line was absent from the BREAKPOINTS
+  list, absent from the saved session, and ignored by a running debug session.
+  - `CanvasCodeView` owns no canonical breakpoint state by design — the host sets
+    `on_breakpoint_toggle` and the engine calls back. When that hook is unset the engine falls
+    back to toggling its own private dot set so the standalone preview window still shows
+    something. `_new_tab_in` (the split pane's tab builder) never set the hook, so every
+    split-pane click took the fallback path. Nothing errored, which is why the dot looked right.
+  - The wiring moved into `_wire_breakpoint_gutter(cv, tab_id, filepath)` and both tab builders
+    call it, rather than being pasted into the second one where it could drift again. The split
+    pane also now picks up existing breakpoints for a file when the tab opens, and gets the
+    line-shift handler, so a breakpoint set in either pane behaves identically in both.
+
+---
+
 ## [2026-07-25] — IDE Polish
 
 ### Added
