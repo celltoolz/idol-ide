@@ -451,6 +451,11 @@ class IDOL(Tk):
         self._learning_active_lid: str = ""
         self._learning_reg_map: dict = {}  # widget → lid, built on activate
 
+        # The open project's `.idol-project` file, or None when no project is
+        # open. Latched by `_set_open_project`, never re-derived from the
+        # explorer root — see that method for why.
+        self._project_path: str | None = None
+
         # Clipboard History
         self._clip_top: tk.Toplevel | None = None
         self._clip_panel: ClipboardHistoryPanel | None = None
@@ -2622,19 +2627,12 @@ class IDOL(Tk):
     def _clip_scope_root(self) -> str | None:
         """Project root owning the clipboard history, or None for scratch.
 
-        Deliberately the same test `_autosave_workspace` uses — a root with a
-        `.idol-project` in it — so the two always agree on which project is
-        open. A folder you merely opened is not a project and gets the scratch
-        history, which is also what `_autosave_workspace` declines to write a
-        project file for.
-
-        It inherits that test's one quirk: `Set as Root Directory` on a
-        subfolder leaves the project file out of view, so the history falls
-        back to scratch until the root moves back. Worth fixing at the source
-        (a tracked project root, rather than one re-derived from the explorer)
-        rather than by making this diverge from the session save.
+        Reads the same latched `_project_path` `_autosave_workspace` writes to,
+        so the history and the session file can never disagree about which
+        project is open. A folder you merely opened is not a project and gets
+        the scratch history.
         """
-        proj = self._project_file_path()
+        proj = self._project_path
         return os.path.dirname(proj) if proj else None
 
     def _schedule_clip_save(self) -> None:
@@ -3447,9 +3445,15 @@ class IDOL(Tk):
         now" action, so a running shell follows it.  Casual root changes (Set
         as Root Directory, File > Open) go through `_set_explorer_root` and
         leave the shell where the user left it.
+
+        This is also the one place that re-latches the open project, for the
+        same reason: it is the only root change that means "different
+        workspace". A folder with no project file latches None, which is how
+        `_teardown_project` (it re-roots to $HOME) closes the project.
         """
         self._set_explorer_root(path)
         self._output.cd_terminal(path)
+        self._set_open_project(self._find_project_file(path))
 
     def _open_dir_in_terminal(self, path: str) -> None:
         """Explorer → Open in Terminal: cd the live terminal to *path* and reveal it."""
@@ -3469,9 +3473,6 @@ class IDOL(Tk):
         # running shell is left alone.  Explorer → Open in Terminal is the
         # explicit way to move a live terminal.
         self._output.set_cwd(root)
-        # Every project open / create / close funnels through here, so this is
-        # the one place the clipboard history has to follow the project.
-        self._sync_clip_scope()
         self._git = None
         self._start_git()
         if hasattr(self, "_props_panel") and self._props_panel:
@@ -3934,15 +3935,19 @@ class IDOL(Tk):
             tabs += list(self._notebook_r.tabs())
         return tabs
 
-    def _project_file_path(self, root: str | Path | None = None) -> str | None:
-        """The `.idol-project` file for *root* (default: the explorer root).
+    def _find_project_file(self, root: str | Path) -> str | None:
+        """Discover the `.idol-project` file inside *root*, if any.
 
         Prefers `<dir>/<dirname>.idol-project`, the name `workspace_save`
         writes, and falls back to the first `*.idol-project` in the folder.
         Returns None when the folder has no project file — a folder you merely
         opened is not a project, and nothing here ever creates one.
+
+        This is pure discovery. To ask *which project is currently open*, read
+        `self._project_path` — the two are not interchangeable, which is the
+        whole point of tracking it (see `_set_open_project`).
         """
-        root = str(root if root is not None else (self._sidebar.explorer._root or ""))
+        root = str(root or "")
         if not root or not os.path.isdir(root):
             return None
         p = Path(root)
@@ -3952,14 +3957,37 @@ class IDOL(Tk):
         others = sorted(p.glob("*.idol-project"))
         return str(others[0]) if others else None
 
+    def _set_open_project(self, project_file: str | None) -> None:
+        """Latch which `.idol-project` is open — None when there is no project.
+
+        Everything that needs "which project am I in" reads `_project_path`
+        instead of re-deriving it from the explorer root, because the explorer
+        root moves for reasons that are not a project change: **Set as Root
+        Directory** on a subfolder used to hide the project file and silently
+        stop `_autosave_workspace` from writing it, and pointing the tree at an
+        unrelated folder that happened to contain a different `.idol-project`
+        would have saved this project's state into that one.
+
+        Only the deliberate "I work somewhere else now" paths move the latch:
+        `_set_project_root` (project open / create / close / restore) and
+        `workspace_save` (which turns a plain folder into a project).
+        """
+        resolved = os.path.abspath(project_file) if project_file else None
+        if resolved == self._project_path:
+            return
+        self._project_path = resolved
+        # The clipboard history is scoped to the open project, so it follows
+        # the latch rather than the explorer root.
+        self._sync_clip_scope()
+
     def _autosave_workspace(self) -> None:
         """Persist workspace state before the project is torn down or we exit.
 
-        Writes the project's own `.idol-project` when the root has one — that
-        is the file reopening the project reads, and writing only the
-        auto-session (as every caller used to) is why a closed-and-reopened
-        project came back without its split tabs or layout. The auto-session
-        is refreshed too, since that is what a cold start reads.
+        Writes the open project's `.idol-project` — that is the file reopening
+        the project reads, and writing only the auto-session (as every caller
+        used to) is why a closed-and-reopened project came back without its
+        split tabs or layout. The auto-session is refreshed too, since that is
+        what a cold start reads.
 
         This saves *bookkeeping* only — which tabs are open, the split, the
         sash, the interpreter. Unsaved buffer content rides along as
@@ -3967,7 +3995,7 @@ class IDOL(Tk):
         `session._tab_entry`), which is what makes closing without a prompt
         safe. It never creates a project file where none exists.
         """
-        proj = self._project_file_path()
+        proj = self._project_path
         if proj:
             session_utils.save(self, proj)
         session_utils.save(self)
@@ -4025,6 +4053,11 @@ class IDOL(Tk):
             self._on_venv_deactivated()
         self._set_run_entry(None)
         self._set_project_root(str(Path.home()))
+        # Closing means no project, full stop. `_set_project_root` above would
+        # otherwise latch a `.idol-project` sitting in $HOME — someone who has
+        # opened their home folder as a project would find that closing any
+        # project silently reopened that one and autosaved into it.
+        self._set_open_project(None)
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
         # Reset designer state
@@ -4050,6 +4083,11 @@ class IDOL(Tk):
         project_name = os.path.basename(root) or "project"
         path = os.path.join(root, f"{project_name}.idol-project")
         session_utils.save(self, path)
+        # Saving is what turns a plain folder into a project, so it is one of
+        # the two paths allowed to move the latch (the other is
+        # `_set_project_root`). Without this, Save Project would write the file
+        # and then keep autosaving as if no project were open.
+        self._set_open_project(path)
 
     def workspace_open(self, *_) -> None:
         initial = str(self._sidebar.explorer._root or os.getcwd())
@@ -4065,6 +4103,11 @@ class IDOL(Tk):
         # Full teardown of the current project (designer, LSP diags, tabs, etc.)
         self._teardown_project(add_untitled=False)
         if session_utils.restore(self, path):
+            # Latch the file the user actually opened, not whatever
+            # `_set_project_root`'s discovery found inside the folder — a
+            # folder holding two `.idol-project` files would otherwise start
+            # autosaving into the one that wins by name.
+            self._set_open_project(path)
             project_dir = os.path.dirname(path)
             recent_utils.add_project(project_dir)
         else:
@@ -4374,12 +4417,13 @@ class IDOL(Tk):
             return
         # Find the .idol-project file inside the project directory
 
-        candidate = self._project_file_path(path)
+        candidate = self._find_project_file(path)
         if candidate:
             # Reuse workspace_open flow without the file dialog
             self._autosave_workspace()
             self._teardown_project(add_untitled=False)
             if session_utils.restore(self, str(candidate)):
+                self._set_open_project(str(candidate))
                 # Re-add so the project moves back to the top of the recent
                 # list, matching the File > Open Project path.  *path* is the
                 # entry's own stored string, so the dedupe inside add_project
