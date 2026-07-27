@@ -2,9 +2,10 @@
 
 ## 🐛 Bugs
 - [x] **Clipboard history paste crash** — `CanvasCodeView.insert()` only takes 2 positional args, but `_paste()` in `app.py` called it with 3. *(fixed — also fixed the focus call on the next line, and made `insert()` undoable)*
-- [ ] **Ruff LSP formatting flags differ by OS** — on Linux it flags the top lines of `main.py` and `<projectname>.py` as un-sorted/un-formatted; doesn't happen on Windows.
-  - **Likely already fixed** by the new `ruff.toml`. The repo had no ruff config at all, so ruff fell back to its defaults and then to a *user-level* config (`~/.config/ruff/ruff.toml` on Linux, `%APPDATA%\ruff\ruff.toml` on Windows) — different config per machine, different rules. "Un-sorted imports" is `I001`, which is **not** in ruff's defaults, so something on the Linux box was selecting it. A checked-in config wins over the user-level one.
-  - **Needs re-testing on Linux to confirm.**
+- [x] **Ruff LSP formatting flags differ by OS** — *root cause found and fixed; needs a Linux re-test to close.*
+  - **Real cause: ruff version drift, not OS and not a user-level config.** Ruff 0.16 expanded its stable default rule set from 59 rules to 413, which pulls in `I001` ("Import block is un-sorted or un-formatted" — the reported message verbatim). Debian was on 0.16.0, Windows on 0.15.11. `requirements.txt` said `ruff>=0.4`, which is what let two machines diverge. The user-level-config theory was **disproven** — there was no such file on the Linux box.
+  - Fixed in three parts: pinned `ruff>=0.15,<0.16`; `_run_ruff` now honors a project's own ruff config and otherwise applies an explicit IDOL baseline (`E4,E7,E9,F`) instead of whatever ruff's defaults happen to be; and codegen now emits lint-clean import blocks.
+  - **Re-test on Linux after pulling**, since the diagnosis was made there.
 - [ ] **File open/save dialogs render poorly on Linux** — look fine on Windows, but clicking a file/folder on Linux makes it render invisible. Try fixing via styling first before considering a custom dialog — reuse over rebuild.
 - [ ] **Auto-close split breaks when toggling Editor/Designer** — needs a fix.
 
@@ -32,6 +33,8 @@
 - [x] **Per-project clipboard history** — `utils/clipboard_store.py`; project open → that project's history (50 entries), no project → scratch history (20). Both persist. Stored in `~/.idol/clipboard/`, never in the project folder.
 - [x] **Ruff config** — `ruff check .` went 483 → 0. Added `ruff.toml`; 446 were house-style rules now configured off with reasoning, 37 were genuine and fixed. One was live: `_palette_run_pip` closed over an `except ... as e` name inside a deferred lambda, so a failed pip command reported nothing to the Output panel.
 - [x] **Tracked project root** — `_project_path` is now latched by the deliberate project paths instead of re-derived from the explorer root on every read.
+- [x] **Ruff OS divergence** — diagnosed on Debian, fixed in three commits (pin, lint policy, codegen). See the Bugs entry above.
 
 ## 📌 Known, not yet scoped
 - **`_project_root_cwd()` still uses the explorer root**, not the latched project. It drives the Run/Debug "project" cwd mode, so *Set as Root Directory* on a subfolder makes runs use that subfolder. That may well be what you want when you deliberately re-root — left alone rather than changed silently. Decide the intended behaviour before touching it.
+- **Ruff's ceiling should be raised deliberately.** `ruff>=0.15,<0.16` holds the known-good 59-rule default set. Now that `_run_ruff` passes an explicit `--select` when a project has no config of its own, moving to 0.16+ is much safer than it was — but it needs a pass over what the newer rules would show a beginner before the pin is lifted.
