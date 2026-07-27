@@ -5,5 +5,11 @@ ptyprocess>=0.7
 pywinpty>=2.0; sys_platform == 'win32'  # Windows only — required by ptyprocess on Windows
 tkfontchooser>=2.0
 python-lsp-server>=1.12  # LSP backend (pylsp)
-ruff>=0.4              # multi-error diagnostics engine
+# Pinned below 0.16 on purpose. 0.16 expanded ruff's *stable default* rule set
+# from 59 rules to 413 (I001, BLE001, S110, EXE001, …). IDOL's own source is
+# unaffected — ruff.toml sets an explicit select — but a user's project has no
+# such config, so an unbounded range meant two machines showed a beginner
+# wildly different Problems panels for the same file. `ruff>=0.4` is what let
+# that happen. Revisit the ceiling deliberately, not incidentally.
+ruff>=0.15,<0.16       # multi-error diagnostics engine
 debugpy>=1.8       # Python debugger (DAP backend)

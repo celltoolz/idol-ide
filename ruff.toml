@@ -1,13 +1,22 @@
 # Ruff configuration for IDOL's own source.
 #
-# Without this file ruff falls back to its built-in defaults and then to a
-# user-level config (`~/.config/ruff/ruff.toml` on Linux/macOS,
-# `%APPDATA%\ruff\ruff.toml` on Windows) — so the same file could be flagged
-# differently on two machines, which is exactly what happened here. A checked-in
-# config makes ruff report identically for every contributor and every OS, and
-# it is also what IDOL's own Problems panel reads when you edit IDOL in IDOL
+# Without this file ruff falls back to its built-in defaults — and those are a
+# moving target. Ruff 0.16 expanded the stable default selection from 59 rules
+# to 413, pulling in I001/BLE001/S110/EXE001 among others. That is what made the
+# same file lint clean on one machine and dirty on another: not the OS, just two
+# ruff versions (0.15.11 vs 0.16.0). Diagnosed on Debian, 2026-07-27.
+#
+# The `select` below is therefore doing more than picking rules: an explicit
+# select *replaces* the defaults outright, so this file is immune to whatever a
+# future ruff release decides to promote. That property is the main reason to
+# keep it, and it is why IDOL's own source stayed clean on 0.16 while every file
+# outside this repo did not.
+#
+# It is also what IDOL's own Problems panel reads when you edit IDOL in IDOL
 # (`editor/pyflakes_linter.py` runs `ruff check` with no `--select`, letting
-# config discovery walk up from the file being linted).
+# config discovery walk up from the file being linted). Note the flip side:
+# config discovery cannot reach a *user's* project from here, so files outside
+# this repo still get raw ruff defaults. See idol-todo.md.
 #
 # The selection below is deliberately narrow: rules that catch *bugs* are on,
 # rules that merely disagree with this codebase's house style are off. Turning
@@ -24,10 +33,11 @@ exclude = [
 ]
 
 [lint]
-# Ruff's defaults (E4/E7/E9/F) minus the stylistic E7 rules this codebase
-# deliberately does not follow. F (pyflakes) is kept whole — it is the
-# real-bug set: undefined names, unused imports/variables, duplicate dict
-# keys, redefinitions.
+# An explicit, self-contained set — not "defaults minus X". It happens to match
+# ruff 0.15's defaults (E4/E7/E9/F) minus the stylistic E7 rules this codebase
+# does not follow, but it is written out in full deliberately so a future ruff
+# release cannot widen it. F (pyflakes) is kept whole — it is the real-bug set:
+# undefined names, unused imports/variables, duplicate dict keys, redefinitions.
 select = ["E4", "E7", "E9", "F", "W605"]
 
 ignore = [
