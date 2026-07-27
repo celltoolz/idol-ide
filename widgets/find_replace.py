@@ -471,15 +471,20 @@ class FindReplaceBar(tk.Frame):
         replacement = self.replace_var.get()
         if _is_canvas_cv(cv):
             # Apply replacements right-to-left so earlier offsets stay
-            # valid as we mutate the buffer.
-            text = _full_text(cv)
-            for s_off, e_off in reversed(self._matches):
-                cv.replace_range(_offset_to_lc(text, s_off),
-                                 _offset_to_lc(text, e_off),
-                                 replacement)
-                # `replace_range` mutates the buffer; refresh `text`
-                # for the next iteration's offset conversion.
+            # valid as we mutate the buffer. The whole sweep is one undo
+            # group — Ctrl+Z reverts the Replace All, not one match of it.
+            cv.begin_undo_group()
+            try:
                 text = _full_text(cv)
+                for s_off, e_off in reversed(self._matches):
+                    cv.replace_range(_offset_to_lc(text, s_off),
+                                     _offset_to_lc(text, e_off),
+                                     replacement)
+                    # `replace_range` mutates the buffer; refresh `text`
+                    # for the next iteration's offset conversion.
+                    text = _full_text(cv)
+            finally:
+                cv.end_undo_group()
         else:
             for s_off, e_off in reversed(self._matches):
                 start = cv.index(f"1.0 + {s_off} chars")

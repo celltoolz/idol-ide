@@ -299,7 +299,12 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         the same non-empty op (e.g. "insert_char") collapse into one
         undo entry so the user undoes whole words, not single chars.
         Any cursor movement or different op breaks the chain.
+
+        Inside a `begin_undo_group` / `end_undo_group` pair this is a
+        no-op — the group already took its one snapshot up front.
         """
+        if self._undo_group:
+            return
         self._redo_stack.clear()
         if op and op == self._undo_op:
             return  # coalesce — reuse existing snapshot
@@ -309,6 +314,22 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if len(self._undo_stack) > self._UNDO_LIMIT:
             del self._undo_stack[0]
         self._undo_op = op
+
+    def begin_undo_group(self) -> None:
+        """Collapse every mutation until `end_undo_group` into one undo step.
+
+        Takes a single snapshot up front and suppresses the per-method
+        pushes inside, so a bulk edit (Replace All) undoes as one action
+        rather than one match at a time. Nests by depth — only the
+        outermost pair snapshots. Always pair it in a `try`/`finally`;
+        a group left open would silently swallow every later push.
+        """
+        if self._undo_group == 0:
+            self._push_undo("")
+        self._undo_group += 1
+
+    def end_undo_group(self) -> None:
+        self._undo_group = max(0, self._undo_group - 1)
 
     def _undo(self) -> None:
         if not self._undo_stack:
@@ -443,13 +464,17 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if sel is not None:
             (sl, _), (el, _) = sel
             deleted_newlines = el - sl
+        self._push_undo("")
         self._delete_selection()
+        # `_delete_selection` doesn't fire change itself, and a delete is
+        # not always followed by an insert that would: Replace All with an
+        # empty replacement is pure deletion, and used to leave the tab
+        # clean and the linter stale. Firing here is safe for
+        # `replace_range` too — an extra notification, never a missing one.
+        self._fire_change()
         self.render()
         if deleted_newlines and self.on_lines_changed:
             self.on_lines_changed(self.cur_line, -deleted_newlines)
-        # `_delete_selection` doesn't fire change itself — the host
-        # callers (replace_range, delete_range) rely on the per-method
-        # fire in `_insert_text` / etc. to land that side effect.
 
     def delete_range(self,
                      start: tuple[int, int],
@@ -471,11 +496,18 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
                       text: str) -> None:
         """Replace `[start, end)` with *text*. Cursor lands at the end
         of the inserted text."""
-        self.delete_range(start, end)
-        if text:
-            self._insert_text(text)
-            self._ensure_visible()
-            self.render()
+        # One undo step for the pair — and it must be taken here, not left
+        # to `delete_range`, which returns early on an empty range (a pure
+        # insertion) and would leave the insert below unsnapshotted.
+        self.begin_undo_group()
+        try:
+            self.delete_range(start, end)
+            if text:
+                self._insert_text(text)
+                self._ensure_visible()
+                self.render()
+        finally:
+            self.end_undo_group()
 
     # ── Public viewport API ──────────────────────────────────────────────────
 
@@ -801,6 +833,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         self._undo_stack: list = []   # (lines, cur_line, cur_col, sel_anchor)
         self._redo_stack: list = []
         self._undo_op: str = ""       # last push type — drives coalescing
+        self._undo_group: int = 0     # >0 = inside begin/end_undo_group
         self.highlight_active_line: bool = True
         self._active_line_color: str | None = None
         # ── Host hooks for context-menu items ────────────────────
