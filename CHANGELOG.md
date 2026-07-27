@@ -21,6 +21,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     pane also now picks up existing breakpoints for a file when the tab opens, and gets the
     line-shift handler, so a breakpoint set in either pane behaves identically in both.
 
+- **Double-clicking a widget in the designer tore the designer down even when the code was
+  already on screen.** The designer occupies the left half of `_split_pane`, so opening the
+  split editor while designing puts the canvas and the code side by side — and then a
+  jump-to-handler exited designer mode entirely to reveal a file already visible two inches to
+  the right.
+  - Every designer→code jump (widget double-click, wired event row, Handlers row, canvas menu
+    item, CI item) now stays in Designer mode whenever the split is showing that form's `.py`:
+    it selects the tab, scrolls to the method, and focuses it, leaving the canvas untouched.
+  - Every other case is unchanged and still switches to the editor — split hidden, split
+    showing a different file, or no split at all. The code isn't on screen in those, so the
+    editor does have to come forward.
+
 ---
 
 ## [2026-07-25] — IDE Polish

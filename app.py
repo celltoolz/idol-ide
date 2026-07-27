@@ -8139,16 +8139,10 @@ class IDOL(Tk):
         if not form or not root:
             return
         py_path = _Path(root) / f"{form.name}.py"
-        self._enter_editor_mode()
 
-        def _find_tab():
-            """Tab holding py_path — main pane first.
-
-            The designer occupies the main content area, so when the file
-            happens to be open in both panes that is the one the user is
-            about to be looking at.
-            """
-            for nb in (self.notebook, self._notebook_r):
+        def _find_tab(notebooks):
+            """Tab holding py_path, searching *notebooks* in order."""
+            for nb in notebooks:
                 if nb is None:
                     continue
                 for tab_id in nb.tabs():
@@ -8157,13 +8151,7 @@ class IDOL(Tk):
                         return tab_id
             return None
 
-        def _navigate():
-            target_tab = _find_tab()
-            if target_tab is None:
-                if not py_path.exists():
-                    return
-                self._open_file(str(py_path))       # always lands in main
-                target_tab = _find_tab()
+        def _goto(target_tab) -> None:
             cv = self._codeviews.get(target_tab) if target_tab else None
             if cv is None or not self._reveal_tab(target_tab):
                 return
@@ -8178,6 +8166,33 @@ class IDOL(Tk):
                     cv.scroll_to_line(max(0, lineno - 1))
                     cv.canvas.focus_set()
                     return
+
+        # Designer + split side by side: the designer lives in the left half of
+        # `_split_pane`, so when the split is showing this file the code is
+        # already on screen next to the canvas. Closing the designer to reveal
+        # something the user can already see is pure loss — navigate the split
+        # tab in place and stay in designer mode instead.
+        if self._designer_mode and self._split_active and self._split_shown:
+            split_tab = _find_tab((self._notebook_r,))
+            if split_tab is not None:
+                _goto(split_tab)
+                return
+
+        # Otherwise the code isn't visible from here — the editor has to come
+        # forward. Main pane first: the designer occupied the main content
+        # area, so when the file is open in both panes that's the one the user
+        # is about to be looking at.
+        self._enter_editor_mode()
+
+        def _navigate():
+            panes = (self.notebook, self._notebook_r)
+            target_tab = _find_tab(panes)
+            if target_tab is None:
+                if not py_path.exists():
+                    return
+                self._open_file(str(py_path))       # always lands in main
+                target_tab = _find_tab(panes)
+            _goto(target_tab)
 
         # After _enter_editor_mode's own after(50) split restore, which ends
         # with _set_active_pane("right") — same deadline, later registration,

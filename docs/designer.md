@@ -652,6 +652,17 @@ Double-clicking a widget with no events switches to the Events tab.
 
 Clicking a menu item on the canvas dropdown navigates to its handler the same way.
 
+### Jumping to code with the split editor open
+
+The designer occupies the left half of the split, so opening the split editor while designing
+puts the canvas and the code side by side. When the form's `.py` is the file open in the split
+pane, **every one of the jumps above stays in Designer mode** — the split tab is selected, the
+cursor lands on the handler, and the canvas keeps its place. You get to type in the handler and
+click the widget it belongs to without switching modes between the two.
+
+Step 2 above ("switches to Editor mode") applies only when the code isn't already on screen:
+no split, the split hidden, or the split showing some other file.
+
 ## Multi-Form Projects
 
 A project can contain any number of forms. Each form has its own canvas, `.form.json` sidecar, and generated `.py` file.
