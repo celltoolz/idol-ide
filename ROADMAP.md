@@ -18,14 +18,6 @@ Completed sessions live at the bottom as a historical record.
 
 - **Advanced Properties view** — a toggle (e.g. an "Advanced" switch in the Properties tab header) that reveals every backing field IDOL normally hides because a dedicated editor owns it. Today these are silently skipped in `_populate_props`: `_ci_binding_tags` / `_ci_binding_handlers` (owned by the Canvas Item Connector), `_ci_orig_w` / `_ci_orig_h` (CI sizing baseline), and the `_ci_tags` / `_canvas_tags` pools (shown only as summary rows). The advanced view would surface all of them — read-only by default, with raw values — as a power-user/debugging affordance. Worth a small design pass first: how to render dict/list values compactly, which fields are safe to edit inline vs. read-only, and whether the toggle persists per-session. Could generalize beyond the designer (e.g. internal editor state).
 
-- **Split editor while in Designer — live code view** *(needs full planning before implementation)*
-  - **Problem:** the SPLIT button works in Designer mode (handy for seeing code + canvas at once), but the split pane behaves like a normal editor split — designer edits don't appear there, because regular split isn't tied to codegen. We want the opposite while in Designer.
-  - **Goal:** in Designer mode, open a SPLIT that shows the **editor's current tabs** and lets you work in them; when you make changes in the Designer, the corresponding generated code should update **live** in the split tab (you actually see the `.py` change). The split tab's **selected tab, cursor position, and scrollbar position must be preserved** across these live updates (don't reset the view on every regen).
-  - **Open design decision (pick next session):**
-    1. *Reuse the current SPLIT mode* and branch on Designer-vs-Editor inside it, or
-    2. *Add a dedicated Designer-SPLIT mode* that shows the editor's current tabs and wires live codegen → split refresh.
-  - **Notes / unknowns:** codegen currently runs on a 1.5s debounce → the live refresh likely hooks that; need to re-read the regenerated `.py` into the split codeview without losing cursor/scroll (re-apply saved `get_cursor`/`visible_range` after `set_text`); decide what happens when the user edits code in the split *and* edits the designer (conflict / who wins). Builds on the now-fixed split sash handling (`_position_split_sash`) and the existing `_enter_designer_mode` split hide/show logic.
-
 ### Editor / IDE
 
 - **Settings panel** — `View → Settings` consolidating per-user preferences that are currently scattered or missing UI:
@@ -416,3 +408,48 @@ imports — no interpreter awareness needed.)
 **Added:** renaming a **widget** now (1) renames its auto-derived event handlers that still follow the `_{id}_{event}` convention (custom-named handlers left alone), and (2) rewrites `self.<old_id>` references throughout user event/helper bodies to `self.<new_id>` via `persistence.rename_self_attributes` (a `tokenize` pass — string/comment/substring/local-safe). Both reuse the per-form rename-map plumbing; maps are keyed by form name so a default id like `canvas1` reused on two forms can't cross-contaminate during regen. Known misses of the reference rewrite are documented under Known Bugs → Codegen.
 
 **Added — rename collision guard:** the name editor now rejects a rename that would shadow an existing attribute instead of silently producing broken/clobbering code. The panel rejects empty/invalid names, **Python keywords** (`"class".isidentifier()` is `True`, so `self.class = …` would otherwise be a SyntaxError), and duplicate widget ids; `_designer_name_collision` (app.py) additionally rejects collisions with components, tk variables, menu variables, linked-dialog instances (`self.dlg_X`), scrollbar-derived attrs (`{id}_vsb/_hsb/_frame`), and the user's own `self.<name>` assignments (scanned from the `.py` via `persistence.collect_self_attribute_targets`). On collision the field reverts and a status-bar message explains why.
+
+### Split Editor While in Designer — Live Code View — COMPLETE (2026-07-27)
+
+Canvas and code side by side, with the `.py` updating live as you design. Shipped
+incrementally over several sessions rather than as one planned feature — which is why it
+ended up **simpler and better than the original plan**.
+
+**Design decision — option 1 won, and then dissolved.** The plan was to choose between
+reusing the SPLIT mode (branching on Designer-vs-Editor inside it) or building a dedicated
+Designer-SPLIT mode. Reuse won, and it turned out no branch was needed at all: the designer
+is packed into the left half of `_split_pane`, so the ordinary split pane is *already* beside
+it. There is no Designer-SPLIT mode in the code because none was required — the split pane in
+Designer mode is the same split pane, with the same tabs, the same editing, the same
+everything. That is strictly better than a second mode with its own state to keep in sync.
+
+**Live refresh — goal met, no new machinery.** A designer edit sets `_set_designer_dirty` →
+600 ms debounce (not the 1.5 s the notes assumed) → `_run_autogen` → `designer_generate_code`,
+which writes the `.py` and then refreshes **every** tab whose normalized path matches — both
+panes, not just main. Each refresh saves `scroll_y` and `get_cursor()` across the `set_text`
+and restores them, so the view never jumps. Path matching is on `normcase(abspath(...))`, not
+`Path ==`, so a relative-vs-absolute mismatch can't leave the split showing stale code.
+
+**The "who wins" conflict question answered itself.** Nobody wins, because nobody has to:
+codegen splices user code back in on every regen (`extract_event_bodies`,
+`extract_init_user_zones`, `extract_helper_methods`, `extract_user_imports`, plus the
+`IDOL:BEGIN/END` marker zones). You can type a handler body in the split pane and keep
+dragging widgets on the canvas — the next regen preserves what you wrote. This was the
+unknown most likely to force an ugly resolution UI, and the existing preservation guarantees
+made it a non-issue.
+
+**Rounded out this session (`fix/split-pane-breakpoints-and-designer-jump`):**
+- **Breakpoints work in the split pane.** `_new_tab_in` never wired `on_breakpoint_toggle`, so
+  the engine took its private-dot-set fallback: the dot appeared, but the Debug panel, session
+  save, and DAP client never learned about it. Now extracted to `_wire_breakpoint_gutter` and
+  called by both tab builders. You can set a breakpoint in the code beside the canvas and F5
+  actually stops there — which is what makes the side-by-side layout worth using.
+- **Designer→code jumps stay in Designer.** Double-click a widget (or a wired event row,
+  Handlers row, canvas menu item, CI item) while the split shows that form's `.py` and the
+  canvas stays put; the split tab just scrolls to the handler. Previously it called
+  `_enter_editor_mode()` and tore the designer down to reveal a file already on screen.
+
+**Deferred:** nothing from the original item. `_enter_designer_mode` still auto-hides a split
+that was open beforehand (restoring it on exit) — re-open it with the SPLIT button to get the
+side-by-side layout. Auto-restoring it into Designer mode instead is a possible future nicety,
+not a gap.

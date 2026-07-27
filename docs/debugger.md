@@ -14,6 +14,7 @@ IDOL includes an integrated Python debugger powered by [debugpy](https://github.
 - VS Code-style gutter: dim ghost dot on hover, cursor switches to a hand, bright red dot on active breakpoints, subtle separator between dot column and line numbers
 - **Auto-shift** — when you insert or delete lines above a breakpoint, the breakpoint moves with the code automatically
 - **Undo/redo aware** — breakpoints shift back correctly when you undo or redo line insertions
+- **Both panes** — the gutter works identically in the split editor. A breakpoint set in the split pane appears in the BREAKPOINTS list, saves with the session, and is picked up by a running debug session, exactly as one set in the main pane
 
 ## Debug Targets
 
