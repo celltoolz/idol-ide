@@ -529,7 +529,6 @@ class DesignerProperties(tk.Frame):
     def load_handlers(self, form: FormModel) -> None:
         """Populate the Handlers tab — Available / Connected split (no checkboxes)."""
         from designer.handlers import handlers_for
-        from designer.model import HandlerWire
         all_defs = handlers_for(form.form_type)
         self._handlers_defs    = all_defs
         self._handlers_enabled = set(form.enabled_handlers)

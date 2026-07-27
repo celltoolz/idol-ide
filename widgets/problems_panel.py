@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
-from tkinter import Frame, Text, ttk
+from tkinter import Frame, Text
 from typing import Callable
 from widgets.scrollbar import VerticalScrollbar
 

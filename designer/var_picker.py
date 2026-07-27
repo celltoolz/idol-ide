@@ -6,7 +6,6 @@ Used by both the properties panel (inline treeview editor) and the menu editor
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
 from typing import Callable
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar

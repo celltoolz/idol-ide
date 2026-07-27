@@ -849,7 +849,7 @@ class _DarkCheckbox(tk.Frame):
 
 def _style_combobox(cb: ttk.Combobox) -> None:
     style = ttk.Style()
-    name = f"MenuEd.TCombobox"
+    name = "MenuEd.TCombobox"
     style.configure(name, fieldbackground=_ENTRY_BG, background=_BTN_BG,
                     foreground=_FG, selectbackground=_SEL_BG,
                     selectforeground="#ffffff", arrowcolor=_FG_DIM)

@@ -11,7 +11,7 @@ import os
 import queue
 import subprocess
 import threading
-from typing import Callable, Optional
+from typing import Callable
 
 
 class LspClient:

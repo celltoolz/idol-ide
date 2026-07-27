@@ -12,7 +12,6 @@ Each entry defines:
 """
 
 import tkinter as tk
-from typing import Callable
 
 
 # ── Preview drawing helpers ────────────────────────────────────────────────────

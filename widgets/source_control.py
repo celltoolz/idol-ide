@@ -11,7 +11,7 @@ from editor.git_manager import STATUS_COLORS
 from utils import bind_right_click
 from utils.git_diagnostics import (
     classify_file, analyze_files, health_checks, git_installed, git_identity_ok,
-    FileInfo, Issue, HealthCheck
+    Issue, HealthCheck
 )
 from utils.ui_font import UI_FONT
 from widgets.learning_manager import LearningManager

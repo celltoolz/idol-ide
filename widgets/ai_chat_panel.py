@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, messagebox, filedialog
+from tkinter import messagebox, filedialog
 from typing import Callable
 from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
 

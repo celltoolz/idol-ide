@@ -3303,8 +3303,6 @@ class IDOL(Tk):
         Navigates there and returns True if found; returns False otherwise so
         the caller can fall back to the LSP.
         """
-        import re
-
         pat = re.compile(r"^\s*(def|class)\s+" + re.escape(word) + r"\b")
         for i, line in enumerate(cv.lines):
             if pat.match(line):
@@ -4375,7 +4373,6 @@ class IDOL(Tk):
             self.workspace_open()
             return
         # Find the .idol-project file inside the project directory
-        from pathlib import Path as _P
 
         candidate = self._project_file_path(path)
         if candidate:
@@ -9158,7 +9155,6 @@ class IDOL(Tk):
             extract_helper_methods as _helpers,
             extract_user_imports as _user_imports,
             rename_self_attributes as _rename_attrs,
-            load as _load,
         )
 
         json_path = _Path(root) / f"{form.name}.form.json"
@@ -9394,7 +9390,8 @@ class IDOL(Tk):
 
     def _remove_tab_silent(self, tab_id: str, nb: "CustomNotebook") -> None:
         """Remove a tab from notebook without unsaved-changes prompt."""
-        closed_path = self._files.pop(tab_id, None)
+        # Discarding the popped path is deliberate — see the LSP note below.
+        self._files.pop(tab_id, None)
         self._titles.pop(tab_id, None)
         self._dirty.pop(tab_id, None)
         self._clean_crcs.pop(tab_id, None)
@@ -10014,8 +10011,6 @@ class IDOL(Tk):
 
     def _get_short_interp_label(self, label: str) -> str:
         """Extract 'Python X.Y.Z' from a full interpreter label string."""
-        import re
-
         m = re.match(r"(Python\s+\S+)", label)
         return m.group(1) if m else label.split("(")[0].strip()
 
@@ -10958,8 +10953,14 @@ class IDOL(Tk):
                 # Refresh pkg panel installed list if it's open
                 if self._pkg_panel:
                     self.after(0, self._pkg_panel._load_installed)
-            except Exception as e:
-                self.after(0, lambda: output.write(str(e) + "\n", tag="err"))
+            except Exception as exc:
+                # Bind the message now, not in the lambda: Python deletes the
+                # `except ... as` name when the block ends, and this callback
+                # runs later on the main thread — closing over `exc` raised
+                # NameError inside the Tk callback, so a failed pip command
+                # reported nothing to the Output panel at all.
+                msg = str(exc)
+                self.after(0, lambda: output.write(msg + "\n", tag="err"))
 
         _threading.Thread(target=_run, daemon=True).start()
 

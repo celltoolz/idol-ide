@@ -1081,7 +1081,6 @@ def _coerce_initial(var_type: str, initial: str):
 
 def _menu_lines(items) -> list[str]:
     """Generate _build_ui lines for a tk.Menu hierarchy from MenuItemDescriptor list."""
-    from .model import MenuItemDescriptor  # local import avoids circular at module level
     lines: list[str] = []
     lines.append("        self._menu_bar = tk.Menu(self)")
     lines.append("        self.configure(menu=self._menu_bar)")
@@ -1478,7 +1477,6 @@ def _ci_shared_image_ref(form: FormModel, img_path: str) -> str | None:
 
 def _canvas_button_build_lines(form: FormModel) -> list[str]:
     """Return indented _build_ui lines for canvas image buttons on Image components."""
-    import os as _os
     lines: list[str] = []
     for comp in form.components:
         if comp.type != "Image":
@@ -1495,7 +1493,6 @@ def _canvas_button_build_lines(form: FormModel) -> list[str]:
             y      = btn.get("y", 0)
             nk     = btn.get("normal_key",  "")
             hk     = btn.get("hover_key",   "")
-            pk     = btn.get("pressed_key", "")
             if not canvas or not tag:
                 continue
             normal_ref = _img_ref(cid, nk)

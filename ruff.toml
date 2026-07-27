@@ -1,0 +1,59 @@
+# Ruff configuration for IDOL's own source.
+#
+# Without this file ruff falls back to its built-in defaults and then to a
+# user-level config (`~/.config/ruff/ruff.toml` on Linux/macOS,
+# `%APPDATA%\ruff\ruff.toml` on Windows) — so the same file could be flagged
+# differently on two machines, which is exactly what happened here. A checked-in
+# config makes ruff report identically for every contributor and every OS, and
+# it is also what IDOL's own Problems panel reads when you edit IDOL in IDOL
+# (`editor/pyflakes_linter.py` runs `ruff check` with no `--select`, letting
+# config discovery walk up from the file being linted).
+#
+# The selection below is deliberately narrow: rules that catch *bugs* are on,
+# rules that merely disagree with this codebase's house style are off. Turning
+# on a style rule the code doesn't follow produces hundreds of warnings that
+# train everyone to ignore the panel, which costs more than the style buys.
+
+line-length = 100
+target-version = "py310"
+
+exclude = [
+    ".venv",
+    "build",
+    "dist",
+]
+
+[lint]
+# Ruff's defaults (E4/E7/E9/F) minus the stylistic E7 rules this codebase
+# deliberately does not follow. F (pyflakes) is kept whole — it is the
+# real-bug set: undefined names, unused imports/variables, duplicate dict
+# keys, redefinitions.
+select = ["E4", "E7", "E9", "F", "W605"]
+
+ignore = [
+    # Compact multi-statement lines (`x = 1; y = 2`, `if x: return`) are a
+    # deliberate idiom here — used to keep related state initialisation and
+    # short guards on one line in the big UI files. ~180 occurrences.
+    "E701",  # multiple statements on one line (colon)
+    "E702",  # multiple statements on one line (semicolon)
+
+    # `l` as a loop variable over lines of text. Ambiguous with `1` in some
+    # fonts, which is the rule's point, but it is used consistently and
+    # renaming ~30 sites buys nothing.
+    "E741",  # ambiguous variable name
+
+    # Imports deliberately made inside functions or after setup code: lazy
+    # imports that keep startup fast, and platform-conditional imports.
+    "E401",  # multiple imports on one line
+    "E402",  # module import not at top of file
+
+    # `handler = lambda e: ...` is idiomatic in Tk callback wiring.
+    "E731",  # lambda assignment
+]
+
+[lint.per-file-ignores]
+# codegen.py emits generated Python as long runs of `out.append(f"...")`.
+# Within one such run some lines interpolate and some don't; dropping the `f`
+# from the ones that don't would break the visual block in the one place
+# uniformity actually helps. 179 of the project's 181 F541s are here.
+"designer/codegen.py" = ["F541"]

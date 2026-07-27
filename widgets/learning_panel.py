@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
 
 from utils.learning_registry import REGISTRY
 from widgets.scrollbar import VerticalScrollbar
