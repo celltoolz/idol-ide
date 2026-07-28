@@ -221,6 +221,16 @@ host in `tests/test_project_root.py`.
 - **Diagnostics mapping** (`_ruff_severity`) — a pure code→severity function that
   decides whether something shows red, yellow, or blue.
 
+### CI housekeeping
+
+- **Bump the action versions.** Every job logs `Node.js 20 is deprecated` —
+  `actions/checkout@v4` and `actions/setup-python@v5` are pinned to the Node 20
+  runtime and GitHub is force-running them on Node 24. Cosmetic today (all four
+  jobs pass), but it becomes a hard failure when Node 20 support is dropped.
+  Bump to the releases built for Node 24 (`checkout@v5`, `setup-python@v6` at
+  time of writing) and re-run once — action major bumps occasionally change
+  input names, so it needs a green run, not just an edit.
+
 ### CI additions worth considering
 
 - **Cache the pip install** — already on; revisit if install time grows.

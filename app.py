@@ -363,23 +363,14 @@ class IDOL(Tk):
         self.title("IDOL")
         self.geometry("1280x800")
 
-        # On Linux/X11 the classic Tk file dialog (tk_getOpenFile etc.) uses
-        # a Motif-style widget whose Listbox defaults to invisible selection
-        # colors — the user can't see which file they just clicked. Set
-        # readable defaults via Tk's option database. Every IDOL tk.Listbox
-        # already passes its own bg/fg/selectbackground/selectforeground in
-        # its constructor, which overrides option_add — so these defaults
-        # only land on listboxes that don't specify their own (i.e. the
-        # file dialog's). Entry/Text are NOT included here because some
-        # IDOL widgets (designer properties, etc.) build dark-themed
-        # entries without explicit bg.
-        import platform as _pl_init
-
-        if _pl_init.system() == "Linux":
-            self.option_add("*Listbox.background", "#ffffff")
-            self.option_add("*Listbox.foreground", "#000000")
-            self.option_add("*Listbox.selectBackground", "#0078d4")
-            self.option_add("*Listbox.selectForeground", "#ffffff")
+        # (Removed: a Linux-only `option_add("*Listbox.…")` block that aimed to
+        # fix the invisible file-dialog selection. It could never have worked —
+        # Tk's X11 file dialog renders its file list with `::tk::IconList`, a
+        # *canvas*, and contains no Listbox at all. The real cause was ttk's
+        # TEntry selection colours; the fix lives in
+        # `widgets/notebook.py._initialize_style`, next to the `theme_create`
+        # call that dropped them. The block was also inert for IDOL's own
+        # listboxes, every one of which sets its colours explicitly.)
 
         self._safe_after = make_thread_safe_after(self)
 
