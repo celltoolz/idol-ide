@@ -460,7 +460,6 @@ class IDOL(Tk):
         # Split editor
         self._split_active: bool = False  # right pane has been built and has tabs
         self._split_shown: bool = False  # right pane is currently visible
-        self._split_was_shown: bool = False  # was visible before designer hid it
         self._split_sash_pos: int | None = None
         self._active_pane: str = "left"  # "left" | "right"
         self._notebook_r: CustomNotebook | None = None
@@ -1913,10 +1912,11 @@ class IDOL(Tk):
                 warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
                 self._statusbar.set_diagnostics(errors, warnings)
         nb.forget(index)
-        if nb is self._notebook_r and not nb.tabs():
-            # Last split tab gone — nothing to preserve, fully close the pane
-            self._close_split()
-        elif nb is self.notebook and not nb.tabs():
+        # An emptied split pane stays open. Closing a tab is not a request to
+        # close the pane — the split is a layout the user chose, and only the
+        # user's own toggle (the pane's × / the split command) takes it away.
+        # The empty pane keeps its header, so another tab can be dragged in.
+        if nb is self.notebook and not nb.tabs():
             self.view_welcome()
 
     # ── Event handlers ────────────────────────────────────────────────────────
@@ -5051,11 +5051,15 @@ class IDOL(Tk):
         """Switch the main content area to the designer canvas."""
         if self._designer_mode:
             return
-        if self._split_active and self._split_shown:
-            self._split_was_shown = True
-            self._hide_split()
-        else:
-            self._split_was_shown = False
+        # The split stays exactly as the user left it. `self.notebook` and
+        # `self._designer_frame` are both children of `_nb_frame_l` and swap
+        # inside it, so the designer only ever occupies the *left* half of
+        # `_split_pane` — the split's right frame is untouched by the mode
+        # change. Hiding and restoring it here was policy, not a layout
+        # requirement, and it was the toggle that could lose a split entirely:
+        # if the last split tab was closed while designer mode had it hidden,
+        # the old auto-close destroyed the pane and there was nothing left to
+        # restore on the way back out.
         self._designer_mode = True
         self._designer_project_type = "gui"
         self.notebook.pack_forget()
@@ -5207,11 +5211,8 @@ class IDOL(Tk):
                 pass
 
         self._refresh_mode_bar()
-
-        # Restore split if it was visible before entering designer mode
-        if self._split_was_shown and self._split_active and not self._split_shown:
-            self._split_was_shown = False
-            self.after(50, self._show_split)
+        # No split restore here — entering designer mode no longer hides it, so
+        # there is nothing to put back.
 
         def _restore_editor_focus():
             cv = self._current_codeview
@@ -9285,11 +9286,11 @@ class IDOL(Tk):
     def _ensure_split_shown(self, open_tab_id: str | None = None) -> None:
         """Build + show the split pane if needed, optionally opening a tab.
 
-        Guarantees a live ``self._notebook_r`` on return. A re-show can tear the
-        pane down — ``_show_split`` calls ``_close_split`` when the notebook was
-        left empty (e.g. after dragging the split's last tab back to main, which
-        only hides the pane). When that happens we fall through and rebuild, so
-        callers never end up calling ``.add`` on a ``None`` notebook.
+        Guarantees a live ``self._notebook_r`` on return. The re-check after
+        ``_show_split`` is kept as a cheap invariant: nothing tears the pane
+        down here any more (``_show_split`` used to destroy an emptied pane),
+        but a ``None`` notebook still falls through to a rebuild rather than
+        letting a caller ``.add`` onto nothing.
         """
         if self._split_active and self._notebook_r is not None:
             if not self._split_shown:
@@ -9328,10 +9329,11 @@ class IDOL(Tk):
         """Re-show a hidden split pane, restoring the sash position."""
         if not self._split_active or self._split_shown:
             return
-        # Guard: tabs were all closed somehow — destroy cleanly instead of showing empty pane
-        if not self._notebook_r or not self._notebook_r.tabs():
-            self._close_split()
-            return
+        if self._notebook_r is None:
+            return          # nothing built to show
+        # An empty notebook is shown as-is. This used to destroy the pane
+        # instead, which meant re-showing a split whose tabs had all been closed
+        # silently removed it — the auto-close this workflow no longer has.
         self._split_pane.add(self._nb_frame_r, weight=1)
         # Restore the saved sash; _position_split_sash falls back to midpoint if
         # the saved value is stale/out of range (the "opens all the way right" bug).
@@ -9408,9 +9410,8 @@ class IDOL(Tk):
                 self._temp_files[new_tid] = tmp
         self._remove_tab_silent(tab_id, self._notebook_r)
         self._set_active_pane("left")
-        # If split is now empty, hide it (don't destroy — X button does that)
-        if self._notebook_r and not self._notebook_r.tabs():
-            self._hide_split()
+        # The pane stays put when its last tab moves back to main — dragging a
+        # tab out is a tab operation, not a request to dismantle the layout.
 
     def _add_tab_to_split(self, tab_id: str) -> None:
         """Open a copy of main-pane tab_id in the split notebook."""
@@ -9741,7 +9742,6 @@ class IDOL(Tk):
         self._split_mode_bar_spacer = None
         self._split_active = False
         self._split_shown = False
-        self._split_was_shown = False
         self._set_active_pane("left")
         self._refresh_nav_bar()
 
