@@ -10,12 +10,7 @@
 - [x] **Auto-close split breaks when toggling Editor/Designer** — *resolved by removing auto-close entirely.* The split now closes only on the user's own toggle or the pane's ×. Four paths used to take it down automatically; the Designer one combined with the close-last-tab one to lose a split outright across a mode switch. Pinned by an allowlist test so a new auto-close fails CI.
 
 ## ✨ Features
-- [ ] **Color swatch → color picker in editor** — hovering a color swatch opens a picker (see `ROADMAP.md`). VS Code behaviour, **no alpha channel**:
-  - hover the swatch → picker appears
-  - stays open while the pointer is over *either* the swatch or the picker
-  - closes on leave, with a grace delay so the pointer can travel the gap between them
-  - custom canvas popup, built as its own widget
-- [ ] **Custom color chooser** — replace the temporary `tkinter.colorchooser` with a custom implementation. **Reuses the picker widget built for the editor above** — that widget is to be written standalone (no editor imports, host wires callbacks) so the Designer properties panel can mount the same thing. Dial it in inside the editor first, then adopt it here.
+- [ ] **Custom color chooser** — replace the temporary `tkinter.colorchooser` with a custom implementation. **Reuses `ColorPicker` from `widgets/color_picker.py`**, which was written standalone for exactly this — a plain `tk.Frame` with no editor imports, so it drops into a modal dialog unchanged. Call sites to convert: the Designer properties panel's colour rows, and View → Active Line Color.
 - [ ] **Custom font chooser** — drop `tkfontchooser` and build our own for IDOL. Requirements:
   - Must open already scoped to the currently selected font/size/style
   - Must work on macOS, Linux, and Windows
@@ -23,6 +18,7 @@
   - Before dropping it, look at how `tkfontchooser` handles "open to current selection" — it does this well
 - [ ] **Settings menu** — build it out; would be the right home for conda channel management.
   - **Also the right home for LSP + ruff rule configuration.** The project now has a `ruff.toml` with a deliberately narrow rule set (bug rules on, house-style rules off). Surfacing that as a settings page — toggle rule groups, per-project overrides — is a natural fit, and pairs with the existing "LSP on/off, ruff on/off" idea already in `ROADMAP.md`.
+  - **Move Active Line Color here** (Editor tab, or whatever the section ends up called). It currently sits in the View menu as a one-off colour swatch, which is the wrong home for a preference — `ROADMAP.md` already lists it alongside "Highlight active line (on/off)" for the settings panel.
 - [ ] **Package Manager nav shortcut** — clicking Package Manager (nav bar / Help) while in Designer should switch to Editor with the Package Manager tab visible.
 
 ## 🎨 UI/UX Polish
@@ -38,7 +34,10 @@
 - [x] **Ruff config** — `ruff check .` went 483 → 0. Added `ruff.toml`; 446 were house-style rules now configured off with reasoning, 37 were genuine and fixed. One was live: `_palette_run_pip` closed over an `except ... as e` name inside a deferred lambda, so a failed pip command reported nothing to the Output panel.
 - [x] **Tracked project root** — `_project_path` is now latched by the deliberate project paths instead of re-derived from the explorer root on every read.
 - [x] **Ruff OS divergence** — diagnosed on Debian, fixed in three commits (pin, lint policy, codegen). See the Bugs entry above.
-- [x] **Test suite + CI** — 94 pytest tests in `tests/`, GitHub Actions across Linux + Windows on 3.11/3.13, lint and tests both gating. Closes the gap where nothing linted generated projects. See the Testing section in `CONTRIBUTING.md`.
+- [x] **Test suite + CI** — pytest suite in `tests/`, GitHub Actions across Linux + Windows on 3.11/3.13, lint and tests both gating. Closes the gap where nothing linted generated projects. See the Testing section in `CONTRIBUTING.md`.
+- [x] **Color swatch → color picker in editor** — hover a hex swatch, VS Code style, no alpha. `widgets/color_picker.py` is split into a reusable `ColorPicker` frame and a `ColorPickerPopup` that owns the hover lifetime. Live edits, one undo step per session. Fixed on the way: colours drifted a channel per open (`int()` truncation on the HSV round trip), and scroll-dismiss never fired because the engine's wheel handlers return `"break"`, which suppresses `add="+"` bindings.
+- [x] **Swatch column math** — selection, multi-cursor selection and find highlights all measured with a raw `font.measure`, so they drifted by the swatch's width; `_col_from_x` had the same bug in reverse, misplacing clicks. All four now use `_measure_to_col`.
+- [x] **Stale Problems panel on delete** — Backspace/Delete over a selection never fired `on_change`, so a diagnostic outlived the code that caused it until the next keystroke.
 
 ## 📌 Known, not yet scoped
 - **`_project_root_cwd()` still uses the explorer root**, not the latched project. It drives the Run/Debug "project" cwd mode, so *Set as Root Directory* on a subfolder makes runs use that subfolder. That may well be what you want when you deliberately re-root — left alone rather than changed silently. Decide the intended behaviour before touching it.

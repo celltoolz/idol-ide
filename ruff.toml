@@ -16,7 +16,7 @@
 # (`editor/pyflakes_linter.py` runs `ruff check` with no `--select`, letting
 # config discovery walk up from the file being linted). Note the flip side:
 # config discovery cannot reach a *user's* project from here, so files outside
-# this repo still get raw ruff defaults. See idol-todo.md.
+# this repo still get raw ruff defaults. See TODO.md.
 #
 # The selection below is deliberately narrow: rules that catch *bugs* are on,
 # rules that merely disagree with this codebase's house style are off. Turning
