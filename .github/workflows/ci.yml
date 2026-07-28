@@ -1,0 +1,68 @@
+name: CI
+
+# Linux and Windows in one matrix on purpose. The bug that motivated this suite
+# was a lint result that differed between exactly those two platforms, found
+# only by hand-carrying a branch to a VM. A push should surface that instead.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch supersedes an in-flight run.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false        # one platform failing must not hide the other
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # IDOL is a Tkinter app. The GUI-marked tests need a real display; on a
+      # Linux runner that means Xvfb plus the Tk runtime libraries that
+      # setup-python's interpreter links against. Windows and macOS runners
+      # already have a usable window system.
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb tk
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      # Fails the build. ruff is a runtime dependency pinned in
+      # requirements.txt, and ruff.toml selects rules explicitly, so this is
+      # green today and a version bump that changes the rule set breaks here
+      # rather than surprising someone on the other OS.
+      - name: Lint
+        run: ruff check .
+
+      # -rs so a GUI test skipping for a missing display is visible in the log
+      # rather than passing silently as "everything ran".
+      - name: Test (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m pytest -rs
+
+      - name: Test
+        if: runner.os != 'Linux'
+        run: python -m pytest -rs

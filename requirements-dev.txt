@@ -1,0 +1,8 @@
+# Development-only dependencies. Not needed to run IDOL — install with:
+#     pip install -r requirements.txt -r requirements-dev.txt
+#
+# ruff itself is a *runtime* dependency (it powers the Problems panel) and is
+# pinned in requirements.txt, not here. The test suite shells out to that same
+# pinned ruff via `python -m ruff`, so tests check the version users actually
+# get rather than a separately-pinned dev copy.
+pytest>=8.0

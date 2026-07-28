@@ -216,10 +216,15 @@ def _has_own_ruff_config(filename: str) -> bool:
     already spawns a subprocess, and caching would need invalidation the moment
     a user added or removed a config mid-session.
     """
-    if not filename:
+    # Must be absolute. `abspath` resolves anything else against the *process*
+    # CWD, which is wherever IDOL was launched from — often IDOL's own repo, so
+    # a malformed filename would silently lint a user's file under IDOL's config.
+    # Reachable: `_run_checks` falls back to the raw URI when `uri_to_path`
+    # fails. No usable path means no discoverable config, so use the baseline.
+    if not filename or not filename.strip() or not os.path.isabs(filename):
         return False
     try:
-        d = os.path.dirname(os.path.abspath(filename))
+        d = os.path.dirname(filename)
     except (OSError, ValueError):
         return False
     while True:

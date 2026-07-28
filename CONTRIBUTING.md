@@ -329,6 +329,62 @@ Any future static data files belong here, not inside package directories.
 
 ---
 
+## Testing
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest                    # everything
+pytest -m "not gui"       # headless only — no display needed
+pytest tests/test_codegen_output.py -v
+```
+
+Tests live in `tests/`, run under pytest, and are wired into GitHub Actions
+(`.github/workflows/ci.yml`) across **Linux and Windows** on Python 3.11 and
+3.13. Both `ruff check .` and `pytest` fail the build.
+
+**Why that matrix:** the bug that motivated the suite was a lint result that
+differed between Linux and Windows and was found only by hand-carrying a branch
+to a VM. Ruff 0.16 had widened its default rule set from 59 rules to 413; the
+two machines had different ruff versions. `ruff` is now pinned in
+`requirements.txt` and `ruff.toml` selects rules explicitly — but a matrix is
+what makes the next such divergence show up on push instead of in a report.
+
+### Fixtures (`tests/conftest.py`)
+
+| Fixture | Purpose |
+|---|---|
+| `tk_root` | A clean widget surface on a **session-scoped** Tk root. Creating a root per test is flaky — the interpreter loses track of the Tcl library between teardowns and later roots fail with "Can't find a usable tk.tcl", which showed up as tests skipping at random. Children are destroyed between tests so widget state cannot leak. Skips cleanly when there is no display. |
+| `ruff` | Runs the **pinned** ruff via `python -m ruff` — no Scripts/ vs bin/ guesswork, and it checks the version users actually get. |
+| `lint_source` | Writes a source string to a temp file and returns the rule codes ruff reports. Always `--isolated` plus an explicit `--select`. |
+| `repo_root` | Path to the repo, for tests that assert on IDOL's own files. |
+
+Mark anything needing a display with `@pytest.mark.gui` (or `pytestmark` at
+module level) so `-m "not gui"` stays meaningful.
+
+### The rule that earns its keep
+
+**Generated code is linted by tests.** Nothing else lints it — a user's project
+never reaches IDOL's `ruff.toml`, so codegen defects only ever surfaced by
+someone opening a generated file and looking at it. Four did, over two VM round
+trips. `tests/test_codegen_output.py` runs real `generate()` output through real
+ruff for six form shapes.
+
+An explicit `--select` is used there rather than ruff's defaults, because `I`
+(isort) is **not** a default rule on the pinned version. Relying on defaults
+would assert only that this particular ruff skips the check.
+
+### Testing app-level logic without booting the app
+
+`IDOL` is a `tk.Tk` subclass owning the entire object graph, so instantiating it
+in a test is impractical. Where a method's logic is worth covering on its own,
+bind the real unbound methods onto a minimal stand-in exposing only what they
+touch — see the `Host` class in `tests/test_project_root.py`. The code under
+test stays the shipped code; only its collaborators are stubbed.
+
+Some fixes are structural — "this function must **not** call that one". A value
+assertion passes whether or not the call is still there, so assert on
+`inspect.getsource()` instead (`test_explorer_root_paths_do_not_latch`).
+
 ## Current Feature State
 
 Implemented and stable:
