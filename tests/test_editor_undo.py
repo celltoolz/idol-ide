@@ -114,6 +114,32 @@ def test_insert_is_undoable(cv):
     assert cv.get_text() == BASE
 
 
+@pytest.mark.parametrize("name,action", [
+    ("backspace",       lambda cv: cv._delete_back()),
+    ("delete",          lambda cv: cv._delete_forward()),
+    ("type over",       lambda cv: cv._insert_char_with_pairs("x")),
+    ("paste over",      lambda cv: cv._insert_text("x")),
+    ("newline over",    lambda cv: cv._insert_newline()),
+    ("cut",             lambda cv: cv._cut()),
+    ("public delete",   lambda cv: cv.delete_selection()),
+])
+def test_every_selection_delete_path_notifies_the_host(cv, name, action):
+    """`on_change` drives the dirty flag, LSP didChange and the linter.
+
+    Backspace and Delete over a selection returned early without firing, so
+    deleting the code causing a diagnostic left it listed in the Problems panel
+    until some later keystroke happened to fire a change. `_delete_selection`
+    deliberately stays silent — paths that follow it with an insert notify once
+    at the end — so each path that *doesn't* insert has to fire for itself.
+    """
+    cv.set_text("thisdoesnothing\nsecond line\n")
+    cv.set_selection((0, 0), (0, 15))
+    fired = []
+    cv.on_change = lambda: fired.append(1)
+    action(cv)
+    assert fired, f"{name} mutated the buffer without notifying the host"
+
+
 def test_insert_over_selection_is_one_step(cv):
     cv.set_selection((0, 0), (0, 3))
     cv.insert("HI")

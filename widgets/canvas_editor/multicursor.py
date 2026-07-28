@@ -71,8 +71,11 @@ class MultiCursorMixin:
                 c1, c2 = 0, e[1]
             else:
                 c1, c2 = 0, len(line_text)
-            x1 = self._text_x0 + self._font.measure(line_text[:c1])
-            x2 = self._text_x0 + self._font.measure(line_text[:c2])
+            # Swatch- and italic-aware, matching the primary selection — a raw
+            # font.measure ignores the colour square the render loop inserts
+            # before hex literals and drifts by its width.
+            x1 = self._text_x0 + self._measure_to_col(line_text, c1)
+            x2 = self._text_x0 + self._measure_to_col(line_text, c2)
             if s[0] < line_idx < e[0]:
                 x2 = canvas_w
             if x1 < x2:

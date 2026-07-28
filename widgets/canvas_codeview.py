@@ -1466,8 +1466,9 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             c2 = ec if line_idx == el else len(line_text)
             if c1 == c2:
                 continue
-            x1 = text_x0 + self._font.measure(line_text[:c1])
-            x2 = text_x0 + self._font.measure(line_text[:c2])
+            # Swatch- and italic-aware — see `_draw_selection`.
+            x1 = text_x0 + self._measure_to_col(line_text, c1)
+            x2 = text_x0 + self._measure_to_col(line_text, c2)
             color = cur_bg if idx == self._find_current_idx else match_bg
             c.create_rectangle(x1, y, x2, y + self._line_h,
                                fill=color, outline="")
@@ -1624,8 +1625,13 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             c1, c2 = 0, e[1]
         else:
             c1, c2 = 0, len(line_text)
-        x1 = self._text_x0 + self._font.measure(line_text[:c1])
-        x2 = self._text_x0 + self._font.measure(line_text[:c2])
+        # `_measure_to_col`, not a raw font.measure: the render loop inserts a
+        # colour-preview square before every hex literal and uses the italic
+        # font for some token categories, so a plain measure drifts from where
+        # the glyphs actually are. Selecting toward a swatch used to track
+        # correctly until the swatch, then run short by its width.
+        x1 = self._text_x0 + self._measure_to_col(line_text, c1)
+        x2 = self._text_x0 + self._measure_to_col(line_text, c2)
         if s[0] < line_idx < e[0]:
             x2 = canvas_w   # middle of multi-line selection: full row
         if x1 < x2:
@@ -1679,13 +1685,32 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if eff_x <= self._text_x:
             return 0
         target = eff_x - self._text_x
-        best, best_d = 0, target
-        cum = 0
-        for col, ch in enumerate(line, start=1):
-            cum += self._font.measure(ch)
-            d = abs(cum - target)
-            if d < best_d:
-                best, best_d = col, d
+        # Walks tokens rather than characters so it stays the exact inverse of
+        # `_measure_to_col`: same italic fonts, same colour-square offset. A
+        # plain per-character measure drifted past every hex literal, so a
+        # click to the right of a swatch landed short by the square's width.
+        best, best_d = 0, abs(target)
+        cum = 0.0
+        col = 0
+        for txt, cat in self._tokenize(line):
+            if cat is not None:
+                _, italic = self._token_style.get(cat, (None, False))
+                font = self._font_italic if italic else self._font
+            else:
+                font = self._font
+            if cat == "string" and _extract_hex_color(txt):
+                cum += max(6, self._line_h - 10) + 3
+                # The square occupies width but no columns — re-test the
+                # boundary so a click on it resolves to the literal's start.
+                d = abs(cum - target)
+                if d < best_d:
+                    best, best_d = col, d
+            for ch in txt:
+                cum += font.measure(ch)
+                col += 1
+                d = abs(cum - target)
+                if d < best_d:
+                    best, best_d = col, d
             if cum > target + self._char_w:
                 break
         return best
@@ -2425,6 +2450,13 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if self.sel_anchor:
             self._push_undo("")
             self._delete_selection()
+            # `_delete_selection` deliberately doesn't notify — callers that
+            # follow it with an insert fire once at the end instead. This path
+            # has no insert, so without firing here the host never hears about
+            # it: the tab stayed clean and the Problems panel kept showing
+            # diagnostics for code the user had just selected and deleted,
+            # until some later keystroke happened to fire a change.
+            self._fire_change()
             return
         if self.cur_col == 0 and self.cur_line == 0:
             return
@@ -2459,6 +2491,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if self.sel_anchor:
             self._push_undo("")
             self._delete_selection()
+            self._fire_change()     # see `_delete_back` — no insert follows
             return
         line = self.lines[self.cur_line]
         at_end_of_file = (self.cur_col >= len(line) and
