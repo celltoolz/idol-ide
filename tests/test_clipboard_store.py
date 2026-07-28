@@ -1,6 +1,8 @@
 """Clipboard history persistence and per-project scoping."""
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from utils import clipboard_store as store
@@ -39,11 +41,34 @@ def test_round_trip_preserves_pin(clip_dir, proj):
     assert loaded[0]["pinned"] is True
 
 
-def test_path_key_normalizes_case_and_separators(clip_dir, tmp_path):
-    """`C:\\Dev\\App`, `c:/dev/app` and a trailing slash must be one history."""
-    a = str(tmp_path / "MyApp")
-    b = str(tmp_path / "myapp")
-    assert store.path_for(a) == store.path_for(b)
+def test_path_key_ignores_redundant_path_spellings(clip_dir, tmp_path):
+    """`abspath` collapses these on every platform, so they are one history."""
+    base = tmp_path / "myapp"
+    assert store.path_for(str(base)) == store.path_for(str(base) + os.sep)
+    assert store.path_for(str(base)) == store.path_for(str(tmp_path / "." / "myapp"))
+
+
+# `normcase` follows the platform instead of imposing a rule, so the correct
+# assertion differs by OS. Getting this wrong is what the first CI run caught:
+# the original test asserted Windows behaviour and failed on Linux, where
+# `MyApp` and `myapp` are genuinely two directories.
+CASE_INSENSITIVE_PATHS = os.path.normcase("A") == "a"
+
+
+@pytest.mark.skipif(not CASE_INSENSITIVE_PATHS,
+                    reason="requires a case-insensitive filesystem (Windows)")
+def test_case_variants_share_a_history_on_windows(clip_dir, tmp_path):
+    """`C:\\Dev\\App` and `c:/dev/app` are one folder, so one history."""
+    assert store.path_for(str(tmp_path / "MyApp")) == \
+        store.path_for(str(tmp_path / "myapp"))
+
+
+@pytest.mark.skipif(CASE_INSENSITIVE_PATHS,
+                    reason="requires a case-sensitive filesystem (POSIX)")
+def test_case_variants_are_separate_histories_on_posix(clip_dir, tmp_path):
+    """`MyApp` and `myapp` are two directories, so sharing would be a bug."""
+    assert store.path_for(str(tmp_path / "MyApp")) != \
+        store.path_for(str(tmp_path / "myapp"))
 
 
 def test_scratch_and_project_are_distinct(clip_dir, proj):

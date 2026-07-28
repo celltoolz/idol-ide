@@ -48,12 +48,15 @@ def test_pyproject_without_tool_ruff_does_not_count(mkfile):
     assert pl._has_own_ruff_config(str(f)) is False
 
 
-@pytest.mark.parametrize("section", ["[tool.ruff]\nline-length = 100\n",
-                                     "[tool.ruff.lint]\nselect = ['F']\n"])
-def test_pyproject_with_tool_ruff_counts(mkfile, section, tmp_path):
-    d = f"py_ruff_{abs(hash(section)) % 1000}"
-    f = mkfile(f"{d}/app.py")
-    mkfile(f"{d}/pyproject.toml", f"[project]\nname = 'x'\n\n{section}")
+@pytest.mark.parametrize("label,section", [
+    ("table",    "[tool.ruff]\nline-length = 100\n"),
+    ("subtable", "[tool.ruff.lint]\nselect = ['F']\n"),
+])
+def test_pyproject_with_tool_ruff_counts(mkfile, label, section):
+    # Directory named from the label, not hash(section) — str hashing is
+    # randomized per process, so that could collide between runs.
+    f = mkfile(f"py_ruff_{label}/app.py")
+    mkfile(f"py_ruff_{label}/pyproject.toml", f"[project]\nname = 'x'\n\n{section}")
     assert pl._has_own_ruff_config(str(f)) is True
 
 

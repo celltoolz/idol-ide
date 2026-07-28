@@ -44,8 +44,14 @@ def max_for(root: str | None) -> int:
 def _key(root: str) -> str:
     """Stable filename stem for a project root.
 
-    normcase + abspath so `C:\\Dev\\App`, `c:/dev/app`, and a trailing-slash
-    variant all resolve to one history instead of three.
+    `abspath` collapses trailing slashes and `.` segments on every platform, so
+    those spellings share one history.
+
+    `normcase` deliberately follows the platform rather than forcing a rule:
+    on Windows it lowercases and unifies separators, so `C:\\Dev\\App` and
+    `c:/dev/app` are one history because they are one folder. On POSIX it is a
+    no-op, so `MyApp` and `myapp` get separate histories — which is correct
+    there, because they are separate directories.
     """
     norm = os.path.normcase(os.path.abspath(root))
     return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
