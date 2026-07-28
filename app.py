@@ -1733,6 +1733,7 @@ class IDOL(Tk):
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
         cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("left"), add="+")
+        self._bind_color_picker_dismiss(cv)
 
     def _wire_breakpoint_gutter(self, cv, tab_id: str, filepath: str | None) -> None:
         """Wire the canvas engine's debug gutter to the host breakpoint store.
@@ -1929,6 +1930,9 @@ class IDOL(Tk):
     # ── Event handlers ────────────────────────────────────────────────────────
 
     def _on_tab_changed(self, *_) -> None:
+        # A picker anchored to a swatch in the outgoing tab is pointing at a
+        # buffer that is no longer on screen — same staleness as scrolling.
+        self._close_color_popup()
         tab_id = self._current_tab_id
         if tab_id is None:
             return
@@ -2450,6 +2454,28 @@ class IDOL(Tk):
         """Close the picker if one is open (no-op otherwise)."""
         if self._color_popup is not None:
             self._color_popup.close()       # fires _on_color_popup_closed
+
+    def _bind_color_picker_dismiss(self, cv: CanvasCodeView) -> None:
+        """Wire the ways an open colour picker becomes stale. Both panes.
+
+        Scrolling moves the swatch out from under a popup anchored to where it
+        used to be, and no `<Motion>` fires when the wheel turns under a still
+        pointer — so the popup would sit there pointing at the wrong line.
+        Closing outright is right here rather than scheduling: the anchor is
+        already wrong, and there is nothing to travel back to.
+
+        Leaving the canvas only *schedules* the close, because the pointer
+        heading for the popup leaves the canvas on the way. Without it a popup
+        could outlive a pointer that left and never arrived.
+        """
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            cv.canvas.bind(seq, lambda _e: self._close_color_popup(), add="+")
+        cv.canvas.bind(
+            "<Leave>",
+            lambda _e: (self._color_popup.schedule_close()
+                        if self._color_popup is not None else None),
+            add="+",
+        )
 
     # ── LSP hover popup ───────────────────────────────────────────────────────
 
@@ -9911,6 +9937,7 @@ class IDOL(Tk):
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
         cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("right"), add="+")
+        self._bind_color_picker_dismiss(cv)
 
     def view_toggle_sidebar(self) -> None:
         """Show or hide the entire left sidebar (Ctrl+B)."""

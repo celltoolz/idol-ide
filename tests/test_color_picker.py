@@ -282,3 +282,59 @@ def test_replace_is_undoable_as_one_group(cv, tk_root):
 def _center(swatch):
     x1, y1, x2, y2, *_ = swatch
     return (x1 + x2) / 2, (y1 + y2) / 2
+
+
+# ── Dismissal wiring ──────────────────────────────────────────────────────────
+# An open picker is anchored to a swatch's screen position, so anything that
+# moves the buffer under it leaves it pointing at the wrong line. Structural,
+# because exercising the real paths needs a live IDOL.
+
+import ast          # noqa: E402  — used only by the wiring checks below
+import inspect      # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def idol_src(repo_root):
+    return (repo_root / "app.py").read_text(encoding="utf-8")
+
+
+def test_scroll_closes_the_picker(idol_src):
+    """No <Motion> fires when the wheel turns under a still pointer, so the
+    swatch slides away with nothing to notice it."""
+    import app as app_mod
+
+    src = inspect.getsource(app_mod.IDOL._bind_color_picker_dismiss)
+    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        assert seq in src, f"{seq} not dismissed"
+    assert "_close_color_popup" in src
+
+
+def test_leaving_the_canvas_only_schedules_the_close(idol_src):
+    """The pointer travelling to the popup leaves the canvas on the way — an
+    immediate close there would kill the popup mid-journey."""
+    import app as app_mod
+
+    src = inspect.getsource(app_mod.IDOL._bind_color_picker_dismiss)
+    leave = src.split('"<Leave>"', 1)[1]
+    assert "schedule_close" in leave
+    assert "_close_color_popup" not in leave
+
+
+def test_both_panes_wire_dismissal(idol_src):
+    tree = ast.parse(idol_src)
+    cls = next(n for n in tree.body
+               if isinstance(n, ast.ClassDef) and n.name == "IDOL")
+    callers = {
+        fn.name for fn in cls.body
+        if isinstance(fn, ast.FunctionDef)
+        and "_bind_color_picker_dismiss(" in (ast.get_source_segment(idol_src, fn) or "")
+        and fn.name != "_bind_color_picker_dismiss"
+    }
+    # One per pane: the main notebook's tab builder and the split's.
+    assert len(callers) >= 2, f"only wired in {callers}"
+
+
+def test_tab_change_closes_the_picker(idol_src):
+    import app as app_mod
+
+    assert "_close_color_popup" in inspect.getsource(app_mod.IDOL._on_tab_changed)
