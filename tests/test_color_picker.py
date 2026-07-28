@@ -4,8 +4,10 @@ from __future__ import annotations
 import pytest
 
 from widgets.color_picker import (
+    ColorChooserDialog,
     ColorPicker,
     ColorPickerPopup,
+    askcolor,
     hex_to_rgb,
     parse_hex,
     rgb_to_hex,
@@ -175,6 +177,175 @@ def test_scheduled_close_actually_fires(tk_root):
     tk_root.after(150, tk_root.quit)
     tk_root.mainloop()
     assert closed == [1]
+
+
+# ── RGB fields (modal chooser only) ───────────────────────────────────────────
+
+@pytest.fixture
+def rgb_picker(tk_root):
+    changes: list[str] = []
+    p = ColorPicker(tk_root, color="#3a7bd5", on_change=changes.append,
+                    show_rgb=True)
+    p.pack()
+    tk_root.update()
+    p.changes = changes          # type: ignore[attr-defined]
+    return p
+
+
+@pytest.mark.gui
+def test_rgb_fields_are_opt_in(picker, rgb_picker):
+    """The hover popup stays compact; only the modal asks for them."""
+    assert picker._rgb_vars == []
+    assert len(rgb_picker._rgb_vars) == 3
+
+
+@pytest.mark.gui
+def test_rgb_fields_track_the_colour(rgb_picker):
+    rgb_picker.set_color("#0a141e")
+    assert [v.get() for v in rgb_picker._rgb_vars] == ["10", "20", "30"]
+
+
+@pytest.mark.gui
+def test_editing_rgb_applies_and_fires(rgb_picker):
+    for var, value in zip(rgb_picker._rgb_vars, ("10", "20", "30")):
+        var.set(value)
+    rgb_picker._commit_rgb()
+    assert rgb_picker.get_color() == "#0a141e"
+    assert rgb_picker.changes == ["#0a141e"]
+
+
+@pytest.mark.gui
+def test_out_of_range_rgb_is_clamped_not_rejected(rgb_picker):
+    for var, value in zip(rgb_picker._rgb_vars, ("300", "-5", "128")):
+        var.set(value)
+    rgb_picker._commit_rgb()
+    assert rgb_picker.get_color() == "#ff0080"
+    assert [v.get() for v in rgb_picker._rgb_vars] == ["255", "0", "128"]
+
+
+@pytest.mark.gui
+def test_non_numeric_rgb_snaps_back(rgb_picker):
+    before = rgb_picker.get_color()
+    rgb_picker._rgb_vars[0].set("nope")
+    rgb_picker._commit_rgb()
+    assert rgb_picker.get_color() == before
+    assert rgb_picker.changes == []
+
+
+# ── The modal chooser ─────────────────────────────────────────────────────────
+
+def _drive_dialog(tk_root, action, tries=60):
+    """Run *action* against the modal once it exists.
+
+    `askcolor` blocks in `wait_window`, so there is no chance to grab a
+    reference first — poll the root's children from the event loop instead.
+    """
+    state = {"n": 0}
+
+    def run():
+        for w in tk_root.winfo_children():
+            if isinstance(w, ColorChooserDialog):
+                action(w)
+                return
+        state["n"] += 1
+        if state["n"] < tries:
+            tk_root.after(20, run)
+
+    tk_root.after(20, run)
+
+
+@pytest.mark.gui
+def test_askcolor_returns_stdlib_shape_on_ok(tk_root):
+    def pick(dlg):
+        dlg.picker.set_color("#3a7bd5")
+        dlg._ok()
+
+    _drive_dialog(tk_root, pick)
+    rgb, hexval = askcolor("#000000", parent=tk_root)
+    assert hexval == "#3a7bd5"
+    assert rgb == (58, 123, 213)
+
+
+@pytest.mark.gui
+def test_askcolor_returns_none_pair_on_cancel(tk_root):
+    """Call sites read `result[1]` and treat falsy as cancel."""
+    _drive_dialog(tk_root, lambda dlg: dlg._cancel())
+    assert askcolor("#123456", parent=tk_root) == (None, None)
+
+
+@pytest.mark.gui
+def test_askcolor_opens_on_the_current_colour(tk_root):
+    seen = {}
+
+    def check(dlg):
+        seen["initial"] = dlg.picker.get_color()
+        dlg._cancel()
+
+    _drive_dialog(tk_root, check)
+    askcolor("#ff00aa", parent=tk_root)
+    assert seen["initial"] == "#ff00aa"
+
+
+@pytest.mark.gui
+def test_askcolor_tolerates_junk_and_shorthand(tk_root):
+    for given, expect in (("#f0a", "#ff00aa"), ("not a colour", "#ffffff"),
+                          (None, "#ffffff")):
+        seen = {}
+
+        def check(dlg, _seen=seen):
+            _seen["initial"] = dlg.picker.get_color()
+            dlg._cancel()
+
+        _drive_dialog(tk_root, check)
+        askcolor(given, parent=tk_root)
+        assert seen["initial"] == expect, f"{given!r} opened on {seen['initial']}"
+
+
+@pytest.mark.gui
+def test_askcolor_accepts_stdlib_extra_kwargs(tk_root):
+    """`initialcolor=` is the common one; raising on it would break a call site."""
+    _drive_dialog(tk_root, lambda dlg: dlg._cancel())
+    assert askcolor("#123456", parent=tk_root, initialcolor="#123456") == (None, None)
+
+
+@pytest.mark.gui
+def test_new_swatch_tracks_the_pick_and_old_one_does_not(tk_root):
+    seen = {}
+
+    def pick(dlg):
+        dlg.picker.set_color("#00ff00")
+        dlg._on_pick("#00ff00")
+        seen["old"] = dlg._old_sw.cget("bg")
+        seen["new"] = dlg._new_sw.cget("bg")
+        dlg._cancel()
+
+    _drive_dialog(tk_root, pick)
+    askcolor("#ff0000", parent=tk_root)
+    assert seen["old"] == "#ff0000"
+    assert seen["new"] == "#00ff00"
+
+
+def test_askcolor_requires_a_parent():
+    """A parentless modal cannot be made transient and would float free."""
+    with pytest.raises(ValueError):
+        askcolor("#000000")
+
+
+def test_call_sites_use_idols_chooser():
+    """The stdlib chooser must not creep back into IDOL's own UI.
+
+    `designer/codegen.py` still emits `from tkinter import colorchooser` — that
+    is generated code for the *user's* project and is deliberately untouched.
+    """
+    import inspect
+
+    import app as app_mod
+    from widgets import designer_properties
+
+    for fn in (app_mod.IDOL.view_active_line_color,
+               designer_properties.DesignerProperties._open_color_picker):
+        src = inspect.getsource(fn)
+        assert "tkinter.colorchooser" not in src, f"{fn.__qualname__}"
 
 
 # ── Editor integration ────────────────────────────────────────────────────────

@@ -4441,7 +4441,7 @@ class DesignerProperties(tk.Frame):
     def _open_color_picker(self, row_iid: str) -> None:
         """Open a color picker for a color property cell."""
         current = self._props_get(row_iid).strip() or "#ffffff"
-        from tkinter.colorchooser import askcolor
+        from widgets.color_picker import askcolor
         result = askcolor(current, parent=self._props_cv.winfo_toplevel())
         color = result[1] if result else None
         if not color:

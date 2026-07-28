@@ -10,7 +10,6 @@
 - [x] **Auto-close split breaks when toggling Editor/Designer** — *resolved by removing auto-close entirely.* The split now closes only on the user's own toggle or the pane's ×. Four paths used to take it down automatically; the Designer one combined with the close-last-tab one to lose a split outright across a mode switch. Pinned by an allowlist test so a new auto-close fails CI.
 
 ## ✨ Features
-- [ ] **Custom color chooser** — replace the temporary `tkinter.colorchooser` with a custom implementation. **Reuses `ColorPicker` from `widgets/color_picker.py`**, which was written standalone for exactly this — a plain `tk.Frame` with no editor imports, so it drops into a modal dialog unchanged. Call sites to convert: the Designer properties panel's colour rows, and View → Active Line Color.
 - [ ] **Custom font chooser** — drop `tkfontchooser` and build our own for IDOL. Requirements:
   - Must open already scoped to the currently selected font/size/style
   - Must work on macOS, Linux, and Windows
@@ -38,6 +37,7 @@
 - [x] **Color swatch → color picker in editor** — hover a hex swatch, VS Code style, no alpha. `widgets/color_picker.py` is split into a reusable `ColorPicker` frame and a `ColorPickerPopup` that owns the hover lifetime. Live edits, one undo step per session. Fixed on the way: colours drifted a channel per open (`int()` truncation on the HSV round trip), and scroll-dismiss never fired because the engine's wheel handlers return `"break"`, which suppresses `add="+"` bindings.
 - [x] **Swatch column math** — selection, multi-cursor selection and find highlights all measured with a raw `font.measure`, so they drifted by the swatch's width; `_col_from_x` had the same bug in reverse, misplacing clicks. All four now use `_measure_to_col`.
 - [x] **Stale Problems panel on delete** — Backspace/Delete over a selection never fired `on_change`, so a diagnostic outlived the code that caused it until the next keystroke.
+- [x] **Custom color chooser** — `ColorChooserDialog` + a drop-in `askcolor` in `widgets/color_picker.py`, wrapping the same `ColorPicker` as the editor popup with old/new swatches, R/G/B fields and OK/Cancel. Replaced `tkinter.colorchooser` in the Designer properties panel and View → Active Line Color. Generated user projects still use the stdlib chooser, which is correct.
 
 ## 📌 Known, not yet scoped
 - **`_project_root_cwd()` still uses the explorer root**, not the latched project. It drives the Run/Debug "project" cwd mode, so *Set as Root Directory* on a subfolder makes runs use that subfolder. That may well be what you want when you deliberately re-root — left alone rather than changed silently. Decide the intended behaviour before touching it.

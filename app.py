@@ -13,7 +13,6 @@ from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showerror, askyesnocancel, askyesno
 
 from tkfontchooser import askfont
-from tkinter.colorchooser import askcolor
 
 from widgets.canvas_codeview import CanvasCodeView
 from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
@@ -50,7 +49,7 @@ from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 from widgets.welcome import WelcomePanel
 from widgets.clipboard_history import ClipboardHistoryPanel
-from widgets.color_picker import ColorPickerPopup
+from widgets.color_picker import ColorPickerPopup, askcolor
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from widgets.designer_component_tray import ComponentTray

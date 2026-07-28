@@ -84,14 +84,22 @@ class ColorPicker(tk.Frame):
     """HSV square + hue strip + hex entry. Fires ``on_change(hex)`` live."""
 
     def __init__(self, parent, color: str = "#000000",
-                 on_change: Callable[[str], None] | None = None) -> None:
+                 on_change: Callable[[str], None] | None = None,
+                 show_rgb: bool = False) -> None:
+        """*show_rgb* adds numeric R/G/B fields below the hex row.
+
+        Off by default so the editor's hover popup stays small; the modal
+        chooser turns it on, which is the only place the extra precision is
+        worth the height.
+        """
         super().__init__(parent, bg=_BG, highlightthickness=1,
                          highlightbackground=_BORDER, highlightcolor=_BORDER)
         self._on_change = on_change
         self._h, self._s, self._v = 0.0, 0.0, 0.0
         self._sv_img: ImageTk.PhotoImage | None = None
         self._hue_img: ImageTk.PhotoImage | None = None
-        self._suppress = False          # guards the hex Entry against feedback
+        self._suppress = False          # guards the entries against feedback
+        self._rgb_vars: list[tk.StringVar] = []
 
         cv_w = _PAD * 2 + _SV_W + _GAP + _HUE_W
         cv_h = _PAD + _SV_H
@@ -112,6 +120,22 @@ class ColorPicker(tk.Frame):
         self._entry.pack(side="left", padx=(8, 0), ipady=3)
         self._entry.bind("<Return>", self._commit_entry)
         self._entry.bind("<FocusOut>", self._commit_entry)
+
+        if show_rgb:
+            rgb_row = tk.Frame(self, bg=_BG)
+            rgb_row.pack(side="top", fill="x", padx=_PAD, pady=(0, _PAD))
+            for label in ("R", "G", "B"):
+                tk.Label(rgb_row, text=label, bg=_BG, fg=_FG,
+                         font=(UI_FONT, 8)).pack(side="left", padx=(0, 3))
+                var = tk.StringVar()
+                ent = tk.Entry(rgb_row, textvariable=var, bg=_ENTRY, fg=_FG,
+                               insertbackground=_FG, relief="flat",
+                               font=(UI_FONT, 9), width=4, bd=0,
+                               justify="center")
+                ent.pack(side="left", padx=(0, 10), ipady=2)
+                ent.bind("<Return>", self._commit_rgb)
+                ent.bind("<FocusOut>", self._commit_rgb)
+                self._rgb_vars.append(var)
 
         self._sv_x0 = _PAD
         self._sv_y0 = _PAD
@@ -185,6 +209,8 @@ class ColorPicker(tk.Frame):
         self._swatch.configure(bg=cur)
         self._suppress = True
         self._entry_var.set(cur.upper())
+        for var, value in zip(self._rgb_vars, hex_to_rgb(cur)):
+            var.set(str(value))
         self._suppress = False
 
     def _make_sv_image(self, hue: float) -> ImageTk.PhotoImage:
@@ -253,6 +279,21 @@ class ColorPicker(tk.Frame):
         if parsed == self.get_color():
             return
         self.set_color(parsed)
+        self._fire()
+
+    def _commit_rgb(self, _event=None) -> None:
+        if self._suppress or not self._rgb_vars:
+            return
+        try:
+            channels = [int(v.get().strip()) for v in self._rgb_vars]
+        except ValueError:
+            self._render()          # reject: snap the fields back to the truth
+            return
+        new = rgb_to_hex(*channels)     # clamps out-of-range input
+        if new == self.get_color():
+            self._render()          # normalises e.g. "300" back to 255
+            return
+        self.set_color(new)
         self._fire()
 
     def _fire(self) -> None:
@@ -346,3 +387,109 @@ class ColorPickerPopup(tk.Toplevel):
             self.destroy()
         except Exception:
             pass
+
+
+class ColorChooserDialog(tk.Toplevel):
+    """Modal chooser — the replacement for `tkinter.colorchooser.askcolor`.
+
+    Wraps the same `ColorPicker` the editor's hover popup uses, with the RGB
+    fields turned on, old/new preview swatches, and OK/Cancel. Prefer the
+    module-level `askcolor` over constructing this directly: it matches the
+    stdlib signature, so call sites swap one import.
+    """
+
+    def __init__(self, parent, color: str = "#ffffff",
+                 title: str = "Choose Color") -> None:
+        super().__init__(parent)
+        self.title(title)
+        self.resizable(False, False)
+        self.configure(bg=_BG)
+        self.transient(parent)
+        self.grab_set()
+
+        self._initial = parse_hex(color) or "#ffffff"
+        self.result: str | None = None
+
+        self.picker = ColorPicker(self, color=self._initial,
+                                  on_change=self._on_pick, show_rgb=True)
+        self.picker.pack(side="top", padx=10, pady=(10, 6))
+
+        # Old / new preview. Seeing them adjacent is the point of a modal
+        # chooser — the inline picker has the document itself for comparison.
+        cmp_row = tk.Frame(self, bg=_BG)
+        cmp_row.pack(side="top", fill="x", padx=10)
+        tk.Label(cmp_row, text="Current", bg=_BG, fg=_FG,
+                 font=(UI_FONT, 8)).pack(side="left")
+        self._old_sw = tk.Canvas(cmp_row, width=34, height=18, bg=self._initial,
+                                 highlightthickness=1, highlightbackground=_BORDER)
+        self._old_sw.pack(side="left", padx=(4, 12))
+        tk.Label(cmp_row, text="New", bg=_BG, fg=_FG,
+                 font=(UI_FONT, 8)).pack(side="left")
+        self._new_sw = tk.Canvas(cmp_row, width=34, height=18, bg=self._initial,
+                                 highlightthickness=1, highlightbackground=_BORDER)
+        self._new_sw.pack(side="left", padx=(4, 0))
+
+        btns = tk.Frame(self, bg=_BG)
+        btns.pack(side="top", fill="x", padx=10, pady=10)
+        self._button(btns, "OK", self._ok).pack(side="right")
+        self._button(btns, "Cancel", self._cancel).pack(side="right", padx=(0, 6))
+
+        self.bind("<Return>", lambda _: self._ok())
+        self.bind("<Escape>", lambda _: self._cancel())
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+        self._center(parent)
+        self.picker.focus_entry()
+        self.wait_window()
+
+    @staticmethod
+    def _button(parent, text: str, command) -> tk.Label:
+        # tk.Label, not tk.Button — house style, so hover states are ours.
+        lbl = tk.Label(parent, text=text, bg=_ENTRY, fg=_FG,
+                       font=(UI_FONT, 9), padx=14, pady=4, cursor="hand2")
+        lbl.bind("<ButtonRelease-1>", lambda _: command())
+        lbl.bind("<Enter>", lambda _: lbl.config(bg="#4a4a4a"))
+        lbl.bind("<Leave>", lambda _: lbl.config(bg=_ENTRY))
+        return lbl
+
+    def _center(self, parent) -> None:
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        try:
+            px, py = parent.winfo_rootx(), parent.winfo_rooty()
+            pw, ph = parent.winfo_width(), parent.winfo_height()
+        except Exception:
+            px = py = 0
+            pw, ph = self.winfo_screenwidth(), self.winfo_screenheight()
+        self.geometry(f"+{px + max((pw - w) // 2, 0)}+{py + max((ph - h) // 3, 0)}")
+
+    def _on_pick(self, color: str) -> None:
+        self._new_sw.configure(bg=color)
+
+    def _ok(self) -> None:
+        self.result = self.picker.get_color()
+        self.grab_release()
+        self.destroy()
+
+    def _cancel(self) -> None:
+        self.result = None
+        self.grab_release()
+        self.destroy()
+
+
+def askcolor(color: str | None = None, parent=None,
+             title: str = "Choose Color", **_ignored):
+    """Drop-in for `tkinter.colorchooser.askcolor`.
+
+    Returns ``((r, g, b), "#rrggbb")`` on OK and ``(None, None)`` on cancel,
+    so existing call sites that read ``result[1]`` need only change the import.
+    Extra stdlib keyword arguments are accepted and ignored rather than raising
+    — `initialcolor` is the common one.
+    """
+    if parent is None:
+        raise ValueError("askcolor requires a parent window")
+    initial = parse_hex(color or "") or "#ffffff"
+    dlg = ColorChooserDialog(parent, color=initial, title=title)
+    if dlg.result is None:
+        return (None, None)
+    return (hex_to_rgb(dlg.result), dlg.result)
