@@ -10,8 +10,12 @@
 - [x] **Auto-close split breaks when toggling Editor/Designer** — *resolved by removing auto-close entirely.* The split now closes only on the user's own toggle or the pane's ×. Four paths used to take it down automatically; the Designer one combined with the close-last-tab one to lose a split outright across a mode switch. Pinned by an allowlist test so a new auto-close fails CI.
 
 ## ✨ Features
-- [ ] **Color swatch → color picker in editor** — clicking a color swatch should let you choose a color (see `ROADMAP.md`).
-- [ ] **Custom color chooser** — replace the temporary `tkinter.colorchooser` with a custom implementation.
+- [ ] **Color swatch → color picker in editor** — hovering a color swatch opens a picker (see `ROADMAP.md`). VS Code behaviour, **no alpha channel**:
+  - hover the swatch → picker appears
+  - stays open while the pointer is over *either* the swatch or the picker
+  - closes on leave, with a grace delay so the pointer can travel the gap between them
+  - custom canvas popup, built as its own widget
+- [ ] **Custom color chooser** — replace the temporary `tkinter.colorchooser` with a custom implementation. **Reuses the picker widget built for the editor above** — that widget is to be written standalone (no editor imports, host wires callbacks) so the Designer properties panel can mount the same thing. Dial it in inside the editor first, then adopt it here.
 - [ ] **Custom font chooser** — drop `tkfontchooser` and build our own for IDOL. Requirements:
   - Must open already scoped to the currently selected font/size/style
   - Must work on macOS, Linux, and Windows

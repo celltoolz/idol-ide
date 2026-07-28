@@ -509,6 +509,56 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         finally:
             self.end_undo_group()
 
+    # ── Inline colour swatches ───────────────────────────────────────────────
+
+    def color_swatch_at(self, x: int, y: int) -> dict | None:
+        """The colour swatch under canvas pixel (x, y), or None.
+
+        Returns ``{"color", "line", "col_start", "col_end", "bbox"}`` where the
+        columns bound the whole literal *including its quotes* and ``bbox`` is
+        the swatch's canvas rectangle — enough for a caller to both replace the
+        literal and position a popup against the swatch.
+        """
+        for x1, y1, x2, y2, color, line, cs, ce in self._color_swatches:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                return {"color": color, "line": line,
+                        "col_start": cs, "col_end": ce,
+                        "bbox": (x1, y1, x2, y2)}
+        return None
+
+    def replace_color_literal(self, line: int, col_start: int, col_end: int,
+                              new_color: str) -> tuple[int, int] | None:
+        """Rewrite the hex literal at ``[col_start, col_end)`` to *new_color*.
+
+        Preserves the original quote style and hex case so picking a colour
+        never reformats the code around it — a lowercase literal stays
+        lowercase, and `'…'` does not become `"…"`. ``#rgb`` shorthand expands,
+        since an arbitrary picked colour rarely has a valid short form.
+
+        Returns the (possibly shifted) column bounds of the new literal so a
+        caller mid-drag can keep editing the same span, or None if the target
+        no longer looks like a colour literal (the buffer changed underneath).
+        """
+        if not (0 <= line < len(self.lines)):
+            return None
+        text = self.lines[line]
+        if not (0 <= col_start < col_end <= len(text)):
+            return None
+        token = text[col_start:col_end]
+        if _extract_hex_color(token) is None:
+            return None
+        quote = token[0]
+        digits = new_color.lstrip("#")
+        # Match the case the user was already using.
+        body = token[1:-1].lstrip("#")
+        if body.isupper():
+            digits = digits.upper()
+        else:
+            digits = digits.lower()
+        replacement = f"{quote}#{digits}{quote}"
+        self.replace_range((line, col_start), (line, col_end), replacement)
+        return col_start, col_start + len(replacement)
+
     # ── Public viewport API ──────────────────────────────────────────────────
 
     def scroll_to_line(self, line: int) -> None:
@@ -852,6 +902,13 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # folded line. Rebuilt every render. Each entry is
         # (x1, y1, x2, y2, physical_line_index).
         self._fold_dot_rects: list[tuple[float, float, float, float, int]] = []
+        # Hit-test rectangles for the inline colour swatches drawn before hex
+        # string literals. Rebuilt every render. Each entry is
+        # (x1, y1, x2, y2, hex_color, line, col_start, col_end) where the
+        # columns bound the *literal including its quotes*.
+        self._color_swatches: list[
+            tuple[float, float, float, float, str, int, int, int]
+        ] = []
         # Diagnostics — list of dicts: {"line": int, "col_start": int,
         # "col_end": int, "severity": "error"|"warning"|"info",
         # "message": str}. Render draws a squiggly underline; eventual
@@ -952,6 +1009,8 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # Fresh per-render hit-test list for the clickable "···"
         # indicators drawn after each folded line.
         self._fold_dot_rects = []
+        # Same idea for the inline colour swatches — see `color_swatch_at`.
+        self._color_swatches = []
         # Track the actual rightmost rendered x across visible rows —
         # this becomes `_content_w_cache` at the end of render() and
         # drives horizontal scrollbar range. Measuring at draw time
@@ -1171,6 +1230,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             # using the italic font when the category specifies it.
             x = text_x0
             fg = self._palette["fg"]
+            col = 0            # running column, for swatch hit-testing
             for txt, cat in self._tokenize(line, i):
                 if cat is None:
                     color, italic = fg, False
@@ -1187,10 +1247,18 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
                     sy = y + (self._line_h - sq) // 2
                     c.create_rectangle(sx, sy, sx + sq, sy + sq,
                                        fill=hex_color, outline=fg)
+                    # Record where it landed so `color_swatch_at` can hit-test
+                    # it. Rebuilt every render, so scrolling, folding and edits
+                    # can never leave a stale rect behind.
+                    self._color_swatches.append(
+                        (sx, sy, sx + sq, sy + sq, hex_color,
+                         i, col, col + len(txt))
+                    )
                     x += sq + 3
                 c.create_text(x, y + 1, text=txt, anchor="nw",
                               fill=color, font=font)
                 x += font.measure(txt)
+                col += len(txt)
 
             # Subtract text_x0 so the cached width is scroll-independent
             # (the value that `_content_width()` compares against).

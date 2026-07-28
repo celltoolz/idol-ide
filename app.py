@@ -50,6 +50,7 @@ from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 from widgets.welcome import WelcomePanel
 from widgets.clipboard_history import ClipboardHistoryPanel
+from widgets.color_picker import ColorPickerPopup
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from widgets.designer_component_tray import ComponentTray
@@ -442,6 +443,12 @@ class IDOL(Tk):
         self._learning_panel: LearningPanel | None = None
         self._learning_active_lid: str = ""
         self._learning_reg_map: dict = {}  # widget → lid, built on activate
+
+        # Inline colour picker (hover a hex swatch in the editor)
+        self._color_popup = None                       # ColorPickerPopup | None
+        self._color_cv: CanvasCodeView | None = None   # editor it belongs to
+        self._color_span: list[int] | None = None      # [line, col_start, col_end]
+        self._color_group_open: bool = False           # undo group is open
 
         # The open project's `.idol-project` file, or None when no project is
         # open. Latched by `_set_open_project`, never re-derived from the
@@ -2361,12 +2368,100 @@ class IDOL(Tk):
             cv.set_runtime_error_line(None)
         self._runtime_error_tab_id = None
 
+    # ── Inline colour picker ──────────────────────────────────────────────────
+
+    def _on_swatch_motion(self, event, cv: CanvasCodeView) -> bool:
+        """Open/keep/dismiss the colour picker for the swatch under the pointer.
+
+        Returns True when the pointer is over a swatch, so the caller can skip
+        the LSP hover for that motion.
+        """
+        hit = cv.color_swatch_at(event.x, event.y)
+        if hit is None:
+            # Off the swatch — but the pointer may be travelling to the popup,
+            # so this only *schedules* the close. The popup cancels it the
+            # moment it sees an <Enter> of its own.
+            if self._color_popup is not None:
+                self._color_popup.schedule_close()
+            return False
+
+        if self._color_popup is not None:
+            self._color_popup.keep_alive()
+            same = (cv is self._color_cv
+                    and self._color_span is not None
+                    and self._color_span[0] == hit["line"]
+                    and self._color_span[1] == hit["col_start"])
+            if same:
+                return True                 # already showing this one
+            self._color_popup.close()       # different swatch — restart
+        self._open_color_popup(cv, hit)
+        return True
+
+    def _open_color_popup(self, cv: CanvasCodeView, hit: dict) -> None:
+        # The LSP popup and its pending timer must go — they would land on top.
+        if self._hover_after_id:
+            self.after_cancel(self._hover_after_id)
+            self._hover_after_id = None
+        self._dismiss_hover()
+
+        self._color_cv = cv
+        self._color_span = [hit["line"], hit["col_start"], hit["col_end"]]
+        # One undo step for the whole picking session, however many drags it
+        # takes. Ended in `_on_color_popup_closed`, which every exit path runs.
+        cv.begin_undo_group()
+        self._color_group_open = True
+
+        x1, _y1, _x2, y2 = hit["bbox"]
+        self._color_popup = ColorPickerPopup(
+            self, hit["color"],
+            on_change=self._on_color_picked,
+            on_close=self._on_color_popup_closed,
+        )
+        self._color_popup.show_at(
+            cv.canvas.winfo_rootx() + int(x1),
+            cv.canvas.winfo_rooty() + int(y2) + 6,
+        )
+
+    def _on_color_picked(self, color: str) -> None:
+        """Live-apply a picked colour to the literal the popup was opened on."""
+        cv, span = self._color_cv, self._color_span
+        if cv is None or span is None:
+            return
+        line, col_start, col_end = span
+        new_span = cv.replace_color_literal(line, col_start, col_end, color)
+        if new_span is None:
+            # The literal is gone or no longer a colour — the buffer moved
+            # under us. Stop rather than rewrite whatever now occupies the span.
+            self._close_color_popup()
+            return
+        # Track the literal's new bounds: expanding `#rgb` to `#rrggbb` shifts
+        # the end column, and the next drag step must replace the new text.
+        span[1], span[2] = new_span
+
+    def _on_color_popup_closed(self) -> None:
+        if self._color_group_open and self._color_cv is not None:
+            self._color_cv.end_undo_group()
+        self._color_group_open = False
+        self._color_popup = None
+        self._color_cv = None
+        self._color_span = None
+
+    def _close_color_popup(self) -> None:
+        """Close the picker if one is open (no-op otherwise)."""
+        if self._color_popup is not None:
+            self._color_popup.close()       # fires _on_color_popup_closed
+
     # ── LSP hover popup ───────────────────────────────────────────────────────
 
     def _on_hover_motion(self, event, cv: CanvasCodeView, path: str) -> None:
         """Debounce mouse motion; trigger hover request after 600 ms of stillness."""
         if self._completion.visible:
             return  # don't hover while the completion popup is open
+        # Colour swatches win over the LSP hover popup: they occupy a few
+        # pixels the LSP has nothing to say about, and two popups over the same
+        # spot would fight.
+        if self._on_swatch_motion(event, cv):
+            return
         if self._hover_after_id:
             self.after_cancel(self._hover_after_id)
         self._dismiss_hover()
