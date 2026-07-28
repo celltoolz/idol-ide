@@ -449,6 +449,7 @@ class IDOL(Tk):
         self._color_cv: CanvasCodeView | None = None   # editor it belongs to
         self._color_span: list[int] | None = None      # [line, col_start, col_end]
         self._color_group_open: bool = False           # undo group is open
+        self._color_dismiss_bound: bool = False        # bindtag class-bind done
 
         # The open project's `.idol-project` file, or None when no project is
         # open. Latched by `_set_open_project`, never re-derived from the
@@ -2455,27 +2456,54 @@ class IDOL(Tk):
         if self._color_popup is not None:
             self._color_popup.close()       # fires _on_color_popup_closed
 
+    #: Bindtag carrying the colour-picker dismissal handlers. See
+    #: `_bind_color_picker_dismiss` for why it is not a plain widget binding.
+    _COLOR_DISMISS_TAG = "IDOLColorPickerDismiss"
+
     def _bind_color_picker_dismiss(self, cv: CanvasCodeView) -> None:
         """Wire the ways an open colour picker becomes stale. Both panes.
 
         Scrolling moves the swatch out from under a popup anchored to where it
         used to be, and no `<Motion>` fires when the wheel turns under a still
-        pointer — so the popup would sit there pointing at the wrong line.
-        Closing outright is right here rather than scheduling: the anchor is
-        already wrong, and there is nothing to travel back to.
+        pointer — so the popup sits there pointing at the wrong line. Closing
+        outright is right rather than scheduling: the anchor is already wrong
+        and there is nothing to travel back to.
 
-        Leaving the canvas only *schedules* the close, because the pointer
+        Leaving the canvas only *schedules* a close, because the pointer
         heading for the popup leaves the canvas on the way. Without it a popup
         could outlive a pointer that left and never arrived.
+
+        **These go on an earlier bindtag, not on the widget.** The engine's own
+        wheel handlers return `"break"`, and in Tk that stops every remaining
+        binding for the event — including ones added with `add="+"`, which run
+        after. As plain widget bindings these never fired on Windows at all.
+        Linux only appeared to work for an unrelated reason: X11 delivers the
+        wheel as `<Button-4>`/`<Button-5>`, and a button grab emits crossing
+        events, so the `<Leave>` handler was closing the popup there. A tag
+        inserted ahead of the widget's own runs first and cannot be suppressed;
+        none of these handlers return `"break"`, so the engine still scrolls.
         """
-        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            cv.canvas.bind(seq, lambda _e: self._close_color_popup(), add="+")
-        cv.canvas.bind(
-            "<Leave>",
-            lambda _e: (self._color_popup.schedule_close()
-                        if self._color_popup is not None else None),
-            add="+",
-        )
+        canvas = cv.canvas
+        tag = self._COLOR_DISMISS_TAG
+        if not self._color_dismiss_bound:
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                canvas.bind_class(tag, seq, self._on_scroll_dismiss_color)
+            canvas.bind_class(tag, "<Leave>", self._on_leave_dismiss_color)
+            self._color_dismiss_bound = True
+        tags = canvas.bindtags()
+        if tag not in tags:
+            canvas.bindtags((tag,) + tags)
+
+    def _on_scroll_dismiss_color(self, _event=None) -> None:
+        """Wheel over the editor — the anchor has moved, drop the popup.
+
+        Returns None, never `"break"`: the engine's scroll must still happen.
+        """
+        self._close_color_popup()
+
+    def _on_leave_dismiss_color(self, _event=None) -> None:
+        if self._color_popup is not None:
+            self._color_popup.schedule_close()
 
     # ── LSP hover popup ───────────────────────────────────────────────────────
 

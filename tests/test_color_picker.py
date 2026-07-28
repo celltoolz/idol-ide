@@ -298,26 +298,120 @@ def idol_src(repo_root):
     return (repo_root / "app.py").read_text(encoding="utf-8")
 
 
-def test_scroll_closes_the_picker(idol_src):
-    """No <Motion> fires when the wheel turns under a still pointer, so the
-    swatch slides away with nothing to notice it."""
+class _DismissHost:
+    """Minimal stand-in exposing what the dismissal wiring touches."""
+
+    _COLOR_DISMISS_TAG = None          # filled in from the real class below
+    _bind_color_picker_dismiss = None
+    _on_scroll_dismiss_color = None
+    _on_leave_dismiss_color = None
+
+    def __init__(self):
+        self._color_dismiss_bound = False
+        self._color_popup = None
+        self.closed = 0
+        self.scheduled = 0
+
+    def _close_color_popup(self):
+        self.closed += 1
+
+
+def _make_host():
     import app as app_mod
 
-    src = inspect.getsource(app_mod.IDOL._bind_color_picker_dismiss)
-    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-        assert seq in src, f"{seq} not dismissed"
-    assert "_close_color_popup" in src
+    for name in ("_COLOR_DISMISS_TAG", "_bind_color_picker_dismiss",
+                 "_on_scroll_dismiss_color", "_on_leave_dismiss_color"):
+        setattr(_DismissHost, name, getattr(app_mod.IDOL, name))
+    return _DismissHost()
 
 
-def test_leaving_the_canvas_only_schedules_the_close(idol_src):
+@pytest.mark.gui
+@pytest.mark.parametrize("sequence,kwargs", [
+    ("<MouseWheel>", {"delta": 120}),      # Windows / macOS
+    ("<Button-4>", {}),                    # X11 scroll up
+    ("<Button-5>", {}),                    # X11 scroll down
+])
+def test_wheel_over_the_editor_closes_the_picker(cv, tk_root, sequence, kwargs):
+    """The Windows bug, reproduced.
+
+    The engine's own wheel handlers return "break", which in Tk stops every
+    remaining binding for the event — including `add="+"` ones. As a plain
+    widget binding this never fired on Windows. Linux only looked correct
+    because X11 sends the wheel as a button event, whose grab emits crossing
+    events, so the <Leave> handler was doing the work instead.
+    """
+    host = _make_host()
+    host._bind_color_picker_dismiss(cv)
+    cv.canvas.focus_set()
+    tk_root.update()
+
+    cv.canvas.event_generate(sequence, x=20, y=20, **kwargs)
+    tk_root.update()
+    assert host.closed == 1, f"{sequence} did not dismiss the picker"
+
+
+@pytest.mark.gui
+def test_dismissal_runs_ahead_of_the_engine_binding(cv, tk_root):
+    """The tag must sit *before* the widget's own tag, or `break` wins."""
+    host = _make_host()
+    host._bind_color_picker_dismiss(cv)
+    tags = cv.canvas.bindtags()
+    assert tags[0] == host._COLOR_DISMISS_TAG
+    assert str(cv.canvas) in tags        # widget's own tag still present
+
+
+@pytest.mark.gui
+def test_scrolling_still_scrolls(cv, tk_root):
+    """Dismissal must not swallow the event — no handler returns "break"."""
+    cv.set_text("\n".join(f"line {i}" for i in range(200)))
+    tk_root.update()
+    cv.render()
+    host = _make_host()
+    host._bind_color_picker_dismiss(cv)
+    cv.canvas.focus_set()
+    tk_root.update()
+
+    before = cv.scroll_y
+    cv.canvas.event_generate("<MouseWheel>", delta=-120, x=20, y=20)
+    tk_root.update()
+    assert cv.scroll_y != before, "the editor stopped scrolling"
+
+
+@pytest.mark.gui
+def test_binding_the_same_canvas_twice_does_not_stack_tags(cv):
+    host = _make_host()
+    host._bind_color_picker_dismiss(cv)
+    host._bind_color_picker_dismiss(cv)
+    assert cv.canvas.bindtags().count(host._COLOR_DISMISS_TAG) == 1
+
+
+def test_leaving_the_canvas_only_schedules_the_close():
     """The pointer travelling to the popup leaves the canvas on the way — an
     immediate close there would kill the popup mid-journey."""
     import app as app_mod
 
-    src = inspect.getsource(app_mod.IDOL._bind_color_picker_dismiss)
-    leave = src.split('"<Leave>"', 1)[1]
-    assert "schedule_close" in leave
-    assert "_close_color_popup" not in leave
+    src = inspect.getsource(app_mod.IDOL._on_leave_dismiss_color)
+    assert "schedule_close" in src
+    assert "_close_color_popup" not in src
+
+
+def test_no_dismiss_handler_returns_break():
+    """Returning "break" here would stop the engine scrolling at all.
+
+    Checked over the AST, not the source text — the docstrings explaining the
+    hazard contain the word, and a substring search would flag them.
+    """
+    import textwrap
+
+    import app as app_mod
+
+    for fn in (app_mod.IDOL._on_scroll_dismiss_color,
+               app_mod.IDOL._on_leave_dismiss_color):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+        returns = [n for n in ast.walk(tree) if isinstance(n, ast.Return)]
+        assert not [r for r in returns
+                    if isinstance(r.value, ast.Constant) and r.value.value == "break"], \
+            f"{fn.__name__} returns 'break'"
 
 
 def test_both_panes_wire_dismissal(idol_src):
