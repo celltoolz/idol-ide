@@ -113,10 +113,10 @@ together, mirroring the existing Variable and Layout headers:
 
 ### Font Picker
 
-The `font` property row opens a font chooser dialog pre-populated with the widget's current family, size, and style. Supports bold, italic, underline, and overstrike. The chosen font is stored as a `"Family size style"` string (e.g. `"Arial 12 bold"`) and emitted in generated code as a font **tuple** — `('Segoe UI', 12, 'bold')` — so multi-word family names (Segoe UI, Times New Roman, …) are valid; a bare spaced-family string would otherwise be parsed by Tk as a list and crash with `expected integer`.
+The `font` property row opens IDOL's own font chooser, scoped to the widget's current family, size and style — the family list scrolls that font into view rather than starting at the top. Supports bold, italic, underline and overstrike; the underline and strikeout checkboxes appear here because widget fonts use them, and are hidden for the editor font, which does not. The chosen font is stored as a `"Family size style"` string (e.g. `"Arial 12 bold"`) and emitted in generated code as a font **tuple** — `('Segoe UI', 12, 'bold')` — so multi-word family names (Segoe UI, Times New Roman, …) are valid; a bare spaced-family string would otherwise be parsed by Tk as a list and crash with `expected integer`.
 
 ### Color Picker
-Background and Foreground properties open `tkinter.colorchooser`. The row tints immediately and the canvas widget updates live. Non-input widgets (Button, Label, Frame, etc.) start with no explicit background color, inheriting the OS default. Input widgets (Entry, Text, Listbox) default to white. A `×` button appears on hover to clear a color back to the OS default.
+Background and Foreground properties open IDOL's own colour chooser — an HSV square with a hue strip, hex and R/G/B fields, and old/new preview swatches. The row tints immediately and the canvas widget updates live. Non-input widgets (Button, Label, Frame, etc.) start with no explicit background color, inheriting the OS default. Input widgets (Entry, Text, Listbox) default to white. A `×` button appears on hover to clear a color back to the OS default.
 
 ### State
 Button, Entry, Text, Combobox, and other widgets expose a `state` dropdown (normal / readonly / disabled). Selecting readonly or disabled reveals conditional color rows (`readonlybackground`, `disabledbackground`, `disabledforeground`) that auto-fill with defaults and hide when not applicable.

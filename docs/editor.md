@@ -11,7 +11,17 @@
 
 ## Font
 
-**View → Change Font** opens a font chooser dialog where you can set the editor font family, size, and bold/italic style. The selection persists across restarts.
+**Settings → Editor → Font** (Ctrl+, ) sets the editor font family, size and style. **Ctrl+L** opens the same chooser directly. The chooser is IDOL's own — it opens scoped to the font you are currently using, and its preview renders inside a fixed box, so a 72pt sample scrolls rather than stretching the dialog.
+
+The selection is a preference: it follows you across every project rather than being stored per project.
+
+## Colour Picker
+
+Hovering an inline colour swatch — the small square IDOL draws before a hex literal like `"#0d1117"` — opens a colour picker. Drag inside the saturation/value square or the hue strip, or type a hex value directly.
+
+The literal updates live as you drag, and the whole picking session is a single undo step, so Ctrl+Z puts the original colour back in one press. Your quote style and hex case are preserved: `'#ff00aa'` stays lowercase and single-quoted. `#rgb` shorthand expands to six digits.
+
+The picker stays open while the pointer is over either the swatch or the picker itself, with a short grace period so you can move between them. It closes on leave, on scroll, and when you switch tabs.
 
 ## Line Move & Duplicate
 
@@ -29,7 +39,7 @@ Enclosing scope pins to the top of the editor while you scroll — fully syntax-
 
 ## Minimap
 
-Live scaled-down view of the full file with hover zoom preview and mouse wheel scrolling. Toggle with the **MAP** button in the nav toolbar. The minimap is fold-aware — folded lines are hidden in the minimap too.
+Live scaled-down view of the full file with hover zoom preview and mouse wheel scrolling. Toggle with the **MAP** button in the nav toolbar, or **Settings → Editor → Show minimap**. The minimap is fold-aware — folded lines are hidden in the minimap too.
 
 ## Breadcrumb Bar
 
@@ -57,7 +67,11 @@ A thin bar between the tab row and the editor showing the full file path and cur
 | **Drag a split tab** left past the split edge | **Moves** the tab back to the main pane; blue drop zone confirms the drop target |
 | **Right-click a split tab → Open in Main Editor** | **Copies** to main — stays open in both panes |
 | **Split pane × button** | True close — prompts for any unsaved changes, then destroys the pane |
-| **Individual tab ×** in split | Closes that tab; if it was the last, the split pane closes |
+| **Individual tab ×** in split | Closes that tab. The pane stays open even when it was the last one. |
+
+The split closes only when **you** close it — the pane's × or the toggle. Closing its last tab, dragging that tab back to the main pane, or switching to the Designer all leave the pane where it is, ready for another tab. An empty split keeps its header, so you can drag one straight back in.
+
+The split belongs to the project: it is saved and restored per project, and closing a project disposes of it so one project's split files never carry into the next.
 
 ### Caret and current-line highlight
 
@@ -124,6 +138,8 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 - **Pin-to-top** — 📌 toolbar button keeps the panel floating above all other windows
 - The panel is a persistent hidden window; closing it with the × just hides it, history is preserved
 
+History is **saved per project** and restored when you reopen it, so what you copied while working on one project does not turn up while working on another. With no project open you get a separate scratch history of the last 20 entries, also kept between sessions. Both live under `~/.idol/clipboard/` — never inside the project folder, so copied text cannot end up committed.
+
 > The rows are rendered as Canvas primitives (not widget trees) — hover effects are sub-millisecond
 > `itemconfigure` calls with no full redraws.
 
@@ -152,7 +168,7 @@ The editor's right-click menu is an IDOL-style dark overlay (not a native OS men
 
 ## Active Line Highlight
 
-**View → Highlight Active Line** toggles a subtle background band on the line the cursor is on. **View → Active Line Color** opens a color picker to customize the highlight color. Both settings apply immediately to all open editor tabs.
+**Settings → Editor → Highlight active line** toggles a subtle background band on the line the cursor is on, and **Active line colour** overrides the theme's own highlight. Both apply immediately to every open tab. Reset the colour to go back to following whichever theme is active.
 
 ## Themes
 

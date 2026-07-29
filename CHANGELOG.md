@@ -5,6 +5,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-28] — Settings, Colour & Font Choosers, Cross-Platform Fixes
+
+### Added
+- **Settings panel** — `Ctrl+,`, **View → Settings**, or the Welcome tab. Opens as a tab so it
+  can stay up while you try a change. Two panes with a category list, plus a search box that
+  spans every category and matches a setting's key as well as its name. Every change applies
+  immediately; a **↺** marks anything that differs from its default and puts it back.
+  - Preferences now live in `~/.idol/settings.json`, which records **only what you changed** —
+    anything left at its default is absent, so a future IDOL can improve a default without
+    overriding your choice.
+  - Newly adjustable: tab size, autocomplete on/off, auto-close brackets and quotes.
+  - Newly *remembered*: Highlight Active Line, Active Line Colour, Show Sidebar, Show bottom
+    panel. These were settable before but forgotten on every restart.
+  - See [docs/settings.md](docs/settings.md).
+- **Inline colour picker in the editor** — hover the swatch beside a hex literal like
+  `"#0d1117"` and a picker opens. Drag the saturation/value square or hue strip, or type hex.
+  The literal updates live, and the whole session is one undo step. Your quote style and hex
+  case are preserved; `#rgb` shorthand expands.
+- **IDOL's own colour and font choosers** — replacing `tkinter.colorchooser` and the
+  `tkfontchooser` dependency, which is now gone from `requirements.txt`. The font chooser opens
+  scoped to the font you are actually using and scrolls it into view; its preview renders in a
+  fixed box, so a 72pt sample scrolls instead of stretching the dialog.
+- **Clipboard history is saved per project** and restored when you reopen it, so what you copied
+  in one project stays there. With no project open you get a separate scratch history of the
+  last 20 entries. Both live under `~/.idol/clipboard/`, never in the project folder, so copied
+  text cannot end up committed.
+- **Test suite and CI** — pytest suite in `tests/`, GitHub Actions across Linux and Windows on
+  Python 3.11 and 3.13, with lint and tests both gating. Closes the gap where nothing checked
+  generated projects.
+
+### Fixed
+- **Opening a project silently changed your theme and editor font.** Theme, font, minimap and the
+  Ollama server URL were stored in the session file, which is also written into each project — so
+  restoring a project applied that project's copy. They are preferences now and follow you
+  instead. Existing values are migrated automatically on first launch; anything you had already
+  customised wins.
+- **Find/Replace could not be undone.** The editor's public mutation API never snapshotted the
+  buffer, so Ctrl+Z after a replace skipped past it to whatever you last typed. Replace All now
+  undoes as a single step.
+- **A deleted problem stayed in the Problems panel.** Selecting the code causing a diagnostic and
+  pressing Backspace left it listed until the next keystroke.
+- **Selection drifted at a colour swatch.** Selection, multi-cursor selection and find highlights
+  all mis-measured lines containing a hex literal, and clicking to the right of a swatch landed on
+  the wrong character.
+- **Pasting from clipboard history crashed**, and left the editor without a caret.
+- **The split editor closed itself.** Closing its last tab, dragging that tab back, or switching to
+  the Designer would take the pane down — and one combination lost a split outright across a mode
+  switch. It now closes only when you close it, and an emptied pane stays open for the next tab.
+- **File dialogs on Linux hid the file you clicked.** Tk's X11 dialog reads two ttk style values to
+  colour its selection, and IDOL's theme left both empty — so the highlight and the filename were
+  drawn invisible. Windows and macOS use the native dialog and were never affected.
+- **Ruff reported different problems on different machines.** Ruff 0.16 widened its default rule
+  set from 59 rules to 413, and `requirements.txt` allowed any version. Ruff is now pinned, IDOL
+  applies a defined baseline to projects that have no ruff config of their own, and **honours the
+  project's own config when it has one**. Generated projects no longer flag themselves.
+- **The Designer's font picker never opened on the widget's current font**, and the editor's never
+  opened on the editor's.
+- **Colours drifted by one channel value** each time the picker opened on them.
+
+### Changed
+- **View menu slimmed.** Change Font, Highlight Active Line, Active Line Color and Show Minimap
+  moved into Settings, which can show their current value and reset them. Show Sidebar, Show
+  Panels, Zen Mode and the Theme submenu stayed — they are toggles you flip constantly, and they
+  now write the same stored value the panel reads. `Ctrl+L` still opens the font chooser directly.
+- **Zen Mode is deliberately not remembered** — it is a focus mode, and reopening with everything
+  hidden would be worse than pressing F10 again.
+
+---
+
 ## [2026-07-27] — Split-Pane and Designer Fixes
 
 ### Fixed

@@ -40,6 +40,7 @@
 | Split editor | Ctrl+\\ |
 | Toggle scroll sync | Scroll Lock |
 | Change font | Ctrl+L |
+| Settings | Ctrl+, |
 
 ## Panels
 

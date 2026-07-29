@@ -28,7 +28,11 @@ The wizard includes paginated guides covering:
 - Layout (sash widths, active panels)
 - Active interpreter
 - Breakpoints
-- Appearance settings
+
+Your **preferences** — theme, editor font, and everything else in
+[Settings](settings.md) — are deliberately *not* part of a project. They follow
+you across every project instead, so opening someone else's work cannot change
+how your editor looks.
 
 ### The project folder is portable
 
@@ -82,13 +86,17 @@ Run, Run in Terminal, Run Selection, Debug, and the Package Manager all use the 
 On exit, IDOL auto-saves:
 - Open tabs (unsaved changes go to temp files, restored on next launch)
 - Layout and explorer root
-- Appearance settings
 - Breakpoints
 - Active interpreter and venv (venv is re-activated in the terminal on next launch)
 - Run preferences — run target (Output/Terminal), run/debug action, pinned entry file, and the [run working directory](terminal.md#run-working-directory) mode
 - **Designer state** — open forms, active canvas, and the Set as Main selection; if the designer was active, it re-opens automatically on the next launch with the same forms loaded
 
 Session data is written to `~/.idol/session.json`. Named project saves write to `<name>.idol-project` in the project root.
+
+This is **workspace state** — what you were doing in this project. Your
+preferences are separate, in `~/.idol/settings.json`; see
+[Settings → where settings are stored](settings.md#where-settings-are-stored)
+for the rule that decides which is which.
 
 ### Closing a project saves it — there is no prompt
 
