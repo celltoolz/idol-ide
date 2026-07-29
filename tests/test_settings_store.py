@@ -209,7 +209,7 @@ def test_migration_moves_preferences_out_of_the_session(store, tmp_path):
                     "minimap_visible": False},
         layout={"ollama_url": "http://box:11434"},
     )
-    assert settings.migrate_from_session(session) is True
+    assert settings.migrate_legacy(session) is True
     assert settings.get("appearance.theme") == "dracula"
     assert settings.get_editor_font() == ("Consolas", 13, "bold", "roman")
     assert settings.get("editor.minimap_visible") is False
@@ -219,11 +219,11 @@ def test_migration_moves_preferences_out_of_the_session(store, tmp_path):
 def test_migration_runs_only_once(store, tmp_path):
     session = tmp_path / "session.json"
     _write_session(session, appearance={"theme": "dracula"})
-    assert settings.migrate_from_session(session) is True
+    assert settings.migrate_legacy(session) is True
     # A later session write must not re-migrate over a since-changed value.
     settings.set("appearance.theme", "nord")
     _write_session(session, appearance={"theme": "dracula"})
-    assert settings.migrate_from_session(session) is False
+    assert settings.migrate_legacy(session) is False
     assert settings.get("appearance.theme") == "nord"
 
 
@@ -231,28 +231,79 @@ def test_migration_never_overwrites_an_existing_preference(store, tmp_path):
     settings.set("appearance.theme", "nord")
     session = tmp_path / "session.json"
     _write_session(session, appearance={"theme": "dracula"})
-    settings.migrate_from_session(session)
+    settings.migrate_legacy(session)
     assert settings.get("appearance.theme") == "nord"
 
 
 def test_migration_survives_a_missing_session(store, tmp_path):
-    assert settings.migrate_from_session(tmp_path / "nope.json") is False
+    # Both paths must be given. Passing only the session lets `recent_path`
+    # default to the developer's real ~/.idol/recent.json, which made this
+    # test pass or fail depending on whose machine ran it.
+    assert settings.migrate_legacy(tmp_path / "nope.json",
+                                   tmp_path / "nope2.json") is False
     assert settings.get("appearance.theme") == "monokai-bright"
 
 
 def test_migration_survives_a_corrupt_session(store, tmp_path):
     session = tmp_path / "session.json"
+    recent = tmp_path / "recent.json"
     session.parent.mkdir(parents=True, exist_ok=True)
     session.write_text("{not json", encoding="utf-8")
-    assert settings.migrate_from_session(session) is False
+    recent.write_text("{also not json", encoding="utf-8")
+    assert settings.migrate_legacy(session, recent) is False
 
 
 def test_migration_reads_the_auto_session_only():
     """Migrating from a *project* file would make the last-opened project's
     theme the user's permanently — the leak, inverted."""
-    src = inspect.getsource(settings.migrate_from_session)
+    src = inspect.getsource(settings.migrate_legacy)
     assert "session.json" in src
     assert "idol-project" not in src
+
+
+def test_migration_moves_show_welcome_out_of_recent(store, tmp_path):
+    """`show_on_startup` lived in recent.json — a file about recent projects,
+    holding a preference that had nothing to do with them."""
+    recent = tmp_path / "recent.json"
+    recent.write_text(json.dumps({"show_on_startup": False,
+                                  "projects": [{"path": "/x"}]}),
+                      encoding="utf-8")
+    assert settings.migrate_legacy(tmp_path / "none.json", recent) is True
+    assert settings.get("general.show_welcome_on_startup") is False
+
+
+def test_migration_handles_both_sources_in_one_pass(store, tmp_path):
+    session = tmp_path / "session.json"
+    _write_session(session, appearance={"theme": "dracula"})
+    recent = tmp_path / "recent.json"
+    recent.write_text(json.dumps({"show_on_startup": False}), encoding="utf-8")
+    assert settings.migrate_legacy(session, recent) is True
+    assert settings.get("appearance.theme") == "dracula"
+    assert settings.get("general.show_welcome_on_startup") is False
+
+
+def test_bumping_the_version_cannot_clobber_a_chosen_value(store, tmp_path):
+    """Migrating a newly-added key must not re-import the old value of one the
+    user has since changed."""
+    settings.set("appearance.theme", "nord")
+    session = tmp_path / "session.json"
+    _write_session(session, appearance={"theme": "dracula"})
+    recent = tmp_path / "recent.json"
+    recent.write_text(json.dumps({"show_on_startup": False}), encoding="utf-8")
+    settings.migrate_legacy(session, recent)
+    assert settings.get("appearance.theme") == "nord"
+    assert settings.get("general.show_welcome_on_startup") is False
+
+
+def test_recent_shim_delegates_to_the_store(store):
+    """`recent.get_show_on_startup` has callers left; it must not read a stale
+    copy out of recent.json after the migration."""
+    from utils import recent as recent_mod
+
+    settings.set("general.show_welcome_on_startup", False)
+    assert recent_mod.get_show_on_startup() is False
+    recent_mod.set_show_on_startup(True)
+    assert settings.get("general.show_welcome_on_startup") is True
 
 
 # ── The session must no longer own these ──────────────────────────────────────
@@ -292,11 +343,11 @@ def test_app_applies_preferences_at_startup():
     import app as app_mod
 
     src = inspect.getsource(app_mod.IDOL.__init__)
-    assert "migrate_from_session" in src
+    assert "migrate_legacy" in src
     assert "_apply_user_preferences" in src
     # Migration reads the old auto-session, so it has to happen before a
     # restore or save can rewrite that file.
-    assert src.index("migrate_from_session") < src.index("session_utils.restore")
+    assert src.index("migrate_legacy") < src.index("session_utils.restore")
 
 
 def _indent(text: str) -> str:

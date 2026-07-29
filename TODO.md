@@ -20,7 +20,8 @@
   - **Phase 1** — grow `utils/settings.py` into a real store (schema + defaults + change notification); migrate the leaking preferences out of the session, silently.
   - **Phase 2** — the panel: a notebook tab like Package Manager, two-pane with a category list and a search box, rendered from the schema.
   - ~~**Phase 3**~~ — done. Persisted Highlight Active Line, Active Line Colour, Show Sidebar, Show bottom panel; added tab size, autocomplete and auto-close pairs. Two classification calls: the **active panel tab** went to *workspace* state (it is "what was I doing here"), and **Zen Mode is deliberately not persisted** — transient focus state, and restoring into it would open IDOL with everything hidden.
-  - **Phase 4** — migrate the View menu in, keeping frequently-toggled items (Zen Mode, Show Sidebar, Panels) as menu entries bound to the same store.
+  - ~~**Phase 4**~~ — done. Change Font, Highlight Active Line, Active Line Color and Show Minimap moved into Settings; Show Sidebar, Show Panels, Zen Mode and the Theme submenu stayed in View, bound to the same stored value. Also moved `show_on_startup` out of `recent.json` into `general.show_welcome_on_startup`, and replaced the Welcome tab's last `tk.Checkbutton` with `DarkCheckbox`.
+  - **All four phases complete.** Preferences now live in one place, and `settings.json` holds only what differs from the defaults.
   - Categories: Editor · Appearance · Python · Diagnostics · Run & Debug · Designer · AI · General.
   - Run target / action / cwd mode stay **workspace** state — the run config belongs to the project.
   - Ruff rules: the panel **edits the project's `ruff.toml`**, never mirrors rules into `settings.json`. Two sources of truth for lint config is the exact divergence the ruff work just fixed.

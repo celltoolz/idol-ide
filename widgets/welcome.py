@@ -10,7 +10,9 @@ from typing import Callable
 
 from utils import recent as _recent
 from utils import session as _session
+from utils import settings as idol_settings
 from utils.ui_font import UI_FONT
+from widgets.dark_checkbox import DarkCheckbox
 from widgets.scrollbar import VerticalScrollbar
 
 _BG       = "#1e1e1e"
@@ -383,18 +385,17 @@ class WelcomePanel(tk.Frame):
         # Startup checkbox row
         ck_row = tk.Frame(footer, bg=_BG2)
         ck_row.pack(fill="x", padx=32, pady=(0, 10))
-        self._startup_var = tk.BooleanVar(value=_recent.get_show_on_startup())
-        ck = tk.Checkbutton(
+        # Canvas-drawn, not tk.Checkbutton — that takes its colours from the
+        # platform and renders as a light control on this dark panel.
+        self._startup_var = tk.BooleanVar(
+            value=bool(idol_settings.get("general.show_welcome_on_startup")))
+        DarkCheckbox(
             ck_row,
             text="Show Welcome tab on startup",
             variable=self._startup_var,
-            bg=_BG2, fg=_DIM, selectcolor=_BG3,
-            activebackground=_BG2, activeforeground=_FG,
-            font=(UI_FONT, 9),
             command=self._on_startup_toggle,
-            relief="flat", bd=0,
-        )
-        ck.pack(side="left")
+            bg=_BG2, fg=_DIM,
+        ).pack(side="left")
         tk.Label(
             ck_row, text="Help → Welcome",
             bg=_BG2, fg=_DIM, font=(UI_FONT, 8),
@@ -786,7 +787,10 @@ class WelcomePanel(tk.Frame):
         self._populate_recent_files()
 
     def _on_startup_toggle(self) -> None:
-        _recent.set_show_on_startup(self._startup_var.get())
+        # Writes the same key the Settings panel shows, so the two stay one
+        # value rather than two that drift.
+        idol_settings.set("general.show_welcome_on_startup",
+                          bool(self._startup_var.get()))
 
     # ── Tips rotation ─────────────────────────────────────────────────────────
 

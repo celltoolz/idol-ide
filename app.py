@@ -575,7 +575,7 @@ class IDOL(Tk):
         # Preferences before any session restore. The migration reads the old
         # auto-session, so it has to run before anything overwrites that file,
         # and applying here means a project's stale copy can no longer win.
-        settings_utils.migrate_from_session()
+        settings_utils.migrate_legacy()
         self._apply_user_preferences()
         # Live-apply: the panel only writes to the store, and the store tells
         # us. No control needs to know which widgets it affects.
@@ -1500,6 +1500,10 @@ class IDOL(Tk):
             self.bind("<Command-w>", lambda _: self.file_close())
         self.bind("<Control-q>", lambda _: self.file_exit())
         self.bind("<Control-f>", lambda _: self.edit_find_replace())
+        # Ctrl+L keeps working after Change Font moved into Settings — the
+        # shortcut still opens the chooser directly, which is faster than the
+        # panel for the one thing it does. Its discoverable home is now the
+        # Editor > Font row rather than the View menu.
         self.bind("<Control-l>", lambda _: self.view_change_font())
         self.bind("<F5>", lambda _: self.debug_file())
         self.bind("<Control-F5>", lambda _: self._nav_run())

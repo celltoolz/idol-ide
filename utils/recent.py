@@ -33,13 +33,20 @@ def get_files() -> list[dict]:
 
 
 def get_show_on_startup() -> bool:
-    return bool(_load().get("show_on_startup", True))
+    """Deprecated — the value moved to `utils.settings`.
+
+    Kept as a delegating shim so no caller reads a stale copy out of
+    `recent.json` after the migration. New code should read
+    `settings.get("general.show_welcome_on_startup")` directly.
+    """
+    from utils import settings
+    return bool(settings.get("general.show_welcome_on_startup"))
 
 
 def set_show_on_startup(value: bool) -> None:
-    data = _load()
-    data["show_on_startup"] = value
-    _save(data)
+    """Deprecated — see `get_show_on_startup`."""
+    from utils import settings
+    settings.set("general.show_welcome_on_startup", bool(value))
 
 
 def add_project(path: str) -> None:

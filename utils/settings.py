@@ -34,7 +34,9 @@ from typing import Any, Callable
 SETTINGS_FILE = Path.home() / ".idol" / "settings.json"
 
 #: Bumped only when a migration needs to run. Stored under `_version`.
-_SCHEMA_VERSION = 1
+#: 1 — theme/font/minimap/Ollama URL out of the session.
+#: 2 — show-welcome-on-startup out of recent.json.
+_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,12 @@ SCHEMA: tuple[Setting, ...] = (
         key="ai.ollama_url", default="http://localhost:11434", kind="str",
         section="AI", label="Ollama server URL",
         description="Where the AI chat panel looks for a local Ollama server.",
+    ),
+    Setting(
+        key="general.show_welcome_on_startup", default=True, kind="bool",
+        section="General", label="Show Welcome tab on startup",
+        description="Opens the Welcome tab when there is no session to "
+                    "restore. The tab's own checkbox sets the same value.",
     ),
 )
 
@@ -283,44 +291,65 @@ def is_default(key: str) -> bool:
 
 # ── Migration ─────────────────────────────────────────────────────────────────
 
-#: (settings key, where it used to live in a session file)
+#: (settings key, block, field) — where it used to live in a session file.
 _SESSION_MIGRATIONS = (
-    ("appearance.theme",          ("appearance", "theme")),
-    ("editor.font",               ("appearance", "font")),
-    ("editor.minimap_visible",    ("appearance", "minimap_visible")),
-    ("ai.ollama_url",             ("layout", "ollama_url")),
+    ("appearance.theme",       "appearance", "theme"),
+    ("editor.font",            "appearance", "font"),
+    ("editor.minimap_visible", "appearance", "minimap_visible"),
+    ("ai.ollama_url",          "layout",     "ollama_url"),
+)
+
+#: (settings key, field) — where it used to live in recent.json.
+_RECENT_MIGRATIONS = (
+    ("general.show_welcome_on_startup", "show_on_startup"),
 )
 
 
-def migrate_from_session(session_path: Path | None = None) -> bool:
-    """Move preferences out of the auto-session into this store, once.
+def _read_json(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
-    Reads the *auto-session* only (`~/.idol/session.json`), never a project
-    file — a project's copy is exactly the leak being fixed, and picking a
-    project's theme as the user's would just make the last-opened project win
-    permanently.
 
-    Runs once, guarded by `_version`. Already-set keys are never overwritten,
-    so a user who has configured something new keeps it.
+def migrate_legacy(session_path: Path | None = None,
+                   recent_path: Path | None = None) -> bool:
+    """Move preferences out of their old homes into this store, once.
 
-    Returns True when it did something, for logging and tests.
+    Sources are the *auto-session* (`~/.idol/session.json`) and
+    `~/.idol/recent.json`. Never a project file — a project's copy of a
+    preference is exactly the leak this fixes, and adopting the last-opened
+    project's theme as the user's would just invert it.
+
+    Runs once per schema version, guarded by `_version`. Already-set keys are
+    never overwritten, so bumping the version to migrate a new key cannot
+    clobber values the user has since chosen.
+
+    Returns True when it moved something, for logging and tests.
     """
     with _lock:
-        data = _load()
-        if data.get("_version", 0) >= _SCHEMA_VERSION:
+        if _load().get("_version", 0) >= _SCHEMA_VERSION:
             return False
 
-    path = session_path or (Path.home() / ".idol" / "session.json")
-    try:
-        session = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        session = {}
+    home = Path.home() / ".idol"
+    session = _read_json(session_path or (home / "session.json"))
+    recent = _read_json(recent_path or (home / "recent.json"))
 
     moved = False
-    for key, (block, field_name) in _SESSION_MIGRATIONS:
+    for key, block, field_name in _SESSION_MIGRATIONS:
         if not is_default(key):
             continue                    # user already set it here; leave alone
         value = (session.get(block) or {}).get(field_name)
+        if value is None:
+            continue
+        set(key, value)
+        moved = True
+
+    for key, field_name in _RECENT_MIGRATIONS:
+        if not is_default(key):
+            continue
+        value = recent.get(field_name)
         if value is None:
             continue
         set(key, value)
@@ -363,5 +392,5 @@ __all__ = [
     "schema", "sections", "settings_in", "default_for", "choices_for",
     "get_setting",
     "get", "set", "reset", "is_default", "reload", "subscribe",
-    "migrate_from_session", "get_editor_font", "set_editor_font",
+    "migrate_legacy", "get_editor_font", "set_editor_font",
 ]
