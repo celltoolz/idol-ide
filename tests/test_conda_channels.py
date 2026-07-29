@@ -14,7 +14,7 @@ import threading
 import pytest
 
 from editor import conda_manager
-from utils import conda_env
+from utils import conda_channels, conda_env
 
 
 # ── channels: block parsing ───────────────────────────────────────────────────
@@ -576,6 +576,146 @@ def test_index_first_channel_wins_on_name_clash(monkeypatch):
     idx.ensure_loaded(["conda-forge", "defaults"], on_done=lambda _n: done.set())
     assert done.wait(timeout=10)
     assert idx.search("numpy")[0]["channel"] == "conda-forge"
+
+
+# ── guardrails: validate() ────────────────────────────────────────────────────
+
+def _kinds(channels, priority="", missing=()):
+    return [i.kind for i in conda_channels.validate(channels, priority, missing)]
+
+
+def test_a_healthy_list_has_nothing_to_say():
+    assert conda_channels.validate(["conda-forge"], "flexible") == []
+
+
+def test_empty_list_is_an_error_not_a_warning():
+    """The only issue that may block Save."""
+    [issue] = conda_channels.validate([])
+    assert issue.kind == "empty"
+    assert issue.severity == "error"
+    assert conda_channels.blocking([issue]) == [issue]
+
+
+def test_mixed_stacks_warn_under_flexible_priority():
+    assert "conflict" in _kinds(["conda-forge", "defaults"], "flexible")
+
+
+def test_mixed_stacks_are_silent_under_strict_priority():
+    """Strict priority is the documented fix, so warning about it would be wrong."""
+    assert "conflict" not in _kinds(["conda-forge", "defaults"], "strict")
+
+
+def test_unknown_priority_is_treated_as_flexible():
+    """conda's default is flexible, so an unread config must not go quiet."""
+    assert "conflict" in _kinds(["conda-forge", "defaults"], "")
+
+
+def test_a_conflicting_pair_is_reported_once():
+    """conflicts_with is declared on both entries; one warning, not two."""
+    conflicts = [i for i in conda_channels.validate(["conda-forge", "defaults"])
+                 if i.kind == "conflict"]
+    assert len(conflicts) == 1
+
+
+def test_order_violation_is_detected_and_offers_a_fix():
+    [issue] = [i for i in conda_channels.validate(["bioconda", "conda-forge"])
+               if i.kind == "order"]
+    assert issue.fix == "reorder"
+    assert set(issue.specs) == {"bioconda", "conda-forge"}
+
+
+def test_correct_order_is_not_flagged():
+    assert "order" not in _kinds(["conda-forge", "bioconda"])
+
+
+def test_a_missing_requirement_is_not_invented_as_an_issue():
+    """bioconda without conda-forge at all is a choice, not an ordering bug."""
+    assert "order" not in _kinds(["bioconda"])
+
+
+def test_credential_in_a_channel_url_warns_and_is_masked_in_the_message():
+    [issue] = [i for i in conda_channels.validate(["https://u:s3cr3t@host/c"])
+               if i.kind == "credential"]
+    assert "s3cr3t" not in issue.message
+    assert "s3cr3t" not in issue.short
+    assert "environment.yml" in issue.message   # says *why* it matters
+
+
+def test_unindexed_channel_is_info_and_never_blocks():
+    issues = conda_channels.validate(["conda-forge", "obscure"],
+                                     missing=("obscure",))
+    [issue] = [i for i in issues if i.kind == "unindexed"]
+    assert issue.severity == "info"
+    assert conda_channels.blocking(issues) == []
+
+
+def test_missing_channel_not_in_the_list_is_ignored():
+    assert "unindexed" not in _kinds(["conda-forge"], missing=("bioconda",))
+
+
+def test_issues_are_ordered_worst_first():
+    issues = conda_channels.validate(
+        ["bioconda", "conda-forge", "defaults", "obscure"],
+        "flexible", missing=("obscure",))
+    ranks = [conda_channels.SEVERITIES.index(i.severity) for i in issues]
+    assert ranks == sorted(ranks)
+
+
+def test_every_issue_carries_a_short_label():
+    """The channel bar has one line and renders `short` — none may be blank."""
+    issues = conda_channels.validate(
+        ["bioconda", "conda-forge", "defaults", "obscure",
+         "https://u:t@h/c"], "flexible", missing=("obscure",))
+    assert {i.kind for i in issues} == {"conflict", "order", "credential",
+                                        "unindexed"}
+    assert all(i.short for i in issues)
+    assert all(i.message for i in issues)
+
+
+# ── guardrails: the one-click order fix ───────────────────────────────────────
+
+def test_fix_order_moves_the_requirement_above():
+    assert conda_channels.reorder_for_requirements(
+        ["bioconda", "conda-forge"]) == ["conda-forge", "bioconda"]
+
+
+def test_fix_order_leaves_a_correct_list_alone():
+    for order in (["conda-forge", "bioconda"], ["conda-forge"], []):
+        assert conda_channels.reorder_for_requirements(order) == order
+
+
+def test_fix_order_preserves_unrelated_positions():
+    """Only what has to move, moves — order is the user's configuration."""
+    assert conda_channels.reorder_for_requirements(
+        ["bioconda", "defaults", "conda-forge", "pytorch"]) == [
+            "defaults", "conda-forge", "bioconda", "pytorch"]
+
+
+def test_fix_order_resolves_every_violation_and_is_idempotent():
+    fixed = conda_channels.reorder_for_requirements(
+        ["bioconda", "rapidsai", "conda-forge"])
+    assert not [i for i in conda_channels.validate(fixed) if i.kind == "order"]
+    assert conda_channels.reorder_for_requirements(fixed) == fixed
+
+
+def test_fix_order_terminates_on_a_dependency_cycle(monkeypatch):
+    """The catalog has no cycles; a hand-edited one must not hang the UI."""
+    monkeypatch.setitem(conda_channels.BY_SPEC, "a",
+                        {"spec": "a", "requires_order_below": ["b"]})
+    monkeypatch.setitem(conda_channels.BY_SPEC, "b",
+                        {"spec": "b", "requires_order_below": ["a"]})
+    assert sorted(conda_channels.reorder_for_requirements(["a", "b"])) == ["a", "b"]
+
+
+def test_fix_order_ignores_a_self_reference(monkeypatch):
+    monkeypatch.setitem(conda_channels.BY_SPEC, "solo",
+                        {"spec": "solo", "requires_order_below": ["solo"]})
+    assert conda_channels.reorder_for_requirements(["solo"]) == ["solo"]
+
+
+def test_custom_channels_have_no_catalog_opinions():
+    assert conda_channels.catalog_entry("my-private-channel") is None
+    assert conda_channels.validate(["my-private-channel"]) == []
 
 
 # ── the shipped catalog ───────────────────────────────────────────────────────

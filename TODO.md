@@ -33,6 +33,30 @@ Working list for the `fix/idol-todo-sweep` branch. Longer-term plans live in
         blocker for Phase 2 (both are per-project once the interpreter is
         right), but fix it before Phase 4's per-package provenance badges.
 
+- [ ] **`make_thread_safe_after`'s pump loop re-arms against a destroyed
+      widget.** `_pump` in `utils/thread_safe_after.py` ends with an
+      unconditional `widget.after(16, _pump)`, so once the widget is gone the
+      next tick raises `RuntimeError: main thread is not in main loop`. Every
+      panel that owns a manager starts one of these loops
+      (`PackageManagerPanel`, `SourceControl`, the AI panel, …), so the raise
+      happens on any teardown that is not process exit — closing a panel tab
+      included. In the app it is swallowed by Tk's background-error handler and
+      invisible; it became visible as four
+      `PytestUnraisableExceptionWarning`s the moment a test constructed a panel
+      and let the `tk_root` fixture destroy it.
+      - Fix is a guard before re-arming — `if widget.winfo_exists()`, wrapped
+        in `try/except tk.TclError` since the widget can go away between the
+        check and the call. Same guard belongs on the drain loop's own
+        `widget.after`.
+      - **Why it matters beyond tidiness:** it makes panels effectively
+        untestable at the widget level. Phase 2's two panel tests were dropped
+        and their decisions extracted into pure `utils/conda_env` helpers
+        instead — which was the better design anyway, but it should have been a
+        free choice rather than a forced one. Fixing this unblocks real GUI
+        coverage for the Package Manager, and the fix is small enough that the
+        only reason it is filed rather than done is that it does not belong
+        inside a feature commit.
+
 ## ✨ Features
 
 ### Conda Channels
@@ -86,21 +110,20 @@ Each phase is independently shippable. **Tests green before every commit** —
       dialog for a channel the install will not touch.
       *Edit and threading ship together: an editor that writes a file which
       does not change what installs is the UI lying, one phase early.*
-- [ ] **Phase 3 — guardrails.** `defaults` + `conda-forge` mixed-channel warning
-      under flexible priority. `requires_order_below` one-click `[ Fix order ]`.
-      "Channel published no searchable index" signal — `CondaSearchIndex`
-      already tracks it as `missing_channels`, nothing displays it yet.
-      Two things Phase 2 surfaced that belong here:
-      - **A tokenized channel URL is written to `environment.yml` verbatim**, and
-        that file is git-tracked. It has to be, or the channel doesn't work — so
-        the answer is a warning at add time ("this URL contains a credential and
-        environment.yml is usually committed; conda's own guidance is to keep
-        tokenized channels in `~/.condarc`"), not a refusal. Display and logging
-        are already masked via `conda_env.mask_channel`; this is the one path
-        where the raw spec legitimately lands on disk.
-      - **Empty-list refusal is currently silent.** `write_project_channels` and
-        the editor's Save both refuse, so nothing breaks, but Save simply does
-        nothing and the user is told nothing. Needs the real warning.
+- [x] **Phase 3 — guardrails.** All five checks live in one pure place,
+      `utils/conda_channels.validate` → `list[ChannelIssue]` worst-first, so the
+      editor strip, the channel bar's one-line summary and the tests cannot
+      disagree. `empty` is the only **error** (the sole thing that may block
+      Save); `conflict` is **suppressed under `channel_priority: strict`**,
+      since strict is conda's own documented fix and warning about it would be
+      wrong; `order` carries `fix="reorder"` wired to a stable
+      `reorder_for_requirements` that moves only what must move; `credential`
+      warns about a git-tracked `environment.yml` rather than refusing (the raw
+      spec has to reach disk or the channel does not work); `unindexed` is
+      **info** — install still works, only search is empty. Both Phase 2
+      findings closed: the tokenized-URL warning exists, and the empty-list
+      refusal now greys Save and shows the reason instead of silently doing
+      nothing.
 - [ ] **Phase 4 — provenance and probing.** `[All] / specific channel` selector
       in the search bar (`-c X --override-channels`). Per-package channel badges
       — nearly free, `conda list --json` already reports `channel` and

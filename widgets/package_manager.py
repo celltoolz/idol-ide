@@ -17,6 +17,7 @@ from widgets.conda_channels_editor import CondaChannelsEditor
 from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.learning_manager import LearningManager
 from utils import settings as _settings
+from utils.conda_channels import validate
 from utils.conda_env import (channel_edit_action, create_project_environment_yml,
                              is_conda_env, mask_channel, resolve_channels,
                              write_project_channels)
@@ -360,7 +361,20 @@ class PackageManagerPanel(tk.Frame):
             text="   ·   ".join(f"{i} {mask_channel(c)}"
                                 for i, c in enumerate(channels, 1)) or "—",
             fg=_FG if channels else _DIM)
-        self._chan_src.config(text=source)
+        # Guardrails: worst issue only, on the source line. The full list lives
+        # in the editor, where it can be acted on — a bar that grows a paragraph
+        # every time a channel is added would just be noise.
+        issues = validate(channels, cfg.priority if cfg and cfg.ok else "",
+                          self._conda_index.missing_channels) if channels else []
+        if issues:
+            worst = issues[0]
+            glyph = "✕" if worst.severity == "error" else (
+                "⚠" if worst.severity == "warning" else "ⓘ")
+            extra = f"  ·  +{len(issues) - 1} more" if len(issues) > 1 else ""
+            source = f"{source}     {glyph} {worst.short}{extra}"
+        self._chan_src.config(
+            text=source,
+            fg=_WARN if issues and issues[0].severity != "info" else _DIM)
         self._chan_prio.config(
             text=f"{cfg.priority} priority" if cfg and cfg.ok and cfg.priority else "")
         self._chan_edit.config(text=_EDIT_LABELS[
@@ -405,11 +419,16 @@ class PackageManagerPanel(tk.Frame):
                 return
             self._render_channel_bar()
 
+        cfg = self._chan_cfg
         CondaChannelsEditor(
             self, self._effective_channels(),
             os.path.join(os.path.basename(os.path.abspath(self._project_dir)),
                          "environment.yml"),
             on_save=self._on_channels_saved,
+            # channel_priority decides whether a mixed-stack pair is a real
+            # risk; the index knows which channels have nothing to search.
+            priority=cfg.priority if cfg and cfg.ok else "",
+            missing=self._conda_index.missing_channels,
         )
 
     def _on_channels_saved(self, channels: list[str]) -> None:

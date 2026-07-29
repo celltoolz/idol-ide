@@ -21,11 +21,11 @@ the file is `utils.conda_env.write_project_channels`, and the caller owns it.
 """
 from __future__ import annotations
 
-import json
 import tkinter as tk
-from pathlib import Path
 from typing import Callable
 
+from utils.conda_channels import (CATALOG, catalog_entry, blocking,
+                                  reorder_for_requirements, validate)
 from utils.conda_env import mask_channel
 from utils.ui_font import UI_FONT
 
@@ -44,38 +44,30 @@ _ACCENT_H = "#1177bb"
 _GREY     = "#3c3c3c"
 _GREY_H   = "#4a4a4a"
 
-_CATALOG_FILE = Path(__file__).parent.parent / "data" / "idol_conda_channels.json"
+_ERR      = "#f48771"
 
-
-def _load_catalog() -> list[dict]:
-    """Catalog entries, or [] when the file is missing or malformed.
-
-    A broken catalog must not stop someone editing their channels — the
-    Available pane just falls back to whatever is already active plus whatever
-    they type.
-    """
-    try:
-        data = json.loads(_CATALOG_FILE.read_text(encoding="utf-8"))
-        entries = data.get("channels") or []
-        return [e for e in entries if isinstance(e, dict) and e.get("spec")]
-    except Exception:
-        return []
-
-
-_CATALOG: list[dict] = _load_catalog()
-_BY_SPEC: dict[str, dict] = {e["spec"]: e for e in _CATALOG}
+#: Issue severity → the colour it is drawn in.
+_SEV_FG = {"error": _ERR, "warning": _WARN, "info": _DIM}
 
 
 class CondaChannelsEditor(tk.Toplevel):
     """Modal channel picker. Calls on_save(channels) only on Save."""
 
     def __init__(self, parent, channels: list[str], target_label: str,
-                 on_save: Callable[[list[str]], None]) -> None:
+                 on_save: Callable[[list[str]], None],
+                 priority: str = "",
+                 missing: tuple[str, ...] = ()) -> None:
         super().__init__(parent)
         self._on_save = on_save
+        # conda's channel_priority changes what a conflict means, and which
+        # channels have no searchable index is something only the search layer
+        # knows — both are passed in rather than re-derived here.
+        self._priority = priority
+        self._missing = tuple(missing)
         # Work on a copy: Cancel has to leave the caller's list untouched.
         self._active: list[str] = [c for c in channels if c]
         self._saved = False
+        self._save_blocked = False
         self._sel: tuple[str, str] | None = None   # ("avail"|"active", spec)
         #: spec → the index it was removed from, for in-session restore. Order
         #: is the configuration here, so re-adding a channel at the bottom of
@@ -216,13 +208,21 @@ class CondaChannelsEditor(tk.Toplevel):
                                    justify="left", wraplength=600)
         self._desc_note.pack(fill="x", padx=10, pady=(3, 0))
 
+        # ── Issues strip ──────────────────────────────────────────────────────
+        # Live, and above the footer rather than in a dialog on Save: an
+        # ordering mistake is worth seeing while you are still making it.
+        self._issues_frame = tk.Frame(self, bg=_BG)
+        self._issue_rows: list[tk.Widget] = []
+
         # ── Footer ────────────────────────────────────────────────────────────
         foot = tk.Frame(self, bg=_BG)
         foot.pack(fill="x", padx=12, pady=(10, 12))
+        self._foot = foot
         tk.Label(foot, text=f"Writes channels: to {target_label}", bg=_BG,
                  fg=_DIM, font=(UI_FONT, 8), anchor="w").pack(side="left")
-        self._btn(foot, "Save", _ACCENT, _ACCENT_H, "white",
-                  self._save).pack(side="right")
+        self._save_btn = self._btn(foot, "Save", _ACCENT, _ACCENT_H, "white",
+                                   self._save)
+        self._save_btn.pack(side="right")
         self._btn(foot, "Cancel", _GREY, _GREY_H, _FG,
                   self.destroy).pack(side="right", padx=(0, 8))
 
@@ -240,7 +240,7 @@ class CondaChannelsEditor(tk.Toplevel):
 
     def _available(self) -> list[str]:
         """Catalog specs not already active, plus previously-removed customs."""
-        out = [e["spec"] for e in _CATALOG if e["spec"] not in self._active]
+        out = [e["spec"] for e in CATALOG if e["spec"] not in self._active]
         for spec in self._removed_at:
             if spec not in self._active and spec not in out:
                 out.append(spec)
@@ -248,7 +248,8 @@ class CondaChannelsEditor(tk.Toplevel):
         if query:
             out = [s for s in out
                    if query in s.lower()
-                   or query in (_BY_SPEC.get(s, {}).get("description", "").lower())]
+                   or query in ((catalog_entry(s) or {}).get("description", "")
+                                .lower())]
         return out
 
     # ── Rendering ─────────────────────────────────────────────────────────────
@@ -257,11 +258,70 @@ class CondaChannelsEditor(tk.Toplevel):
         self._refresh_avail()
         self._refresh_active()
         self._sync_restore()
+        self._refresh_issues()
+
+    def _refresh_issues(self) -> None:
+        """Re-render the issues strip for the current working list."""
+        for row in self._issue_rows:
+            row.destroy()
+        self._issue_rows = []
+        issues = validate(self._active, self._priority, self._missing)
+        self._sync_save(bool(blocking(issues)))
+        if not issues:
+            self._issues_frame.pack_forget()
+            return
+        # Above the footer, below the description box.
+        self._issues_frame.pack(fill="x", padx=12, pady=(8, 0),
+                                before=self._foot)
+        for issue in issues:
+            row = tk.Frame(self._issues_frame, bg=_BG)
+            row.pack(fill="x", pady=(2, 0))
+            glyph = "✕" if issue.severity == "error" else (
+                "⚠" if issue.severity == "warning" else "ⓘ")
+            fg = _SEV_FG[issue.severity]
+            tk.Label(row, text=glyph, bg=_BG, fg=fg,
+                     font=(UI_FONT, 8, "bold")).pack(side="left", padx=(0, 6))
+            # The fix button packs first so a long message wraps around it
+            # instead of pushing it out of the window.
+            if issue.fix == "reorder":
+                self._btn(row, "Fix order", _GREY, _GREY_H, _LINK,
+                          self._fix_order).pack(side="right", padx=(8, 0))
+            tk.Label(row, text=issue.message, bg=_BG, fg=fg,
+                     font=(UI_FONT, 8), anchor="w", justify="left",
+                     wraplength=560).pack(side="left", fill="x", expand=True)
+            self._issue_rows.append(row)
+
+    def _sync_save(self, blocked: bool) -> None:
+        """Make Save *look* unavailable when it is.
+
+        The refusal used to be silent — Save simply did nothing on an empty
+        list. The reason is now always on screen in the issues strip, and the
+        button stops inviting the click.
+        """
+        self._save_blocked = blocked
+        if blocked:
+            self._save_btn.config(bg=_GREY, fg=_DIM, cursor="")
+            self._save_btn.unbind("<Enter>")
+            self._save_btn.unbind("<Leave>")
+        else:
+            self._save_btn.config(bg=_ACCENT, fg="white", cursor="hand2")
+            self._save_btn.bind(
+                "<Enter>", lambda _: self._save_btn.config(bg=_ACCENT_H))
+            self._save_btn.bind(
+                "<Leave>", lambda _: self._save_btn.config(bg=_ACCENT))
+
+    def _fix_order(self) -> None:
+        """Reorder the active list so every requires_order_below is satisfied."""
+        fixed = reorder_for_requirements(self._active)
+        if fixed == self._active:
+            return
+        self._active = fixed
+        self._refresh()
 
     def _refresh_avail(self) -> None:
         self._avail_lb.delete(0, "end")
         for spec in self._available():
-            entry = _BY_SPEC.get(spec)
+            entry = catalog_entry(spec)
             tier = f"   {entry['tier']}" if entry else "   custom"
             self._avail_lb.insert("end", f" {mask_channel(spec)}{tier}")
 
@@ -281,7 +341,7 @@ class CondaChannelsEditor(tk.Toplevel):
         return [s for s in self._removed_at if s not in self._active]
 
     def _show_desc(self, spec: str) -> None:
-        entry = _BY_SPEC.get(spec)
+        entry = catalog_entry(spec)
         if not entry:
             self._desc_title.config(text=mask_channel(spec))
             self._desc_body.config(
@@ -377,10 +437,9 @@ class CondaChannelsEditor(tk.Toplevel):
             self._sel = ("active", spec)
 
     def _save(self) -> None:
-        # An empty list is the one thing that must not be written: conda reads
-        # absent-or-empty `channels:` as [defaults], the opposite of what
-        # emptying the list means. Phase 3 turns this into a real warning.
-        if self._saved or not self._active:
+        # Blocked by an "error" issue — the strip says why and `_sync_save` has
+        # already greyed the button, so there is nothing to report here.
+        if self._saved or self._save_blocked:
             return
         self._saved = True
         channels = list(self._active)

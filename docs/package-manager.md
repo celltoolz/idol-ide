@@ -94,7 +94,32 @@ caveats worth knowing (bioconda is Linux/macOS only, for instance).
   from, since dropping it at the bottom of a list where order is the configuration would be a
   silent misconfiguration
 - **An empty list can't be saved.** conda treats an absent or empty `channels:` as
-  `[defaults]`, which is the opposite of what emptying the list means
+  `[defaults]`, which is the opposite of what emptying the list means — Save greys out and the
+  reason is shown rather than the click silently doing nothing
+
+### What it warns you about
+
+A strip below the description box updates as you edit — you see a problem while you're making
+it, not in a dialog after you click Save.
+
+- **"bioconda needs conda-forge searched before it"** — some channels only resolve correctly
+  with another above them. Comes with a **Fix order** button that moves just what has to move,
+  leaving the rest of your order alone
+- **"conda-forge and defaults are built against different compiler and BLAS stacks"** — the
+  classic conda breakage. With flexible priority the solver can take some packages from each,
+  which surfaces later as import errors. Prefer one, or switch to strict priority. This warning
+  **disappears under strict priority**, because that is the actual fix rather than something to
+  nag about
+- **"this channel URL contains a credential"** — a tokenized channel has to be written to
+  `environment.yml` literally or it won't work, and that file normally goes into git. conda's own
+  guidance is to keep tokenized channels in `~/.condarc`. Displayed and logged masked everywhere
+  else
+- **"publishes no searchable package index"** — some channels (local ones especially) don't ship
+  the index file search relies on. Informational only: installing from such a channel works
+  normally, you just won't find its packages by searching here
+
+The bar itself shows the worst of these on its second line, with a count of the rest, so you
+don't have to open the editor to know something is off.
 
 Once saved, installs run with `-c` flags in your order plus `--override-channels`, so
 `conda install` searches exactly what the bar shows and nothing else. Search re-indexes

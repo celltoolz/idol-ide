@@ -48,6 +48,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **The Terms of Service prompt now asks the right question.** It is scoped to the channels an
     operation will actually search, so a project pinned to conda-forge is never asked to accept
     Anaconda's terms — even if your `~/.condarc` still lists `defaults`.
+- **The channel editor now tells you when a list is wrong, while you're making it wrong.** A
+  strip under the description box updates as you edit, and the bar's second line carries the
+  worst of it so you don't need to open the editor to notice.
+  - **"bioconda needs conda-forge searched before it"** — with a **Fix order** button that moves
+    only what has to move and leaves the rest of your order alone.
+  - **"conda-forge and defaults are built against different compiler and BLAS stacks"** — the
+    classic conda breakage, where the solver quietly takes some packages from each and you find
+    out weeks later as an import error. It **stays quiet under strict priority**, because that's
+    the actual fix rather than something to nag about.
+  - **"this channel URL contains a credential"** — a tokenized channel has to be written to
+    `environment.yml` literally or it won't work, and that file usually goes into git. Worth
+    saying once; masked everywhere it's displayed or logged.
+  - **"publishes no searchable package index"** — informational. Some channels, local ones
+    especially, don't ship the file search reads. Installing from them works fine; you just
+    won't find their packages by searching.
+  - **Saving an empty list stops being a mystery.** It was already refused — conda reads an
+    empty `channels:` as "use defaults", the opposite of what emptying it looks like it means —
+    but the button simply did nothing. Now it greys out and says why.
 
 ### Fixed
 - **A local `file://` conda channel could never be searched.** Its index URL was built as
