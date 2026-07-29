@@ -46,6 +46,10 @@ class SettingsPanel(tk.Frame):
         self._active = self._sections[0] if self._sections else ""
         self._nav_labels: dict[str, tk.Label] = {}
         self._rows: list[tk.Widget] = []
+        # Per-key handles so a single change updates one row instead of
+        # rebuilding the pane — see `_after_change`.
+        self._reset_labels: dict[str, tk.Label] = {}
+        self._refreshers: dict[str, Callable[[], None]] = {}
 
         self._build_header()
         body = tk.Frame(self, bg=_BG)
@@ -53,6 +57,13 @@ class SettingsPanel(tk.Frame):
         self._build_nav(body)
         self._build_content(body)
         self._render()
+
+        # Follow changes made anywhere else — the View menu toggles the same
+        # keys, and an open panel showing a stale value is worse than no panel.
+        # Refreshing to the value already displayed is a no-op, so reacting to
+        # our own writes costs nothing.
+        self._unsubscribe = settings.subscribe(self._on_external_change)
+        self.bind("<Destroy>", self._on_destroy, add="+")
 
     # ── Chrome ────────────────────────────────────────────────────────────────
 
@@ -134,9 +145,13 @@ class SettingsPanel(tk.Frame):
             self._render()
 
     def _render(self) -> None:
+        """Full rebuild. Only for changing section or search — never for a
+        value change, which `_after_change` handles in place."""
         for w in self._rows:
             w.destroy()
         self._rows.clear()
+        self._reset_labels.clear()
+        self._refreshers.clear()
 
         query = self._query.get().strip().lower()
         searching = bool(query)
@@ -197,37 +212,63 @@ class SettingsPanel(tk.Frame):
         tk.Label(title, text=setting.label, bg=_BG, fg=_FG,
                  font=(UI_FONT, 10), anchor="w").pack(side="left")
 
-        # Reset appears only when the value differs from the default, so the
-        # row also answers "have I changed this?" at a glance.
-        if not settings.is_default(setting.key):
-            reset = tk.Label(title, text="↺", bg=_BG, fg=_DIM,
-                             font=(UI_FONT, 9), cursor="hand2")
-            reset.pack(side="left", padx=(8, 0))
-            reset.bind("<ButtonRelease-1>",
-                       lambda _e, k=setting.key: self._reset(k))
-            reset.bind("<Enter>", lambda _e, w=reset: w.config(fg=_FG))
-            reset.bind("<Leave>", lambda _e, w=reset: w.config(fg=_DIM))
-            _tooltip_text(reset, "Reset to default")
+        # Reset shows only when the value differs from its default, so the row
+        # also answers "have I changed this?" at a glance. The label is always
+        # created at a fixed width and blanked when unchanged — same trick as
+        # the Welcome tab's marker gutter. Toggling text in place means a
+        # change repaints one label instead of rebuilding the pane, and
+        # nothing shifts sideways as it appears.
+        reset = tk.Label(title, text="", bg=_BG, fg=_DIM, width=2,
+                         font=(UI_FONT, 9))
+        reset.pack(side="left", padx=(6, 0))
+        reset.bind("<ButtonRelease-1>", lambda _e, k=setting.key: self._reset(k))
+        reset.bind("<Enter>", lambda _e, w=reset: self._reset_hover(w, True))
+        reset.bind("<Leave>", lambda _e, w=reset: self._reset_hover(w, False))
+        _tooltip_text(reset, "Reset to default")
+        self._reset_labels[setting.key] = reset
+        self._sync_reset(setting.key)
 
         if setting.description:
             tk.Label(left, text=setting.description, bg=_BG, fg=_DIM,
                      font=(UI_FONT, 8), anchor="w", justify="left",
                      wraplength=380).pack(fill="x", anchor="w", pady=(1, 0))
 
-        control = self._build_control(row, setting)
+        control, refresh = self._build_control(row, setting)
         if control is not None:
             control.pack(side="right", padx=(16, 0))
+        if refresh is not None:
+            self._refreshers[setting.key] = refresh
+
+    def _sync_reset(self, key: str) -> None:
+        lbl = self._reset_labels.get(key)
+        if lbl is None:
+            return
+        changed = not settings.is_default(key)
+        lbl.config(text="↺" if changed else "",
+                   cursor="hand2" if changed else "")
+
+    def _reset_hover(self, lbl: tk.Label, entering: bool) -> None:
+        if not lbl.cget("text"):
+            return                      # blank placeholder, nothing to hover
+        lbl.config(fg=_FG if entering else _DIM)
 
     def _build_control(self, parent, setting: settings.Setting):
+        """Return `(widget, refresh)`.
+
+        `refresh` re-reads the store into the control, for when the value
+        changes behind the widget's back — resetting to default is the case
+        that matters.
+        """
         kind = setting.kind
         value = settings.get(setting.key)
 
         if kind == "bool":
             var = tk.BooleanVar(value=bool(value))
-            return DarkCheckbox(
+            box = DarkCheckbox(
                 parent, text="", variable=var, bg=_BG,
                 command=lambda k=setting.key, v=var: self._write(k, bool(v.get())),
             )
+            return box, lambda k=setting.key, v=var: v.set(bool(settings.get(k)))
 
         if kind == "choice":
             return self._choice_control(parent, setting, value)
@@ -266,7 +307,7 @@ class SettingsPanel(tk.Frame):
         btn.bind("<ButtonRelease-1>", popup)
         btn.bind("<Enter>", lambda _e: btn.config(bg=_HOVER))
         btn.bind("<Leave>", lambda _e: btn.config(bg=_ITEM_BG))
-        return btn
+        return btn, lambda: var.set(str(settings.get(setting.key)))
 
     def _font_control(self, parent, setting, value):
         def describe(raw):
@@ -300,7 +341,7 @@ class SettingsPanel(tk.Frame):
         btn.bind("<ButtonRelease-1>", choose)
         btn.bind("<Enter>", lambda _e: btn.config(bg=_HOVER))
         btn.bind("<Leave>", lambda _e: btn.config(bg=_ITEM_BG))
-        return btn
+        return btn, lambda: var.set(describe(settings.get(setting.key)))
 
     def _color_control(self, parent, setting, value):
         holder = tk.Frame(parent, bg=_BG)
@@ -322,7 +363,13 @@ class SettingsPanel(tk.Frame):
             self._write(setting.key, picked)
 
         swatch.bind("<ButtonRelease-1>", choose)
-        return holder
+
+        def refresh():
+            current = settings.get(setting.key)
+            swatch.configure(bg=current or "#000000")
+            text.config(text=str(current or "unset"))
+
+        return holder, refresh
 
     def _entry_control(self, parent, setting, value, numeric: bool):
         var = tk.StringVar(value="" if value is None else str(value))
@@ -353,26 +400,59 @@ class SettingsPanel(tk.Frame):
 
         entry.bind("<Return>", commit)
         entry.bind("<FocusOut>", commit)
-        return wrap
+
+        def refresh():
+            current = settings.get(setting.key)
+            var.set("" if current is None else str(current))
+
+        return wrap, refresh
 
     # ── Writes ────────────────────────────────────────────────────────────────
 
     def _write(self, key: str, value) -> None:
+        """A value the user just set through its own control.
+
+        Only the ↺ affordance needs updating — the control already shows what
+        was picked. This used to re-render the whole pane, which visibly
+        flickered every other row in the section (and every row in every
+        section while searching).
+        """
         settings.set(key, value)
-        self._after_change()
+        self._sync_reset(key)
+        self._notify_dirty()
 
     def _reset(self, key: str) -> None:
+        if settings.is_default(key):
+            return                      # blank placeholder was clicked
         settings.reset(key)
-        self._after_change()
+        refresh = self._refreshers.get(key)
+        if refresh is not None:
+            refresh()                   # the value moved behind the control
+        self._sync_reset(key)
+        self._notify_dirty()
 
-    def _after_change(self) -> None:
-        # Re-render so the ↺ affordance tracks the new default-ness. Deferred
-        # so the click that triggered it finishes against live widgets first —
-        # destroying them mid-callback is how a Tk handler ends up firing on a
-        # dead widget.
-        self.after_idle(self._render)
+    def _notify_dirty(self) -> None:
         if self._on_dirty is not None:
             self._on_dirty()
+
+    def _on_external_change(self, key: str, _value) -> None:
+        """A setting changed — from this panel or from anywhere else."""
+        if not self.winfo_exists():
+            return
+        refresh = self._refreshers.get(key)
+        if refresh is not None:
+            try:
+                refresh()
+            except tk.TclError:
+                return                  # row was destroyed mid-callback
+        self._sync_reset(key)
+
+    def _on_destroy(self, event) -> None:
+        # <Destroy> fires for every descendant; only the panel's own teardown
+        # should drop the subscription.
+        if event.widget is not self:
+            return
+        self._unsubscribe()
 
     def focus_search(self) -> None:
         self._search_entry.focus_set()

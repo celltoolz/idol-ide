@@ -143,6 +143,93 @@ def test_writing_persists_and_notifies(panel, tk_root):
         unsub()
 
 
+def test_writing_does_not_rebuild_the_rows(panel, tk_root):
+    """The flicker. Changing one value used to re-render the whole pane —
+    destroying and recreating every row, which was visible as every other row
+    blinking, and worse while searching (all sections are rendered then)."""
+    panel._select("Editor")
+    tk_root.update()
+    before = list(panel._inner.winfo_children())
+    assert before, "nothing rendered to compare"
+
+    panel._write("editor.minimap_visible", False)
+    tk_root.update_idletasks()
+    tk_root.update()
+
+    assert [str(w) for w in panel._inner.winfo_children()] == \
+        [str(w) for w in before], "rows were rebuilt"
+    assert all(w.winfo_exists() for w in before), "rows were destroyed"
+
+
+def test_writing_while_searching_does_not_rebuild(panel, tk_root):
+    """The more pronounced case — search renders every section's hits."""
+    panel._query.set("a")
+    tk_root.update()
+    before = list(panel._inner.winfo_children())
+    panel._write("editor.minimap_visible", False)
+    tk_root.update_idletasks()
+    tk_root.update()
+    assert all(w.winfo_exists() for w in before)
+    assert [str(w) for w in panel._inner.winfo_children()] == \
+        [str(w) for w in before]
+
+
+def test_reset_updates_the_control_not_only_the_store(panel, tk_root):
+    """Reset moves the value behind the widget's back, so the control has to
+    be re-read — otherwise the checkbox keeps showing the old state."""
+    panel._select("Editor")
+    tk_root.update()
+    box = _first(panel._inner, DarkCheckbox)
+    assert box is not None
+    box._toggle()                       # drive the real control, as a user would
+    tk_root.update()
+    assert box.get() is False
+    assert settings.get("editor.minimap_visible") is False
+
+    panel._reset("editor.minimap_visible")
+    tk_root.update()
+    assert settings.is_default("editor.minimap_visible")
+    assert box.get() is True, "control still shows the pre-reset value"
+
+
+def test_panel_follows_a_change_made_elsewhere(panel, tk_root):
+    """The View menu writes the same keys. An open panel showing a stale value
+    would be worse than no panel."""
+    panel._select("Editor")
+    tk_root.update()
+    box = _first(panel._inner, DarkCheckbox)
+    assert box.get() is True
+
+    settings.set("editor.minimap_visible", False)   # as the View menu would
+    tk_root.update()
+    assert box.get() is False
+    assert "↺" in _labels(panel._inner)
+
+
+def test_unsubscribes_when_destroyed(tk_root, store):
+    """A destroyed panel left subscribed would fire callbacks at dead widgets."""
+    p = SettingsPanel(tk_root)
+    p.pack()
+    tk_root.update()
+    p.destroy()
+    tk_root.update()
+    settings.set("editor.minimap_visible", False)    # must not raise
+
+
+def test_clicking_the_blank_reset_placeholder_does_nothing(panel, tk_root):
+    """The label is always present at a fixed width so nothing shifts when it
+    appears — clicking it while blank must not be a reset."""
+    panel._select("Appearance")
+    tk_root.update()
+    seen = []
+    unsub = settings.subscribe(lambda k, v: seen.append(k))
+    try:
+        panel._reset("appearance.theme")     # already default
+        assert seen == []
+    finally:
+        unsub()
+
+
 def test_reset_returns_to_the_default(panel, tk_root):
     settings.set("appearance.theme", "nord")
     panel._reset("appearance.theme")
@@ -202,6 +289,16 @@ def test_settings_tab_toggles_like_the_package_manager():
 
     src = inspect.getsource(app_mod.IDOL.view_settings)
     assert "forget" in src and "_settings_tab = None" in src
+
+
+def _first(widget, cls):
+    if isinstance(widget, cls):
+        return widget
+    for child in widget.winfo_children():
+        found = _first(child, cls)
+        if found is not None:
+            return found
+    return None
 
 
 def _count(widget, cls) -> int:
