@@ -47,7 +47,10 @@ class Setting:
     section: str                  # panel category, e.g. "Editor"
     label: str                    # row label in the panel
     description: str = ""         # one line under the label
-    choices: tuple = ()           # kind="choice"
+    #: kind="choice" — a tuple, or a zero-arg callable for options that are
+    #: only known at runtime. Themes are files in `themes/`, so hardcoding
+    #: them here would mean dropping in a JSON no longer being enough.
+    choices: tuple | Callable[[], tuple] = ()
     minimum: int | None = None    # kind="int"
     maximum: int | None = None
     #: Restart needed for this to take effect. Nothing sets it yet; the panel
@@ -58,9 +61,10 @@ class Setting:
 #: Declared order is the order the panel renders.
 SCHEMA: tuple[Setting, ...] = (
     Setting(
-        key="appearance.theme", default="monokai-bright", kind="str",
+        key="appearance.theme", default="monokai-bright", kind="choice",
         section="Appearance", label="Theme",
         description="Editor and sidebar colour scheme.",
+        choices=lambda: tuple(_theme_ids()),
     ),
     Setting(
         key="editor.font", default=None, kind="font",
@@ -81,6 +85,31 @@ SCHEMA: tuple[Setting, ...] = (
 )
 
 _BY_KEY: dict[str, Setting] = {s.key: s for s in SCHEMA}
+
+
+def _theme_ids() -> list[str]:
+    """Bundled theme ids. Imported lazily — `theme_loader` reads the themes
+    directory, and this module is imported long before that matters."""
+    try:
+        from utils.theme_loader import list_themes
+        return list(list_themes())
+    except Exception:
+        return ["monokai-bright"]
+
+
+def choices_for(setting: Setting) -> tuple:
+    """Resolve a Setting's choices, calling the provider when it has one."""
+    raw = setting.choices
+    if callable(raw):
+        try:
+            return tuple(raw())
+        except Exception:
+            return ()
+    return tuple(raw)
+
+
+def get_setting(key: str) -> Setting | None:
+    return _BY_KEY.get(key)
 
 
 def schema() -> tuple[Setting, ...]:
@@ -293,7 +322,8 @@ def set_editor_font(family: str, size: int, weight: str = "normal",
 
 __all__ = [
     "SETTINGS_FILE", "Setting", "SCHEMA",
-    "schema", "sections", "settings_in", "default_for",
+    "schema", "sections", "settings_in", "default_for", "choices_for",
+    "get_setting",
     "get", "set", "reset", "is_default", "reload", "subscribe",
     "migrate_from_session", "get_editor_font", "set_editor_font",
 ]

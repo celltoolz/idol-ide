@@ -170,6 +170,7 @@ class WelcomePanel(tk.Frame):
         on_learning: Callable,
         on_designer: Callable,
         on_packages: Callable,
+        on_settings: Callable,
         on_open_temp: Callable | None = None,
         get_open_temps: Callable[[], set] | None = None,
         **kwargs,
@@ -184,6 +185,7 @@ class WelcomePanel(tk.Frame):
             "learning":     on_learning,
             "designer":     on_designer,
             "packages":     on_packages,
+            "settings":     on_settings,
             "open_temp":    on_open_temp,
         }
         # Scratch files backing a tab that is open right now are filtered out
@@ -329,6 +331,7 @@ class WelcomePanel(tk.Frame):
         self._action(left, "📖 Learning Mode",    self._cbs["learning"])
         self._action(left, "🎨 GUI Designer",     self._cbs["designer"])
         self._action(left, "📦 Package Manager",  self._cbs["packages"])
+        self._action(left, "⚙ Settings",          self._cbs["settings"])
 
         tk.Frame(left, bg=_BG, height=16).pack()
 

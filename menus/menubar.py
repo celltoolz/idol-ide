@@ -157,6 +157,12 @@ def build_menubar(app) -> Menu:
         command=app.view_clipboard_history,
         accelerator="Ctrl+Shift+H",
     )
+    view_menu.add_separator()
+    view_menu.add_command(
+        label="Settings",
+        command=app.view_settings,
+        accelerator="Ctrl+,",
+    )
     menubar.add_cascade(label="View", menu=view_menu)
 
     # ── Run ──────────────────────────────────────────────────────────────────

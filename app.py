@@ -51,6 +51,7 @@ from widgets.package_manager import PackageManagerPanel
 from widgets.welcome import WelcomePanel
 from widgets.clipboard_history import ClipboardHistoryPanel
 from widgets.color_picker import ColorPickerPopup, askcolor
+from widgets.settings_panel import SettingsPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from widgets.designer_component_tray import ComponentTray
@@ -444,6 +445,10 @@ class IDOL(Tk):
         self._learning_active_lid: str = ""
         self._learning_reg_map: dict = {}  # widget → lid, built on activate
 
+        # Settings tab
+        self._settings_tab = None
+        self._settings_panel: SettingsPanel | None = None
+
         # Inline colour picker (hover a hex swatch in the editor)
         self._color_popup = None                       # ColorPickerPopup | None
         self._color_cv: CanvasCodeView | None = None   # editor it belongs to
@@ -572,6 +577,9 @@ class IDOL(Tk):
         # and applying here means a project's stale copy can no longer win.
         settings_utils.migrate_from_session()
         self._apply_user_preferences()
+        # Live-apply: the panel only writes to the store, and the store tells
+        # us. No control needs to know which widgets it affects.
+        settings_utils.subscribe(self._on_setting_changed)
 
         if initial_file and os.path.isfile(initial_file):
             # Launched as `python main.py <file>` — no project and no session
@@ -1477,6 +1485,12 @@ class IDOL(Tk):
             )
 
     def _bind_shortcuts(self) -> None:
+        # Ctrl+, — the near-universal Settings binding (VS Code, Chrome, most
+        # editors). macOS uses Cmd+, so bind both rather than making mac users
+        # learn a different one.
+        self.bind("<Control-comma>", self.view_settings)
+        if sys.platform == "darwin":
+            self.bind("<Command-comma>", self.view_settings)
         self.bind("<Control-n>", lambda _: self.file_new())
         self.bind("<Control-o>", lambda _: self.file_open())
         self.bind("<Control-s>", lambda _: self.file_save())
@@ -4607,6 +4621,7 @@ class IDOL(Tk):
             on_learning=self.view_learning_mode,
             on_designer=self._enter_designer_mode,
             on_packages=self.view_package_manager,
+            on_settings=self.view_settings,
             on_open_temp=self._open_temp_file,
             get_open_temps=lambda: set(self._temp_files.values()),
         )
@@ -4689,6 +4704,67 @@ class IDOL(Tk):
         self._pkg_tab = self.notebook.select()
         self._pkg_panel = panel
         self._refresh_nav_bar()
+
+    def view_settings(self, *_) -> None:
+        """Toggle the Settings tab (Ctrl+,). Same tab pattern as Packages."""
+        if self._settings_tab:
+            try:
+                tabs = self.notebook.tabs()
+                if self._settings_tab not in tabs:
+                    raise ValueError
+                if self.notebook.select() == self._settings_tab:
+                    idx = list(tabs).index(self._settings_tab)
+                    self.notebook.forget(idx)
+                    self._settings_tab = None
+                    self._settings_panel = None
+                    self._refresh_nav_bar()
+                    return
+                self.notebook.select(self._settings_tab)
+                self._refresh_nav_bar()
+                return
+            except Exception:
+                self._settings_tab = None
+                self._settings_panel = None
+
+        frame = ttk.Frame(self.notebook)
+        panel = SettingsPanel(frame)
+        panel.pack(fill="both", expand=True)
+        self.notebook.add(frame, text="⚙ Settings")
+        self.notebook.select(frame)
+        self._settings_tab = self.notebook.select()
+        self._settings_panel = panel
+        self._refresh_nav_bar()
+        panel.focus_search()
+
+    def _on_setting_changed(self, key: str, _value) -> None:
+        """Apply a preference the moment it changes.
+
+        Dispatched per key rather than re-running everything: re-theming every
+        open tab because someone edited the Ollama URL would be a visible stall.
+        """
+        if key == "appearance.theme":
+            theme = settings_utils.get("appearance.theme")
+            from utils.theme_loader import list_themes as _theme_ids
+            if theme in _theme_ids():
+                self.theme_var.set(theme)
+                self.view_change_theme(persist=False)
+        elif key == "editor.font":
+            font = settings_utils.get_editor_font()
+            if font:
+                self._editor_font = font
+                for cv in self._codeviews.values():
+                    if cv is not None:
+                        cv.set_font(*font)
+        elif key == "editor.minimap_visible":
+            self.minimap_visible_var.set(
+                bool(settings_utils.get("editor.minimap_visible")))
+            self.view_toggle_minimap(persist=False)
+        elif key == "ai.ollama_url":
+            from utils import ollama_client
+            ollama_client.set_base_url(settings_utils.get("ai.ollama_url"))
+            panel = getattr(self, "_ai_chat_panel", None)
+            if panel is not None and hasattr(panel, "_url_var"):
+                panel._url_var.set(ollama_client.get_base_url())
 
     # ── Learning Mode ─────────────────────────────────────────────────────────
 

@@ -45,9 +45,28 @@ def test_sections_are_ordered_and_deduplicated():
 
 
 def test_choice_settings_default_to_one_of_their_choices():
+    """Resolved through `choices_for`, since options can be a runtime provider
+    — themes are files in `themes/`, so this also asserts the default theme
+    actually ships."""
     for s in settings.schema():
         if s.kind == "choice":
-            assert s.default in s.choices, s.key
+            options = settings.choices_for(s)
+            assert options, f"{s.key} declares no choices"
+            assert s.default in options, f"{s.key} default {s.default!r} not in {options}"
+
+
+def test_choices_for_resolves_a_callable_provider():
+    theme = settings.get_setting("appearance.theme")
+    assert callable(theme.choices), "expected a runtime provider for themes"
+    assert "monokai-bright" in settings.choices_for(theme)
+
+
+def test_choices_for_survives_a_broken_provider():
+    """A provider that raises must not take the whole panel down with it."""
+    broken = settings.Setting(key="x", default=None, kind="choice",
+                              section="X", label="X",
+                              choices=lambda: 1 / 0)
+    assert settings.choices_for(broken) == ()
 
 
 # ── Defaults and reads ────────────────────────────────────────────────────────
