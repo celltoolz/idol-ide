@@ -78,6 +78,44 @@ SCHEMA: tuple[Setting, ...] = (
         description="The scaled overview down the right edge of the editor.",
     ),
     Setting(
+        key="editor.tab_size", default=4, kind="int",
+        section="Editor", label="Tab size", minimum=1, maximum=16,
+        description="Spaces inserted by Tab in a new tab. A file whose own "
+                    "indentation is detected keeps that instead.",
+    ),
+    Setting(
+        key="editor.highlight_active_line", default=True, kind="bool",
+        section="Editor", label="Highlight active line",
+        description="Tint the line the cursor is on.",
+    ),
+    Setting(
+        key="editor.active_line_color", default="", kind="color",
+        section="Editor", label="Active line colour",
+        description="Overrides the theme's own highlight. Reset to follow "
+                    "whichever theme is active.",
+    ),
+    Setting(
+        key="editor.autocomplete", default=True, kind="bool",
+        section="Editor", label="Autocomplete",
+        description="Suggest completions as you type.",
+    ),
+    Setting(
+        key="editor.smart_pairs", default=True, kind="bool",
+        section="Editor", label="Auto-close brackets and quotes",
+        description="Typing an opener inserts its closer, and typing the "
+                    "closer steps over it.",
+    ),
+    Setting(
+        key="appearance.show_sidebar", default=True, kind="bool",
+        section="Appearance", label="Show sidebar",
+        description="Explorer, outline, references and source control.",
+    ),
+    Setting(
+        key="appearance.show_panels", default=True, kind="bool",
+        section="Appearance", label="Show bottom panel",
+        description="Output, terminal, problems and debug.",
+    ),
+    Setting(
         key="ai.ollama_url", default="http://localhost:11434", kind="str",
         section="AI", label="Ollama server URL",
         description="Where the AI chat panel looks for a local Ollama server.",

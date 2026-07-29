@@ -432,6 +432,12 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
 
     # Run preferences (target: output/terminal; action: run/debug; entry file;
     # cwd mode: project/script)
+    # Which bottom-panel tab was open is workspace state — "what was I doing
+    # here" — unlike whether the panel shows at all, which is a preference.
+    try:
+        layout["panel_tab"] = app._output._active
+    except Exception:
+        pass
     layout["run_target"] = app._run_target_var.get()
     layout["run_action"] = app._run_action_var.get()
     layout["run_cwd_mode"] = app._run_cwd_mode_var.get()
@@ -891,6 +897,13 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
         app.after_idle(app._refresh_nav_bar)
 
     # Restore run preferences
+    panel_tab = layout.get("panel_tab")
+    if panel_tab:
+        try:
+            app.panel_tab_var.set(panel_tab)
+            app._output._set_active(panel_tab)
+        except Exception:
+            pass
     run_target = layout.get("run_target")
     if run_target in ("output", "terminal"):
         app._run_target_var.set(run_target)

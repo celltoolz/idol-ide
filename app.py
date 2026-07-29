@@ -1755,6 +1755,9 @@ class IDOL(Tk):
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
         cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("left"), add="+")
         self._bind_color_picker_dismiss(cv)
+        # A tab created after startup must inherit the user's preferences, or
+        # "Autocomplete: off" comes back on the moment you open a file.
+        self._apply_editor_prefs(cv)
 
     def _wire_breakpoint_gutter(self, cv, tab_id: str, filepath: str | None) -> None:
         """Wire the canvas engine's debug gutter to the host breakpoint store.
@@ -4377,6 +4380,26 @@ class IDOL(Tk):
 
     # ── User preferences ──────────────────────────────────────────────────────
 
+    def _apply_editor_prefs(self, cv: CanvasCodeView) -> None:
+        """Push editor preferences onto one codeview.
+
+        Called for every tab as it is created, not just on change — otherwise
+        a tab opened after startup silently reverts to the engine's built-in
+        defaults, which is how "Autocomplete: off" would come back on as soon
+        as you opened a file.
+        """
+        if cv is None:
+            return
+        cv.highlight_active_line = bool(
+            settings_utils.get("editor.highlight_active_line"))
+        color = settings_utils.get("editor.active_line_color") or None
+        # An empty override means "follow the theme", which is what the
+        # engine's None already means.
+        cv._active_line_color = color or self._active_line_color
+        cv.autocomplete_enabled = bool(settings_utils.get("editor.autocomplete"))
+        cv.smart_pairs_enabled = bool(settings_utils.get("editor.smart_pairs"))
+        cv.tab_size = int(settings_utils.get("editor.tab_size") or 4)
+
     def _apply_user_preferences(self) -> None:
         """Apply everything from `utils/settings.py` to the live UI.
 
@@ -4410,6 +4433,27 @@ class IDOL(Tk):
         panel = getattr(self, "_ai_chat_panel", None)
         if panel is not None and hasattr(panel, "_url_var"):
             panel._url_var.set(ollama_client.get_base_url())
+
+        override = settings_utils.get("editor.active_line_color") or None
+        if override:
+            self._active_line_color = override
+        self.highlight_line_var.set(
+            bool(settings_utils.get("editor.highlight_active_line")))
+        for cv in self._codeviews.values():
+            self._apply_editor_prefs(cv)
+            if cv is not None:
+                cv.render()
+
+        self.sidebar_visible_var.set(
+            bool(settings_utils.get("appearance.show_sidebar")))
+        self.output_visible_var.set(
+            bool(settings_utils.get("appearance.show_panels")))
+
+    def _refresh_all_editor_prefs(self) -> None:
+        for cv in self._codeviews.values():
+            self._apply_editor_prefs(cv)
+            if cv is not None:
+                cv.render()
 
     def view_change_theme(self, persist: bool = True) -> None:
         """Apply the selected theme to every canvas tab + the sidebar.
@@ -4491,23 +4535,21 @@ class IDOL(Tk):
                 cv.set_font(family, size, weight, slant)
 
     def view_toggle_highlight(self) -> None:
-        enabled = self.highlight_line_var.get()
-        for cv in self._codeviews.values():
-            if cv is not None:
-                cv.highlight_active_line = enabled
-                cv.render()
+        # Writing to the store is what makes the toggle survive a restart; the
+        # subscription then applies it, so there is nothing to do here.
+        settings_utils.set("editor.highlight_active_line",
+                           bool(self.highlight_line_var.get()))
 
     def view_active_line_color(self) -> None:
         result = askcolor(self._active_line_color or "#ffffff", parent=self)
         color = result[1] if result else None
         if color:
-            self._active_line_color = color
-            for cv in self._codeviews.values():
-                if cv is not None:
-                    cv._active_line_color = color
-                    cv.render()
+            settings_utils.set("editor.active_line_color", color)
 
-    def view_toggle_output(self) -> None:
+    def view_toggle_output(self, persist: bool = True) -> None:
+        if persist:
+            settings_utils.set("appearance.show_panels",
+                               bool(self.output_visible_var.get()))
         if self.output_visible_var.get():
             self._v_pane.add(self._output, weight=1)
         else:
@@ -4765,6 +4807,34 @@ class IDOL(Tk):
             panel = getattr(self, "_ai_chat_panel", None)
             if panel is not None and hasattr(panel, "_url_var"):
                 panel._url_var.set(ollama_client.get_base_url())
+        elif key == "editor.active_line_color":
+            override = settings_utils.get("editor.active_line_color") or None
+            if override:
+                self._active_line_color = override
+            else:
+                # Cleared — fall back to the active theme's own colour rather
+                # than leaving the last override in place.
+                cv = self._current_codeview
+                if cv is not None:
+                    self._active_line_color = cv._palette.get("current_line_bg")
+            self._refresh_all_editor_prefs()
+        elif key == "editor.highlight_active_line":
+            self.highlight_line_var.set(
+                bool(settings_utils.get("editor.highlight_active_line")))
+            self._refresh_all_editor_prefs()
+        elif key in ("editor.autocomplete", "editor.smart_pairs",
+                     "editor.tab_size"):
+            self._refresh_all_editor_prefs()
+        elif key == "appearance.show_sidebar":
+            want = bool(settings_utils.get("appearance.show_sidebar"))
+            if want != self.sidebar_visible_var.get():
+                self.sidebar_visible_var.set(want)
+                self.view_toggle_sidebar(persist=False)
+        elif key == "appearance.show_panels":
+            want = bool(settings_utils.get("appearance.show_panels"))
+            if want != self.output_visible_var.get():
+                self.output_visible_var.set(want)
+                self.view_toggle_output(persist=False)
 
     # ── Learning Mode ─────────────────────────────────────────────────────────
 
@@ -10114,9 +10184,16 @@ class IDOL(Tk):
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
         cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("right"), add="+")
         self._bind_color_picker_dismiss(cv)
+        # A tab created after startup must inherit the user's preferences, or
+        # "Autocomplete: off" comes back on the moment you open a file.
+        self._apply_editor_prefs(cv)
 
-    def view_toggle_sidebar(self) -> None:
-        """Show or hide the entire left sidebar (Ctrl+B)."""
+    def view_toggle_sidebar(self, persist: bool = True) -> None:
+        """Show or hide the entire left sidebar (Ctrl+B).
+
+        `persist=False` when the store is the one driving the change, so
+        applying a preference does not immediately write it back.
+        """
         if self._sidebar_shown:
             self._h_pane.forget(self._sidebar)
             self._sidebar_shown = False
@@ -10137,6 +10214,8 @@ class IDOL(Tk):
                 self.after(100, self._apply_ai_panel_sash)
             self._sidebar_shown = True
             self.sidebar_visible_var.set(True)
+        if persist:
+            settings_utils.set("appearance.show_sidebar", self._sidebar_shown)
         self._refresh_nav_bar()
 
     def view_source_control(self) -> None:

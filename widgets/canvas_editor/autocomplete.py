@@ -91,6 +91,11 @@ class AutocompleteMixin:
         (host supplies items via callback). A sequence number guards
         against a stale LSP response overwriting a fresher request.
         """
+        if not self.autocomplete_enabled:
+            # Hide rather than just return: the preference can be switched off
+            # while a popup is on screen.
+            self._hide_autocomplete()
+            return
         prefix = self._current_prefix()
         line = self.lines[self.cur_line]
         prefix_start = self.cur_col - len(prefix)

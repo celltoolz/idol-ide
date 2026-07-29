@@ -886,6 +886,9 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         self._undo_group: int = 0     # >0 = inside begin/end_undo_group
         self.highlight_active_line: bool = True
         self._active_line_color: str | None = None
+        # Host-settable editing behaviour, driven by user preferences.
+        self.autocomplete_enabled: bool = True
+        self.smart_pairs_enabled: bool = True
         # ── Host hooks for context-menu items ────────────────────
         # When set, the right-click menu includes the corresponding
         # entry. None → item omitted. Lets the engine ship a richer
@@ -2344,6 +2347,15 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         """Smart insert for a single typed character: auto-pair brackets
         and quotes, skip over an already-present closer, and avoid
         pairing when typing into the middle of a word."""
+        if not self.smart_pairs_enabled:
+            # Plain insert. Also disables skip-over-closer, which is the same
+            # feature seen from the other side — with pairing off there is no
+            # auto-inserted closer to skip, and swallowing a typed `)` would
+            # be the surprise the preference exists to remove.
+            self._push_undo("insert_char" if not self.sel_anchor else "")
+            self._insert_text(ch)
+            return
+
         line = self.lines[self.cur_line]
         next_ch = line[self.cur_col] if self.cur_col < len(line) else ""
 
