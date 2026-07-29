@@ -2,6 +2,8 @@
 
 Press **F1** (or **Help → Learning Mode**) to open a dedicated Learning tab in the editor area.
 
+It opens as a tab in whichever editor pane is on screen — while the [GUI Designer](designer.md) has the main area, that means the split pane, so the panel sits beside your form instead of behind it. Drag the tab between panes at any time.
+
 ## How It Works
 
 While Learning Mode is active, hover over any IDE element — panels, buttons, the editor, status bar, breadcrumb bar — and the Learning tab populates instantly with:

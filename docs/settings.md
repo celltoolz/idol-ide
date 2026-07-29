@@ -2,7 +2,9 @@
 
 Open with **Ctrl+,** (Cmd+, on macOS), **View → Settings**, or the Settings entry
 on the Welcome tab. It opens as a tab, so you can leave it up while trying a
-change out.
+change out — in whichever editor pane is on screen, which means the split pane
+while the [GUI Designer](designer.md) has the main area. Drag the tab between
+panes at any time.
 
 Left column picks a category; the search box at the top spans every category at
 once, so you can find a setting without knowing where it was filed. Search

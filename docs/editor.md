@@ -63,7 +63,7 @@ A thin bar between the tab row and the editor showing the full file path and cur
 |---|---|
 | **SPLIT button** (nav bar) or `Ctrl+\` | First open with multiple tabs — moves the active tab to the split. First open with one tab — opens a fresh Untitled in the split. Subsequent clicks toggle visibility without destroying tabs. |
 | **Drag a tab** past the midpoint of the main editor | **Moves** the tab to the split pane (removes it from main) |
-| **Right-click → Open in Split Editor** | **Copies** the tab — it stays open in both panes |
+| **Right-click → Open in Split Editor** | **Copies** the tab — it stays open in both panes. (A panel tab is *moved*; see below.) |
 | **Drag a split tab** left past the split edge | **Moves** the tab back to the main pane; blue drop zone confirms the drop target |
 | **Right-click a split tab → Open in Main Editor** | **Copies** to main — stays open in both panes |
 | **Split pane × button** | True close — prompts for any unsaved changes, then destroys the pane |
@@ -72,6 +72,12 @@ A thin bar between the tab row and the editor showing the full file path and cur
 The split closes only when **you** close it — the pane's × or the toggle. Closing its last tab, dragging that tab back to the main pane, or switching to the Designer all leave the pane where it is, ready for another tab. An empty split keeps its header, so you can drag one straight back in.
 
 The split belongs to the project: it is saved and restored per project, and closing a project disposes of it so one project's split files never carry into the next.
+
+### Panel tabs in the split
+
+Welcome, Packages, Learning Mode and Settings can live in either pane. There is only ever one of each, so **Open in Split Editor** *moves* one rather than copying it, and dragging works the same as with a file tab. Note that these have no saved buffer — moving one rebuilds its panel, so anything you had typed into the Settings search box or a package filter starts fresh on the other side.
+
+This is also where they open while the **Designer** has the main editor area, since a tab added there would be behind the canvas. See [GUI Designer → Layout](designer.md#layout).
 
 ### Caret and current-line highlight
 
@@ -83,7 +89,7 @@ Both panes keep their **current-line highlight** at all times, including when ne
 
 The SPLIT button hides and re-shows the split pane **without closing or discarding any tabs**. All open split tabs survive behind the scenes. Click SPLIT again (or `Ctrl+\`) to restore them exactly as you left them.
 
-Entering **Designer mode** also hides the split automatically; returning to Editor mode restores it.
+Switching to **Designer mode** leaves the split exactly as you had it. The designer occupies the left half, so an open split puts the canvas and your code side by side.
 
 ### Session persistence
 

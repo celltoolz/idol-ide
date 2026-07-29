@@ -2,6 +2,8 @@
 
 Press **F3** (or **Help → Package Manager**) to open the package manager panel.
 
+It opens as a tab in whichever editor pane is on screen — while the [GUI Designer](designer.md) has the main area, that means the split pane, so the panel sits beside your form instead of behind it. Drag the tab between panes at any time.
+
 ## Installed Packages
 
 All installed packages are shown **grouped by topic** instantly — no network needed, powered by a precomputed 362K-package lookup covering 46% of PyPI.

@@ -22,6 +22,8 @@ IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applica
 
 Entering Designer mode swaps the File Explorer out and the Widget Palette in — same left-panel slot, no floating windows. The left panel is split: the **FORMS tree** sits at the top, and the **Widget Palette** fills the rest. Exiting Designer restores the Explorer.
 
+The canvas takes over the main editor area, so anything that opens a tab while you are designing goes to the **split pane** instead — opening the split if it isn't already there. That covers the Package Manager, Welcome, Learning Mode and Settings (nav bar, menus, `F1` / `F3` / `Ctrl+,`), `File → New`, `File → Open`, and clicking an entry in the Problems panel. The panel or file lands beside your form rather than behind it, and switching back to the Editor leaves it exactly where it is. See [Split Editor](editor.md#split-editor).
+
 ## Canvas
 
 - **Dotted-grid design surface** — form rendered at real size with a simulated title bar and drop shadow
