@@ -41,6 +41,39 @@ When the active interpreter is a **conda environment**, the panel switches to a 
 
 No `conda activate` is needed for any of this — operations run with a synthesized activation environment.
 
+### The CHANNELS bar
+
+Above the package list, conda environments get a two-line **CHANNELS** strip.
+
+```
+CHANNELS   1 conda-forge   ·   2 pytorch          flexible priority      ?
+           from environment.yml
+```
+
+- **Channels are numbered, and `1` is searched first.** The order is a real setting, not a
+  display preference — it decides which channel's build of a package you get when two of them
+  offer it. Numbers rather than "top"/"bottom" because conda's own flags disagree about
+  direction: `conda config --add` puts a channel *first*, `--append` puts it *last*, and
+  `conda install -c A -c B` ranks `A` above `B`. This is why copied setup instructions so often
+  produce the reverse of what you wanted
+- **The second line says where the list came from.** conda merges a system file, your
+  `~/.condarc`, a file inside the environment, `$CONDARC` and `$CONDA_CHANNELS` — and
+  **environment variables beat files**. A channel list shown without its origin is how you end
+  up editing `~/.condarc` and seeing nothing change
+- **Your project's `environment.yml` wins.** If the project has one, its `channels:` block is
+  what the bar shows — that file goes into git, so `conda env create -f environment.yml` gives a
+  teammate the same resolution you get. Without one, the bar shows what conda itself reports and
+  says so. `~/.condarc` is what a new project's `environment.yml` is *seeded* from; after that
+  the two can differ, and the project's file is the one that matters
+- **Priority mode** (`strict` / `flexible` / `disabled`) is read from conda and shown, not
+  edited: it applies to your whole conda installation rather than one project, and IDOL does not
+  write to `~/.condarc`. Change it with `conda config --set channel_priority strict`
+- Channel URLs containing a token are **masked** before display
+- **?** opens the Conda Channels guide
+
+Read-only in this release — editing the list, and threading it through installs, is the next
+piece of work. Search still uses the channels conda itself reports.
+
 ## AI Integration
 
 **✦ Ask AI for examples** — sends the selected package to AI Chat with a prompt for beginner-friendly code examples.

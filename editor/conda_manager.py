@@ -15,11 +15,13 @@ project-local ``-p`` environments work identically.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import threading
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -90,6 +92,126 @@ def accept_tos(
         except Exception as e:
             ok, msg = False, str(e)
         after_fn(0, on_done, ok, msg)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# ── Channel configuration (read-only) ─────────────────────────────────────────
+# Never parse ~/.condarc to answer "what will conda search?". conda merges a
+# system file, the user file, the env's own .condarc, $CONDARC and
+# $CONDA_CHANNELS, and **environment variables beat files** — so a panel that
+# reports the user's ~/.condarc while an env var overrides it is a panel that
+# lies. `conda config --show` gives the effective answer and `--show-sources`
+# says which location produced it; both are needed to display it honestly.
+
+_CONFIG_TIMEOUT = 30
+
+
+@dataclass(frozen=True)
+class ChannelConfig:
+    """What conda will actually search for one env, and who said so.
+
+    ``ok`` is False when conda could not be queried at all — callers must say
+    "could not read" rather than rendering an empty list, which would imply
+    conda has no channels configured when it always has at least defaults.
+    """
+
+    channels: tuple[str, ...] = ()
+    priority: str = ""        # strict | flexible | disabled ("" = not reported)
+    source: str = ""          # display label for where `channels` came from
+    ok: bool = False
+
+
+def _source_rank(source: str, prefix: str | None) -> int:
+    """Precedence of one `--show-sources` key. Higher wins.
+
+    Ranked rather than trusting the order conda emits, which is not promised.
+    Command line beats env vars beats the env's own .condarc beats the user's
+    beats anything system-wide.
+    """
+    if source == "cmd_line":
+        return 4
+    if source == "envvars":
+        return 3
+    norm = os.path.normcase(source)
+    if prefix and norm.startswith(os.path.normcase(prefix)):
+        return 2
+    if norm.startswith(os.path.normcase(os.path.expanduser("~"))):
+        return 1
+    return 0
+
+
+def _source_label(source: str) -> str:
+    """Human label for a `--show-sources` key; home-relative for file paths."""
+    if source == "cmd_line":
+        return "the command line"
+    if source == "envvars":
+        return "environment variables"
+    home = os.path.expanduser("~")
+    if home and os.path.normcase(source).startswith(os.path.normcase(home)):
+        return "~" + source[len(home):]
+    return source
+
+
+def channel_config_from(shown: dict, sources: dict,
+                        prefix: str | None) -> ChannelConfig:
+    """Build a ChannelConfig from parsed `--show` / `--show-sources` output.
+
+    Kept separate from the subprocess call so the merge/precedence logic —
+    where the real bugs live — is testable against golden fixtures.
+    """
+    best_rank, best = -1, ""
+    for source, values in (sources or {}).items():
+        if not isinstance(values, dict) or "channels" not in values:
+            continue
+        rank = _source_rank(str(source), prefix)
+        if rank > best_rank:
+            best_rank, best = rank, str(source)
+    raw = (shown or {}).get("channels") or []
+    return ChannelConfig(
+        channels=tuple(str(c) for c in raw),
+        priority=str((shown or {}).get("channel_priority") or ""),
+        source=_source_label(best) if best else "",
+        ok=True,
+    )
+
+
+def _conda_config_json(conda_exe: str, args: list[str],
+                       env: dict[str, str] | None) -> dict:
+    result = subprocess.run(
+        [conda_exe, "config", *args, "--json"],
+        capture_output=True, text=True, timeout=_CONFIG_TIMEOUT, env=env,
+    )
+    data = json.loads(result.stdout)
+    return data if isinstance(data, dict) else {}
+
+
+def fetch_channel_config(
+    conda_exe: str | None,
+    prefix: str | None,
+    after_fn: Callable,
+    on_done: Callable[[ChannelConfig], None],
+) -> None:
+    """Read *prefix*'s effective channel config on a daemon thread.
+
+    Calls on_done(ChannelConfig) on the main thread; a config with ok=False
+    means conda could not be asked (missing exe, timeout, unparseable JSON).
+
+    The subprocess runs with a synthesized activation environment, because
+    conda locates the env-level ``$CONDA_PREFIX/.condarc`` from CONDA_PREFIX
+    and IDOL never activates — with a bare environment that file is silently
+    missed and the reported list is wrong for the selected env.
+    """
+    def _run():
+        try:
+            env = conda_env.build_env(prefix) if prefix else None
+            shown = _conda_config_json(
+                conda_exe, ["--show", "channels", "channel_priority"], env)
+            sources = _conda_config_json(conda_exe, ["--show-sources"], env)
+            cfg = channel_config_from(shown, sources, prefix)
+        except Exception:
+            cfg = ChannelConfig()
+        after_fn(0, on_done, cfg)
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -195,6 +317,11 @@ class CondaManager:
     def conda_exe(self) -> str | None:
         """The conda executable serving this env (for the ToS helpers)."""
         return self._conda_exe
+
+    @property
+    def prefix(self) -> str | None:
+        """The env prefix every conda call is scoped to with `-p`."""
+        return self._prefix
 
     def fetch_installed(
         self,

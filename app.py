@@ -3824,6 +3824,9 @@ class IDOL(Tk):
             self._comp_tray.set_project_dir(root)
         if hasattr(self, "_designer_palette") and self._designer_palette:
             self._designer_palette.set_project_dir(root)
+        # The Package Manager's channel bar reads the root's environment.yml.
+        if getattr(self, "_pkg_panel", None):
+            self._pkg_panel.set_project_dir(root)
         # If the designer is open, silently drop back to editor mode so the
         # now-stale form state (from the old project root) doesn't persist into
         # the session.  Without this, closing IDOL after a root change would
@@ -4917,6 +4920,11 @@ class IDOL(Tk):
             open_ai_panel=self._ensure_ai_panel_open,
         )
         panel.pack(fill="both", expand=True)
+        # Project dir before interpreter: set_python paints the channel bar, and
+        # it should read the project's environment.yml on the first paint rather
+        # than showing ~/.condarc's list and correcting itself.
+        panel.set_project_dir(
+            str(getattr(self._sidebar.explorer, "_root", "") or ""))
         panel.set_python(self._active_python)
         nb.add(frame, text="📦 Packages")
         nb.select(frame)

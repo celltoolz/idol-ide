@@ -15,7 +15,7 @@ from editor.pip_manager import PipManager
 from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.learning_manager import LearningManager
 from utils import settings as _settings
-from utils.conda_env import is_conda_env
+from utils.conda_env import is_conda_env, mask_channel, project_channels
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow, GuidePage
 from utils.ui_font import UI_FONT
@@ -239,6 +239,8 @@ class PackageManagerPanel(tk.Frame):
         self._search_source = "pypi"          # "pypi" | "conda" — where search looks
         self._selected_src = "pypi"           # source of the currently selected search result
         self._conda_results: dict[str, dict] = {}   # last conda search results by name
+        self._project_dir: str = ""            # folder whose environment.yml we read
+        self._chan_cfg: conda_backend.ChannelConfig | None = None
         self._group_view = bool(_settings.get("pkg_group_view", True))
         self._build()
         self.after(100, self._load_installed)
@@ -262,9 +264,73 @@ class PackageManagerPanel(tk.Frame):
         # channels (what conda install can reach), everything else PyPI.
         self._set_search_source(
             "conda" if self._backend is self._conda else "pypi")
+        # A config read from the previous env must not outlive it.
+        self._chan_cfg = None
+        self._sync_channel_bar()
         if self._backend is self._conda:
             self._conda_index.ensure_loaded()   # pre-warm in the background
         self._load_installed()
+
+    def set_project_dir(self, path: str) -> None:
+        """Point the channel bar at *path*'s environment.yml.
+
+        Follows the explorer root, which is the same folder
+        `app._add_to_environment_yml` appends dependencies to — the bar and the
+        writer have to agree about which environment.yml they mean.
+        """
+        self._project_dir = str(path or "")
+        if self._backend is self._conda:
+            self._render_channel_bar()
+
+    # ── Channel bar ───────────────────────────────────────────────────────────
+
+    def _sync_channel_bar(self) -> None:
+        """Show and refresh the bar for conda interpreters; hide it otherwise."""
+        if self._backend is not self._conda:
+            self._chan_frame.pack_forget()
+            return
+        self._chan_frame.pack(fill="x", pady=(2, 4), before=self._pane)
+        self._render_channel_bar()
+        # Asked even when the project states its own channels: channel_priority
+        # is never in environment.yml, so conda is the only source for it.
+        conda_backend.fetch_channel_config(
+            self._conda.conda_exe, self._conda.prefix,
+            self._after_fn, self._on_channel_config)
+
+    def _on_channel_config(self, cfg: conda_backend.ChannelConfig) -> None:
+        self._chan_cfg = cfg
+        self._render_channel_bar()
+
+    def _render_channel_bar(self) -> None:
+        """Paint the bar from the project file first, conda's own config second."""
+        cfg = self._chan_cfg
+        proj = project_channels(self._project_dir)
+        if proj is not None:
+            channels, source = proj, "from environment.yml"
+        elif cfg is None:
+            channels, source = [], "reading conda configuration…"
+        elif not cfg.ok:
+            channels = []
+            source = "conda could not report its channel configuration"
+        else:
+            channels = list(cfg.channels)
+            source = f"from {cfg.source}" if cfg.source else "conda's built-in default"
+            if self._project_dir:
+                source += "  ·  this project has no environment.yml"
+        # Numbered, never spatial: "top" and "bottom" mean opposite things
+        # across conda's own CLI flags, and users read position wrong every
+        # time it is phrased that way.
+        self._chan_lbl.config(
+            text="   ·   ".join(f"{i} {mask_channel(c)}"
+                                for i, c in enumerate(channels, 1)) or "—",
+            fg=_FG if channels else _DIM)
+        self._chan_src.config(text=source)
+        self._chan_prio.config(
+            text=f"{cfg.priority} priority" if cfg and cfg.ok and cfg.priority else "")
+
+    def _open_channel_guide(self) -> None:
+        from utils.conda_channels_guide import get_pages
+        GuideWindow(self, "Conda Channels", get_pages())
 
     def _set_search_source(self, source: str) -> None:
         """Switch the search namespace and sync the toggle/button UI."""
@@ -382,10 +448,43 @@ class PackageManagerPanel(tk.Frame):
                      lambda _e, s=src: self._set_search_source(s))
             self._src_lbls[src] = lbl
 
+        # ── Channel bar (conda interpreters only) ─────────────────────────────
+        # Answers "what will this actually search?" without a click. Built
+        # here but packed by _sync_channel_bar, which needs `before=self._pane`
+        # to land above the split every time it reappears.
+        #
+        # Read-only in this phase, and deliberately carrying no edit
+        # affordance: a `✎ Edit` label with nothing behind it reads as a dead
+        # button, so it arrives with the editor rather than ahead of it.
+        self._chan_frame = tk.Frame(self, bg=_BG)
+        chan_top = tk.Frame(self._chan_frame, bg=_BG)
+        chan_top.pack(fill="x")
+        tk.Label(chan_top, text="CHANNELS", bg=_BG, fg=_DIM,
+                 font=(UI_FONT, 8, "bold")).pack(side="left", padx=(8, 8))
+        self._chan_help = tk.Label(chan_top, text="?", bg=_BG, fg="#569cd6",
+                                   font=(UI_FONT, 8, "bold"), cursor="hand2")
+        self._chan_help.bind("<ButtonRelease-1>", lambda _: self._open_channel_guide())
+        self._chan_help.bind("<Enter>", lambda _: self._chan_help.config(fg=_FG))
+        self._chan_help.bind("<Leave>",
+                             lambda _: self._chan_help.config(fg="#569cd6"))
+        self._chan_help.pack(side="right", padx=(4, 10))
+        self._chan_prio = tk.Label(chan_top, text="", bg=_BG, fg=_DIM,
+                                   font=(UI_FONT, 8))
+        self._chan_prio.pack(side="right")
+        # Packed last so the two right-hand labels reserve their width first
+        # and a long channel list truncates instead of pushing them off.
+        self._chan_lbl = tk.Label(chan_top, text="", bg=_BG, fg=_FG,
+                                  font=(UI_FONT, 9), anchor="w")
+        self._chan_lbl.pack(side="left", fill="x", expand=True)
+        self._chan_src = tk.Label(self._chan_frame, text="", bg=_BG, fg=_DIM,
+                                  font=(UI_FONT, 8), anchor="w")
+        self._chan_src.pack(fill="x", padx=(8, 0))
+
         # ── Main split (left tree / right detail) ─────────────────────────────
         pane = tk.PanedWindow(self, orient="horizontal", bg=_BORDER,
                               sashwidth=4, sashrelief="flat")
         pane.pack(fill="both", expand=True)
+        self._pane = pane
 
         # ── Left: package list ────────────────────────────────────────────────
         left = tk.Frame(pane, bg=_BG)

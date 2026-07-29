@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "_comment": "Catalog of conda channels IDOL knows about. Separate from the ACTIVE list, which lives in each project's environment.yml — adding to this catalog is free, adding to the active list costs a repodata fetch on every solve. `tier` is mainstream | domain | vendor. `conflicts_with` drives the mixed-channel warning; `requires_order_below` names channels that must be searched BEFORE this one.",
+  "channels": [
+    {
+      "id": "conda-forge",
+      "display_name": "conda-forge",
+      "spec": "conda-forge",
+      "tier": "mainstream",
+      "description": "Community-led alternative to defaults. The largest channel, often with more up-to-date package versions and an entirely open-source ecosystem.",
+      "companions": [],
+      "conflicts_with": ["defaults"],
+      "requires_order_below": [],
+      "notes": "IDOL's recommended default. Miniforge ships conda-forge-only out of the box.",
+      "url": "https://conda-forge.org/"
+    },
+    {
+      "id": "defaults",
+      "display_name": "defaults (Anaconda)",
+      "spec": "defaults",
+      "tier": "vendor",
+      "description": "Anaconda's own curated channels, maintained by Anaconda Inc. Expands to pkgs/main, pkgs/r, and on Windows pkgs/msys2. Packages are built against Anaconda's compiler and BLAS stack.",
+      "companions": [],
+      "conflicts_with": ["conda-forge"],
+      "requires_order_below": [],
+      "notes": "Anaconda's Terms of Service require a paid Business plan for organisations with 200+ employees or contractors to use Anaconda-maintained channels. Community channels on anaconda.org (conda-forge, bioconda) are exempt. Government entities and large nonprofits/academia are not blanket-exempt. Removing this channel writes `nodefaults` into environment.yml.",
+      "url": "https://www.anaconda.com/pricing"
+    },
+    {
+      "id": "bioconda",
+      "display_name": "bioconda",
+      "spec": "bioconda",
+      "tier": "domain",
+      "description": "Dedicated to bioinformatics software — genomics tools, RNA/DNA workflows, biological data analysis.",
+      "companions": ["conda-forge"],
+      "conflicts_with": [],
+      "requires_order_below": ["conda-forge"],
+      "notes": "Linux and macOS only; Windows is not supported. Bioconda dropped defaults from its recommended channel set in August 2024.",
+      "url": "https://bioconda.github.io/"
+    },
+    {
+      "id": "pytorch",
+      "display_name": "pytorch",
+      "spec": "pytorch",
+      "tier": "vendor",
+      "description": "Official PyTorch builds — torch, torchvision, torchaudio, and the CUDA-enabled variants.",
+      "companions": ["nvidia", "conda-forge"],
+      "conflicts_with": [],
+      "requires_order_below": [],
+      "notes": "GPU builds usually need the nvidia channel searched alongside this one. Nightly builds live under the label channel `pytorch/label/nightly`.",
+      "url": "https://pytorch.org/"
+    },
+    {
+      "id": "nvidia",
+      "display_name": "nvidia",
+      "spec": "nvidia",
+      "tier": "vendor",
+      "description": "NVIDIA's CUDA toolkit, cuDNN, and GPU runtime libraries packaged for conda.",
+      "companions": ["pytorch", "conda-forge"],
+      "conflicts_with": [],
+      "requires_order_below": [],
+      "notes": "Only useful on machines with an NVIDIA GPU. Adds a substantial repodata fetch.",
+      "url": "https://anaconda.org/nvidia"
+    },
+    {
+      "id": "intel",
+      "display_name": "intel",
+      "spec": "intel",
+      "tier": "vendor",
+      "description": "Intel-optimised builds of Python and numerical libraries, built against Intel's MKL and compilers for x86 performance.",
+      "companions": [],
+      "conflicts_with": [],
+      "requires_order_below": [],
+      "notes": "Mixing these builds with conda-forge's can produce ABI mismatches; prefer one numerical stack per environment.",
+      "url": "https://anaconda.org/intel"
+    },
+    {
+      "id": "rapidsai",
+      "display_name": "rapidsai",
+      "spec": "rapidsai",
+      "tier": "domain",
+      "description": "NVIDIA RAPIDS — GPU-accelerated dataframe and machine-learning libraries (cuDF, cuML, cuGraph) with pandas- and scikit-learn-like APIs.",
+      "companions": ["nvidia", "conda-forge"],
+      "conflicts_with": [],
+      "requires_order_below": ["conda-forge"],
+      "notes": "Linux only, and requires a supported NVIDIA GPU. Needs the nvidia channel for its CUDA dependencies.",
+      "url": "https://rapids.ai/"
+    }
+  ]
+}

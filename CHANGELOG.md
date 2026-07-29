@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-07-29] — Panels That Open Where You Can See Them
 
+### Added
+- **The Package Manager now shows which conda channels it is actually searching.** A
+  **CHANNELS** line above the package list, for conda environments only, numbering them in the
+  order conda searches them — `1 conda-forge · 2 pytorch` — alongside the current priority mode.
+  - Underneath it, **where that list came from**: your project's `environment.yml`, your
+    `~/.condarc`, or an environment variable. conda merges five different config locations and
+    environment variables silently beat files, so "I edited `.condarc` and nothing changed" is a
+    normal afternoon. Now you can see which one is winning.
+  - If your project has an `environment.yml`, its channels are what you see — that file travels
+    with your code, so a teammate resolves packages the way you do. IDOL will not keep a second
+    copy of the list in its own settings.
+  - Channel URLs containing a token are masked before they are displayed.
+  - **?** opens a new three-page guide covering what a channel is, why the order is a real
+    setting rather than a display preference, the reason copied `conda config` instructions so
+    often come out backwards, and what Anaconda's licensing threshold means for the `defaults`
+    channel.
+  - Read-only for now. Editing the list, and threading it through installs, is the next piece of
+    work.
+
 ### Fixed
 - **Package Manager, Welcome, Learning Mode and Settings did nothing in the GUI Designer.**
   Clicking any of them — from the nav bar, the Help menu, the View menu, `F1`/`F3`/`Ctrl+,` —

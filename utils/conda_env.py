@@ -201,38 +201,91 @@ def runtime_env(exe: str,
     return None
 
 
+def parse_channels_block(text: str) -> list[str]:
+    """Channel entries from the top-level `channels:` key of a conda YAML file.
+
+    Minimal line-based parse of the two forms conda writes (block list and
+    inline list) — no YAML dependency. Anything other than `channels:` is
+    ignored, and `nodefaults` is dropped: it is a directive meaning "do not
+    add defaults", not a channel anyone can search.
+
+    Shared by `configured_channels` (~/.condarc) and `project_channels`
+    (environment.yml) because conda uses the same key and the same two shapes
+    in both files.
+    """
+    channels: list[str] = []
+    in_channels = False
+    for raw in text.splitlines(keepends=True):
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        indented = raw[0] in (" ", "\t")
+        if not indented:
+            key, _, value = line.partition(":")
+            in_channels = key.strip() == "channels"
+            value = value.strip()
+            if in_channels and value.startswith("[") and value.endswith("]"):
+                channels += [v.strip().strip("'\"")
+                             for v in value[1:-1].split(",") if v.strip()]
+                in_channels = False
+            continue
+        if in_channels and line.strip().startswith("- "):
+            channels.append(line.strip()[2:].strip().strip("'\""))
+    return [c for c in channels if c and c != "nodefaults"]
+
+
 def configured_channels() -> list[str]:
     """Channels from ~/.condarc, in priority order; ["defaults"] when unset.
 
-    Minimal line-based parse of the two forms conda writes (block list and
-    inline list) — no YAML dependency. Only the top-level `channels:` key is
-    read; anything else in the file is ignored.
+    This is the **seed**, not the store. A project's `environment.yml` is
+    where IDOL keeps its channel list (see `project_channels`); ~/.condarc is
+    what a new project's file is populated from at creation time, and what a
+    project without one falls back to.
     """
     rc = os.path.expanduser(os.path.join("~", ".condarc"))
-    channels: list[str] = []
     try:
         with open(rc, encoding="utf-8") as f:
-            in_channels = False
-            for raw in f:
-                line = raw.split("#", 1)[0].rstrip()
-                if not line.strip():
-                    continue
-                indented = raw[0] in (" ", "\t")
-                if not indented:
-                    key, _, value = line.partition(":")
-                    in_channels = key.strip() == "channels"
-                    value = value.strip()
-                    if in_channels and value.startswith("[") and value.endswith("]"):
-                        channels += [v.strip().strip("'\"")
-                                     for v in value[1:-1].split(",") if v.strip()]
-                        in_channels = False
-                    continue
-                if in_channels and line.strip().startswith("- "):
-                    channels.append(line.strip()[2:].strip().strip("'\""))
+            channels = parse_channels_block(f.read())
     except OSError:
-        pass
-    channels = [c for c in channels if c and c != "nodefaults"]
+        channels = []
     return channels or ["defaults"]
+
+
+def project_channels(root: str) -> list[str] | None:
+    """Channels from *root*/environment.yml in priority order, or None.
+
+    None means "this project does not state its channels" — no
+    environment.yml, or one with no usable `channels:` key. Callers must not
+    collapse that into an empty list: an empty active list is a configuration
+    conda would reject, while "unstated" correctly falls back to whatever the
+    user's conda is configured to do.
+
+    Only `environment.yml` is read, matching the name IDOL writes
+    (`widgets/project_wizard.py`) and edits (`app._add_to_environment_yml`).
+    """
+    if not root:
+        return None
+    try:
+        with open(os.path.join(root, "environment.yml"), encoding="utf-8") as f:
+            channels = parse_channels_block(f.read())
+    except OSError:
+        return None
+    return channels or None
+
+
+def mask_channel(spec: str) -> str:
+    """A channel spec safe to display — credentials in a URL are masked.
+
+    A tokenized channel URL (`https://user:token@host/chan`) is a secret. It
+    must never reach the panel, the Output log, or an exported
+    environment.yml, and the mask has to happen at the formatting boundary
+    rather than at each call site that might forget.
+    """
+    scheme, sep, rest = spec.partition("://")
+    if not sep or "@" not in rest:
+        return spec
+    _, _, host = rest.rpartition("@")
+    return f"{scheme}://…@{host}"
 
 
 def channeldata_urls(channels: list[str]) -> list[tuple[str, str]]:

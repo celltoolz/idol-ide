@@ -5,25 +5,132 @@ Working list for the `fix/idol-todo-sweep` branch. Longer-term plans live in
 
 ## 🐛 Bugs
 
-*None open.* Everything on the list at the start of this branch is fixed and
-verified — see **Done** below.
+- [ ] **`self._explorer_root` is never assigned, so the remembered interpreter
+      is global instead of per-project.** Three sites read it via
+      `getattr(self, "_explorer_root", None) or <fallback>` and every one of
+      them always takes the fallback — the attribute is written nowhere in the
+      repo (`_set_explorer_root` sets the *explorer's* root and relies on
+      `on_root_change`; it never stores a copy on the app).
+      - `workspace_save` (`app.py:4446`) is **harmless** — its fallback is
+        `self._sidebar.explorer._root or os.getcwd()`, which is the right
+        answer anyway.
+      - `_init_interpreter` (`app.py:10609`) and `_set_interpreter`
+        (`app.py:10660`) both fall back to `os.path.expanduser("~")`, so the
+        interpreter is stored and read as `interpreter:<home>` rather than
+        `interpreter:<project root>`. They are wrong *consistently*, which is
+        why this never looked like a bug: the write and the read agree, so the
+        value round-trips. The symptom is that there is only ever one
+        remembered interpreter for the whole machine — open project A, then
+        project B, and B comes up on A's interpreter.
+      - Fix is to read the explorer root the way `_add_to_environment_yml` and
+        `PackageManagerPanel.set_project_dir` do, or to actually latch the
+        attribute in `_on_explorer_root_change`. Prefer the latch — three call
+        sites already expect it to exist.
+      - **Touches the conda channel work:** the channel bar reads the project's
+        `environment.yml` while installs run against the active interpreter, so
+        an interpreter that does not follow the project can leave the bar
+        describing project A's channels next to project B's environment. Not a
+        blocker for Phase 2 (both are per-project once the interpreter is
+        right), but fix it before Phase 4's per-package provenance badges.
 
 ## ✨ Features
 
-*None open.* See **Done** below.
+### Conda Channels
+
+Scoped 2026-07-29. Three decisions settled before any code: the store is the
+project's **`environment.yml` `channels:` block** (not IDOL settings — a shadow
+copy of project config is what `utils/settings.py`'s scope rule forbids); the
+surface is the **Package Manager**, not Settings (the panel already owns every
+conda concern, and Settings renders from `SCHEMA` by `kind` and would need a
+bespoke pane for one non-preference feature); and **there is no enable/disable
+toggle** — a conda-native portable file can only represent *active* channels,
+because that is all conda has. Removing `defaults` from the list writes
+`nodefaults`, so the "don't use Anaconda defaults" toggle is redundant too.
+
+`~/.condarc` is the **seed**, not the store: it already feeds a new project's
+`environment.yml` at creation (`project_wizard.py`). Chain is `~/.condarc` →
+seeds `environment.yml` → project edits are local. That is why no
+import/export round-trip is needed.
+
+Each phase is independently shippable. **Tests green before every commit** —
+`pytest -m "not gui"` and `ruff check .`.
+
+- [x] **Phase 1 — the channel bar, read-only.** A `CHANNELS` strip between the
+      search bar and the package list, conda interpreters only (same condition
+      as the existing `conda | PyPI` toggle). Numbered active list
+      (`1 conda-forge · 2 pytorch` — never top/bottom language), effective
+      `channel_priority`, and a dim source line (`from environment.yml` /
+      `from ~/.condarc (no environment.yml)` / `from $CONDA_CHANNELS`) so the
+      UI cannot lie about which config won. Tokenized URLs render masked.
+      Ships: `data/idol_conda_channels.json` catalog;
+      `utils/conda_env.project_channels(root)` reading `environment.yml` (pure
+      file parse — correct home, next to `configured_channels`); a read layer in
+      `editor/conda_manager.py` over `conda config --show` / `--show-sources
+      --json`, passing `env=build_env(prefix)` so the env-level `.condarc`
+      actually merges; `utils/conda_channels_guide.py` + `GuideWindow`. Zero
+      writes.
+- [ ] **Phase 2 — make the list real.** The editor modal (dark `Toplevel`,
+      `ComponentConnector` precedent): Available / Searched two-pane, `Add →`,
+      `▲ ▼ ✕` on the right only, catalog description box below. Writes
+      `channels:` / `nodefaults` to `environment.yml`. `-c` threading through
+      **both** conda call sites — `CondaManager.install` and
+      `project_manager`'s `conda create` — with `--override-channels` only when
+      the project has an `environment.yml`. `CondaSearchIndex.ensure_loaded`
+      takes the channel list as an argument and derives loaded-ness from the
+      channel set (today it calls `configured_channels()` itself, so it cannot
+      be told about a per-project list, and a project switch that keeps the same
+      interpreter never re-fires). `file://` branch in `channeldata_urls` (a
+      local channel currently builds
+      `https://conda.anaconda.org/file:///…`). ToS `pending` filtered to the
+      active list — otherwise conda-forge-only users get a `defaults` ToS
+      dialog for a channel the install will not touch.
+      *Edit and threading ship together: an editor that writes a file which
+      does not change what installs is the UI lying, one phase early.*
+- [ ] **Phase 3 — guardrails.** Empty-list refusal. `defaults` + `conda-forge`
+      mixed-channel warning under flexible priority. `requires_order_below`
+      one-click `[ Fix order ]`. "Channel published no searchable index" signal
+      (a 404 `channeldata.json` already degrades silently — install still works;
+      what is missing is telling the user). In-session restore-with-position for
+      a removal, so re-adding cannot silently drop a channel to the bottom of a
+      list where order *is* the config.
+- [ ] **Phase 4 — provenance and probing.** `[All] / specific channel` selector
+      in the search bar (`-c X --override-channels`). Per-package channel badges
+      — nearly free, `conda list --json` already reports `channel` and
+      `conda_manager` already parses it. Transient `conda install --dry-run`
+      conflict probe with a modified `-c` set, so "is bioconda causing this?"
+      never dirties a git-tracked file.
+
+**Deferred, note-and-move-on:** `.condarc` writes; `channel_priority` editing
+(see *Known, not yet scoped*); mirrors / `channel_alias` / `custom_channels` /
+`whitelist_channels`; auth beyond token masking; per-package
+`conda-forge::numpy` pinning (the guide mentions it exists); mamba/micromamba
+(libmamba honours the same config, so mostly free).
 
 ## 🎨 UI/UX Polish
 
 *None open.* See **Done** below.
 
 ## 🗣️ Needs Discussion
-- [ ] **Conda channels** — start with conda-forge; figure out the overall approach. Surfaces in two places once decided: the Package Manager, and a Settings page that edits `~/.condarc` and a project's `environment.yml`. Those are *project config*, not preferences, so Settings must edit the files rather than shadow them.
+
+*None open.* Conda channels is scoped — see **Features** above.
 
 ## 📌 Known, not yet scoped
 - **`_project_root_cwd()` still uses the explorer root**, not the latched project. It drives the Run/Debug "project" cwd mode, so *Set as Root Directory* on a subfolder makes runs use that subfolder. That may well be what you want when you deliberately re-root — left alone rather than changed silently. Decide the intended behaviour before touching it.
 - **Ruff rule editing from Settings** — its own piece of work. The panel edits the project's `ruff.toml` directly, never mirrors rules into `settings.json`; two sources of truth for lint config is the exact divergence the ruff work fixed. Needs a design pass on presenting rule groups, what happens when no config exists yet, and how to show which rules a project inherited vs chose. Pairs with the "LSP on/off, ruff on/off" idea in `ROADMAP.md`.
 - **Per-project setting overrides** — VS Code's User vs Workspace split. The settings schema is designed to allow it; building it was deliberately out of scope. Decide precedence rules and the "this is overridden here" UI before starting.
 - **Empty Settings categories** — the panel currently has Appearance, Editor, AI and General. Python, Diagnostics, Run & Debug and Designer were planned but have no settings yet; sections only appear once something lands in them.
+- **`channel_priority` has no home under the environment.yml store.** Conda's
+  three-way `channel_priority` (`strict` / `flexible` / `disabled`) changes what
+  channel *order* means, so the Conda Channels work needs to show it — but
+  `environment.yml` has no `channel_priority` key. It is genuinely a
+  user/machine-level conda setting, which puts it in `~/.condarc`, a file IDOL
+  deliberately does not own (see the Conda Channels decisions under
+  **Features**). Phase 1 therefore *displays* the effective value read-only and
+  the guide gives the `conda config` command to change it; the display is the
+  load-bearing part, since you cannot debug a mixed-channel env without knowing
+  which mode you are in. Making it editable means either an explicit
+  "Apply to `.condarc`" action with a diff preview and snapshot-restore, or
+  accepting a fourth store. Decide which before building a selector.
 - **Raise ruff's ceiling deliberately.** `ruff>=0.15,<0.16` holds the known-good 59-rule default set. Now that `_run_ruff` passes an explicit `--select` when a project has no config of its own, moving to 0.16+ is much safer — but it needs a pass over what the newer rules would show a beginner before the pin is lifted.
 - **The bracket match scan is still comment-unaware**, though the *candidate* under the cursor is now gated on being code. `_scan_forward`/`_scan_backward` in `canvas_editor/bracket_matcher.py` count every `([{` and `)]}` they walk past, so a stray unbalanced bracket inside a comment or a string between your bracket and its real partner still throws the depth off and highlights the wrong one. Deliberately left: fixing it means calling `_caret_contexts` on every line the scan touches, and the scan runs once per paint and walks to EOF whenever a bracket is unmatched — so on a large file with one stray `(` that is the whole buffer re-classified on every keystroke. Wants a per-line context cache invalidated on edit, which is its own piece of work; scope that before touching the scan. Documented in the module docstring and the CONTRIBUTING row so it doesn't read as an oversight.
 - **In `ROADMAP.md`, not here:** macOS CI, expanding the test suite (terminal, git, session persistence, codegen preservation, conda paths), and bumping the GitHub Actions versions off the deprecated Node 20 runtime.
