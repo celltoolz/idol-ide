@@ -136,7 +136,7 @@ Installed packages grouped by topic, live filter, package search, install/uninst
   <img src="screenshots/learning-guide_window.png" width="35%" align="top">
 </p>
 
-Hover any IDE element for a three-section explanation (what it is, how it works, real-world example). AI Ask button streams a beginner-friendly explanation via Ollama. Covers 20+ IDE elements.
+Click any IDE element for a three-section explanation (what it is, how it works, real-world example) — the click is intercepted, so you can click Commit or a tab's × and just read about it. AI Ask button streams a beginner-friendly explanation via Ollama. Covers 20+ IDE elements.
 
 → **[Full learning mode docs](docs/learning-mode.md)**
 
@@ -167,7 +167,7 @@ Hover any IDE element for a three-section explanation (what it is, how it works,
 | [Debugger](docs/debugger.md) | Breakpoints, step, locals |
 | [AI Chat](docs/ai-chat.md) | Ollama, send file, token counter |
 | [Package Manager](docs/package-manager.md) | Install, uninstall, PyPI search |
-| [Learning Mode](docs/learning-mode.md) | Hover explanations, AI |
+| [Learning Mode](docs/learning-mode.md) | Click explanations, AI |
 | [Project & Session](docs/project.md) | Wizard, interpreter, persistence |
 | [ROADMAP](ROADMAP.md) | Planned features and backlog |
 | [CONTRIBUTING](CONTRIBUTING.md) | Architecture and conventions |
