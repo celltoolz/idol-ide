@@ -777,7 +777,7 @@ class MenuEditor(tk.Toplevel):
                      "straight to their handler stub when clicked.", "#e2c08d"),
                 ],
                 plain_english=(
-                    "Generate Code (Ctrl+Shift+G) after building your menu and all the stubs "
+                    "Generate Code (Ctrl+Shift+B) after building your menu and all the stubs "
                     "will be waiting for you in the Events section — just fill in the logic."
                 ),
             ),

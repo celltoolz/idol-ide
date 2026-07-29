@@ -35,12 +35,12 @@ _TIPS = [
     "Drag a tab past the right edge to open the Split Editor",
     "Ctrl+\\ toggles the Split Editor",
     "Ctrl+Shift+P opens the Command Palette — search anything",
-    "F1 activates Learning Mode — hover any element for an explanation",
+    "F1 activates Learning Mode — click any element for an explanation",
     "Right-click a tab to copy it to the Split Editor",
     "Drag from the Split Editor back to the main pane to move a tab",
     "F3 opens the Package Manager — pip installs without a terminal",
     "Reopen this tab anytime via Help → Welcome",
-    "Ctrl+Shift+G generates Python code from the GUI Designer form",
+    "Ctrl+Shift+B generates Python code from the GUI Designer form",
 ]
 
 

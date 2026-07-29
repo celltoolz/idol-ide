@@ -35,7 +35,7 @@ The canvas takes over the main editor area, so anything that opens a tab while y
 - **Multi-select** — rubber-band drag to select multiple widgets; Ctrl+Click to toggle individual widgets; drag the group to move all at once
 - **Primary vs secondary selection** — the last-clicked widget is the primary (amber border + full resize handles); all others are secondary (blue border only); resize dragging on any handle propagates the delta to all selected widgets
 - **Copy / Paste** — Ctrl+C / Ctrl+V to duplicate; right-click context menu with Copy, Paste, Delete, Bring to Front, Send to Back
-- **Arrow-key nudge** — 8px nudge (matching the snap grid) with arrow keys; hold **Shift** for 1px precision
+- **Arrow-key nudge** — 8px nudge (matching the snap grid) with arrow keys; hold **Shift** for 1px precision. Shift *inverts* the snap setting rather than switching it off, so with snap already disabled the arrows step 1px and Shift+arrow gives you the 8px grid
 - **Z-order** — Bring to Front / Send to Back preserved on every mutation
 - **Menu bar strip** — live menu bar rendered below the title bar from your menu items; clicking a top-level name opens a native dropdown; clicking a command or check/radio item with a handler navigates to that handler in the editor
 - **Canvas scrollbars** — the canvas has horizontal and vertical scrollbars with mousewheel support on all platforms (Windows/macOS via `<MouseWheel>`; Linux via `<Button-4>`/`<Button-5>`; hold **Shift** to scroll horizontally); the form recenters automatically after a resize drag
@@ -787,7 +787,7 @@ Key points:
 
 ## Code Generation
 
-**Auto-generation** — code is regenerated automatically 0.6 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+G`).
+**Auto-generation** — code is regenerated automatically 0.6 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+B` — the build key; Ctrl+Shift+G is Source Control).
 
 ```python
 import tkinter as tk

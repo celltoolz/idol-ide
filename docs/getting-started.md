@@ -47,7 +47,7 @@ Next time you open a new terminal, re-activate the venv first (`.\.venv\Scripts\
 On first launch (or whenever no editor tabs are open), IDOL shows a **Welcome** tab instead of a blank Untitled file.
 
 - **Start** — quick links to New File, Open File, Open Folder, New Project, and Open Project
-- **Explore** — one-click access to Learning Mode, the GUI Designer, and the Package Manager
+- **Explore** — one-click access to Learning Mode, the GUI Designer, the Package Manager, and Settings
 - **Recent Projects / Recent Files** — last 10 of each, persisted in `~/.idol/recent.json`; click to reopen, × to remove. Opening an entry moves it back to the top, so the list stays ordered by when you last used it
   - An entry whose folder or file is no longer on disk is flagged with a red **⊗** and reads `· not found` under the name. Click it and IDOL tells you where it used to be and offers to drop it from the list — the entry is never removed without asking
 - **Unsaved Files** — unsaved work whose tab is no longer open, offered back so it can be recovered
@@ -65,7 +65,7 @@ Each of the three right-hand lists shows **five rows** and scrolls within itself
 
 1. **Open a file** — `Ctrl+O` or `File → Open File`
 2. **Create a project** — `File → New Project…` launches the 4-step wizard; it sets up your interpreter, optional venv, and git
-3. **Explore features** — press `F1` to open Learning Mode and hover any IDE element for a plain-English explanation
+3. **Explore features** — press `F1` to open Learning Mode, then click any IDE element for a plain-English explanation instead of activating it
 
 ## Creating a GUI Project (Designer)
 

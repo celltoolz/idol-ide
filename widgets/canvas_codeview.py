@@ -2139,8 +2139,9 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             return "break"
 
         # Alt+Up/Down  — move current line / selection block
-        # Shift+Alt+Up — duplicate above (cursor stays)
-        # Shift+Alt+Down — duplicate below (cursor follows)
+        # Both Shift+Alt directions duplicate *below*; only the cursor differs
+        # (Down follows the copy, Up stays on the original) — see
+        # `_duplicate_lines`, which takes exactly that one flag.
         if alt and ks in ("Up", "Down"):
             if shift:
                 self._duplicate_lines(cursor_follows=(ks == "Down"))
