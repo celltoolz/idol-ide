@@ -9,10 +9,12 @@ Working list for the `fix/idol-todo-sweep` branch. Longer-term plans live in
 verified — see **Done** below.
 
 ## ✨ Features
-- [ ] **Package Manager nav shortcut** — clicking Package Manager (nav bar / Help) while in Designer should switch to Editor with the Package Manager tab visible.
+
+*None open.* See **Done** below.
 
 ## 🎨 UI/UX Polish
-- [ ] **New Project Wizard cursor fix** — 'Open Project' and 'Back' buttons on the finish screen should use a hand cursor.
+
+*None open.* See **Done** below.
 
 ## 🗣️ Needs Discussion
 - [ ] **Bracket/quote matching behavior** — should not trigger while writing inside a comment. Also the general setup of matching doesn't feel right in the editor — needs more context/investigation before scoping.
@@ -27,6 +29,15 @@ verified — see **Done** below.
 - **In `ROADMAP.md`, not here:** macOS CI, expanding the test suite (terminal, git, session persistence, codegen preservation, conda paths), and bumping the GitHub Actions versions off the deprecated Node 20 runtime.
 
 ## ✅ Done on this branch
+
+**Panel tabs and the designer**
+- [x] **Panel tabs open where you can see them** — Welcome, Packages, Learning Mode and Settings are single-instance tabs that now live in whichever notebook opened them, not always the main one. Designer mode `pack_forget`s `self.notebook` (the canvas takes its slot), so clicking Package Manager / Welcome / Learning / Settings from the nav bar or the menus added a tab nobody could see and read as a dead button. They now open in the split pane while the designer is up, opening the split if it isn't. `_PANEL_TAB_SLOTS` + `_panel_tab_home` / `_toggle_panel_tab` / `_build_panel_tab` replace four hand-rolled copies of the same toggle.
+- [x] **File > New and File > Open follow the same rule** — both landed in the hidden main notebook while in designer mode. Every `_open_file` caller benefits, so clicking a Problems-panel entry from the designer now shows the file too.
+- [x] **Panel tabs can be dragged between panes** — dragging one used to open a blank Untitled in the split and close the tab that was dragged, because the move path only knew how to copy a code buffer. Tk cannot reparent a widget, so a move is close + rebuild. Welcome is draggable too now (it was pinned to main); `_backfill_main_notebook` is what keeps the main notebook from ever being left blank.
+
+**UI/UX**
+- [x] **New Project Wizard cursor fix** — 'Open Project →' and '← Back' on the finish screen kept the greyed-out look and lost the hand cursor, because `_show_progress` disables both and `_show_success` never re-enabled them. Both are live there, so both are enabled. `_render` now also resets the Next button's state *and* its binding before each step draws — otherwise Back out of the success screen landed on a Summary step whose Next still re-opened the project just created.
+- [x] **Wizard git probe hardened** — `_check_git` ran three bare `subprocess.run` calls with only the first wrapped in a `try`/`except`, from `__init__` on the main thread, so a slow or wedged `git config` raised `TimeoutExpired` and took the New Project dialog with it. Replaced by `git_manager.probe_identity()`, which is total by construction (everything goes through `_run_git`). Also puts the subprocess calls back on the right side of the import rule — `widgets/project_wizard.py` no longer imports `subprocess` at all.
 
 **Editor**
 - [x] **Clipboard history paste crash** — `_paste()` called `CanvasCodeView.insert()` with the old `tk.Text` signature. Also fixed the focus call on the next line (it focused the frame, not the canvas that owns the key bindings) and made `insert()` undoable.

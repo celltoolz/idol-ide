@@ -5,6 +5,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-29] — Panels That Open Where You Can See Them
+
+### Fixed
+- **Package Manager, Welcome, Learning Mode and Settings did nothing in the GUI Designer.**
+  Clicking any of them — from the nav bar, the Help menu, the View menu, `F1`/`F3`/`Ctrl+,` —
+  looked like a dead button.
+  - The Designer takes over the main editor area, so the tab was being opened behind it. It
+    existed; you just had no way to see it without switching back to the Editor first.
+  - All four now open in the **split pane** while the Designer is up, opening the split if it
+    isn't already there — so the panel sits beside your form instead of behind it. Switch back
+    to the Editor and the tab is right where you left it.
+- **File → New and File → Open had the same problem in the Designer**, and now behave the same
+  way. Anything that opens a file benefits: clicking an entry in the Problems panel while
+  designing shows you the file rather than silently loading it out of sight.
+- **Dragging a Welcome / Packages / Learning / Settings tab into the split pane replaced it with
+  a blank Untitled tab** and closed the original. Only code buffers knew how to move between
+  panes; the panels were being copied as if they were text. They now move properly, in either
+  direction. Welcome can be dragged out too — it used to be pinned to the left pane — and the
+  main editor is never left blank when it goes.
+- **New Project wizard: the finish screen's buttons looked disabled.** "Open Project →" and
+  "← Back" kept the greyed-out styling and the plain arrow cursor from the setup progress
+  screen, even though both were live. Both now look and behave like every other button in the
+  wizard, and Back returns you to a working Summary step.
+- **The New Project wizard could fail to open at all** if git was installed but slow to answer —
+  a stalled network drive, a large global config, a wedged credential helper. The wizard checks
+  for git and a configured identity while it builds, and two of those three checks had no
+  timeout handling, so a slow one took the dialog down instead of falling back to "git
+  unavailable". The check now always returns an answer, and worst case you get the same warning
+  you'd get with git missing.
+
+---
+
 ## [2026-07-28] — Settings, Colour & Font Choosers, Cross-Platform Fixes
 
 ### Added
