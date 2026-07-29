@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -11,6 +10,7 @@ from tkinter import Frame, Label, Entry, ttk, filedialog, messagebox
 from typing import Callable
 
 from editor import conda_manager
+from editor.git_manager import probe_identity
 from editor.project_manager import ProjectManager, categorize_interpreter
 from utils.conda_env import (conda_prefix_for, env_name_for, find_conda_exe,
                              is_conda_base)
@@ -141,29 +141,13 @@ class ProjectWizard(tk.Toplevel):
 
     @staticmethod
     def _check_git() -> tuple[bool, str]:
-        """Return (ok, warning_message). Runs two quick subprocess calls."""
-        try:
-            subprocess.run(
-                ["git", "--version"],
-                capture_output=True, timeout=5,
-            )
-        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-            return False, "Git is not installed or not found on PATH."
+        """Return (ok, warning_message) — see `git_manager.probe_identity`.
 
-        name = subprocess.run(
-            ["git", "config", "user.name"],
-            capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-        email = subprocess.run(
-            ["git", "config", "user.email"],
-            capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-
-        missing = [f for f, v in [("user.name", name), ("user.email", email)] if not v]
-        if missing:
-            return False, f"Git identity not configured: {', '.join(missing)} missing."
-
-        return True, ""
+        Kept as a seam rather than inlining the call: it is what `__init__`
+        reads, and what tests stub to keep three git subprocesses out of a
+        wizard test that is about something else.
+        """
+        return probe_identity()
 
     # ── Python detection (background) ─────────────────────────────────────────
 
@@ -220,6 +204,16 @@ class ProjectWizard(tk.Toplevel):
         name = self._STEPS[self._step]
         self._step_lbl.config(text=name)
         self._prog_lbl.config(text=f"Step {self._step + 1} of {len(self._STEPS)}")
+
+        # Reset the Next button before the step renders. A step may disable it
+        # (step 1 does, while interpreters are still being detected) and the
+        # success screen re-points it at _open_project, so both the enabled
+        # state and the binding have to come back to the wizard's own defaults
+        # here — otherwise arriving at a step leaves Next dead or still wired
+        # to the previous screen's action.
+        self._set_nav_enabled(self._next_btn, True)
+        self._next_btn.unbind("<Button-1>")
+        self._next_btn.bind("<Button-1>", lambda _: self._next())
 
         getattr(self, f"_render_step_{self._step}")()
 
@@ -819,10 +813,14 @@ class ProjectWizard(tk.Toplevel):
                 self, "Your First Commit", first_commit_guide.get_pages()
             ))
 
-        # Swap nav: hide Back, rename Next to "Open Project →"
-        self._set_nav_enabled(self._prev_btn, False)
+        # Swap nav: rename Next to "Open Project →" and re-bind it to close +
+        # open. Both buttons were greyed out by `_show_progress`, and they are
+        # live again here — the finish screen is not a dead end, Back returns
+        # to the Summary step — so re-enable them or they keep the disabled
+        # look and lose the hand cursor every other button has.
+        self._set_nav_enabled(self._prev_btn, True)
+        self._set_nav_enabled(self._next_btn, True)
         self._next_btn.config(text="Open Project →")
-        # Re-bind next to just close + open
         self._next_btn.unbind("<Button-1>")
         self._next_btn.bind("<Button-1>", lambda _: self._open_project(path))
 
