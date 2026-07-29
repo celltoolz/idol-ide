@@ -398,9 +398,56 @@ bind the real unbound methods onto a minimal stand-in exposing only what they
 touch — see the `Host` class in `tests/test_project_root.py`. The code under
 test stays the shipped code; only its collaborators are stubbed.
 
-Some fixes are structural — "this function must **not** call that one". A value
-assertion passes whether or not the call is still there, so assert on
-`inspect.getsource()` instead (`test_explorer_root_paths_do_not_latch`).
+### Writing a test that actually catches the bug
+
+Every rule below is here because the suite got it wrong first.
+
+**Prove it fails without the fix.** Revert the change, run the test, watch it
+fail, restore. Twice on this codebase a test passed against knowingly broken
+code — once because it asserted on the helper rather than the thing that drew
+the pixels, once because it drove an internal method instead of the control a
+user touches. A test written after the fix and never seen red is a guess.
+
+**Prefer behaviour when an event can be synthesised.** The scroll-dismiss test
+originally asserted that `"<MouseWheel>"` and `"_close_color_popup"` appeared in
+a method's source. Both were true and the code was dead — the engine's wheel
+handlers return `"break"`, which suppresses `add="+"` bindings entirely.
+`event_generate("<MouseWheel>", ...)` against a real widget would have failed
+immediately. Reach for a synthetic event before reaching for `getsource`.
+
+**Structural assertions are for "must NOT call".** Some fixes have no value to
+check — `_set_explorer_root` must not latch the project, no dismiss handler may
+return `"break"`, no auto-close may reappear. A value assertion passes whether
+or not the call is still there. Prefer pinning an **allowlist** over one test
+per site (`tests/test_split_pane_policy.py`): a newly added offender then fails
+and names itself, and add a rot guard that the allowlisted names still exist, or
+a rename makes the test pass by matching nothing.
+
+**Parse, don't grep — comments contain their own subject.** This has bitten four
+times. A comment explaining why `font=init` was wrong contains `font=init`; the
+one explaining a `tk.Checkbutton` swap contains `tk.Checkbutton`; the one
+warning against returning `"break"` contains `"break"`. Walk the AST for the
+call, keyword, or `Return` node instead of searching the source text.
+
+**Isolate from the developer's real files.** Anything reading `~/.idol` gets
+redirected in a fixture — `monkeypatch.setattr(settings, "SETTINGS_FILE", …)`,
+`clipboard_store.CLIP_DIR`. Two migration tests passed only a session path and
+let the *recent* path default to the real `~/.idol/recent.json`, so they passed
+or failed depending on whose machine ran them. If a function takes two paths,
+pass both.
+
+**Test the logic, not the widget wrapped around it.** A 4096-colour round-trip
+sweep through `ColorPicker.set_color` took 14 s because each call regenerated a
+gradient. The bug was in the channel maths, so the sweep moved to the maths:
+same coverage, 0.1 s.
+
+### Adding a test
+
+1. Put it in the file for that area, or start a new `tests/test_<area>.py`.
+2. Mark it `@pytest.mark.gui` if it needs a display, so `-m "not gui"` holds.
+3. Redirect any user-file path through a fixture.
+4. Break the code, watch it fail, restore.
+5. Run `pytest` and `ruff check .` — CI gates on both.
 
 ## Current Feature State
 
