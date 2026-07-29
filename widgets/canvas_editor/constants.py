@@ -19,6 +19,12 @@ import re
 _PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
 # All openers and closers — used for skip-over-closer detection.
 _CLOSERS = set(_PAIRS.values())
+# Every char that steps over an identical char already sitting at the cursor
+# instead of inserting a second one. Closers have always done this (typing `)`
+# onto the `)` that `(` auto-inserted). Openers do it too, because the
+# alternative is wedging an empty pair in front of an existing bracket —
+# `def __init__|(self):` used to become `def __init__()(self):`.
+_SKIP_OVER = set(_PAIRS) | _CLOSERS
 
 # Bracket pairs for match-highlighting (no quotes — same char on both
 # sides would defeat the depth-counting scan in bracket_matcher.py).

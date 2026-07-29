@@ -61,7 +61,7 @@ Sections appear only once they have something in them.
 | Highlight active line | Tint the line the cursor is on. |
 | Active line colour | Overrides the theme's own highlight. Reset to follow whichever theme is active. |
 | Autocomplete | Suggest completions as you type. |
-| Auto-close brackets and quotes | Typing an opener inserts its closer, and typing the closer steps over it. Turning this off also stops the step-over, so a typed `)` is always the `)` you get. |
+| Auto-close brackets and quotes | Typing an opener inserts its closer, and typing either half again steps over it rather than doubling it up. Only applies in code — never in a comment, a string or a plain-text file. Turning this off also stops the step-over, so a typed `)` is always the `)` you get. |
 
 ### AI
 

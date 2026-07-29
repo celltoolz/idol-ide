@@ -34,6 +34,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   timeout handling, so a slow one took the dialog down instead of falling back to "git
   unavailable". The check now always returns an answer, and worst case you get the same warning
   you'd get with git missing.
+- **Typing `(` in front of an existing `(` inserted an empty pair in front of it.** With the
+  cursor just before the bracket in `def __init__(self):`, pressing `(` gave you
+  `def __init__()(self):`. Closing brackets already did the sensible thing — pressing `)` on a
+  `)` steps over it — but openers had no such rule, so they fell through to auto-pairing.
+  - Openers now step over too: the first press moves past the bracket, and only a second press
+    inserts. `[` and `{` had the same fault and got the same fix.
+- **Auto-pairing fired inside comments and strings**, where it is noise rather than help —
+  typing the apostrophe in `# don't` gave you `# don''t`.
+  - Brackets and quotes now only auto-pair in **code**. Comments, strings, docstrings and
+    plain-text files insert exactly what you typed. A new **Untitled** tab still pairs — that is
+    where a file spends its first minutes — and the suppression begins once it is saved under a
+    plain-text name.
+  - Typing a quote onto a string's closing quote still steps over it, since that closer *was*
+    auto-inserted and stepping over it is how you leave the string. Typing `"""` still opens a
+    docstring, and wrapping a selection still works everywhere.
+- **Bracket highlighting matched across comments and strings.** A `(` written in a comment drew
+  a match against real code elsewhere in the file. Highlighting is code-only now, and a quote
+  highlights only when it genuinely opens or closes a string — so the apostrophe in `"don't"`
+  is left alone, and a `"""` pairs with the triple at the other end instead of with the quote
+  beside it.
+- **Multi-cursor ignored the "auto-close brackets and quotes" setting entirely.** Turning the
+  preference off still auto-paired at every secondary cursor. Every cursor now follows the same
+  rules as the primary one.
 
 ---
 

@@ -6,7 +6,7 @@
 - Hover any tab to see its full file path as a tooltip
 - Canvas-rendered regex-rule syntax highlighting; themes are JSON files in `themes/` — no Pygments dependency
 - Line numbers with code folding — click **▼**/**▶** markers to collapse/expand blocks; `# ── Name ───` section-marker comments fold from that header to the next section header at the same indent; IDOL designer markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block; **Up/Down arrow keys skip folded blocks**; pressing **Enter** on a folded section header unfolds the section first, then inserts a newline after the header line
-- Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes. When the cursor touches a bracket or quote, its matching partner is highlighted as you move — quotes are matched within the same line by counting quotes to tell openers from closers, and escaped quotes (`\"`) are skipped
+- Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes. When the cursor touches a bracket or quote, its matching partner is highlighted as you move. Matching is **code-only**: a bracket you typed into a comment, or one sitting in the middle of a string, no longer highlights against real code elsewhere in the file. Quotes match within the same line, and only when they genuinely open or close a string — so the apostrophe in `"don't"` is left alone, escaped quotes (`\"`) are skipped, and a `"""` pairs with the triple at the other end rather than with the quote next to it
 
 ## Font
 
@@ -112,6 +112,19 @@ The ⇕ button (in the split header) syncs both panes to the same scroll positio
 - **Smart Home** — first press jumps to the first non-whitespace character; second press jumps to column 0 (position-based, no state needed)
 - **Word occurrence highlights** — when the cursor rests on a word, all other occurrences in the file highlight automatically; updates on arrow-key navigation too
 - **Selection collapse** — pressing Left or Right arrow with a selection collapses to the start/end of the selection (VS Code behavior)
+
+## Auto-close Pairs
+
+Typing an opener inserts its closer. Typing that closer again steps over it instead of adding a second one — and **openers step over too**, so with the cursor just before an existing `(`, pressing `(` moves past it rather than wedging an empty `()` in front of it. The same applies to `[` and `{`.
+
+Pairing only happens in code. Inside a comment, inside a string or docstring, and in a plain-text file, what you type is what you get — `# don't` stays `# don't` instead of becoming `# don''t`. An unsaved **Untitled** tab still pairs, since that is where a new file spends its first minutes; the suppression starts once the file is saved under a plain-text name.
+
+Two deliberate exceptions keep the feature usable:
+
+- Inside a string, typing a quote onto the closing quote still steps over it — that closer *was* auto-inserted, and stepping over it is how you get back out of the string. It is also what makes typing `"""` open a docstring.
+- Wrapping a selection still works anywhere, including inside a string. Selecting a word and pressing `(` is something you asked for, not something the editor volunteered.
+
+All of it applies at every cursor when multi-cursor is active. Turn the feature off with **Settings → Editor → Auto-close brackets and quotes**.
 
 ## Undo / Redo
 

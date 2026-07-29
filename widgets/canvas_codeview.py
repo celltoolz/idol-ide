@@ -20,14 +20,15 @@ import tkinter.font as tkfont
 
 from .breadcrumb_bar import BreadcrumbBar
 from .canvas_editor.constants import (
-    _CLOSERS,
     _FONT_FAMILY,
     _FONT_SIZE,
     _IDOL_BEGIN_RE,
     _IDOL_END_RE,
     _MINIMAP_W,
     _PAIRS,
+    _QUOTES,
     _SECTION_MARKER,
+    _SKIP_OVER,
 )
 from .canvas_editor.tokenizer import TokenizerMixin
 from .canvas_editor.fold import FoldMixin
@@ -949,6 +950,11 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # File path the buffer is backed by — passed to LSP via the host.
         # `None` means scratch buffer / unsaved.
         self.filepath: str | None = None
+        # Canonical language id, kept in step with `filepath` by set_filepath.
+        # Seeded here so a view that is never given a path is still readable —
+        # the tokenizer and the auto-pair gate both consult it on every paint
+        # and every keystroke.
+        self.language: str = language_from_path(None)
         # Autocomplete popup state.
         self._ac_top: tk.Toplevel | None = None
         self._ac_listbox: tk.Listbox | None = None
@@ -2344,26 +2350,85 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
 
     # ── Auto-pair brackets / quotes ───────────────────────────────────────────
 
+    def _pairing_suppressed(self) -> bool:
+        """True when this buffer is a saved plain-text file, where auto-pairing
+        is noise rather than help.
+
+        `language` is "text" for a `.txt` file *and* for an unsaved Untitled
+        buffer, so the filepath is what tells the two apart — pairing stays on
+        while you are typing Python into a scratch tab you haven't saved yet,
+        which is where a new file spends its first minutes."""
+        return self.language == "text" and bool(self.filepath)
+
+    def _insert_char_plain(self, ch: str) -> None:
+        """Insert `ch` with no pairing and no skip-over, coalescing undo the
+        way ordinary typing does."""
+        self._push_undo("insert_char" if not self.sel_anchor else "")
+        self._insert_text(ch)
+
     def _insert_char_with_pairs(self, ch: str) -> None:
         """Smart insert for a single typed character: auto-pair brackets
-        and quotes, skip over an already-present closer, and avoid
-        pairing when typing into the middle of a word."""
-        if not self.smart_pairs_enabled:
-            # Plain insert. Also disables skip-over-closer, which is the same
+        and quotes, skip over an already-present partner, and avoid
+        pairing when typing into the middle of a word.
+
+        Pairing is code-only. Inside a comment, inside a string literal or
+        docstring, and in a plain-text file, the character is inserted as
+        typed — the apostrophe in `# don't` should not become `# don''t`."""
+        if not self.smart_pairs_enabled or self._pairing_suppressed():
+            # Plain insert. Also disables skip-over, which is the same
             # feature seen from the other side — with pairing off there is no
             # auto-inserted closer to skip, and swallowing a typed `)` would
             # be the surprise the preference exists to remove.
-            self._push_undo("insert_char" if not self.sel_anchor else "")
-            self._insert_text(ch)
+            self._insert_char_plain(ch)
             return
 
         line = self.lines[self.cur_line]
         next_ch = line[self.cur_col] if self.cur_col < len(line) else ""
+        context = self._context_at(self.cur_line, self.cur_col)
 
-        # Skip over an already-present closing char (e.g. typed `)` when
-        # the cursor is already sitting on the auto-inserted `)`).
-        if not self.sel_anchor and ch in _CLOSERS and next_ch == ch:
+        # Wrap a selection in the pair instead of replacing it. This is an
+        # explicit gesture rather than something the editor volunteered, so it
+        # runs ahead of the comment/string gates below — selecting a word
+        # inside a string and pressing `(` should still bracket it. The guard
+        # is the one this branch has always carried.
+        if (self.sel_anchor and ch in _PAIRS
+                and not next_ch.isalnum() and next_ch != "_"):
+            self._push_undo("")
+            wrapped_text = self._selected_text()
+            self._delete_selection()
+            self._insert_text(ch + wrapped_text + _PAIRS[ch])
+            # Move cursor back to just past the closing char so further
+            # typing extends inside the pair.
+            self.cur_col -= 1
+            return
+
+        if context == "comment":
+            # Prose, not code. Skip-over goes too, for the same reason as the
+            # preference-off path above: with pairing suppressed here, nothing
+            # in this comment was auto-inserted, so stepping over a `)` the
+            # user typed by hand would silently eat the keystroke.
+            self._insert_char_plain(ch)
+            return
+
+        # Skip over an identical char already sitting at the cursor.
+        #
+        # Closers have always done this (typing `)` onto the `)` that `(`
+        # auto-inserted). Openers now do it too: typing `(` immediately before
+        # an existing `(` used to wedge an empty pair in front of it —
+        # `def __init__|(self):` became `def __init__()(self):`, which is
+        # never what anyone means.
+        #
+        # Inside a string only quotes may skip. The closing quote *was*
+        # auto-inserted and stepping over it is how you leave the string, but
+        # a `)` in a string's body was typed by hand and eating it would lose
+        # a character.
+        skippable = ch in _QUOTES if context == "string" else ch in _SKIP_OVER
+        if not self.sel_anchor and skippable and next_ch == ch:
             self.cur_col += 1
+            return
+
+        if context == "string":
+            self._insert_char_plain(ch)
             return
 
         # Snapshot before any state mutation.  Plain single-char typing
@@ -2378,15 +2443,6 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # when typing into the middle of a word (e.g. typing `(` between
         # `fo` and `o` in `foo`).
         if ch in _PAIRS and not next_ch.isalnum() and next_ch != "_":
-            if self.sel_anchor:
-                # Wrap selection in the pair instead of replacing it.
-                wrapped_text = self._selected_text()
-                self._delete_selection()
-                self._insert_text(ch + wrapped_text + _PAIRS[ch])
-                # Move cursor back to just past the closing char so further
-                # typing extends inside the pair.
-                self.cur_col -= 1
-                return
             # Don't double-pair quotes when one is right behind us (e.g.
             # typing the closing `"` of a string the user explicitly
             # opened character-by-character).

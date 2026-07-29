@@ -16,16 +16,17 @@ fold mixin despite touching render state).
 """
 from __future__ import annotations
 
-from .constants import _CLOSERS, _PAIRS
+from .constants import _PAIRS, _QUOTES, _SKIP_OVER
 
 
 class MultiCursorMixin:
     """Secondary-cursor state + editing, mixed into CanvasCodeView.
 
     Reads/writes host state: `self._mc_cursors`, `self._mc_anchors`,
-    `self.lines`, `self.cur_line`/`self.cur_col`, `self.tab_size`. Calls
-    host methods (`_fire_change`, `render`, `_reset_blink`,
-    `_coords_from_pixel`) and render attributes for selection drawing."""
+    `self.lines`, `self.cur_line`/`self.cur_col`, `self.tab_size`,
+    `self.smart_pairs_enabled`. Calls host methods (`_fire_change`, `render`,
+    `_reset_blink`, `_coords_from_pixel`, `_context_at`, `_pairing_suppressed`)
+    and render attributes for selection drawing."""
 
     def mc_count(self) -> int:
         """Total cursor count (primary + secondaries). 0 when no secondaries."""
@@ -218,12 +219,31 @@ class MultiCursorMixin:
 
     def _mc_insert_char(self, line: int, col: int,
                         char: str) -> tuple[int, int]:
-        """Insert char at (line, col) with bracket pairing. Return new pos."""
+        """Insert char at (line, col) with bracket pairing. Return new pos.
+
+        Mirrors the primary cursor's `_insert_char_with_pairs`, including its
+        gates: the smart-pairs preference, plain-text files, and the
+        code-only rule that keeps a `(` or an apostrophe from pairing inside a
+        comment or a string. `_ml_state` is only refreshed by `_fire_change`,
+        so within one batch the caret contexts are read from the buffer as it
+        stood before the batch began — close enough for a per-line
+        code/string/comment verdict, and the batch re-scans on the way out."""
         ln = self.lines[line]
         next_ch = ln[col] if col < len(ln) else ""
-        if char in _CLOSERS and next_ch == char:
+        if not self.smart_pairs_enabled or self._pairing_suppressed():
+            self.lines[line] = ln[:col] + char + ln[col:]
             return line, col + 1
-        if char in _PAIRS and not next_ch.isalnum() and next_ch != "_":
+        context = self._context_at(line, col)
+        if context == "comment":
+            self.lines[line] = ln[:col] + char + ln[col:]
+            return line, col + 1
+        # Openers skip over an identical char too — see the primary cursor's
+        # version for why. Inside a string only quotes may skip.
+        skippable = char in _QUOTES if context == "string" else char in _SKIP_OVER
+        if skippable and next_ch == char:
+            return line, col + 1
+        if (context != "string" and char in _PAIRS
+                and not next_ch.isalnum() and next_ch != "_"):
             self.lines[line] = ln[:col] + char + _PAIRS[char] + ln[col:]
             return line, col + 1
         self.lines[line] = ln[:col] + char + ln[col:]
