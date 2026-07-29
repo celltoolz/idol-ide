@@ -37,6 +37,7 @@ from editor.git_manager import GitManager, get_global_identity
 from menus.menubar import build_menubar
 from utils import session as session_utils
 from utils import recent as recent_utils
+from utils import settings as settings_utils
 from utils import clipboard_store
 from utils import starter_templates
 from utils.thread_safe_after import make_thread_safe_after
@@ -565,6 +566,12 @@ class IDOL(Tk):
         build_menubar(self)
         self._bind_shortcuts()
         self._start_highlight_loop()
+
+        # Preferences before any session restore. The migration reads the old
+        # auto-session, so it has to run before anything overwrites that file,
+        # and applying here means a project's stale copy can no longer win.
+        settings_utils.migrate_from_session()
+        self._apply_user_preferences()
 
         if initial_file and os.path.isfile(initial_file):
             # Launched as `python main.py <file>` — no project and no session
@@ -4354,9 +4361,53 @@ class IDOL(Tk):
 
     # ── View operations ───────────────────────────────────────────────────────
 
-    def view_change_theme(self) -> None:
-        """Apply the selected theme to every canvas tab + the sidebar."""
+    # ── User preferences ──────────────────────────────────────────────────────
+
+    def _apply_user_preferences(self) -> None:
+        """Apply everything from `utils/settings.py` to the live UI.
+
+        Called once at startup and again whenever a preference changes, so the
+        Settings panel gets live-apply for free rather than each control
+        knowing how to reach into the widgets it affects.
+        """
+        theme = settings_utils.get("appearance.theme")
+        from utils.theme_loader import list_themes as _theme_ids
+        if theme not in _theme_ids():
+            # A theme from an older build, or a hand-edited file. Fall back
+            # rather than leaving the View > Theme radio group with nothing
+            # checked and the editor on whatever it happened to load.
+            theme = settings_utils.default_for("appearance.theme")
+        self.theme_var.set(theme)
+        self.view_change_theme(persist=False)
+
+        font = settings_utils.get_editor_font()
+        if font:
+            self._editor_font = font
+            for cv in self._codeviews.values():
+                if cv is not None:
+                    cv.set_font(*font)
+
+        self.minimap_visible_var.set(
+            bool(settings_utils.get("editor.minimap_visible")))
+        self.view_toggle_minimap(persist=False)
+
+        from utils import ollama_client
+        ollama_client.set_base_url(settings_utils.get("ai.ollama_url"))
+        panel = getattr(self, "_ai_chat_panel", None)
+        if panel is not None and hasattr(panel, "_url_var"):
+            panel._url_var.set(ollama_client.get_base_url())
+
+    def view_change_theme(self, persist: bool = True) -> None:
+        """Apply the selected theme to every canvas tab + the sidebar.
+
+        `persist=False` is for `_apply_user_preferences`, which is applying a
+        stored value — writing it back would be a no-op at best and, during
+        the fallback above, would quietly overwrite the user's choice with the
+        default.
+        """
         scheme = self.theme_var.get()
+        if persist:
+            settings_utils.set("appearance.theme", scheme)
         for cv in self._codeviews.values():
             if cv is not None:
                 cv.set_theme(scheme)
@@ -4420,6 +4471,7 @@ class IDOL(Tk):
         weight = font.get("weight", "normal") or "normal"
         slant = font.get("slant", "roman") or "roman"
         self._editor_font = (family, size, weight, slant)
+        settings_utils.set_editor_font(family, size, weight, slant)
         for cv in self._codeviews.values():
             if cv is not None:
                 cv.set_font(family, size, weight, slant)
@@ -4461,8 +4513,10 @@ class IDOL(Tk):
     def view_new_terminal(self) -> None:
         self.view_show_panel("terminal")
 
-    def view_toggle_minimap(self) -> None:
+    def view_toggle_minimap(self, persist: bool = True) -> None:
         show = self.minimap_visible_var.get()
+        if persist:
+            settings_utils.set("editor.minimap_visible", bool(show))
         for cv in self._codeviews.values():
             if cv is None:
                 continue

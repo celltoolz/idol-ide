@@ -10,9 +10,20 @@
 - [x] **Auto-close split breaks when toggling Editor/Designer** — *resolved by removing auto-close entirely.* The split now closes only on the user's own toggle or the pane's ×. Four paths used to take it down automatically; the Designer one combined with the close-last-tab one to lose a split outright across a mode switch. Pinned by an allowlist test so a new auto-close fails CI.
 
 ## ✨ Features
-- [ ] **Settings menu** — build it out; would be the right home for conda channel management.
-  - **Also the right home for LSP + ruff rule configuration.** The project now has a `ruff.toml` with a deliberately narrow rule set (bug rules on, house-style rules off). Surfacing that as a settings page — toggle rule groups, per-project overrides — is a natural fit, and pairs with the existing "LSP on/off, ruff on/off" idea already in `ROADMAP.md`.
-  - **Move Active Line Color here** (Editor tab, or whatever the section ends up called). It currently sits in the View menu as a one-off colour swatch, which is the wrong home for a preference — `ROADMAP.md` already lists it alongside "Highlight active line (on/off)" for the settings panel.
+- [ ] **Settings panel** — plan agreed 2026-07-28. Four commits, each shippable.
+  - **Organizing principle — three scopes, and the rule that decides where anything goes:**
+    - **Preference** ("how do I like my IDE?") → `~/.idol/settings.json`, follows the *user* across every project.
+    - **Workspace state** ("what was I doing here?") → `.idol-project` / `session.json`, follows the *project*.
+    - **Project config** ("how is this codebase built?") → files in the repo (`ruff.toml`, `environment.yml`), follows the *code* into git.
+  - **The bug this fixes:** `session.restore()` applies `appearance.theme`, `appearance.font` and `minimap_visible` from whichever file it reads — including a project's `.idol-project`. Opening a different project silently changes your theme and editor font. The Ollama server URL is per-project for the same reason.
+  - **Not persisted at all today:** Highlight Active Line, Active Line Color, Show Sidebar, Show Panels, active panel tab, Zen Mode, tab size.
+  - **Phase 1** — grow `utils/settings.py` into a real store (schema + defaults + change notification); migrate the leaking preferences out of the session, silently.
+  - **Phase 2** — the panel: a notebook tab like Package Manager, two-pane with a category list and a search box, rendered from the schema.
+  - **Phase 3** — persist the toggles that currently don't, plus new editor preferences (tab size, autocomplete, smart pairs).
+  - **Phase 4** — migrate the View menu in, keeping frequently-toggled items (Zen Mode, Show Sidebar, Panels) as menu entries bound to the same store.
+  - Categories: Editor · Appearance · Python · Diagnostics · Run & Debug · Designer · AI · General.
+  - Run target / action / cwd mode stay **workspace** state — the run config belongs to the project.
+  - Ruff rules: the panel **edits the project's `ruff.toml`**, never mirrors rules into `settings.json`. Two sources of truth for lint config is the exact divergence the ruff work just fixed.
 - [ ] **Package Manager nav shortcut** — clicking Package Manager (nav bar / Help) while in Designer should switch to Editor with the Package Manager tab visible.
 
 ## 🎨 UI/UX Polish
@@ -37,4 +48,7 @@
 
 ## 📌 Known, not yet scoped
 - **`_project_root_cwd()` still uses the explorer root**, not the latched project. It drives the Run/Debug "project" cwd mode, so *Set as Root Directory* on a subfolder makes runs use that subfolder. That may well be what you want when you deliberately re-root — left alone rather than changed silently. Decide the intended behaviour before touching it.
+- **Ruff rule editing from Settings** — its own piece of work, planned separately. The panel edits the project's `ruff.toml` directly; needs a design pass on presenting rule groups, what happens when no config exists yet, and how to show which rules a project inherited vs chose. Pairs with the "LSP on/off, ruff on/off" idea in `ROADMAP.md`.
+- **Conda channel management from Settings** — also its own piece. Edits `~/.condarc` (and a project's `environment.yml` channels), which is project config, not a preference. Start from the conda-forge question already in Needs Discussion.
+- **Per-project setting overrides** — VS Code's User vs Workspace split. The Phase 1 schema is designed to allow it; building it is deliberately out of the first pass. Decide the precedence rules and the UI for "this is overridden here" before starting.
 - **Ruff's ceiling should be raised deliberately.** `ruff>=0.15,<0.16` holds the known-good 59-rule default set. Now that `_run_ruff` passes an explicit `--select` when a project has no config of its own, moving to 0.16+ is much safer than it was — but it needs a pass over what the newer rules would show a beginner before the pin is lifted.

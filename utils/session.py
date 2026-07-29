@@ -366,13 +366,14 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
             pass
 
     # ── Appearance ────────────────────────────────────────────────────────────
-    appearance: dict = {
-        "theme":            app.theme_var.get(),
-        "minimap_visible":  app.minimap_visible_var.get(),
-    }
-    # Persist the editor font (family, size, weight, slant) set via View > Change Font.
-    if getattr(app, "_editor_font", None):
-        appearance["font"] = list(app._editor_font)
+    # Deliberately empty. Theme, editor font and minimap visibility are *user
+    # preferences* and live in `utils/settings.py` now. They were written here
+    # once, into the project file as well as the auto-session, so opening a
+    # project applied that project's theme and font — a preference silently
+    # changing because you switched work. The key stays so older files still
+    # load, and `settings.migrate_from_session` reads it once to move the
+    # values across.
+    appearance: dict = {}
 
     # ── Layout ────────────────────────────────────────────────────────────────
     layout: dict = {}
@@ -478,9 +479,9 @@ def save(app: "IDOL", filepath: str | Path | None = None) -> None:
         except Exception:
             pass
 
-    # AI panel
-    from utils import ollama_client
-    layout["ollama_url"] = ollama_client.get_base_url()
+    # AI panel. The Ollama URL is a preference (`ai.ollama_url`), not workspace
+    # state — a server address does not belong to a project. Only the panel's
+    # visibility and width are saved here.
     layout["ai_panel_visible"] = app._ai_panel_visible
     if app._ai_panel_visible:
         try:
@@ -741,35 +742,11 @@ def restore(app: "IDOL", filepath: str | Path | None = None) -> bool:
             app._schedule_conda_activation_if_needed(conda_prefix)
 
     # ── Appearance ────────────────────────────────────────────────────────────
-    appearance = data.get("appearance", {})
-    theme = appearance.get("theme")
-    if theme:
-        # Coerce legacy pygments theme names (saved before the canvas
-        # editor migration) to the bundled default so the View → Theme
-        # menu has a valid radio-checked entry on launch.
-        from utils.theme_loader import list_themes as _canvas_ids
-        if theme not in _canvas_ids():
-            theme = "monokai-bright"
-        app.theme_var.set(theme)
-        app.view_change_theme()
-    font = appearance.get("font")
-    if font:
-        try:
-            if isinstance(font, (list, tuple)) and len(font) >= 2:
-                family = str(font[0])
-                size   = int(font[1])
-                weight = str(font[2]) if len(font) > 2 else "normal"
-                slant  = str(font[3]) if len(font) > 3 else "roman"
-                app._editor_font = (family, size, weight, slant)
-                for cv in app._codeviews.values():
-                    if cv is not None:
-                        cv.set_font(family, size, weight, slant)
-        except Exception:
-            pass
-
-    minimap = appearance.get("minimap_visible", True)
-    app.minimap_visible_var.set(minimap)
-    app.view_toggle_minimap()
+    # Theme, font and minimap are NOT restored here any more — they are user
+    # preferences, applied once at startup from `utils/settings.py` by
+    # `app._apply_user_preferences`. Restoring them per session is what let a
+    # project file overwrite them. The stored values are still read, but only
+    # by the one-time migration in `settings.migrate_from_session`.
 
     # ── Layout — two-stage to let pane geometry settle before sidebar measures ──
     layout = data.get("layout")
@@ -960,12 +937,8 @@ def _apply_pane_sashes(app: "IDOL", layout: dict) -> None:
                 app._designer_main_form = saved_main_form
             app.after(300, app._enter_designer_mode)
 
-    # Restore Ollama URL if customized
-    if layout.get("ollama_url"):
-        from utils import ollama_client
-        ollama_client.set_base_url(layout["ollama_url"])
-        if hasattr(app, "_ai_chat_panel"):
-            app._ai_chat_panel._url_var.set(ollama_client.get_base_url())
+    # The Ollama URL is applied from settings at startup, not from here — see
+    # `app._apply_user_preferences`.
 
     # Debug float window
     if layout.get("debug_floating"):
