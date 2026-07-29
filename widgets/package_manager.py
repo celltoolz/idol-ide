@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -12,10 +13,13 @@ from widgets.scrollbar import VerticalScrollbar
 from editor import conda_manager as conda_backend
 from editor.conda_manager import CondaManager, CondaSearchIndex
 from editor.pip_manager import PipManager
+from widgets.conda_channels_editor import CondaChannelsEditor
 from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.learning_manager import LearningManager
 from utils import settings as _settings
-from utils.conda_env import is_conda_env, mask_channel, project_channels
+from utils.conda_env import (channel_edit_action, create_project_environment_yml,
+                             is_conda_env, mask_channel, resolve_channels,
+                             write_project_channels)
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.guide_window import GuideWindow, GuidePage
 from utils.ui_font import UI_FONT
@@ -36,6 +40,11 @@ _ACCENT   = "#0e639c"
 _GREEN    = "#4ec9b0"
 _SEL_BG   = "#094771"
 _WARN     = "#ce9178"
+
+# Channel-bar edit label per conda_env.channel_edit_action verdict. Creating
+# environment.yml is named explicitly because it is a different action from
+# editing one — it drops a git-tracked file into the project.
+_EDIT_LABELS = {"": "", "edit": "✎ Edit", "create": "✎ Create environment.yml"}
 
 _CACHE_FILE   = Path.home() / ".idol" / "pkg_cache.json"
 _LOOKUP_FILE  = Path(__file__).parent.parent / "data" / "idol_package_categories.json"
@@ -268,7 +277,8 @@ class PackageManagerPanel(tk.Frame):
         self._chan_cfg = None
         self._sync_channel_bar()
         if self._backend is self._conda:
-            self._conda_index.ensure_loaded()   # pre-warm in the background
+            # Pre-warm in the background, for the channels this project uses.
+            self._conda_index.ensure_loaded(self._effective_channels())
         self._load_installed()
 
     def set_project_dir(self, path: str) -> None:
@@ -278,11 +288,36 @@ class PackageManagerPanel(tk.Frame):
         `app._add_to_environment_yml` appends dependencies to — the bar and the
         writer have to agree about which environment.yml they mean.
         """
+        if self._project_dir == str(path or ""):
+            return
         self._project_dir = str(path or "")
         if self._backend is self._conda:
             self._render_channel_bar()
+            self._apply_channels()
 
     # ── Channel bar ───────────────────────────────────────────────────────────
+
+    def _resolve_channels(self) -> tuple[list[str], bool]:
+        """`(channels, stated)` for this project — see `conda_env.resolve_channels`."""
+        cfg = self._chan_cfg
+        reported = list(cfg.channels) if cfg and cfg.ok else []
+        return resolve_channels(self._project_dir, reported)
+
+    def _effective_channels(self) -> list[str]:
+        """The channels this project actually searches and installs from."""
+        return self._resolve_channels()[0]
+
+    def _apply_channels(self) -> None:
+        """Push the effective list to the install backend and the search index.
+
+        Installs are pinned only for a project that states its channels (see
+        `resolve_channels` for why). Search takes the effective list either
+        way — it is a read, and it should show what conda will actually reach.
+        """
+        channels, stated = self._resolve_channels()
+        self._conda.set_channels(channels if stated else [], override=stated)
+        if channels and not self._conda_index.is_loaded_for(channels):
+            self._conda_index.ensure_loaded(channels)
 
     def _sync_channel_bar(self) -> None:
         """Show and refresh the bar for conda interpreters; hide it otherwise."""
@@ -300,13 +335,14 @@ class PackageManagerPanel(tk.Frame):
     def _on_channel_config(self, cfg: conda_backend.ChannelConfig) -> None:
         self._chan_cfg = cfg
         self._render_channel_bar()
+        self._apply_channels()
 
     def _render_channel_bar(self) -> None:
         """Paint the bar from the project file first, conda's own config second."""
         cfg = self._chan_cfg
-        proj = project_channels(self._project_dir)
-        if proj is not None:
-            channels, source = proj, "from environment.yml"
+        channels, stated = self._resolve_channels()
+        if stated:
+            source = "from environment.yml"
         elif cfg is None:
             channels, source = [], "reading conda configuration…"
         elif not cfg.ok:
@@ -327,10 +363,67 @@ class PackageManagerPanel(tk.Frame):
         self._chan_src.config(text=source)
         self._chan_prio.config(
             text=f"{cfg.priority} priority" if cfg and cfg.ok and cfg.priority else "")
+        self._chan_edit.config(text=_EDIT_LABELS[
+            channel_edit_action(self._project_dir, stated)])
 
     def _open_channel_guide(self) -> None:
         from utils.conda_channels_guide import get_pages
         GuideWindow(self, "Conda Channels", get_pages())
+
+    def _edit_channels(self) -> None:
+        """Open the channel editor, adopting the folder as a conda project first.
+
+        Creating environment.yml declares the folder a conda project and drops a
+        git-tracked file into it, so it is asked rather than done as a side
+        effect of clicking Edit.
+        """
+        from tkinter import messagebox
+
+        seed, stated = self._resolve_channels()
+        action = channel_edit_action(self._project_dir, stated)
+        if not action:
+            return
+        if action == "create":
+            if not seed:
+                self._notify("Still reading conda's channel configuration — "
+                             "try again in a moment\n")
+                return
+            if not messagebox.askyesno(
+                "Create environment.yml",
+                f"This project has no environment.yml.\n\n"
+                f"Create one in {self._project_dir} so the channel list travels "
+                f"with your code?\n\n"
+                f"It will start with the channels conda is using now: "
+                f"{', '.join(mask_channel(c) for c in seed)}",
+                parent=self,
+            ):
+                return
+            name = os.path.basename(os.path.abspath(self._project_dir))
+            if not create_project_environment_yml(self._project_dir, name, seed):
+                self._notify("Could not create environment.yml — check folder "
+                             "permissions\n")
+                return
+            self._render_channel_bar()
+
+        CondaChannelsEditor(
+            self, self._effective_channels(),
+            os.path.join(os.path.basename(os.path.abspath(self._project_dir)),
+                         "environment.yml"),
+            on_save=self._on_channels_saved,
+        )
+
+    def _on_channels_saved(self, channels: list[str]) -> None:
+        """Persist the edited list, then re-point search and installs at it."""
+        if not write_project_channels(self._project_dir, channels):
+            self._notify("Could not write environment.yml — the channel list "
+                         "was not saved\n")
+            return
+        self._render_channel_bar()
+        self._apply_channels()
+        # The index is keyed by channel set, so this refetches only the delta.
+        self._conda_index.ensure_loaded(
+            channels, on_done=lambda n: self._notify(
+                f"Channel index rebuilt — {n} packages searchable\n"))
 
     def _set_search_source(self, source: str) -> None:
         """Switch the search namespace and sync the toggle/button UI."""
@@ -468,9 +561,15 @@ class PackageManagerPanel(tk.Frame):
         self._chan_help.bind("<Leave>",
                              lambda _: self._chan_help.config(fg="#569cd6"))
         self._chan_help.pack(side="right", padx=(4, 10))
+        self._chan_edit = tk.Label(chan_top, text="", bg=_BG, fg=_DIM,
+                                   font=(UI_FONT, 8), cursor="hand2")
+        self._chan_edit.bind("<ButtonRelease-1>", lambda _: self._edit_channels())
+        self._chan_edit.bind("<Enter>", lambda _: self._chan_edit.config(fg=_FG))
+        self._chan_edit.bind("<Leave>", lambda _: self._chan_edit.config(fg=_DIM))
+        self._chan_edit.pack(side="right", padx=(0, 12))
         self._chan_prio = tk.Label(chan_top, text="", bg=_BG, fg=_DIM,
                                    font=(UI_FONT, 8))
-        self._chan_prio.pack(side="right")
+        self._chan_prio.pack(side="right", padx=(0, 12))
         # Packed last so the two right-hand labels reserve their width first
         # and a long channel list truncates instead of pushing them off.
         self._chan_lbl = tk.Label(chan_top, text="", bg=_BG, fg=_FG,
@@ -726,11 +825,15 @@ class PackageManagerPanel(tk.Frame):
                          args=(query,), daemon=True).start()
 
     def _do_conda_search(self, query: str) -> None:
-        if not self._conda_index.ready:
+        # Keyed on the channel set, not a bare "loaded" flag: opening a
+        # different project with the same interpreter changes the channels
+        # without firing any interpreter change to hang a refresh off.
+        channels = self._effective_channels()
+        if not self._conda_index.is_loaded_for(channels):
             self._tree_label.config(text="CONDA RESULTS  (loading channel index…)")
             self._tree.delete(*self._tree.get_children())
             self._conda_index.ensure_loaded(
-                on_done=lambda _n, q=query: self._run_conda_search(q))
+                channels, on_done=lambda _n, q=query: self._run_conda_search(q))
             return
         self._run_conda_search(query)
 
@@ -913,9 +1016,14 @@ class PackageManagerPanel(tk.Frame):
         )
         if conda_routed and self._conda.conda_exe != self._tos_ok_exe:
             self._notify("Checking conda Terms of Service…\n")
+            # Scoped to the channels this install will actually search — a
+            # conda-forge-only project whose ~/.condarc still lists defaults
+            # would otherwise be asked to accept Anaconda's ToS for a channel
+            # `--override-channels` is about to exclude.
             conda_backend.fetch_tos_pending(
                 self._conda.conda_exe, self._after_fn,
-                lambda pending: self._on_tos_status(pending, verb, name))
+                lambda pending: self._on_tos_status(pending, verb, name),
+                channels=self._conda.channels or None)
             return
         self._exec_backend_op(verb, name, force_pip)
 

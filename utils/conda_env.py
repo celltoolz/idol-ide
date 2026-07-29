@@ -273,6 +273,163 @@ def project_channels(root: str) -> list[str] | None:
     return channels or None
 
 
+def render_channels_block(channels: list[str]) -> list[str]:
+    """The `channels:` block for *channels*, as newline-terminated lines.
+
+    Emits `nodefaults` whenever `defaults` is absent. That is what makes the
+    "don't use Anaconda's default channels" switch unnecessary as a separate
+    piece of state: conda has no concept of a disabled channel, but
+    environment.yml does have a way to say "and do not add defaults", so the
+    list itself expresses the intent. Without it a teammate whose own
+    ~/.condarc lists defaults would silently get it back.
+    """
+    lines = ["channels:\n"]
+    lines += [f"  - {c}\n" for c in channels]
+    if "defaults" not in channels:
+        lines.append("  - nodefaults\n")
+    return lines
+
+
+def write_project_channels(root: str, channels: list[str]) -> bool:
+    """Replace *root*/environment.yml's `channels:` block with *channels*.
+
+    Rewrites only that block — every other key, comment and blank line in the
+    file is preserved, because this file is the user's and conda's, not
+    IDOL's. Returns False when there is no environment.yml to edit: creating
+    one declares the project a conda project, which is the caller's decision
+    to ask about, not a side effect of editing a list.
+
+    Refuses an empty list. conda treats absent-or-empty `channels:` as
+    `[defaults]`, so writing one would silently mean the opposite of what the
+    user just asked for.
+    """
+    if not root or not channels:
+        return False
+    path = os.path.join(root, "environment.yml")
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = f.readlines()
+    except OSError:
+        return False
+
+    out: list[str] = []
+    in_channels = False
+    written = False
+    for raw in old:
+        stripped = raw.split("#", 1)[0].rstrip()
+        indented = bool(raw[:1]) and raw[0] in (" ", "\t")
+        if in_channels:
+            # Drop the old block's entries; a dedent (or any new key) ends it.
+            if indented or not stripped.strip():
+                continue
+            in_channels = False
+        if not indented and stripped.partition(":")[0].strip() == "channels":
+            if not written:
+                out += render_channels_block(channels)
+                written = True
+            # An inline `channels: [a, b]` is one line and ends here; a block
+            # form continues into the indented entries above.
+            in_channels = not (stripped.partition(":")[2].strip().startswith("["))
+            continue
+        out.append(raw)
+
+    if not written:
+        # No channels: key at all — conda reads the file top-down and the key
+        # is conventionally first, so lead with it.
+        out = render_channels_block(channels) + out
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.writelines(out)
+    except OSError:
+        return False
+    return True
+
+
+def create_project_environment_yml(root: str, name: str,
+                                   channels: list[str]) -> bool:
+    """Create a minimal *root*/environment.yml. False if one already exists.
+
+    The counterpart to `write_project_channels`' refusal to create the file:
+    this is the explicit, user-confirmed path. Mirrors the shape
+    `widgets/project_wizard.py` writes so a folder adopted this way and a
+    project scaffolded by the wizard produce the same file.
+    """
+    if not root or not channels:
+        return False
+    path = os.path.join(root, "environment.yml")
+    if os.path.exists(path):
+        return False
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(f"name: {name or os.path.basename(os.path.abspath(root))}\n")
+            f.writelines(render_channels_block(channels))
+            f.write("dependencies:\n")
+    except OSError:
+        return False
+    return True
+
+
+def resolve_channels(project_dir: str,
+                     reported: list[str]) -> tuple[list[str], bool]:
+    """`(channels, stated)` — which channels apply, and who decided.
+
+    *reported* is what conda itself says (see
+    `editor.conda_manager.fetch_channel_config`). The project's environment.yml
+    wins when it has one; otherwise conda's own configuration stands and
+    `stated` is False.
+
+    That flag is the whole reason this returns a pair. A caller may only *pin*
+    channels (`-c … --override-channels`) when the project genuinely stated
+    them: when it did not, the list is simply conda's own config read back, and
+    passing it as flags would echo conda's configuration at conda — no benefit,
+    and a way for an explicit `-c defaults` to diverge from however that config
+    expands `defaults`.
+    """
+    proj = project_channels(project_dir)
+    if proj is not None:
+        return proj, True
+    return [c for c in reported if c], False
+
+
+def channel_edit_action(project_dir: str, stated: bool) -> str:
+    """`""` / `"edit"` / `"create"` — which channel edit a folder supports.
+
+    Editing writes `environment.yml`, so with no folder there is nothing to
+    edit and the caller must offer nothing rather than fail on click. A folder
+    without one can only be edited by first creating it, which is a different
+    (and consent-requiring) action, so it gets a different answer.
+    """
+    if not project_dir:
+        return ""
+    return "edit" if stated else "create"
+
+
+def channel_base_url(spec: str) -> str:
+    """The base URL a channel spec resolves to, without a trailing slash.
+
+    `defaults` resolves to the repo.anaconda.com **parent** of pkgs/main,
+    pkgs/r and pkgs/msys2, because callers match URLs against it by prefix and
+    all three expansions have to match.
+    """
+    if spec == "defaults":
+        return "https://repo.anaconda.com/pkgs"
+    if spec.startswith(("http://", "https://", "file://")):
+        return spec.rstrip("/")
+    return f"https://conda.anaconda.org/{spec.strip('/')}"
+
+
+def channel_covers_url(spec: str, url: str) -> bool:
+    """True when *url* belongs to the channel *spec* names.
+
+    Used to decide whether a Terms-of-Service record applies to the channels a
+    command will actually search. Case-insensitive, because the host half of a
+    URL is, and conda echoes back whatever case its config held.
+    """
+    base = channel_base_url(spec).lower().rstrip("/")
+    target = (url or "").lower().rstrip("/")
+    return bool(base) and (target == base or target.startswith(base + "/"))
+
+
 def mask_channel(spec: str) -> str:
     """A channel spec safe to display — credentials in a URL are masked.
 
@@ -294,12 +451,24 @@ def channeldata_urls(channels: list[str]) -> list[tuple[str, str]]:
     "defaults" resolves to repo.anaconda.com/pkgs/main (the Python package
     channel; pkgs/r and pkgs/msys2 hold R packages and build tooling, which
     the package-manager search doesn't need).
+
+    `file://` specs are handled explicitly: without that branch a local
+    channel fell through to the bare-name case and produced
+    `https://conda.anaconda.org/file:///srv/chan/channeldata.json`. Note that
+    channeldata.json is generated at index time and many channels — local ones
+    especially — simply do not publish it; the search index treats a miss as
+    "contributes nothing to search", and install is unaffected either way
+    because it goes through conda, not this index.
     """
     out: list[tuple[str, str]] = []
     for ch in channels:
         if ch == "defaults":
             out.append(("defaults",
                         "https://repo.anaconda.com/pkgs/main/channeldata.json"))
+        elif ch.startswith("file://"):
+            base = ch.rstrip("/")
+            name = base.rsplit("/", 1)[-1] or "local"
+            out.append((name, base + "/channeldata.json"))
         elif ch.startswith(("http://", "https://")):
             name = ch.rstrip("/").rsplit("/", 1)[-1]
             out.append((name, ch.rstrip("/") + "/channeldata.json"))

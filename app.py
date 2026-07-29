@@ -10749,7 +10749,11 @@ class IDOL(Tk):
             )
 
         output.write("\nChecking conda Terms of Service…\n", tag="info")
-        conda_backend.fetch_tos_pending(conda.conda_exe, self._safe_after, _on_tos)
+        # Same scoping as the Package Manager's own gate: only channels this
+        # install will search can block it (see fetch_tos_pending).
+        conda_backend.fetch_tos_pending(
+            conda.conda_exe, self._safe_after, _on_tos,
+            channels=conda.channels or None)
 
     def _on_pillow_install_done(self, output, conda: bool) -> None:
         # Both backends fire on_done even when the install failed — probe the

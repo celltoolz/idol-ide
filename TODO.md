@@ -69,7 +69,7 @@ Each phase is independently shippable. **Tests green before every commit** —
       --json`, passing `env=build_env(prefix)` so the env-level `.condarc`
       actually merges; `utils/conda_channels_guide.py` + `GuideWindow`. Zero
       writes.
-- [ ] **Phase 2 — make the list real.** The editor modal (dark `Toplevel`,
+- [x] **Phase 2 — make the list real.** The editor modal (dark `Toplevel`,
       `ComponentConnector` precedent): Available / Searched two-pane, `Add →`,
       `▲ ▼ ✕` on the right only, catalog description box below. Writes
       `channels:` / `nodefaults` to `environment.yml`. `-c` threading through
@@ -86,13 +86,21 @@ Each phase is independently shippable. **Tests green before every commit** —
       dialog for a channel the install will not touch.
       *Edit and threading ship together: an editor that writes a file which
       does not change what installs is the UI lying, one phase early.*
-- [ ] **Phase 3 — guardrails.** Empty-list refusal. `defaults` + `conda-forge`
-      mixed-channel warning under flexible priority. `requires_order_below`
-      one-click `[ Fix order ]`. "Channel published no searchable index" signal
-      (a 404 `channeldata.json` already degrades silently — install still works;
-      what is missing is telling the user). In-session restore-with-position for
-      a removal, so re-adding cannot silently drop a channel to the bottom of a
-      list where order *is* the config.
+- [ ] **Phase 3 — guardrails.** `defaults` + `conda-forge` mixed-channel warning
+      under flexible priority. `requires_order_below` one-click `[ Fix order ]`.
+      "Channel published no searchable index" signal — `CondaSearchIndex`
+      already tracks it as `missing_channels`, nothing displays it yet.
+      Two things Phase 2 surfaced that belong here:
+      - **A tokenized channel URL is written to `environment.yml` verbatim**, and
+        that file is git-tracked. It has to be, or the channel doesn't work — so
+        the answer is a warning at add time ("this URL contains a credential and
+        environment.yml is usually committed; conda's own guidance is to keep
+        tokenized channels in `~/.condarc`"), not a refusal. Display and logging
+        are already masked via `conda_env.mask_channel`; this is the one path
+        where the raw spec legitimately lands on disk.
+      - **Empty-list refusal is currently silent.** `write_project_channels` and
+        the editor's Save both refuse, so nothing breaks, but Save simply does
+        nothing and the user is told nothing. Needs the real warning.
 - [ ] **Phase 4 — provenance and probing.** `[All] / specific channel` selector
       in the search bar (`-c X --override-channels`). Per-package channel badges
       — nearly free, `conda list --json` already reports `channel` and

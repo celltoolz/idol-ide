@@ -667,9 +667,14 @@ class ProjectWizard(tk.Toplevel):
         if not self._tos_checking:
             self._tos_checking = True
             self._error("Checking conda Terms of Service…")
+            # Scoped to the channels `conda create` will search — the same list
+            # that goes into environment.yml. `conda tos` reports on every
+            # channel the installation knows about, including ones this env
+            # creation cannot reach.
             conda_manager.fetch_tos_pending(
                 conda_exe, self._safe_after,
-                lambda pending: self._on_tos_status(conda_exe, pending))
+                lambda pending: self._on_tos_status(conda_exe, pending),
+                channels=self._project_channels())
         return False
 
     def _on_tos_status(self, conda_exe: str, pending: dict[str, str]) -> None:
@@ -734,7 +739,22 @@ class ProjectWizard(tk.Toplevel):
             write_files_fn=self._write_starter_files if self._files_var.get() else None,
             conda_py_version=(self._conda_ver_var.get() or None
                               if self._conda_selected() else None),
+            # The same list `_write_starter_files` puts in environment.yml, so
+            # the env is solved against the channels the project declares
+            # rather than against whatever ~/.condarc says at create time.
+            conda_channels=(self._project_channels()
+                            if self._conda_selected() else None),
         )
+
+    def _project_channels(self) -> list[str]:
+        """Channels for a new conda project — seeded from the user's ~/.condarc.
+
+        One accessor so `conda create` and the generated environment.yml cannot
+        disagree; ~/.condarc is the seed and the project's file becomes the
+        store from here on (see `utils/conda_env.project_channels`).
+        """
+        from utils.conda_env import configured_channels
+        return configured_channels()
 
     def _show_progress(self) -> None:
         """Replace wizard content with an indeterminate progress screen."""
@@ -918,21 +938,18 @@ class ProjectWizard(tk.Toplevel):
         if self._conda_selected():
             # Conda projects declare dependencies in environment.yml (the
             # conda-native equivalent of requirements.txt): recreate the env
-            # anywhere with `conda env create -f environment.yml`. Channels
-            # mirror the user's .condarc so the file resolves the same way
-            # their conda does.
-            from utils.conda_env import configured_channels
+            # anywhere with `conda env create -f environment.yml`. This file is
+            # the *store* for the project's channels from here on — ~/.condarc
+            # only seeds it, and the Package Manager edits it (see
+            # utils/conda_env.write_project_channels).
+            from utils.conda_env import render_channels_block
             ver = self._conda_ver_var.get()
-            channel_lines = "".join(f"  - {c}\n" for c in configured_channels())
             env_yml = os.path.join(project_path, "environment.yml")
             with open(env_yml, "w", encoding="utf-8") as f:
-                f.write(
-                    f"name: {project_name}\n"
-                    "channels:\n"
-                    f"{channel_lines}"
-                    "dependencies:\n"
-                    + (f"  - python={ver}\n" if ver else "  - python\n")
-                )
+                f.write(f"name: {project_name}\n")
+                f.writelines(render_channels_block(self._project_channels()))
+                f.write("dependencies:\n"
+                        + (f"  - python={ver}\n" if ver else "  - python\n"))
         else:
             req = os.path.join(project_path, "requirements.txt")
             with open(req, "w", encoding="utf-8") as f:

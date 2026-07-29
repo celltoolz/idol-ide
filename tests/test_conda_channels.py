@@ -238,6 +238,346 @@ def test_fetch_channel_config_survives_a_broken_conda(monkeypatch):
     assert got[0].ok is False
 
 
+# ── writing the store ─────────────────────────────────────────────────────────
+
+def test_render_emits_nodefaults_when_defaults_absent():
+    """Removing defaults IS the "don't use Anaconda defaults" switch."""
+    assert conda_env.render_channels_block(["conda-forge"]) == [
+        "channels:\n", "  - conda-forge\n", "  - nodefaults\n"]
+
+
+def test_render_omits_nodefaults_when_defaults_present():
+    assert conda_env.render_channels_block(["conda-forge", "defaults"]) == [
+        "channels:\n", "  - conda-forge\n", "  - defaults\n"]
+
+
+def test_write_replaces_the_block_and_keeps_everything_else(tmp_path):
+    _write_env_yml(tmp_path, (
+        "name: myproject\n"
+        "channels:\n"
+        "  - defaults\n"
+        "dependencies:\n"
+        "  - python=3.12\n"
+        "  - numpy\n"
+    ))
+    assert conda_env.write_project_channels(str(tmp_path), ["conda-forge"])
+    text = (tmp_path / "environment.yml").read_text(encoding="utf-8")
+    assert "- defaults\n" not in text
+    assert "  - conda-forge\n" in text
+    assert "  - nodefaults\n" in text
+    # Nothing else may be disturbed — this file is the user's and conda's.
+    assert "name: myproject\n" in text
+    assert "  - python=3.12\n" in text
+    assert "  - numpy\n" in text
+
+
+def test_write_replaces_an_inline_block(tmp_path):
+    _write_env_yml(tmp_path, "channels: [defaults, pytorch]\ndependencies:\n  - numpy\n")
+    assert conda_env.write_project_channels(str(tmp_path), ["conda-forge"])
+    text = (tmp_path / "environment.yml").read_text(encoding="utf-8")
+    assert "[defaults" not in text
+    assert conda_env.project_channels(str(tmp_path)) == ["conda-forge"]
+    assert "  - numpy\n" in text
+
+
+def test_write_adds_a_block_when_the_file_has_none(tmp_path):
+    _write_env_yml(tmp_path, "name: p\ndependencies:\n  - numpy\n")
+    assert conda_env.write_project_channels(str(tmp_path), ["conda-forge"])
+    assert conda_env.project_channels(str(tmp_path)) == ["conda-forge"]
+    assert "  - numpy\n" in (tmp_path / "environment.yml").read_text(encoding="utf-8")
+
+
+def test_write_preserves_comments_outside_the_block(tmp_path):
+    _write_env_yml(tmp_path, (
+        "# hand-written, do not clobber\n"
+        "name: p\n"
+        "channels:\n"
+        "  - defaults\n"
+        "dependencies:\n"
+    ))
+    conda_env.write_project_channels(str(tmp_path), ["conda-forge"])
+    text = (tmp_path / "environment.yml").read_text(encoding="utf-8")
+    assert "# hand-written, do not clobber\n" in text
+
+
+def test_write_round_trips(tmp_path):
+    _write_env_yml(tmp_path, "name: p\nchannels:\n  - defaults\ndependencies:\n")
+    order = ["conda-forge", "pytorch", "nvidia"]
+    conda_env.write_project_channels(str(tmp_path), order)
+    assert conda_env.project_channels(str(tmp_path)) == order
+
+
+def test_write_refuses_an_empty_list(tmp_path):
+    """conda reads absent-or-empty channels: as [defaults] — the opposite."""
+    _write_env_yml(tmp_path, "channels:\n  - conda-forge\ndependencies:\n")
+    assert conda_env.write_project_channels(str(tmp_path), []) is False
+    assert conda_env.project_channels(str(tmp_path)) == ["conda-forge"]
+
+
+def test_write_refuses_to_create_the_file(tmp_path):
+    """Creating environment.yml is a decision to ask about, not a side effect."""
+    assert conda_env.write_project_channels(str(tmp_path), ["conda-forge"]) is False
+    assert not (tmp_path / "environment.yml").exists()
+
+
+def test_create_writes_a_wizard_shaped_file(tmp_path):
+    assert conda_env.create_project_environment_yml(
+        str(tmp_path), "myproj", ["conda-forge"])
+    text = (tmp_path / "environment.yml").read_text(encoding="utf-8")
+    assert text.startswith("name: myproj\n")
+    assert "  - conda-forge\n" in text
+    assert "  - nodefaults\n" in text
+    assert text.rstrip().endswith("dependencies:")
+
+
+def test_create_will_not_overwrite(tmp_path):
+    _write_env_yml(tmp_path, "name: original\nchannels:\n  - defaults\n")
+    assert conda_env.create_project_environment_yml(
+        str(tmp_path), "other", ["conda-forge"]) is False
+    assert "original" in (tmp_path / "environment.yml").read_text(encoding="utf-8")
+
+
+# ── channel → URL resolution ──────────────────────────────────────────────────
+
+def test_channeldata_url_for_a_local_channel():
+    """Regression: file:// used to fall through to the bare-name branch."""
+    [(name, url)] = conda_env.channeldata_urls(["file:///srv/local-channel"])
+    assert url == "file:///srv/local-channel/channeldata.json"
+    assert name == "local-channel"
+    assert "conda.anaconda.org" not in url
+
+
+def test_channeldata_url_for_owner_label():
+    [(_, url)] = conda_env.channeldata_urls(["pytorch/label/nightly"])
+    assert url == "https://conda.anaconda.org/pytorch/label/nightly/channeldata.json"
+
+
+def test_channel_base_url_expands_defaults_to_the_pkgs_parent():
+    """All three defaults expansions must match by prefix."""
+    base = conda_env.channel_base_url("defaults")
+    for sub in ("main", "r", "msys2"):
+        assert f"https://repo.anaconda.com/pkgs/{sub}".startswith(base)
+
+
+def test_channel_covers_url_matches_defaults_expansions():
+    for url in ("https://repo.anaconda.com/pkgs/main",
+                "https://repo.anaconda.com/pkgs/r",
+                "https://repo.anaconda.com/pkgs/msys2/"):
+        assert conda_env.channel_covers_url("defaults", url)
+
+
+def test_channel_covers_url_is_not_a_substring_match():
+    assert not conda_env.channel_covers_url(
+        "conda-forge", "https://conda.anaconda.org/conda-forge-evil")
+    assert conda_env.channel_covers_url(
+        "conda-forge", "https://conda.anaconda.org/conda-forge")
+
+
+def test_channel_covers_url_rejects_a_different_channel():
+    assert not conda_env.channel_covers_url(
+        "conda-forge", "https://repo.anaconda.com/pkgs/main")
+
+
+# ── ToS gate scoping ──────────────────────────────────────────────────────────
+
+_TOS_JSON = json.dumps({
+    "https://repo.anaconda.com/pkgs/main": {"text": "Anaconda ToS", "path": "None"},
+    "https://repo.anaconda.com/pkgs/r": {"text": "Anaconda ToS", "path": "None"},
+    "https://conda.anaconda.org/conda-forge": {"text": "cf", "path": "/accepted"},
+})
+
+
+def _run_tos(monkeypatch, channels):
+    def fake_run(cmd, **kwargs):
+        return _FakeCompleted(_TOS_JSON)
+
+    monkeypatch.setattr(conda_manager.subprocess, "run", fake_run)
+    done = threading.Event()
+    got: list[dict] = []
+
+    def after_fn(_delay, fn, *args):
+        fn(*args)
+        done.set()
+
+    conda_manager.fetch_tos_pending("conda", after_fn, got.append,
+                                    channels=channels)
+    assert done.wait(timeout=10), "callback never fired"
+    return got[0]
+
+
+def test_tos_gate_is_silent_for_a_conda_forge_only_project(monkeypatch):
+    """The bug the channel work would otherwise introduce.
+
+    ~/.condarc still lists defaults, so `conda tos` reports it pending — but
+    the install runs with --override-channels and will never touch it.
+    """
+    assert _run_tos(monkeypatch, ["conda-forge"]) == {}
+
+
+def test_tos_gate_still_fires_when_defaults_is_active(monkeypatch):
+    pending = _run_tos(monkeypatch, ["conda-forge", "defaults"])
+    assert set(pending) == {"https://repo.anaconda.com/pkgs/main",
+                            "https://repo.anaconda.com/pkgs/r"}
+
+
+def test_tos_gate_unfiltered_without_a_channel_list(monkeypatch):
+    """None means 'don't filter' — the right default for callers with no list."""
+    assert len(_run_tos(monkeypatch, None)) == 2
+
+
+def test_tos_gate_skips_already_accepted_channels(monkeypatch):
+    assert "https://conda.anaconda.org/conda-forge" not in _run_tos(
+        monkeypatch, ["conda-forge", "defaults"])
+
+
+# ── -c threading ──────────────────────────────────────────────────────────────
+
+def test_channel_args_preserve_priority_order():
+    """`-c A -c B` ranks A above B — the §2a direction property."""
+    m = conda_manager.CondaManager(after_fn=lambda *a: None)
+    m.set_channels(["conda-forge", "pytorch", "nvidia"], override=True)
+    args = m._channel_args()
+    assert args == ["-c", "conda-forge", "-c", "pytorch", "-c", "nvidia",
+                    "--override-channels"]
+    # Round-trip: parsing the flags back out must give the original order.
+    assert [a for a, flag in zip(args[1::2], args[0::2]) if flag == "-c"] == [
+        "conda-forge", "pytorch", "nvidia"]
+
+
+def test_no_channels_means_no_flags():
+    """Empty list = defer to conda's own config, not an empty search space."""
+    m = conda_manager.CondaManager(after_fn=lambda *a: None)
+    m.set_channels([], override=True)
+    assert m._channel_args() == []
+
+
+def test_override_is_dropped_without_channels():
+    """--override-channels with no -c would leave conda nowhere to look."""
+    m = conda_manager.CondaManager(after_fn=lambda *a: None)
+    m.set_channels(None, override=True)
+    assert "--override-channels" not in m._channel_args()
+
+
+def test_set_channels_drops_empty_entries():
+    m = conda_manager.CondaManager(after_fn=lambda *a: None)
+    m.set_channels(["conda-forge", "", None], override=False)
+    assert m.channels == ["conda-forge"]
+
+
+def test_install_command_carries_the_channel_flags(monkeypatch):
+    """The flags have to reach the actual argv, not just _channel_args."""
+    m = conda_manager.CondaManager(after_fn=lambda _d, fn, *a: fn(*a))
+    m._conda_exe, m._prefix = "conda", "/envs/p"
+    m.set_channels(["conda-forge"], override=True)
+    seen: list[list[str]] = []
+    monkeypatch.setattr(m, "_stream",
+                        lambda cmd, on_line, env: (seen.append(cmd), 0)[1])
+    done = threading.Event()
+    m.install("numpy", on_line=lambda _s: None, on_done=done.set)
+    assert done.wait(timeout=10), "install never completed"
+    cmd = seen[0]
+    assert cmd[:5] == ["conda", "install", "-p", "/envs/p", "-y"]
+    assert cmd[5:] == ["-c", "conda-forge", "--override-channels", "numpy"]
+
+
+def test_project_file_wins_over_what_conda_reports(tmp_path):
+    _write_env_yml(tmp_path, "channels:\n  - conda-forge\ndependencies:\n")
+    channels, stated = conda_env.resolve_channels(
+        str(tmp_path), ["defaults", "pytorch"])
+    assert channels == ["conda-forge"]
+    assert stated is True
+
+
+def test_conda_config_stands_when_the_project_states_nothing(tmp_path):
+    channels, stated = conda_env.resolve_channels(
+        str(tmp_path), ["conda-forge", "defaults"])
+    assert channels == ["conda-forge", "defaults"]
+    assert stated is False
+
+
+def test_unstated_channels_must_not_be_pinned(tmp_path):
+    """The flag that decides whether installs get `-c … --override-channels`.
+
+    A project without environment.yml must behave exactly as it did before this
+    work: the list is conda's own config read back, so pinning it would echo
+    conda's configuration at conda — no benefit, and a way for an explicit
+    `-c defaults` to diverge from however that config expands `defaults`. This
+    is the difference between the phase's blast radius matching its promise and
+    it silently changing every conda project.
+    """
+    _, stated = conda_env.resolve_channels(str(tmp_path), ["defaults"])
+    assert stated is False
+    m = conda_manager.CondaManager(after_fn=lambda *a: None)
+    m.set_channels(["defaults"] if stated else [], override=stated)
+    assert m._channel_args() == []
+
+
+def test_resolve_drops_empty_reported_entries(tmp_path):
+    channels, _ = conda_env.resolve_channels(str(tmp_path), ["conda-forge", ""])
+    assert channels == ["conda-forge"]
+
+
+def test_edit_action_offers_nothing_without_a_folder():
+    """No folder means no environment.yml to write, so promise nothing."""
+    assert conda_env.channel_edit_action("", False) == ""
+    assert conda_env.channel_edit_action("", True) == ""
+
+
+def test_edit_action_distinguishes_create_from_edit(tmp_path):
+    assert conda_env.channel_edit_action(str(tmp_path), True) == "edit"
+    assert conda_env.channel_edit_action(str(tmp_path), False) == "create"
+
+
+# ── search index keyed by channel set ─────────────────────────────────────────
+
+def test_index_is_not_loaded_for_a_different_channel_set():
+    """The project-switch staleness bug: a bare `loaded` flag would miss it."""
+    idx = conda_manager.CondaSearchIndex(after_fn=lambda _d, fn, *a: fn(*a))
+    idx._loaded_for = ("conda-forge",)
+    assert idx.is_loaded_for(["conda-forge"])
+    assert not idx.is_loaded_for(["conda-forge", "pytorch"])
+    assert not idx.is_loaded_for(["pytorch", "conda-forge"])   # order matters
+    assert not idx.is_loaded_for([])
+
+
+def test_index_starts_not_ready():
+    idx = conda_manager.CondaSearchIndex(after_fn=lambda *a: None)
+    assert idx.ready is False
+    assert idx.missing_channels == ()
+
+
+def test_index_records_channels_that_publish_no_channeldata(monkeypatch):
+    """A 404 channeldata.json must be reported, not silently absorbed."""
+    idx = conda_manager.CondaSearchIndex(after_fn=lambda _d, fn, *a: fn(*a))
+    monkeypatch.setattr(
+        idx, "_load_channel",
+        lambda name, url, force: ({"numpy": {"summary": "", "version": "1",
+                                             "channel": name, "home": "",
+                                             "license": ""}}
+                                  if name == "conda-forge" else {}))
+    done = threading.Event()
+    idx.ensure_loaded(["conda-forge", "obscure"], on_done=lambda _n: done.set())
+    assert done.wait(timeout=10), "load never completed"
+    assert idx.missing_channels == ("obscure",)
+    assert idx.is_loaded_for(["conda-forge", "obscure"])
+    assert idx.search("numpy")[0]["name"] == "numpy"
+
+
+def test_index_first_channel_wins_on_name_clash(monkeypatch):
+    """Mirrors conda's channel priority: channel 1 owns the name."""
+    idx = conda_manager.CondaSearchIndex(after_fn=lambda _d, fn, *a: fn(*a))
+
+    def fake_load(name, url, force):
+        return {"numpy": {"summary": "", "version": "1", "channel": name,
+                          "home": "", "license": ""}}
+
+    monkeypatch.setattr(idx, "_load_channel", fake_load)
+    done = threading.Event()
+    idx.ensure_loaded(["conda-forge", "defaults"], on_done=lambda _n: done.set())
+    assert done.wait(timeout=10)
+    assert idx.search("numpy")[0]["channel"] == "conda-forge"
+
+
 # ── the shipped catalog ───────────────────────────────────────────────────────
 
 _REQUIRED_KEYS = {"id", "display_name", "spec", "tier", "description",

@@ -41,6 +41,7 @@ def fetch_tos_pending(
     conda_exe: str | None,
     after_fn: Callable,
     on_done: Callable[[dict[str, str]], None],
+    channels: list[str] | None = None,
 ) -> None:
     """Check which channels still need ToS acceptance, on a daemon thread.
 
@@ -48,6 +49,13 @@ def fetch_tos_pending(
     Empty dict means nothing to accept (all accepted, ToS plugin absent,
     or the check failed — in which case the operation proceeds and any
     real ToS error surfaces from conda itself).
+
+    *channels* scopes the answer to the channels the pending command will
+    actually search. `conda tos` reports on everything the installation knows
+    about, so without this a conda-forge-only project whose ~/.condarc still
+    lists defaults gets an Anaconda ToS dialog for a channel the install is
+    about to exclude with `--override-channels`. None means "don't filter" —
+    the correct default for callers that have no channel list of their own.
     """
     def _run():
         pending: dict[str, str] = {}
@@ -63,8 +71,13 @@ def fetch_tos_pending(
                         continue
                     # "path" points at the local acceptance record once the
                     # ToS has been accepted; "None"/empty means still pending.
-                    if meta.get("path") in (None, "", "None"):
-                        pending[channel] = meta.get("text", "")
+                    if meta.get("path") not in (None, "", "None"):
+                        continue
+                    if channels is not None and not any(
+                            conda_env.channel_covers_url(c, channel)
+                            for c in channels):
+                        continue
+                    pending[channel] = meta.get("text", "")
         except Exception:
             pending = {}
         after_fn(0, on_done, pending)
@@ -301,12 +314,44 @@ class CondaManager:
         self._python_exe: str = ""
         self._prefix: str | None = None
         self._conda_exe: str | None = None
+        self._channels: list[str] = []
+        self._override = False
 
     def set_python(self, exe: str) -> None:
         """Point the manager at a conda env via its python executable."""
         self._python_exe = exe
         self._prefix = conda_env.conda_prefix_for(exe)
         self._conda_exe = conda_env.find_conda_exe(self._prefix) if self._prefix else None
+
+    def set_channels(self, channels: list[str] | None,
+                     override: bool = False) -> None:
+        """Channels every install is scoped to, highest priority first.
+
+        *override* adds ``--override-channels``, which makes the given list the
+        whole search space and ignores the user's .condarc entirely. Pass it
+        only when the project genuinely states its channels: for a project
+        without an environment.yml the honest behaviour is to let conda use its
+        own configuration rather than to pin a list IDOL merely inferred.
+
+        Empty channels means "no -c flags at all" — never an empty override,
+        which would leave conda with nowhere to look.
+        """
+        self._channels = [c for c in (channels or []) if c]
+        self._override = bool(override and self._channels)
+
+    @property
+    def channels(self) -> list[str]:
+        """The channels installs are scoped to (empty = conda's own config)."""
+        return list(self._channels)
+
+    def _channel_args(self) -> list[str]:
+        """`-c` flags in priority order; `-c A -c B` ranks A above B."""
+        args: list[str] = []
+        for channel in self._channels:
+            args += ["-c", channel]
+        if self._override:
+            args.append("--override-channels")
+        return args
 
     @property
     def available(self) -> bool:
@@ -368,10 +413,12 @@ class CondaManager:
         thing. Explicit PyPI picks go through the panel's pip route instead.
         """
         conda_exe, prefix = self._conda_exe, self._prefix
+        chan = self._channel_args()
 
         def _run():
             try:
-                rc = self._stream([conda_exe, "install", "-p", prefix, "-y", name],
+                rc = self._stream([conda_exe, "install", "-p", prefix, "-y",
+                                   *chan, name],
                                   on_line, env=None)
                 if rc != 0:
                     self._after(0, on_line,
@@ -444,30 +491,59 @@ class CondaSearchIndex:
     Downloads each channel's channeldata.json (defaults/main is ~5 MB,
     conda-forge ~22 MB) into ``~/.idol/conda_index/`` and fuzzy-searches it
     in memory — the conda-side mirror of the panel's local PyPI name index.
-    Channels come from ``~/.condarc`` (utils.conda_env.configured_channels),
-    so search results always match what `conda install` can actually reach.
     The fetch is plain HTTPS — it never goes through conda, so no ToS gate.
+
+    **The caller supplies the channel list.** This class used to call
+    ``configured_channels()`` itself, which made it structurally unable to
+    serve a per-project list: the channels now come from the project's
+    environment.yml when it has one. "Loaded" is therefore a property of *a
+    set of channels*, not a bare flag — ``_loaded_for`` records which set the
+    in-memory index was built from, so switching projects rebuilds rather than
+    silently answering out of the previous project's channels. That has to be
+    derived rather than event-driven: opening a different project with the
+    same interpreter fires no interpreter change to hang a refresh off.
+
+    The on-disk cache is per channel and global, so a rebuild after a project
+    switch re-reads what it already has and fetches only the delta.
     """
 
     def __init__(self, after_fn: Callable) -> None:
         self._after = after_fn
         self._packages: dict[str, dict] = {}   # name → {summary, version, channel, home, license}
-        self._loaded = False
+        self._loaded_for: tuple[str, ...] | None = None   # channel set behind _packages
         self._loading = False
         self._pending: list[Callable[[int], None]] = []   # on_done callbacks queued mid-load
+        self._missing: tuple[str, ...] = ()    # channels that published no channeldata
 
     @property
     def ready(self) -> bool:
-        return self._loaded
+        return self._loaded_for is not None
 
-    def ensure_loaded(self, on_done: Callable[[int], None] | None = None,
+    @property
+    def missing_channels(self) -> tuple[str, ...]:
+        """Channels the last load found no channeldata.json for.
+
+        Not an error: channeldata.json is generated at index time and plenty of
+        channels never publish one. Such a channel contributes nothing to
+        search while still installing normally, which is invisible unless the
+        panel says so.
+        """
+        return self._missing
+
+    def is_loaded_for(self, channels: list[str]) -> bool:
+        """True when the in-memory index was built from exactly *channels*."""
+        return self._loaded_for == tuple(channels)
+
+    def ensure_loaded(self, channels: list[str],
+                      on_done: Callable[[int], None] | None = None,
                       force: bool = False) -> None:
-        """Load (fetching/caching as needed) on a daemon thread.
+        """Load *channels* (fetching/caching as needed) on a daemon thread.
 
         Calls on_done(package_count) on the main thread. If a load is already
         in flight, on_done is queued and fires when that load completes.
         """
-        if self._loaded and not force:
+        wanted = tuple(channels)
+        if self._loaded_for == wanted and not force:
             if on_done:
                 self._after(0, on_done, len(self._packages))
             return
@@ -479,15 +555,18 @@ class CondaSearchIndex:
 
         def _run():
             packages: dict[str, dict] = {}
-            for chan_name, url in conda_env.channeldata_urls(
-                    conda_env.configured_channels()):
+            missing: list[str] = []
+            for chan_name, url in conda_env.channeldata_urls(list(wanted)):
                 data = self._load_channel(chan_name, url, force)
+                if not data:
+                    missing.append(chan_name)
                 # First channel wins on name clashes — mirrors conda's
                 # channel priority order.
                 for name, meta in data.items():
                     packages.setdefault(name, meta)
             self._packages = packages
-            self._loaded = True
+            self._missing = tuple(missing)
+            self._loaded_for = wanted
             self._loading = False
             pending, self._pending = self._pending, []
             for cb in pending:

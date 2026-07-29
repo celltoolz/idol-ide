@@ -23,10 +23,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     setting rather than a display preference, the reason copied `conda config` instructions so
     often come out backwards, and what Anaconda's licensing threshold means for the `defaults`
     channel.
-  - Read-only for now. Editing the list, and threading it through installs, is the next piece of
-    work.
+- **You can now edit that list, and it actually changes what conda does.** **✎ Edit** on the
+  CHANNELS bar opens a two-pane picker: a catalog of well-known channels on the left
+  (conda-forge, defaults, bioconda, pytorch, nvidia, intel, rapidsai) plus a box for anything
+  custom — a name, a URL, an `owner/label` channel, or a `file:///path` local channel — and your
+  ordered list on the right with `▲ ▼ ✕`. Pick a channel to see what it is and what to watch
+  out for.
+  - **Save writes your project's `environment.yml`**, touching only the `channels:` block and
+    leaving your dependencies and comments alone. Installs then run with your channels in your
+    order and nothing else, and search re-indexes immediately — fetching only channels it
+    hasn't already cached.
+  - **New conda projects get the same list at creation.** `conda create` used to be solved
+    against whatever `~/.condarc` said, which could differ from the `environment.yml` written
+    beside it — a project that disagreed with itself from the first minute.
+  - **Removing `defaults` writes `nodefaults`**, which is how the file says "and don't add
+    Anaconda's default channels". So there is no separate switch to forget to tick, and a
+    teammate whose own `~/.condarc` lists `defaults` will not silently get it back.
+  - **↺ Restore** puts the last removed channel back at the position it came from. In a list
+    where the order *is* the configuration, re-adding at the bottom is a silent
+    misconfiguration, not a small inconvenience.
+  - On a folder with no `environment.yml`, the label reads **✎ Create environment.yml** and asks
+    first — it is a git-tracked file appearing in your project. A project without one keeps
+    behaving exactly as before: conda uses its own configuration and IDOL adds nothing.
+  - **The Terms of Service prompt now asks the right question.** It is scoped to the channels an
+    operation will actually search, so a project pinned to conda-forge is never asked to accept
+    Anaconda's terms — even if your `~/.condarc` still lists `defaults`.
 
 ### Fixed
+- **A local `file://` conda channel could never be searched.** Its index URL was built as
+  `https://conda.anaconda.org/file:///srv/your-channel/channeldata.json`, which is not a
+  place. Local and air-gapped channels now resolve correctly. (Installing from one always
+  worked — that goes through conda, not IDOL's index.)
+- **Conda search could answer out of the previous project's channels.** The index tracked
+  whether it had loaded, but not *what* it had loaded, so opening a different project without
+  changing interpreter left the old channels' results in place. It is now keyed by the channel
+  set itself, which also means switching projects re-uses the cache instead of re-downloading.
 - **Package Manager, Welcome, Learning Mode and Settings did nothing in the GUI Designer.**
   Clicking any of them — from the nav bar, the Help menu, the View menu, `F1`/`F3`/`Ctrl+,` —
   looked like a dead button.

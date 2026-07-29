@@ -191,6 +191,7 @@ class ProjectManager:
         on_done: Callable[[str | None], None],
         write_files_fn: Callable[[str], None] | None = None,
         conda_py_version: str | None = None,
+        conda_channels: list[str] | None = None,
     ) -> None:
         """Create venv and/or git repo for a new project on a daemon thread.
 
@@ -200,6 +201,11 @@ class ProjectManager:
         conda_py_version ("3.12" etc.) pins the python version when *python*
         is a conda interpreter; None falls back to the interpreter's own
         version.
+        conda_channels scopes `conda create` to the same channels the project's
+        environment.yml will declare, highest priority first. Without it the new
+        env is solved against whatever ~/.condarc happened to say, so a project
+        can be wrong from birth — its own file lists one set of channels while
+        the env it ships with was built from another.
         """
         def _run():
             error: str | None = None
@@ -224,9 +230,13 @@ class ProjectManager:
                                 [python, "--version"], stderr=subprocess.STDOUT, timeout=10
                             ).decode().strip()
                             ver = ".".join(ver_out.split()[-1].split(".")[:2])
+                        chan: list[str] = []
+                        for channel in (conda_channels or []):
+                            if channel:
+                                chan += ["-c", channel]
                         result = subprocess.run(
                             [conda_exe, "create", "-p", os.path.join(path, ".conda"),
-                             "-y", f"python={ver}"],
+                             "-y", *chan, f"python={ver}"],
                             capture_output=True, text=True, timeout=600,
                         )
                         if result.returncode != 0:
