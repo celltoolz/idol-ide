@@ -1490,6 +1490,16 @@ class IDOL(Tk):
             )
 
     def _bind_shortcuts(self) -> None:
+        # Every chord is bound **once**, and shifted letters are written in the
+        # explicit `<Control-Shift-x>` form. Tk treats `<Control-G>` (capital
+        # letter, so Shift is implied) and `<Control-Shift-G>` as the same
+        # chord, but as two separate table entries — it then fires only the
+        # more specific one, silently. That is how Source Control's Ctrl+Shift+G
+        # and the designer's Generate Code both claimed the key with only the
+        # second one ever firing, while both menus advertised it. Writing the
+        # modifier out makes a collision visible on the page, and
+        # `tests/test_keybindings.py` fails the build if one is added anyway.
+        #
         # Ctrl+, — the near-universal Settings binding (VS Code, Chrome, most
         # editors). macOS uses Cmd+, so bind both rather than making mac users
         # learn a different one.
@@ -1499,7 +1509,7 @@ class IDOL(Tk):
         self.bind("<Control-n>", lambda _: self.file_new())
         self.bind("<Control-o>", lambda _: self.file_open())
         self.bind("<Control-s>", lambda _: self.file_save())
-        self.bind("<Control-S>", lambda _: self.file_save_as())
+        self.bind("<Control-Shift-S>", lambda _: self.file_save_as())
         self.bind("<Control-w>", lambda _: self.file_close())
         if sys.platform == "darwin":
             self.bind("<Command-w>", lambda _: self.file_close())
@@ -1512,27 +1522,26 @@ class IDOL(Tk):
         self.bind("<Control-l>", lambda _: self.view_change_font())
         self.bind("<F5>", lambda _: self.debug_file())
         self.bind("<Control-F5>", lambda _: self._nav_run())
-        self.bind("<F10>", lambda _: self._debug_step_over())
+        self.bind("<F10>", lambda _: self._f10())
         self.bind("<F11>", lambda _: self._debug_step_in())
         self.bind("<Shift-F11>", lambda _: self._debug_step_out())
         self.bind("<Shift-F5>", lambda _: self.run_stop())
         self.bind("<Control-grave>", lambda _: self.view_show_panel("terminal"))
-        self.bind("<Control-U>", lambda _: self.view_show_panel("output"))
-        self.bind("<Control-M>", lambda _: self.view_show_panel("problems"))
-        self.bind("<Control-Y>", lambda _: self.view_show_panel("debug"))
-        self.bind("<Control-G>", lambda _: self.view_source_control())
+        self.bind("<Control-Shift-U>", lambda _: self.view_show_panel("output"))
+        self.bind("<Control-Shift-M>", lambda _: self.view_show_panel("problems"))
+        self.bind("<Control-Shift-Y>", lambda _: self.view_show_panel("debug"))
+        self.bind("<Control-Shift-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
-        self.bind("<Control-P>", lambda _: self.open_command_palette())
-        self.bind("<Control-Shift-G>", lambda _: self.designer_generate_code())
+        self.bind("<Control-Shift-P>", lambda _: self.open_command_palette())
+        # Generate Code reads as a build, so it takes the build key. It used to
+        # be Ctrl+Shift+G, which Source Control already owned.
+        self.bind("<Control-Shift-B>", lambda _: self.designer_generate_code())
         self.bind("<Control-b>", lambda _: self.view_toggle_sidebar())
         self.bind("<F12>", lambda _: self._goto_definition())
-        self.bind("<F10>", lambda _: self.view_zen_mode())
         self.bind("<F1>", lambda _: self.view_learning_mode())
         self.bind("<F2>", lambda _: self.view_ai_chat())
         self.bind("<F3>", lambda _: self.view_package_manager())
-        self.bind(
-            "<Control-H>", lambda _: self.view_clipboard_history()
-        )  # Ctrl+Shift+H
+        self.bind("<Control-Shift-H>", lambda _: self.view_clipboard_history())
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -11260,6 +11269,20 @@ class IDOL(Tk):
         if self._debugger:
             self._debugger.continue_()
 
+    def _f10(self) -> None:
+        """F10 — Step Over during a live debug session, Zen Mode otherwise.
+
+        Both features were bound to F10 directly, and Tk fires only one binding
+        per chord, so Zen Mode (registered second) won and Step Over never fired
+        at all — while the debugger docs and the step controls both advertised
+        it. They are never both meaningful at once: you are not reaching for a
+        distraction-free layout mid-step. One dispatcher owns the key.
+        """
+        if self._debugger and self._debugger.active:
+            self._debug_step_over()
+        else:
+            self.view_zen_mode()
+
     def _debug_step_over(self) -> None:
         if self._debugger:
             self._debugger.next_()
@@ -11460,7 +11483,7 @@ class IDOL(Tk):
                 ]
             ],
             # Designer
-            ("Generate Code", "Ctrl+Shift+G", self.designer_generate_code),
+            ("Generate Code", "Ctrl+Shift+B", self.designer_generate_code),
             # Editor
             ("Fold All", "", self.view_fold_all),
             ("Unfold All", "", self.view_unfold_all),
