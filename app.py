@@ -1147,7 +1147,12 @@ class IDOL(Tk):
         )
         self.notebook._split_open_ref = lambda: self._split_active and self._split_shown
         self.notebook._get_tab_path = lambda tab_id: self._files.get(tab_id)
-        self.notebook._can_drag_out = lambda tab_id: tab_id != self._welcome_tab
+        # No `_can_drag_out` filter: every tab, panel tabs included, can be
+        # dragged to the other pane. Welcome used to be pinned here because
+        # dragging it out could leave the main notebook blank — that is now
+        # `_backfill_main_notebook`'s job, and pinning it also meant Welcome
+        # could never reach the split, which is the only visible pane in
+        # designer mode.
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add=True)
         self.notebook.bind(
@@ -1896,18 +1901,184 @@ class IDOL(Tk):
         self._set_active_pane("right" if nb is self._notebook_r else "left")
         return True
 
+    # ── Panel tabs ────────────────────────────────────────────────────────────
+    # Welcome, Packages, Learning and Settings are single-instance tabs holding
+    # a panel rather than a code buffer.  Each lives in whichever notebook
+    # opened it, so the table below pairs the attribute holding its tab id with
+    # the one holding its panel, and every builder takes the notebook to build
+    # into.  Tk cannot reparent a widget, so moving one between panes is close +
+    # rebuild — which is also why none of this tries to preserve panel state.
+
+    _PANEL_TAB_SLOTS = {
+        "welcome":  ("_welcome_tab",  "_welcome_panel"),
+        "packages": ("_pkg_tab",      "_pkg_panel"),
+        "learning": ("_learning_tab", "_learning_panel"),
+        "settings": ("_settings_tab", "_settings_panel"),
+    }
+
+    def _panel_kind_of(self, tab_id: str | None) -> str | None:
+        """Which panel tab *tab_id* is, or None for an ordinary editor tab."""
+        if not tab_id:
+            return None
+        for kind, (tab_attr, _) in self._PANEL_TAB_SLOTS.items():
+            if getattr(self, tab_attr, None) == tab_id:
+                return kind
+        return None
+
+    def _panel_tab_home(self, kind: str) -> CustomNotebook | None:
+        """The notebook currently holding panel tab *kind*, or None.
+
+        Clears the slots when the tab has gone — closed from under us, or its
+        pane destroyed — so callers can read None as "build a fresh one".
+        """
+        tab_attr, panel_attr = self._PANEL_TAB_SLOTS[kind]
+        tab_id = getattr(self, tab_attr, None)
+        if tab_id:
+            for nb in (self.notebook, self._notebook_r):
+                if nb is None:
+                    continue
+                try:
+                    if tab_id in nb.tabs():
+                        return nb
+                except Exception:
+                    pass
+        setattr(self, tab_attr, None)
+        setattr(self, panel_attr, None)
+        return None
+
+    def _pane_visible(self, nb: CustomNotebook) -> bool:
+        """Is *nb* on screen?  A tab in a pane that isn't may as well not exist."""
+        if nb is self._notebook_r:
+            return bool(self._split_active and self._split_shown)
+        return not self._designer_mode
+
+    def _pane_name(self, nb: CustomNotebook) -> str:
+        return "right" if nb is self._notebook_r else "left"
+
+    def _designer_split_notebook(self) -> CustomNotebook | None:
+        """The notebook to open into while the designer owns the screen.
+
+        Designer mode pack_forgets `self.notebook` — the canvas takes its slot
+        inside `_nb_frame_l` — so a tab added there is invisible and the click
+        that added it reads as nothing happening.  The split pane is the one
+        editor surface still showing in that mode, so tabs go there, opening the
+        split if it isn't up yet.  Returns None outside designer mode, where the
+        main notebook is visible and stays the target.
+        """
+        if not self._designer_mode:
+            return None
+        self._ensure_split_shown()
+        return self._notebook_r
+
+    def _panel_target_notebook(self) -> CustomNotebook:
+        """Which notebook a panel tab should open into."""
+        return self._designer_split_notebook() or self.notebook
+
+    def _forget_panel_tab(self, kind: str) -> None:
+        """Close panel tab *kind*, wherever it lives.  No prompt — no buffer."""
+        nb = self._panel_tab_home(kind)
+        tab_attr, panel_attr = self._PANEL_TAB_SLOTS[kind]
+        tab_id = getattr(self, tab_attr, None)
+        if nb is not None and tab_id:
+            try:
+                nb.forget(list(nb.tabs()).index(tab_id))
+            except Exception:
+                pass
+        setattr(self, tab_attr, None)
+        setattr(self, panel_attr, None)
+        if kind == "learning":
+            self._learning_deactivate_cursors()
+
+    def _build_panel_tab(self, kind: str, nb: CustomNotebook) -> None:
+        """Build panel tab *kind* inside *nb*, select it, and record its slots.
+
+        The backfill at the end is here rather than at each call site because
+        every path that relocates a panel tab forgets it first, and the one it
+        left may have been the main notebook's last tab.
+        """
+        {
+            "welcome":  self._build_welcome_tab,
+            "packages": self._build_packages_tab,
+            "learning": self._build_learning_tab,
+            "settings": self._build_settings_tab,
+        }[kind](nb)
+        self._set_active_pane(self._pane_name(nb))
+        self._refresh_nav_bar()
+        self._backfill_main_notebook()
+
+    def _toggle_panel_tab(self, kind: str, close_on_reselect: bool = True) -> bool:
+        """Reveal or close panel tab *kind*; True when the click is handled.
+
+        False means the caller should build a fresh tab: either there wasn't
+        one, or the one there was sits in a pane that is not on screen (designer
+        mode hides the main notebook, the split can be hidden), in which case it
+        is forgotten here so the rebuild lands where it can be seen.
+        """
+        nb = self._panel_tab_home(kind)
+        if nb is None:
+            return False
+        was_visible = self._pane_visible(nb)
+        if not was_visible and nb is not self._panel_target_notebook():
+            # Out of sight in a pane we would not open into anyway — drop it so
+            # the caller's rebuild lands somewhere the user can see. (When it
+            # *is* the target pane, `_panel_target_notebook` has just revealed
+            # that pane, so the tab is simply selected below.)
+            self._forget_panel_tab(kind)
+            return False
+        tab_id = getattr(self, self._PANEL_TAB_SLOTS[kind][0])
+        # Close-on-second-press applies only to a tab that was already in front
+        # of the user; a pane revealed a line ago has not been "pressed".
+        if was_visible and nb.select() == tab_id:
+            if not close_on_reselect:
+                return True
+            self._forget_panel_tab(kind)
+            if nb is self.notebook and not nb.tabs():
+                # Closing Welcome must not silently re-open it, so this is a
+                # blank buffer rather than `_backfill_main_notebook`.
+                self._new_tab("Untitled", "")
+        else:
+            nb.select(tab_id)
+            self._set_active_pane(self._pane_name(nb))
+        self._refresh_nav_bar()
+        return True
+
+    def _move_panel_tab(self, kind: str, nb: CustomNotebook) -> None:
+        """Move panel tab *kind* into *nb* — the drag/drop path."""
+        if self._panel_tab_home(kind) is nb:
+            nb.select(getattr(self, self._PANEL_TAB_SLOTS[kind][0]))
+            self._set_active_pane(self._pane_name(nb))
+            return
+        self._forget_panel_tab(kind)
+        self._build_panel_tab(kind, nb)
+
+    def _backfill_main_notebook(self) -> None:
+        """Never leave the main notebook empty.
+
+        Welcome is the usual filler, but it can be the very tab that just left
+        for the other pane, and in designer mode `view_welcome` targets the
+        split — so a blank buffer is the fallback that always lands here.
+        """
+        if self.notebook.tabs():
+            return
+        if self._designer_mode or self._panel_tab_home("welcome") is not None:
+            self._new_tab("Untitled", "")
+        else:
+            self.view_welcome()
+
     def _close_tab(self, index: int, notebook: CustomNotebook | None = None) -> None:
         nb = notebook or self.notebook
         tabs = nb.tabs()
         if index >= len(tabs):
             return
         tab_id = tabs[index]
-        closing_welcome = tab_id == self._welcome_tab
-        if closing_welcome:
-            # Welcome tab has no dirty state — just close it
-            nb.forget(index)
-            self._welcome_tab = None
-            self._welcome_panel = None
+        kind = self._panel_kind_of(tab_id)
+        if kind:
+            # Panel tabs hold no buffer, so there is nothing to prompt about.
+            self._forget_panel_tab(kind)
+            self._refresh_nav_bar()
+            # Closing Welcome must not silently re-open it, so an emptied main
+            # notebook is backfilled with a blank buffer rather than by
+            # `_backfill_main_notebook`.
             if nb is self.notebook and not nb.tabs():
                 self._new_tab("Untitled", "")
             return
@@ -2000,26 +2171,15 @@ class IDOL(Tk):
         if tab_id and tab_id in self._codeviews:
             self._last_editor_tab = tab_id
 
-        # Learning Mode overlay sync — show when on learning tab, hide otherwise
-        # Keep _pkg_tab in sync when the tab is closed via the × button
-        if self._pkg_tab:
-            try:
-                tabs = self.notebook.tabs()
-            except Exception:
-                tabs = []
-            if self._pkg_tab not in tabs:
-                self._pkg_tab = None
-                self._pkg_panel = None
-                self._refresh_nav_bar()
-
-        if self._learning_tab:
-            try:
-                tabs = self.notebook.tabs()
-            except Exception:
-                tabs = []
-            if self._learning_tab not in tabs:
-                # Tab was closed via the × button
-                self._close_learning_mode()
+        # Keep the panel-tab slots in sync for closures that bypass `_close_tab`.
+        # `_panel_tab_home` clears the slot itself when the tab has gone, so the
+        # learning teardown hangs off its return value rather than off the
+        # (by then already cleared) slot.
+        if self._pkg_tab and self._panel_tab_home("packages") is None:
+            self._refresh_nav_bar()
+        if self._learning_tab and self._panel_tab_home("learning") is None:
+            self._learning_deactivate_cursors()
+            self._refresh_nav_bar()
 
         if self._split_active and self._split_shown:
             self._patch_scroll_callbacks()
@@ -3562,7 +3722,11 @@ class IDOL(Tk):
     # ── File operations ───────────────────────────────────────────────────────
 
     def file_new(self) -> None:
-        if (
+        nb = self._designer_split_notebook()
+        if nb is not None:
+            self._new_tab_in(nb, "Untitled", "")
+            self._set_active_pane("right")
+        elif (
             self._split_active
             and self._split_shown
             and self._active_pane == "right"
@@ -3781,21 +3945,30 @@ class IDOL(Tk):
         # Remember the currently active tab so we can restore it when select=False.
         prev_tab_id = self._current_tab_id
 
+        # Designer mode has the main notebook off screen, so the file goes to
+        # the split pane — otherwise opening one looks like nothing happened.
+        # Everywhere else this lands in main exactly as it always has.
+        nb = self._designer_split_notebook() or self.notebook
+
         # If the current tab is an empty unmodified Untitled, remember it so we
         # can close it after the new tab is open (closing first would trigger the
         # "no tabs left" fallback and spawn another Untitled).
-        # Only replace if prev_tab_id is actually in the main notebook (not split).
+        # Only replace if prev_tab_id is in the pane we're about to open into.
         replace = (
             select
             and prev_tab_id is not None
-            and prev_tab_id in self.notebook.tabs()
+            and prev_tab_id in nb.tabs()
             and self._titles.get(prev_tab_id) == "Untitled"
             and not self._dirty.get(prev_tab_id)
             and self._codeviews.get(prev_tab_id) is not None
             and not _cv_text(self._codeviews[prev_tab_id]).strip()
         )
 
-        self._new_tab(os.path.basename(path), content, filepath=path)
+        if nb is self.notebook:
+            self._new_tab(os.path.basename(path), content, filepath=path)
+        else:
+            self._new_tab_in(nb, os.path.basename(path), content, filepath=path)
+            self._set_active_pane("right")
         recent_utils.add_file(path)
         if self._welcome_panel:
             self._welcome_panel.refresh()
@@ -3805,11 +3978,11 @@ class IDOL(Tk):
         # a leftover from when that was also how you got the terminal there.)
 
         if replace:
-            tabs = self.notebook.tabs()
+            tabs = nb.tabs()
             if prev_tab_id in tabs:
-                self._close_tab(tabs.index(prev_tab_id))
-        elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
-            self.notebook.select(prev_tab_id)
+                self._close_tab(tabs.index(prev_tab_id), nb)
+        elif not select and prev_tab_id and prev_tab_id in nb.tabs():
+            nb.select(prev_tab_id)
 
     def _open_temp_file(self, tmp_path: str, title: str, origin: str = "") -> None:
         """Reopen a recovered scratch file as the dirty tab it used to be.
@@ -4205,10 +4378,19 @@ class IDOL(Tk):
         self._output.update_problems([])
         self._breakpoints.clear()
         self._refresh_debug_breakpoints()
-        self._welcome_tab = None
-        self._welcome_panel = None
-        if add_untitled:
-            self.view_welcome()
+        # Every panel tab has just gone with its notebook (the split pane above,
+        # the loop for the main one) — clear the slots so the next open builds
+        # rather than selecting a dead tab.
+        for kind, (tab_attr, panel_attr) in self._PANEL_TAB_SLOTS.items():
+            if kind == "learning" and getattr(self, tab_attr, None):
+                self._learning_deactivate_cursors()
+            setattr(self, tab_attr, None)
+            setattr(self, panel_attr, None)
+        # The Welcome tab is opened at the *end* of this method, not here.
+        # Designer mode is still on at this point — the explorer re-root below
+        # is what turns it off — and `view_welcome` follows designer mode into
+        # the split pane, which teardown has just disposed of.  Reopening it
+        # here would leave a closed project with a stray split.
         # Deactivate any shell-active env (venv or conda) BEFORE the explorer
         # root resets to $HOME below — after that cd the toolbar has no cwd
         # target and the env would outlive the project.
@@ -4237,6 +4419,10 @@ class IDOL(Tk):
             self._enter_editor_mode()
         self._hide_mode_bar()
         self._designer_project_type = "cli"
+        # Last, so it lands in the main notebook of a fully reset workspace —
+        # see the note above the env teardown.
+        if add_untitled:
+            self.view_welcome()
 
     def workspace_close(self, *_) -> None:
         """Close the current project. No prompt — see `_autosave_workspace`."""
@@ -4641,22 +4827,16 @@ class IDOL(Tk):
 
     def view_welcome(self) -> None:
         """Open (or focus) the Welcome tab."""
-        if self._welcome_tab:
-            try:
-                if self._welcome_tab not in self.notebook.tabs():
-                    raise ValueError
-                if self.notebook.select() == self._welcome_tab:
-                    # Already focused — do nothing (don't close on second press)
-                    return
-                self.notebook.select(self._welcome_tab)
-                if self._welcome_panel:
-                    self._welcome_panel.refresh()
-                return
-            except Exception:
-                self._welcome_tab = None
-                self._welcome_panel = None
+        # close_on_reselect=False — Welcome is the notebook's fallback tab, so
+        # a second press re-focuses it rather than closing it.
+        if self._toggle_panel_tab("welcome", close_on_reselect=False):
+            if self._welcome_panel:
+                self._welcome_panel.refresh()
+            return
+        self._build_panel_tab("welcome", self._panel_target_notebook())
 
-        frame = ttk.Frame(self.notebook)
+    def _build_welcome_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
         panel = WelcomePanel(
             frame,
             on_new_file=self.file_new,
@@ -4672,9 +4852,9 @@ class IDOL(Tk):
             get_open_temps=lambda: set(self._temp_files.values()),
         )
         panel.pack(fill="both", expand=True)
-        self.notebook.add(frame, text="  Welcome  ")
-        self.notebook.select(frame)
-        self._welcome_tab = self.notebook.select()
+        nb.add(frame, text="  Welcome  ")
+        nb.select(frame)
+        self._welcome_tab = nb.select()
         self._welcome_panel = panel
         self._apply_theme_to_sidebar_no_cv()
 
@@ -4715,28 +4895,12 @@ class IDOL(Tk):
 
     def view_package_manager(self) -> None:
         """Toggle the Package Manager tab (F3)."""
-        if self._pkg_tab:
-            try:
-                tabs = self.notebook.tabs()
-                if self._pkg_tab not in tabs:
-                    raise ValueError
-                if self.notebook.select() == self._pkg_tab:
-                    # Already focused — close it
-                    idx = list(tabs).index(self._pkg_tab)
-                    self.notebook.forget(idx)
-                    self._pkg_tab = None
-                    self._pkg_panel = None
-                    self._refresh_nav_bar()
-                    return
-                else:
-                    self.notebook.select(self._pkg_tab)
-                    self._refresh_nav_bar()
-                    return
-            except Exception:
-                self._pkg_tab = None
-                self._pkg_panel = None
+        if self._toggle_panel_tab("packages"):
+            return
+        self._build_panel_tab("packages", self._panel_target_notebook())
 
-        frame = ttk.Frame(self.notebook)
+    def _build_packages_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
         panel = PackageManagerPanel(
             frame,
             get_output_panel=lambda: self._output.output,
@@ -4745,41 +4909,25 @@ class IDOL(Tk):
         )
         panel.pack(fill="both", expand=True)
         panel.set_python(self._active_python)
-        self.notebook.add(frame, text="📦 Packages")
-        self.notebook.select(frame)
-        self._pkg_tab = self.notebook.select()
+        nb.add(frame, text="📦 Packages")
+        nb.select(frame)
+        self._pkg_tab = nb.select()
         self._pkg_panel = panel
-        self._refresh_nav_bar()
 
     def view_settings(self, *_) -> None:
         """Toggle the Settings tab (Ctrl+,). Same tab pattern as Packages."""
-        if self._settings_tab:
-            try:
-                tabs = self.notebook.tabs()
-                if self._settings_tab not in tabs:
-                    raise ValueError
-                if self.notebook.select() == self._settings_tab:
-                    idx = list(tabs).index(self._settings_tab)
-                    self.notebook.forget(idx)
-                    self._settings_tab = None
-                    self._settings_panel = None
-                    self._refresh_nav_bar()
-                    return
-                self.notebook.select(self._settings_tab)
-                self._refresh_nav_bar()
-                return
-            except Exception:
-                self._settings_tab = None
-                self._settings_panel = None
+        if self._toggle_panel_tab("settings"):
+            return
+        self._build_panel_tab("settings", self._panel_target_notebook())
 
-        frame = ttk.Frame(self.notebook)
+    def _build_settings_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
         panel = SettingsPanel(frame)
         panel.pack(fill="both", expand=True)
-        self.notebook.add(frame, text="⚙ Settings")
-        self.notebook.select(frame)
-        self._settings_tab = self.notebook.select()
+        nb.add(frame, text="⚙ Settings")
+        nb.select(frame)
+        self._settings_tab = nb.select()
         self._settings_panel = panel
-        self._refresh_nav_bar()
         panel.focus_search()
 
     def _on_setting_changed(self, key: str, _value) -> None:
@@ -4846,46 +4994,28 @@ class IDOL(Tk):
         """Unconditionally close the learning tab and restore all widget state."""
         if not self._learning_tab:
             return
-        try:
-            idx = list(self.notebook.tabs()).index(self._learning_tab)
-            self.notebook.forget(idx)
-        except Exception:
-            pass
-        self._learning_tab = None
-        self._learning_panel = None
-        self._learning_deactivate_cursors()
+        self._forget_panel_tab("learning")
         self._refresh_nav_bar()
 
     def view_learning_mode(self) -> None:
         """Toggle the Learning Mode tab (F1)."""
-        if self._learning_tab:
-            try:
-                if self._learning_tab not in self.notebook.tabs():
-                    raise ValueError
-                if self.notebook.select() == self._learning_tab:
-                    self._close_learning_mode()
-                    return
-                else:
-                    self.notebook.select(self._learning_tab)
-                    self._refresh_nav_bar()
-                    return
-            except Exception:
-                self._close_learning_mode()
-                return
+        if self._toggle_panel_tab("learning"):
+            return
+        self._build_panel_tab("learning", self._panel_target_notebook())
 
-        frame = ttk.Frame(self.notebook)
+    def _build_learning_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
         panel = LearningPanel(frame)
         panel.pack(fill="both", expand=True)
 
-        self.notebook.add(frame, text="  📖 Learning  ")
-        self.notebook.select(frame)
+        nb.add(frame, text="  📖 Learning  ")
+        nb.select(frame)
 
-        self._learning_tab = self.notebook.select()
+        self._learning_tab = nb.select()
         self._learning_panel = panel
         self._learning_active_lid = ""
 
         self._learning_activate_cursors()
-        self._refresh_nav_bar()
 
     def view_ai_chat(self) -> None:
         """Toggle the AI Chat right panel (F2)."""
@@ -5234,10 +5364,10 @@ class IDOL(Tk):
     def _on_learning_click(self, widget, lid: str) -> None:
         """Show guide content and flash the clicked widget."""
         self._learning_active_lid = lid
-        try:
-            self.notebook.select(self._learning_tab)
-        except Exception:
-            pass
+        # `_reveal_tab`, not `notebook.select` — the learning tab may be living
+        # in the split pane (it is where it opens in designer mode), and
+        # selecting a split tab on the main notebook is a silent no-op.
+        self._reveal_tab(self._learning_tab)
         if self._learning_panel:
             self._learning_panel.show(lid)
         self._learning_flash(widget)
@@ -9719,6 +9849,11 @@ class IDOL(Tk):
         """Right-click: open a copy of tab_id in the split, keep it in main too."""
         if not tab_id:
             return
+        if self._panel_kind_of(tab_id):
+            # A panel tab is single-instance — there is no second Package
+            # Manager to open alongside the first, so this moves it instead.
+            self._move_to_split(tab_id)
+            return
         self._ensure_split_shown()
         self._add_tab_to_split(tab_id)
         self._set_active_pane("right")
@@ -9726,7 +9861,13 @@ class IDOL(Tk):
 
     def _move_to_split(self, tab_id: str | None) -> None:
         """Drag main→split: move the tab (remove from main, open in split)."""
-        if not tab_id or tab_id == self._welcome_tab:
+        if not tab_id:
+            return
+        kind = self._panel_kind_of(tab_id)
+        if kind:
+            self._ensure_split_shown()
+            if self._notebook_r is not None:
+                self._move_panel_tab(kind, self._notebook_r)
             return
         path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
@@ -9744,15 +9885,17 @@ class IDOL(Tk):
             if tmp:
                 self._temp_files[new_tid] = tmp
         self._remove_tab_silent(tab_id, self.notebook)
-        # If main notebook is now empty, show Welcome so it's never blank
-        if not self.notebook.tabs():
-            self.view_welcome()
+        # If main notebook is now empty, backfill it so it's never blank
+        self._backfill_main_notebook()
         self._set_active_pane("right")
         self._patch_scroll_callbacks()
 
     def _copy_to_main(self, tab_id: str | None) -> None:
         """Right-click on split tab: open a copy in main, keep it in split too."""
         if not tab_id:
+            return
+        if self._panel_kind_of(tab_id):
+            self._move_to_main(tab_id)      # single-instance — see _copy_to_split
             return
         path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
@@ -9764,6 +9907,10 @@ class IDOL(Tk):
     def _move_to_main(self, tab_id: str | None) -> None:
         """Drag split→main: move the tab (remove from split, open in main)."""
         if not tab_id:
+            return
+        kind = self._panel_kind_of(tab_id)
+        if kind:
+            self._move_panel_tab(kind, self.notebook)
             return
         path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
@@ -10081,6 +10228,16 @@ class IDOL(Tk):
             if cv is not None:
                 cv.on_scroll = None
         for tab_id in list(self._notebook_r.tabs() if self._notebook_r else ()):
+            kind = self._panel_kind_of(tab_id)
+            if kind:
+                # A panel tab parked in this pane goes down with it — clear its
+                # slots, or the next open selects into a destroyed widget.
+                tab_attr, panel_attr = self._PANEL_TAB_SLOTS[kind]
+                setattr(self, tab_attr, None)
+                setattr(self, panel_attr, None)
+                if kind == "learning":
+                    self._learning_deactivate_cursors()
+                continue
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)

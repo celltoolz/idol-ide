@@ -280,15 +280,41 @@ def test_settings_reachable_from_menu_keybinding_and_welcome():
 
     assert "Control-comma" in inspect.getsource(app_mod.IDOL._bind_shortcuts)
     assert "app.view_settings" in inspect.getsource(menubar.build_menubar)
-    assert "on_settings=" in inspect.getsource(app_mod.IDOL.view_welcome)
+    assert "on_settings=" in inspect.getsource(app_mod.IDOL._build_welcome_tab)
 
 
 def test_settings_tab_toggles_like_the_package_manager():
-    """Second invocation closes it, matching the tab it is modelled on."""
+    """Second invocation closes it, matching the tab it is modelled on.
+
+    Both go through the shared panel-tab toggle, so the behaviour is asserted
+    once there rather than duplicated per view_* method.
+    """
     import app as app_mod
 
-    src = inspect.getsource(app_mod.IDOL.view_settings)
-    assert "forget" in src and "_settings_tab = None" in src
+    for view in (app_mod.IDOL.view_settings, app_mod.IDOL.view_package_manager):
+        assert "_toggle_panel_tab" in inspect.getsource(view)
+    assert "_forget_panel_tab" in inspect.getsource(app_mod.IDOL._toggle_panel_tab)
+    assert "forget" in inspect.getsource(app_mod.IDOL._forget_panel_tab)
+
+
+def test_settings_tab_can_live_in_either_pane():
+    """Designer mode unmaps the main notebook — a panel tab added there is
+    invisible, which is what made the nav buttons look dead."""
+    import app as app_mod
+
+    # Every panel tab is registered, and every one has a builder taking the
+    # notebook to build into.
+    slots = app_mod.IDOL._PANEL_TAB_SLOTS
+    assert set(slots) == {"welcome", "packages", "learning", "settings"}
+    for kind in slots:
+        builder = getattr(app_mod.IDOL, f"_build_{kind}_tab", None)
+        assert builder is not None, f"no builder for {kind}"
+        assert "nb" in inspect.signature(builder).parameters
+
+    assert "_designer_mode" in inspect.getsource(app_mod.IDOL._designer_split_notebook)
+    assert "_designer_split_notebook" in inspect.getsource(
+        app_mod.IDOL._panel_target_notebook
+    )
 
 
 def _first(widget, cls):
