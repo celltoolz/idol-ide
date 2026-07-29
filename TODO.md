@@ -10,11 +10,6 @@
 - [x] **Auto-close split breaks when toggling Editor/Designer** — *resolved by removing auto-close entirely.* The split now closes only on the user's own toggle or the pane's ×. Four paths used to take it down automatically; the Designer one combined with the close-last-tab one to lose a split outright across a mode switch. Pinned by an allowlist test so a new auto-close fails CI.
 
 ## ✨ Features
-- [ ] **Custom font chooser** — drop `tkfontchooser` and build our own for IDOL. Requirements:
-  - Must open already scoped to the currently selected font/size/style
-  - Must work on macOS, Linux, and Windows
-  - Appearance doesn't matter — function only
-  - Before dropping it, look at how `tkfontchooser` handles "open to current selection" — it does this well
 - [ ] **Settings menu** — build it out; would be the right home for conda channel management.
   - **Also the right home for LSP + ruff rule configuration.** The project now has a `ruff.toml` with a deliberately narrow rule set (bug rules on, house-style rules off). Surfacing that as a settings page — toggle rule groups, per-project overrides — is a natural fit, and pairs with the existing "LSP on/off, ruff on/off" idea already in `ROADMAP.md`.
   - **Move Active Line Color here** (Editor tab, or whatever the section ends up called). It currently sits in the View menu as a one-off colour swatch, which is the wrong home for a preference — `ROADMAP.md` already lists it alongside "Highlight active line (on/off)" for the settings panel.
@@ -38,6 +33,7 @@
 - [x] **Swatch column math** — selection, multi-cursor selection and find highlights all measured with a raw `font.measure`, so they drifted by the swatch's width; `_col_from_x` had the same bug in reverse, misplacing clicks. All four now use `_measure_to_col`.
 - [x] **Stale Problems panel on delete** — Backspace/Delete over a selection never fired `on_change`, so a diagnostic outlived the code that caused it until the next keystroke.
 - [x] **Custom color chooser** — `ColorChooserDialog` + a drop-in `askcolor` in `widgets/color_picker.py`, wrapping the same `ColorPicker` as the editor popup with old/new swatches, R/G/B fields and OK/Cancel. Replaced `tkinter.colorchooser` in the Designer properties panel and View → Active Line Color. Generated user projects still use the stdlib chooser, which is correct.
+- [x] **Custom font chooser** — `widgets/font_chooser.py`; `tkfontchooser` dropped from `requirements.txt`. Windows-dialog layout, project-wizard palette, effects opt-in (Designer only — the editor has no use for underline/strikeout), fixed-size scrolling preview that cannot resize the window. **Both call sites now open on the current font, which neither did before**: the Designer passed `font=init`, which landed in `**font_args` where nothing read it, and the editor passed nothing at all. Also promoted the canvas-drawn checkbox out of `designer/menu_editor.py` into `widgets/dark_checkbox.py` rather than making a second copy.
 
 ## 📌 Known, not yet scoped
 - **`_project_root_cwd()` still uses the explorer root**, not the latched project. It drives the Run/Debug "project" cwd mode, so *Set as Root Directory* on a subfolder makes runs use that subfolder. That may well be what you want when you deliberately re-root — left alone rather than changed silently. Decide the intended behaviour before touching it.

@@ -12,7 +12,7 @@ from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showerror, askyesnocancel, askyesno
 
-from tkfontchooser import askfont
+from widgets.font_chooser import askfont
 
 from widgets.canvas_codeview import CanvasCodeView
 from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
@@ -4393,7 +4393,26 @@ class IDOL(Tk):
             pass
 
     def view_change_font(self, *_) -> None:
-        font = askfont(self)
+        # Open on what the editor is actually showing. `_editor_font` holds a
+        # previous choice; before any, read the live font off a codeview rather
+        # than guessing a default. The old dialog was handed nothing at all and
+        # always opened on the first family in the list.
+        if self._editor_font:
+            family, size, weight, slant = self._editor_font
+        else:
+            cv = self._current_codeview
+            actual = cv._font.actual() if cv is not None else {}
+            family = actual.get("family", "Consolas")
+            size = int(actual.get("size", 11) or 11)
+            weight = actual.get("weight", "normal")
+            slant = actual.get("slant", "roman")
+
+        # No Effects box: underline and strikeout are for Designer widget
+        # fonts. The code editor has no use for them, and showing controls it
+        # would ignore is worse than not showing them.
+        font = askfont(self, family=family, size=abs(size), weight=weight,
+                       slant=slant, title="Change Editor Font",
+                       show_effects=False, text="AaBbYyZz 0123 (){}[]")
         if not font:
             return
         family = font["family"]

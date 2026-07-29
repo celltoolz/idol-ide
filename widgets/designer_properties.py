@@ -4477,7 +4477,7 @@ class DesignerProperties(tk.Frame):
 
     def _open_font_picker(self, row_iid: str) -> None:
         """Open the font chooser dialog for a font property cell."""
-        from tkfontchooser import askfont
+        from widgets.font_chooser import askfont
         d = self._current_widget
         if d is None:
             return
@@ -4505,7 +4505,11 @@ class DesignerProperties(tk.Frame):
             if "underline"  in tags: init["underline"]  = 1
             if "overstrike" in tags: init["overstrike"] = 1
 
-        result = askfont(self.winfo_toplevel(), title="Choose Font", font=init)
+        # Splatted, not passed as `font=init`. The old call did the latter,
+        # which landed the whole dict in `**font_args` under the key "font"
+        # where nothing read it — so this picker never once opened on the
+        # widget's current font.
+        result = askfont(self.winfo_toplevel(), title="Choose Font", **init)
         if not result:
             return
 

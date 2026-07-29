@@ -3,7 +3,10 @@ pyte>=0.8
 requests>=2.31
 ptyprocess>=0.7
 pywinpty>=2.0; sys_platform == 'win32'  # Windows only — required by ptyprocess on Windows
-tkfontchooser>=2.0
+# tkfontchooser removed — replaced by widgets/font_chooser.py. It only ever
+# wrapped tkinter.font.families(), which is the cross-platform API we now call
+# directly, and its askfont() swallowed the initial font in **kwargs so neither
+# IDOL call site ever opened on the current selection.
 python-lsp-server>=1.12  # LSP backend (pylsp)
 # Pinned below 0.16 on purpose. 0.16 expanded ruff's *stable default* rule set
 # from 59 rules to 413 (I001, BLE001, S110, EXE001, …). IDOL's own source is

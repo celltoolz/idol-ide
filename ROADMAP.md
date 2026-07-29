@@ -35,19 +35,20 @@ Completed sessions live at the bottom as a historical record.
   - "Warn on manual .py edit detected before regen"
   - "Show confirmation before overwriting user code zones"
 
-- **Replace `tkfontchooser`** — drop the external dependency; build a native IDOL font chooser:
-  - Left: scrollable font list (`tkfont.families()`) with filter entry
-  - Center: Size entry + Bold / Italic checkboxes
-  - Right: live preview label in selected font
-  - OK / Cancel; matches current `set_font()` API
+- ~~**Replace `tkfontchooser`**~~ — done (2026-07-28). `widgets/font_chooser.py`;
+  dependency dropped from `requirements.txt`. Family list + filter, style, size,
+  opt-in effects, fixed-size scrolling preview. Both call sites now open on the
+  current font, which neither did before: the designer passed `font=init`, which
+  landed in `**font_args` where nothing read it, and the editor passed nothing.
 
-- **Custom color chooser** — replace `tkinter.colorchooser` (bare RGB slider on Linux):
-  - Canvas-drawn color wheel or HSV square
-  - R/G/B sliders + numeric entries + **Hex value entry** (type `#FF00AA` directly)
-  - Old / New preview swatches; same return signature as `colorchooser.askcolor`
-  - Hooks into Designer color rows + Settings active-line color
+- ~~**Custom color chooser**~~ — done (2026-07-28). `ColorChooserDialog` +
+  a drop-in `askcolor` in `widgets/color_picker.py`, wrapping the same
+  `ColorPicker` frame the editor's hover popup uses. HSV square, hue strip, hex
+  and R/G/B fields, old/new swatches. Generated user projects deliberately keep
+  the stdlib chooser.
 
-- **Editor fg/bg color hover** — hovering a hex string literal (e.g. `"#FF00AA"`) shows a color swatch tooltip; clicking opens the IDOL color chooser. Canvas editor already renders inline color swatches — extend to interactive.
+- ~~**Editor fg/bg color hover**~~ — done (2026-07-28). Hovering an inline
+  swatch opens the picker; live edits, one undo step per session.
 
 - **References code-peek zoom** — hovering a row in the References panel shows a small floating zoom window with the reference's surrounding code, similar to the minimap zoom but smaller. Exact sizing/layout TBD in a dedicated design session before implementation.
 
