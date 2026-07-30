@@ -1265,9 +1265,14 @@ class PackageManagerPanel(tk.Frame):
                 return
             output.write(f"\n✓ {len(packages)} package(s) would be installed:\n",
                          tag="info")
-            width = max(len(p[0]) for p in packages)
+            # Both columns are measured, not just the name. A conda version can
+            # be far wider than any fixed guess (`12.0.0.r4.gg4f2fc60ca`), and
+            # one overflowing row shunts its channel out of line — which is the
+            # column you are actually scanning down.
+            name_w = max(len(p[0]) for p in packages)
+            ver_w = max(len(p[1]) for p in packages)
             for pkg, version, channel in sorted(packages):
-                output.write(f"    {pkg.ljust(width)}  {version:<12} "
+                output.write(f"    {pkg.ljust(name_w)}  {version.ljust(ver_w)}  "
                              f"{mask_channel(channel)}\n")
             # `preview_note_channels` owns which channel this is measured
             # against; the label has to name the same one or the note reads as
