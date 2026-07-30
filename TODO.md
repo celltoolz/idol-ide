@@ -116,6 +116,33 @@ Each phase is independently shippable. **Tests green before every commit** —
         `PytestUnraisableExceptionWarning` against the **wrong** test, and
         costing ~14 s. Full suite 27 s → 14.6 s, warning gone. Same family as
         the open `make_thread_safe_after` bug below.
+      - **Three follow-ups, all found by looking at screenshots of real
+        solves rather than by re-reading the code:** the detail pane went stale
+        after any install started from a *conda* search — `_refresh_selected_detail`
+        re-rendered only what was in `_pypi_cache`, which a channel-index result
+        never enters, so the pane still offered **Install** for a package whose
+        tree row had already grown a version and a badge (the bug predates this
+        branch; Phase 4 made it visible by giving the row something to
+        contradict, and `_conda_detail_data` now feeds both paths). The preview's
+        "other channels" note measured against the primary channel even under a
+        scope, so a conda-forge-scoped preview in a defaults-first project
+        reported conda-forge as unexpected on *every* run — handing back what the
+        user had just asked for, styled as a warning; the baseline is now the
+        scope when one is set, extracted to `conda_channels.preview_note_channels`
+        because the subtlety is the choice of baseline, not the set difference.
+        And the preview table hardcoded `:<12` for the version column while
+        measuring the name column, so one long conda version
+        (`libwinpthread 12.0.0.r4.gg4f2fc60ca`) shunted its channel nine columns
+        out of line — in a provenance table the channel is the column you scan.
+- [ ] **Refresh the channel index by hand.** `CondaSearchIndex.ensure_loaded`
+      already takes `force=True` and the per-channel on-disk cache makes a
+      rebuild cheap, but nothing in the UI calls it — the index refreshes only on
+      its weekly expiry. So a channel that published a package today cannot be
+      searched for it until the cache ages out, with no way to say "look again".
+      Small: a refresh affordance on the channel bar plus the in-flight state, no
+      backend work. Filed because `CONTRIBUTING.md`'s `CondaSearchIndex` row
+      already promises it as "Phase 5's Refresh" — a phase that was never scoped
+      into the four above, so the reference currently points at nothing.
 
 **Deferred, note-and-move-on:** `.condarc` writes; `channel_priority` editing
 (see *Known, not yet scoped*); mirrors / `channel_alias` / `custom_channels` /
