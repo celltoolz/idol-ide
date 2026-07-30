@@ -4,41 +4,49 @@ Working list for the `fix/v1.1.2-finish-todo-sweep` branch (`fix/idol-todo-sweep
 merged to master as `fdc00f9`). Longer-term plans live in `ROADMAP.md`; this
 file is what's next.
 
+**Filing rule, learned the hard way twice on this branch.** Two entries here
+were written from a plausible mechanism rather than a confirmed failure, and
+both dissolved on contact: the re-arm loops (the interpreter does not do what
+the entry said) and the runtime-error indicator (the symptom was expected
+behaviour, mentioned in passing while testing something else). A crash observed
+*while deliberately breaking something* is not evidence of a second bug. Before
+an entry goes in: what was seen, what was expected instead, and was the thing
+that failed already known to be broken. Analysis is not evidence — the indicator
+entry contained a careful trace proving nothing was wrong, and got filed anyway.
+
 ## 🚧 Active Work
 
-The agreed order for the three open bugs below, broken into shippable steps.
-Ordered by dependency, not by size: step 1 is what makes step 3 testable, and
-step 2's instrumentation is what makes the rest of step 2 diagnosable. Each step
-is its own commit.
+Each step is its own commit. **Ordered by evidence now, not by dependency** —
+after step 1, exactly one item here has an observed symptom, and it goes first.
 
 - [x] **Step 1 — guard every self-re-arming `after` loop.** Shipped, but as
       **hygiene, not a bug fix** — the filed mechanism does not reproduce. See
       *The re-arm loops* under Done for what was actually true.
-- [ ] **Step 2 — the three concrete runtime-indicator defects, plus
-      instrumentation.** Land *before* hunting the trigger, so the next
-      occurrence names itself: replace `except Exception: pass`
-      (`widgets/output.py:349`) with a log; prefer the innermost in-project
-      frame over `matches[-1]` (`:346`); key off `script_runner`'s real return
-      code instead of the `"exit code 0"` substring (`:341`). All three are
-      correct regardless of what the trigger turns out to be.
-      - **Blocking question before the trigger hunt:** was the failing Pillow
-        run started with `F5` (Output panel) or `Ctrl+F5`
-        (`run_file_in_terminal`, `app.py:10528` — goes to the PTY and never
-        touches `OutputPanel`)? If `Ctrl+F5`, no indicator was ever expected
-        and the bug collapses to the three defects above.
-- [ ] **Step 3 — `on_packages_changed`.** Wired in `app._build_packages_tab`,
-      fired after install *and* uninstall, with the Designer's `_pil_available`
+- [ ] **Step 2 — `on_packages_changed`.** The only item with a real,
+      user-reproduced symptom: uninstall Pillow and the Designer still shows
+      image props as healthy. Wired in `app._build_packages_tab`, fired after
+      install *and* uninstall, with the Designer's `_pil_available`
       invalidation hanging off it. Not another Pillow special case — the
-      callback is the fix. Testable at the widget level only once step 1 lands.
+      callback is the fix.
+      - Step 1 was *claimed* to be what makes this testable at the widget
+        level. It wasn't: `PackageManagerPanel` builds and destroys cleanly
+        under `tk_root` with unraisable warnings promoted to errors, and did
+        so before step 1 too. A panel test is available; it always was.
+- [ ] **Step 3 — three latent defects in `_try_fire_runtime_error`.** Found by
+      reading `widgets/output.py`, **not by any reported failure** — see the
+      Bugs entry for why the symptom that prompted the read turned out not to
+      exist. Real defects, low urgency: the swallowed exception (`:349`),
+      `matches[-1]` picking the wrong frame (`:346`), and the `"exit code 0"`
+      whole-buffer substring test (`:341`).
 - [ ] **Step 4 — classify a missing module from run output.** Scan for
       `No module named '<x>'` and offer to install `<x>`, routed through the
       same conda/pip decision `_on_designer_install_pillow` (`app.py:10692`)
-      already makes. Feature-sized and the half that actually tells a beginner
-      what to do; wants step 2 landed first so the run-output path is
-      trustworthy before a consumer is added to it.
+      already makes. A genuine feature — it is what would have made the Pillow
+      uninstall self-explanatory instead of a bare traceback. Wants step 3
+      landed first, since it adds a consumer to the run-output path.
 
-Steps 2 and 4 change the runtime-error indicator's behaviour, so
-`docs/terminal.md` ships with them (Definition of Done).
+Step 4 changes the runtime-error indicator's behaviour, so `docs/terminal.md`
+ships with it (Definition of Done). Steps 2 and 3 are both internal.
 
 ## 🐛 Bugs
 
@@ -90,28 +98,28 @@ Steps 2 and 4 change the runtime-error indicator's behaviour, so
         run-output classification above is the right place to catch it rather
         than a new diagnostic.
 
-- [ ] **The runtime-error indicator fires unreliably.** After a failed run it is
-      supposed to jump to the crashed line, paint the amber gutter triangle and
-      flash the Problems tab (`app._on_runtime_error`, `app.py:2554`). Sometimes
-      it does; on the Pillow `ModuleNotFoundError` above it did not.
-      - **Trigger not yet identified — do not assume it is the parse.** The
-        whole path was traced and the parts that look fragile are actually
-        sound: `script_runner` joins both drain threads *before* writing the
-        exit line and the sentinel (`script_runner.py:86-98`), and
-        `OutputPanel._poll` writes every queued line before the sentinel
-        reaches `_finish_run` (`output.py:358-370`) — so the traceback really
-        is in the widget when the check runs. `run()`/`run_code()` clear the
-        panel first (`output.py:286`, `303`), so the buffer holds only this
-        run. Both `ModuleNotFoundError` traceback shapes were reproduced
-        (direct, and nested inside a package `__init__`): single clean frames,
-        no `<frozen importlib._bootstrap>` noise, and `_TRACEBACK_RE`
-        (`output.py:12`) matches them. On paper it should have fired.
-      - **Fix this first, regardless: `except Exception: pass`**
-        (`output.py:349`). Every failure inside `_on_runtime_error` is
-        swallowed silently — a path that no longer exists, `_open_file_at`
-        raising, anything. It costs nothing to log, and it is the reason this
-        is currently undiagnosable. Do that before hunting further; the next
-        occurrence then names itself.
+- [ ] **Three latent defects in `_try_fire_runtime_error`** (`widgets/output.py`).
+      **No reported symptom — do not treat these as urgent.** They were found
+      while investigating "the runtime-error indicator fires unreliably", which
+      **was a misfiling and has been withdrawn**: the `ModuleNotFoundError`
+      that prompted it was the *expected* result of deliberately uninstalling
+      Pillow to test the Designer's "click to install Pillow" row. The crash
+      was mentioned in passing, read as a second defect, and written up as one.
+      Nobody ever observed the indicator failing to fire.
+      - **The withdrawn entry's own analysis found nothing wrong**, which
+        should have been the tell. `script_runner` joins both drain threads
+        before writing the exit line and the sentinel
+        (`script_runner.py:86-98`); `OutputPanel._poll` writes every queued
+        line before the sentinel reaches `_finish_run` (`output.py:358-370`);
+        `run()`/`run_code()` clear first (`:286`, `:303`); `_TRACEBACK_RE`
+        (`:12`) matches both `ModuleNotFoundError` shapes. It should have
+        fired, and as far as anyone knows it did.
+      - **Still worth fixing, at the weight of latent defects:** each is wrong
+        on its own terms, none has a known victim.
+      - **`except Exception: pass`** (`output.py:349`) swallows every failure
+        inside `_on_runtime_error` — a stale path, `_open_file_at` raising,
+        anything. Logging it costs nothing and means a *future* report of this
+        shape arrives diagnosable instead of as a code-reading exercise.
       - **`matches[-1]` is the wrong frame to pick** (`output.py:346`). It
         takes the innermost frame in the buffer, so an exception raised inside
         a dependency points at a `site-packages` file and IDOL opens a library
@@ -128,12 +136,11 @@ Steps 2 and 4 change the runtime-error indicator's behaviour, so
         that prints the string "exit code 0" anywhere suppresses the indicator
         for its own crash. Should key off the actual return code, which
         `script_runner` already knows.
-      - **Verified non-firing path, possibly the answer here:** *Run in
+      - **Not a defect, but worth knowing before the next report:** *Run in
         Terminal* (`Ctrl+F5` → `run_file_in_terminal`, `app.py:10528`) never
         reaches this code at all — output goes to the PTY, not the Output
-        panel. If the failing run was started that way, no indicator is
-        expected and nothing is broken. **Confirm which Run was used before
-        treating this as a parse bug.**
+        panel. A run started that way is *expected* to show no indicator.
+        **Ask which Run was used before filing an indicator bug at all.**
 
 ## ✨ Features
 
