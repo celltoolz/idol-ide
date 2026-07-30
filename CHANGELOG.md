@@ -76,6 +76,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   whether it had loaded, but not *what* it had loaded, so opening a different project without
   changing interpreter left the old channels' results in place. It is now keyed by the channel
   set itself, which also means switching projects re-uses the cache instead of re-downloading.
+- **Every project came up on the last interpreter you picked anywhere.** The chosen interpreter
+  is meant to be remembered per project — open project A on 3.11 and project B on 3.13, and each
+  should come back the way you left it. In practice there was only ever *one* remembered
+  interpreter for the whole machine, so opening B handed you A's.
+  - The attribute holding "which folder am I in" was read in three places and set in none, so
+    every read fell through to your home directory. It never looked broken because the save and
+    the load were wrong in the same way, so the value round-tripped perfectly — it was just
+    always stored under the wrong name.
+  - Existing preferences are unaffected; the first time you pick an interpreter in a project it
+    is remembered for that project from then on.
 - **Package Manager, Welcome, Learning Mode and Settings did nothing in the GUI Designer.**
   Clicking any of them — from the nav bar, the Help menu, the View menu, `F1`/`F3`/`Ctrl+,` —
   looked like a dead button.

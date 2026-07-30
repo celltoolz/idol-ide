@@ -165,3 +165,104 @@ def test_clipboard_scope_no_longer_syncs_off_the_explorer_root():
 
 def test_project_root_does_latch():
     assert "_set_open_project" in inspect.getsource(app_mod.IDOL._set_project_root)
+
+
+# ── the latched explorer root ────────────────────────────────────────────────
+# `self._explorer_root` was read by three sites and assigned by none, so every
+# one of them silently used its fallback. Two of those keyed the remembered
+# interpreter, which made it machine-global instead of per-project: the write
+# and the read were wrong *consistently*, so the value round-tripped and
+# nothing looked broken.
+
+
+class RootHost:
+    """Stand-in for the explorer-root latch and the interpreter key."""
+    _on_explorer_root_change = app_mod.IDOL._on_explorer_root_change
+    _init_interpreter        = app_mod.IDOL._init_interpreter
+
+    def __init__(self):
+        self._explorer_root = ""
+        self._git = None
+        self._designer_mode = False
+        self._active_python = ""
+        self._active_python_label = ""
+        self._files = {}
+        self._output = type("O", (), {"set_cwd": lambda s, p: None})()
+        self._statusbar = type("S", (), {"set_interpreter": lambda s, lbl: None})()
+        self._safe_after = lambda delay, cb, *a: cb(*a)
+        self.started_git = 0
+
+    def _start_git(self):
+        self.started_git += 1
+
+    def _enter_editor_mode(self):
+        pass
+
+    def _get_short_interp_label(self, label):
+        return label
+
+    def _find_project_python(self, _fp):
+        return ""
+
+
+def test_explorer_root_is_latched_on_every_change(tmp_path):
+    host = RootHost()
+    host._on_explorer_root_change(str(tmp_path))
+    assert host._explorer_root == str(tmp_path)
+    other = tmp_path / "sub"
+    other.mkdir()
+    host._on_explorer_root_change(str(other))
+    assert host._explorer_root == str(other)
+
+
+def test_remembered_interpreter_is_read_after_the_root_settles(tmp_path, monkeypatch):
+    """The ordering half of the fix, and the reason latching alone is not enough.
+
+    `_init_interpreter` runs from `_build_layout`, which is *before* the startup
+    path that opens a project and sets the explorer root — so at call time there
+    is no root to key on. The settings read therefore happens inside the
+    `discover_interpreters` callback, which is delivered through `_safe_after`
+    and so cannot run until the mainloop starts. Without this, latching the root
+    would fix the write and leave the read looking up a key nothing writes.
+    """
+    import editor.project_manager as pm_mod
+    from utils import settings as settings_mod
+
+    captured = {}
+
+    class FakePM:
+        def __init__(self, _after):
+            pass
+
+        def discover_interpreters(self, cb):
+            captured["cb"] = cb
+
+    monkeypatch.setattr(pm_mod, "ProjectManager", FakePM)
+    asked: list[str] = []
+    monkeypatch.setattr(settings_mod, "get",
+                        lambda key, default=None: asked.append(key))
+
+    host = RootHost()
+    host._init_interpreter()
+    # Nothing read yet: at this point in startup there is no root to key on.
+    assert asked == []
+
+    # The root settles, *then* the background probe returns.
+    host._on_explorer_root_change(str(tmp_path))
+    captured["cb"]([])
+    assert asked == [f"interpreter:{tmp_path}"]
+
+
+def test_both_interpreter_sites_key_off_the_latched_root():
+    """Write and read must derive the key the same way or they cannot agree.
+
+    Structural, like the latch assertions above: a value assertion would pass
+    whether or not the site still consulted the attribute.
+    """
+    for method in (app_mod.IDOL._init_interpreter,
+                   app_mod.IDOL._set_active_interpreter):
+        src = inspect.getsource(method)
+        assert "self._explorer_root" in src
+        # The bug was reading it through getattr with a default, which hid that
+        # the attribute never existed.
+        assert 'getattr(self, "_explorer_root"' not in src

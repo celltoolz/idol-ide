@@ -461,6 +461,13 @@ class IDOL(Tk):
         # explorer root — see that method for why.
         self._project_path: str | None = None
 
+        # The explorer's current root, latched by `_on_explorer_root_change`.
+        # Empty until the first root is set, which is why every reader still
+        # carries a fallback: `_build_layout` runs before the startup path that
+        # sets a root. Three sites read this and it was assigned nowhere at all,
+        # so all three silently used their fallback — see that method.
+        self._explorer_root: str = ""
+
         # Clipboard History
         self._clip_top: tk.Toplevel | None = None
         self._clip_panel: ClipboardHistoryPanel | None = None
@@ -3810,6 +3817,10 @@ class IDOL(Tk):
 
     def _on_explorer_root_change(self, root: str) -> None:
         """Called whenever the explorer navigates to a new root directory."""
+        # Latch it. `Explorer.set_root` fires this hook unconditionally, so this
+        # is the one place every root change passes through — which is what the
+        # three `self._explorer_root` readers have always assumed and never got.
+        self._explorer_root = root
         # Records the start directory for the *next* terminal session only — a
         # running shell is left alone.  Explorer → Open in Terminal is the
         # explicit way to move a live terminal.
@@ -4443,7 +4454,7 @@ class IDOL(Tk):
 
     def workspace_save(self, *_) -> None:
         """Save project to <name>.idol-project in the explorer root (no dialog needed)."""
-        root = getattr(self, "_explorer_root", None) or str(
+        root = self._explorer_root or str(
             self._sidebar.explorer._root or os.getcwd()
         )
         project_name = os.path.basename(root) or "project"
@@ -10606,8 +10617,6 @@ class IDOL(Tk):
         from editor.project_manager import ProjectManager
         from utils import settings as _settings
 
-        root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
-        saved = _settings.get(f"interpreter:{root}")
         # Snapshot the current value — if session restore sets a different interpreter
         # before the background thread returns, don't override it.
         _snapshot = self._active_python
@@ -10617,6 +10626,15 @@ class IDOL(Tk):
                 # session.restore (or wizard) already set a more authoritative
                 # interpreter after we launched — leave it alone.
                 return
+            # Read the remembered interpreter *here*, not at call time.
+            # `_init_interpreter` runs from `_build_layout`, which is before the
+            # startup path that opens a project and sets the explorer root — so
+            # at call time there is no root to key on yet. This callback is
+            # delivered through `_safe_after`, and an `after` callback cannot
+            # run until the mainloop starts, which is after `__init__` returns.
+            # So by the time we are here the root is settled.
+            root = self._explorer_root or os.path.expanduser("~")
+            saved = _settings.get(f"interpreter:{root}")
             path, label = sys.executable, "Python"
             if saved:
                 for lbl, exe in results:
@@ -10657,7 +10675,7 @@ class IDOL(Tk):
                 self._statusbar._interp_lbl, "interpreter_selector"
             )
             self._statusbar._interp_lbl._learning_registered = True
-        root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
+        root = self._explorer_root or os.path.expanduser("~")
         _settings.set(f"interpreter:{root}", path)
         if self._pkg_panel:
             self._pkg_panel.set_python(path)

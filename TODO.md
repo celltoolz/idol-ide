@@ -5,34 +5,6 @@ Working list for the `fix/idol-todo-sweep` branch. Longer-term plans live in
 
 ## 🐛 Bugs
 
-- [ ] **`self._explorer_root` is never assigned, so the remembered interpreter
-      is global instead of per-project.** Three sites read it via
-      `getattr(self, "_explorer_root", None) or <fallback>` and every one of
-      them always takes the fallback — the attribute is written nowhere in the
-      repo (`_set_explorer_root` sets the *explorer's* root and relies on
-      `on_root_change`; it never stores a copy on the app).
-      - `workspace_save` (`app.py:4446`) is **harmless** — its fallback is
-        `self._sidebar.explorer._root or os.getcwd()`, which is the right
-        answer anyway.
-      - `_init_interpreter` (`app.py:10609`) and `_set_interpreter`
-        (`app.py:10660`) both fall back to `os.path.expanduser("~")`, so the
-        interpreter is stored and read as `interpreter:<home>` rather than
-        `interpreter:<project root>`. They are wrong *consistently*, which is
-        why this never looked like a bug: the write and the read agree, so the
-        value round-trips. The symptom is that there is only ever one
-        remembered interpreter for the whole machine — open project A, then
-        project B, and B comes up on A's interpreter.
-      - Fix is to read the explorer root the way `_add_to_environment_yml` and
-        `PackageManagerPanel.set_project_dir` do, or to actually latch the
-        attribute in `_on_explorer_root_change`. Prefer the latch — three call
-        sites already expect it to exist.
-      - **Touches the conda channel work:** the channel bar reads the project's
-        `environment.yml` while installs run against the active interpreter, so
-        an interpreter that does not follow the project can leave the bar
-        describing project A's channels next to project B's environment. Not a
-        blocker for Phase 2 (both are per-project once the interpreter is
-        right), but fix it before Phase 4's per-package provenance badges.
-
 - [ ] **`make_thread_safe_after`'s pump loop re-arms against a destroyed
       widget.** `_pump` in `utils/thread_safe_after.py` ends with an
       unconditional `widget.after(16, _pump)`, so once the widget is gone the
@@ -167,6 +139,27 @@ Each phase is independently shippable. **Tests green before every commit** —
 - **In `ROADMAP.md`, not here:** macOS CI, expanding the test suite (terminal, git, session persistence, codegen preservation, conda paths), and bumping the GitHub Actions versions off the deprecated Node 20 runtime.
 
 ## ✅ Done on this branch
+
+**Bugs**
+- [x] **The remembered interpreter was machine-global, not per-project** —
+      `self._explorer_root` was read by three sites and assigned by none, so
+      every read fell through to its fallback and two of them keyed
+      `interpreter:<home>` instead of `interpreter:<project root>`. It never
+      looked like a bug because the write and the read were wrong *consistently*
+      — the value round-tripped, just under the wrong name. Symptom: open
+      project A on 3.11 and project B on 3.13, and B comes up on A's
+      interpreter. Fixed by latching the root in `_on_explorer_root_change`
+      (`Explorer.set_root` fires it unconditionally, so it is the one place
+      every change passes through). **Latching alone was not enough:**
+      `_init_interpreter` runs from `_build_layout`, before the startup path
+      that opens a project, so its settings read had to move inside the
+      `discover_interpreters` callback — which is delivered via `_safe_after`
+      and so cannot fire until the mainloop starts. Left as-is, the latch would
+      have fixed the write and left the read looking up a key nothing writes.
+      Verified against a real boot: the same script wrote
+      `interpreter:C:\Users\Alex` twice before and the two real project paths
+      after. Three tests in `tests/test_project_root.py`, all confirmed failing
+      against the unfixed `app.py`.
 
 **Panel tabs and the designer**
 - [x] **Panel tabs open where you can see them** — Welcome, Packages, Learning Mode and Settings are single-instance tabs that now live in whichever notebook opened them, not always the main one. Designer mode `pack_forget`s `self.notebook` (the canvas takes its slot), so clicking Package Manager / Welcome / Learning / Settings from the nav bar or the menus added a tab nobody could see and read as a dead button. They now open in the split pane while the designer is up, opening the split if it isn't. `_PANEL_TAB_SLOTS` + `_panel_tab_home` / `_toggle_panel_tab` / `_build_panel_tab` replace four hand-rolled copies of the same toggle.
