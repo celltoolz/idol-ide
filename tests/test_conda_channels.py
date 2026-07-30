@@ -15,6 +15,7 @@ import pytest
 
 from editor import conda_manager
 from utils import conda_channels, conda_env
+from widgets import package_manager as pkg_mod
 
 
 # ── channels: block parsing ───────────────────────────────────────────────────
@@ -943,6 +944,86 @@ def test_dry_run_survives_a_missing_conda(monkeypatch):
     m.dry_run("numpy", lambda *a: (got.append(a), done.set()))
     assert done.wait(timeout=10)
     assert got[0][0] is False
+
+
+# ── the detail panel after a conda install ────────────────────────────────────
+
+class _DetailStub:
+    """Records what the panel would render."""
+
+    def __init__(self):
+        self.shown: list[tuple[str, dict, str | None]] = []
+
+    def show(self, name, data, installed_ver):
+        self.shown.append((name, data, installed_ver))
+
+
+class _SelectionHost:
+    """Stand-in exercising the real refresh path without booting the panel."""
+    _conda_detail_data      = pkg_mod.PackageManagerPanel._conda_detail_data
+    _refresh_selected_detail = pkg_mod.PackageManagerPanel._refresh_selected_detail
+
+    def __init__(self, installed, origins, results):
+        self._search_source = "conda"
+        self._conda_results = results
+        self._origins = origins
+        self._installed = installed
+        self._pypi_cache = {}
+        self._selected_pkg = "pyautogui"
+        self._detail = _DetailStub()
+
+
+_RESULT = {"pyautogui": {"summary": "GUI automation", "version": "0.9.54",
+                         "channel": "conda-forge", "home": "", "license": ""}}
+
+
+def test_installing_a_conda_search_result_refreshes_the_detail_panel():
+    """The screenshot bug: tree row said installed, detail still offered Install.
+
+    A conda search result never enters `_pypi_cache`, and the refresh used to
+    consult only that cache — so after installing one, the buttons kept the
+    pre-install state while the tree row beside them showed the new version.
+    """
+    host = _SelectionHost(installed={"pyautogui": "0.9.54"},
+                          origins={"pyautogui": "conda-forge"},
+                          results=_RESULT)
+    host._refresh_selected_detail()
+    assert host._detail.shown, "detail panel was never refreshed"
+    name, _data, installed_ver = host._detail.shown[-1]
+    assert name == "pyautogui"
+    assert installed_ver == "0.9.54"   # drives Uninstall-enabled / Install-off
+
+
+def test_refresh_reports_where_an_installed_package_came_from():
+    host = _SelectionHost(installed={"pyautogui": "0.9.54"},
+                          origins={"pyautogui": "conda-forge"},
+                          results=_RESULT)
+    host._refresh_selected_detail()
+    assert "installed from: conda-forge" in host._detail.shown[-1][1]["info"]["summary"]
+
+
+def test_a_not_yet_installed_result_reports_the_offering_channel():
+    host = _SelectionHost(installed={}, origins={}, results=_RESULT)
+    host._refresh_selected_detail()
+    summary = host._detail.shown[-1][1]["info"]["summary"]
+    assert "channel: conda-forge" in summary
+    assert host._detail.shown[-1][2] is None
+
+
+def test_refresh_still_falls_back_to_the_pypi_cache():
+    """The pip path must keep working — it is the only one that used to."""
+    host = _SelectionHost(installed={"requests": "2.31"}, origins={}, results={})
+    host._selected_pkg = "requests"
+    host._pypi_cache = {"requests": {"info": {"summary": "http"}}}
+    host._refresh_selected_detail()
+    assert host._detail.shown[-1][2] == "2.31"
+
+
+def test_refresh_is_a_no_op_with_nothing_selected():
+    host = _SelectionHost(installed={}, origins={}, results={})
+    host._selected_pkg = ""
+    host._refresh_selected_detail()
+    assert host._detail.shown == []
 
 
 # ── the shipped catalog ───────────────────────────────────────────────────────

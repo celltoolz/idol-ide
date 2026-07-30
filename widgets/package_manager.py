@@ -774,12 +774,46 @@ class PackageManagerPanel(tk.Frame):
         self._origins = origins
         self._populate_grouped()
 
+    def _conda_detail_data(self, name: str) -> dict | None:
+        """Detail payload built from the conda channel index, or None.
+
+        Shared by selection and post-operation refresh so the two cannot render
+        the same package from different sources.
+        """
+        if self._search_source != "conda" or name not in self._conda_results:
+            return None
+        meta = self._conda_results[name]
+        summary = meta["summary"] or "(no summary in channel metadata)"
+        # Where it is installed *from* is the interesting fact once it is
+        # installed; before that, which channel offers it.
+        origin = self._origins.get(name, "")
+        provenance = (f"installed from: {mask_channel(origin)}"
+                      if origin and origin != "conda"
+                      else f"channel: {mask_channel(meta['channel'])}")
+        return {"info": {
+            "summary": f"{summary}\n\nconda package — {provenance}",
+            "version": meta["version"],
+            "home_page": meta["home"],
+            "license": meta["license"],
+        }}
+
     def _refresh_selected_detail(self) -> None:
-        """Re-render the detail panel with updated installed status after a pip op."""
-        if self._selected_pkg and self._selected_pkg in self._pypi_cache:
-            self._detail.show(self._selected_pkg,
-                              self._pypi_cache[self._selected_pkg],
-                              self._installed.get(self._selected_pkg))
+        """Re-render the detail panel so its buttons match the installed list.
+
+        Runs after every install/uninstall, and has to mirror `_on_select`'s
+        source branching. It used to refresh only what was in `_pypi_cache` —
+        but a conda search result never lands there, so installing one left the
+        panel offering **Install** for a package whose tree row, inches away,
+        had just grown a version and a channel badge.
+        """
+        name = self._selected_pkg
+        if not name:
+            return
+        data = self._conda_detail_data(name)
+        if data is None:
+            data = self._pypi_cache.get(name)
+        if data is not None:
+            self._detail.show(name, data, self._installed.get(name))
 
     # ── Grouped / alphabetical view toggle ────────────────────────────────────
 
@@ -1063,25 +1097,12 @@ class PackageManagerPanel(tk.Frame):
         name = iid.replace("pkg:", "")
         self._selected_pkg = name
         self._detail.show_loading(name)
-        if self._search_source == "conda" and name in self._conda_results:
-            # Conda search result — details come from the channel index, not
-            # PyPI (the same name may be a different product there).
+        # Conda search result — details come from the channel index, not PyPI
+        # (the same name may be a different product there).
+        conda_data = self._conda_detail_data(name)
+        if conda_data is not None:
             self._selected_src = "conda"
-            meta = self._conda_results[name]
-            summary = meta["summary"] or "(no summary in channel metadata)"
-            # Where it is installed *from* is the interesting fact once it is
-            # installed; before that, which channel offers it.
-            origin = self._origins.get(name, "")
-            provenance = (f"installed from: {mask_channel(origin)}"
-                          if origin and origin != "conda"
-                          else f"channel: {mask_channel(meta['channel'])}")
-            data = {"info": {
-                "summary": f"{summary}\n\nconda package — {provenance}",
-                "version": meta["version"],
-                "home_page": meta["home"],
-                "license": meta["license"],
-            }}
-            self._detail.show(name, data, self._installed.get(name))
+            self._detail.show(name, conda_data, self._installed.get(name))
             return
         self._selected_src = "pypi"
         if name in self._pypi_cache:

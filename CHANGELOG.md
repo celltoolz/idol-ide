@@ -92,6 +92,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   whether it had loaded, but not *what* it had loaded, so opening a different project without
   changing interpreter left the old channels' results in place. It is now keyed by the channel
   set itself, which also means switching projects re-uses the cache instead of re-downloading.
+- **Installing a package you found by searching conda left the details pane offering to install
+  it again.** The list on the left updated correctly — new version, channel badge — while the
+  buttons beside it still said **Install**, with **Uninstall** greyed out. Only packages looked
+  up on PyPI were being re-rendered after an operation, and a conda search result never goes
+  through PyPI. Both sources now refresh through the same path.
 - **Every project came up on the last interpreter you picked anywhere.** The chosen interpreter
   is meant to be remembered per project — open project A on 3.11 and project B on 3.13, and each
   should come back the way you left it. In practice there was only ever *one* remembered
