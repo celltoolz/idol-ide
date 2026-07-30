@@ -11,7 +11,7 @@ Open with `Ctrl+Shift+P`. Fuzzy-searches all commands.
 ## File Explorer
 
 - Lazy loading with directory navigation and drag-to-resize sash
-- **Right-click menu** — New File, New Folder, Rename, Delete, Set as Root Directory, Open in Terminal, Add to .gitignore
+- **Right-click menu** — Open File, Open in Designer, Set as Root Directory, Open in Terminal, New File, New Folder, Rename, Delete. (**Add to .gitignore** lives on the Source Control panel's file rows, not here — see [Git Integration](git.md#source-control-panel))
 - **The root only moves when you ask it to** — opening a project or **Set as Root Directory**. `File → Open` opens the file in a tab and leaves the tree exactly where it was, and breadcrumb crumbs never move it
 - **Set as Root Directory** re-roots the tree only. It does not `cd` a running terminal — a shell you already have open stays where you left it
 - **Open in Terminal** is the opposite half: it `cd`s the terminal to the selected folder (a file resolves to its containing folder) and brings the terminal panel up. If no shell is running yet, the new one starts there

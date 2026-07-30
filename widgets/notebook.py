@@ -484,6 +484,12 @@ class CustomNotebook(ttk.Notebook):
         style = ttk.Style()
         cls._COLOR_LIGHT = "#D3D3D3"
         cls._COLOR_DARK = "#C1C1C1"
+        # Selection colours for text entries — also what the X11 file dialog
+        # reads for its own selection highlight (see below). Chosen to stay
+        # legible on that dialog's light Tk-default background as well as in
+        # IDOL's dark UI.
+        cls._SELECT_BG = "#0078d4"
+        cls._SELECT_FG = "#ffffff"
 
         style.theme_create(
             "selectedtab",
@@ -500,6 +506,37 @@ class CustomNotebook(ttk.Notebook):
             },
         )
         style.theme_use("selectedtab")
+
+        # Restore TEntry's selection colours, which `theme_create` drops.
+        #
+        # A theme created with `parent="alt"` does NOT inherit the parent's
+        # `TEntry -selectbackground/-selectforeground` into the state-qualified
+        # lookup path: querying `alt` directly returns "#4a6984"/"#ffffff", but
+        # querying the derived theme returns "" for both.
+        #
+        # That empty string is what breaks the Linux file dialog. Tk's X11
+        # `tk_getOpenFile` draws its file list with `::tk::IconList` — a canvas,
+        # not a listbox — and `iconlist.tcl`'s DrawSelection does exactly:
+        #
+        #     set cbg [ttk::style lookup TEntry -selectbackground focus]
+        #     set cfg [ttk::style lookup TEntry -selectforeground focus]
+        #     $canvas create rect $bbox -fill $cbg -outline $cbg
+        #     $canvas itemconfigure $tTag -fill $cfg
+        #
+        # With both empty the highlight rectangle and the filename text are
+        # drawn with `-fill ""` — so clicking a file made it *disappear*.
+        #
+        # Windows and macOS were unaffected because `tk_getOpenFile` there is
+        # the native OS dialog and never runs this Tcl at all; the style was
+        # equally broken on every platform, only X11 rendered the consequence.
+        # This also repairs selection in IDOL's own `ttk.Entry`/`Combobox`
+        # widgets, which were inheriting the same empty values everywhere.
+        style.configure("TEntry",
+                        selectbackground=cls._SELECT_BG,
+                        selectforeground=cls._SELECT_FG)
+        style.configure("TCombobox",
+                        selectbackground=cls._SELECT_BG,
+                        selectforeground=cls._SELECT_FG)
 
         # 1×1 transparent image used to neutralise the overflow arrow slots
         cls._images = (PhotoImage("img_arrow_blank", width=1, height=1),)

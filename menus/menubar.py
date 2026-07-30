@@ -90,19 +90,15 @@ def build_menubar(app) -> Menu:
                 value=_t,
                 command=app.view_change_theme,
             )
+    # Theme stays: it is a preference, but switching it is frequent and a
+    # submenu beats a dropdown inside a panel. The radiobuttons write through
+    # `view_change_theme`, which persists — so this and the Settings panel are
+    # two views of one stored value, not two values.
     view_menu.add_cascade(label="Theme", menu=theme_menu)
-    view_menu.add_command(
-        label="Change Font...", command=app.view_change_font, accelerator="Ctrl+L"
-    )
-    view_menu.add_separator()
-    view_menu.add_checkbutton(
-        label="Highlight Active Line",
-        variable=app.highlight_line_var,
-        command=app.view_toggle_highlight,
-    )
-    view_menu.add_command(
-        label="Active Line Color...", command=app.view_active_line_color
-    )
+    # Moved into Settings (View > Settings, Ctrl+,): Change Font, Highlight
+    # Active Line, Active Line Color, Show Minimap. They are preferences you
+    # set once, and a menu is the wrong shape for that — the panel shows their
+    # current value and offers reset-to-default, which a menu cannot.
     view_menu.add_separator()
     panels_menu = Menu(view_menu, tearoff=0)
     for _label, _key, _accel in [
@@ -123,11 +119,6 @@ def build_menubar(app) -> Menu:
         label="Show Panels",
         variable=app.output_visible_var,
         command=app.view_toggle_output,
-    )
-    view_menu.add_checkbutton(
-        label="Show Minimap",
-        variable=app.minimap_visible_var,
-        command=app.view_toggle_minimap,
     )
     view_menu.add_checkbutton(
         label="Show Sidebar",
@@ -156,6 +147,12 @@ def build_menubar(app) -> Menu:
         label="Clipboard History",
         command=app.view_clipboard_history,
         accelerator="Ctrl+Shift+H",
+    )
+    view_menu.add_separator()
+    view_menu.add_command(
+        label="Settings",
+        command=app.view_settings,
+        accelerator="Ctrl+,",
     )
     menubar.add_cascade(label="View", menu=view_menu)
 
@@ -188,7 +185,7 @@ def build_menubar(app) -> Menu:
     designer_menu.add_separator()
     designer_menu.add_command(label="Generate Code",
                               command=app.designer_generate_code,
-                              accelerator="Ctrl+Shift+G",
+                              accelerator="Ctrl+Shift+B",
                               state="disabled")
     app._designer_menu = designer_menu
     menubar.add_cascade(label="Designer", menu=designer_menu)

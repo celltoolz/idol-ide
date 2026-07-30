@@ -7,7 +7,7 @@ completely content-agnostic; callers own the page data.
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import Frame, Label, ttk
+from tkinter import Frame, Label
 from typing import Callable
 from widgets.scrollbar import VerticalScrollbar
 

@@ -8,6 +8,7 @@ event_bodies comes from persistence.extract_event_bodies() and lets
 regeneration preserve any code the user wrote inside event stubs.
 """
 
+import sys
 import textwrap
 from typing import Any
 
@@ -72,6 +73,14 @@ _BOOL_PROPS = {"wrap", "exportselection"}
 _PROP_RENAMES = {"char_width": "width", "char_height": "height"}
 
 # IDOL marker lines — must contain the tokens persistence.py detects
+# Used by `_sorted_import_lines` to split stdlib from third-party. Present on
+# 3.10+; the fallback only needs to cover what codegen can actually emit, and
+# an unlisted module simply lands in the third-party group.
+_STDLIB_MODULES = getattr(
+    sys, "stdlib_module_names",
+    frozenset({"os", "socket", "struct", "threading", "tkinter"}),
+)
+
 _IMPORT_B        = "# ── IDOL:IMPORTS:BEGIN "        + "─" * 49
 _IMPORT_E        = "# ── IDOL:IMPORTS:END "          + "─" * 51
 _DIALOG_IMPORT_B = "# ── IDOL:DIALOG_IMPORTS:BEGIN " + "─" * 10 + "(Do not modify below)" + "─" * 11
@@ -185,14 +194,18 @@ def generate(form: "FormModel", event_bodies: dict[str, str] | None = None,
     out: list[str] = []
 
     # ── imports ───────────────────────────────────────────────────────────────
-    out.append("import tkinter as tk")
+    # Collected then ordered in one pass — see `_sorted_import_lines`. Appending
+    # them as they are discovered is what produced an unsorted block, and a
+    # generated project that tripped IDOL's own linter on its very first line.
+    _raw_imports = list(_collect_component_imports(form))
     if needs_ttk:
-        out.append("from tkinter import ttk")
-    for _imp in _collect_component_imports(form):
-        out.append(_imp)
-    if _has_images(form):
-        out.append("import os")
-        out.append("from PIL import Image, ImageTk")
+        _raw_imports.append("from tkinter import ttk")
+    out += _sorted_import_lines(_raw_imports, _has_images(form))
+    # Blank line before the marker comments. Without it isort treats the
+    # comment block as a trailing part of the import block and reports I001 even
+    # for a form whose only import is `import tkinter as tk` — ordering was only
+    # half the reason a generated project flagged itself.
+    out.append("")
     out.append(_IMPORT_B)
     if user_imports:
         for line in user_imports.splitlines():
@@ -1081,7 +1094,6 @@ def _coerce_initial(var_type: str, initial: str):
 
 def _menu_lines(items) -> list[str]:
     """Generate _build_ui lines for a tk.Menu hierarchy from MenuItemDescriptor list."""
-    from .model import MenuItemDescriptor  # local import avoids circular at module level
     lines: list[str] = []
     lines.append("        self._menu_bar = tk.Menu(self)")
     lines.append("        self.configure(menu=self._menu_bar)")
@@ -1256,6 +1268,68 @@ def _comp_should_emit(comp, cdef, wired_methods: set[str]) -> bool:
         for hdef in cdef.handler_defs
         if hdef.has_connector
     )
+
+
+def _sorted_import_lines(raw: list[str], needs_images: bool) -> list[str]:
+    """Order the generated import block the way isort/ruff's `I001` expects.
+
+    Emitted code used to come out as `tkinter, ttk, os, PIL` — stdlib after a
+    third-party import and unsorted within its own group — so a freshly
+    generated project flagged itself in IDOL's own Problems panel, on code the
+    user never wrote. Ordering it here fixes that at the source, independently
+    of which rules any given linter has switched on.
+
+    isort's shape: straight `import x` first, then `from x import y`, each
+    alphabetical, with third-party split off after a blank line. Modules are
+    classified via `sys.stdlib_module_names` rather than a hardcoded list, so a
+    future component that pulls in a third-party package groups itself
+    correctly without anyone remembering to update this.
+    """
+    std_plain: set[str] = {"tkinter as tk"}          # always emitted
+    std_from:  dict[str, set[str]] = {}
+    ext_plain: set[str] = set()
+    ext_from:  dict[str, set[str]] = {}
+
+    def _is_std(mod: str) -> bool:
+        return mod.split(".")[0] in _STDLIB_MODULES
+
+    for line in raw:
+        line = line.strip()
+        if line.startswith("from "):
+            mod, _, names = line[5:].partition(" import ")
+            bucket = std_from if _is_std(mod) else ext_from
+            bucket.setdefault(mod.strip(), set()).update(
+                n.strip() for n in names.split(",") if n.strip()
+            )
+        elif line.startswith("import "):
+            # `import socket, threading` on one line splits — isort would.
+            for part in line[7:].split(","):
+                part = part.strip()
+                if part:
+                    (std_plain if _is_std(part) else ext_plain).add(part)
+
+    if needs_images:
+        std_plain.add("os")
+        ext_from.setdefault("PIL", set()).update({"Image", "ImageTk"})
+
+    def _key(entry: str) -> str:
+        # "tkinter as tk" sorts under "tkinter"
+        return entry.split(" as ")[0].lower()
+
+    def _emit(plain: set[str], froms: dict[str, set[str]]) -> list[str]:
+        out = [f"import {m}" for m in sorted(plain, key=_key)]
+        out += [
+            f"from {m} import {', '.join(sorted(froms[m]))}"
+            for m in sorted(froms, key=str.lower)
+        ]
+        return out
+
+    lines = _emit(std_plain, std_from)
+    ext = _emit(ext_plain, ext_from)
+    if ext:
+        lines.append("")        # isort's blank line between sections
+        lines += ext
+    return lines
 
 
 def _collect_component_imports(form: FormModel) -> list[str]:
@@ -1478,7 +1552,6 @@ def _ci_shared_image_ref(form: FormModel, img_path: str) -> str | None:
 
 def _canvas_button_build_lines(form: FormModel) -> list[str]:
     """Return indented _build_ui lines for canvas image buttons on Image components."""
-    import os as _os
     lines: list[str] = []
     for comp in form.components:
         if comp.type != "Image":
@@ -1495,7 +1568,6 @@ def _canvas_button_build_lines(form: FormModel) -> list[str]:
             y      = btn.get("y", 0)
             nk     = btn.get("normal_key",  "")
             hk     = btn.get("hover_key",   "")
-            pk     = btn.get("pressed_key", "")
             if not canvas or not tag:
                 continue
             normal_ref = _img_ref(cid, nk)
@@ -2310,8 +2382,14 @@ def _comp_handler_method(comp, hdef, method: str, bodies: dict[str, str],
                 for ln in textwrap.dedent(raw).splitlines():
                     lines.append(("        " + ln) if ln.strip() else "")
             elif pb_xfer or lbl_file:
+                # `_os` is only read by the lbl_file line below, and straight
+                # imports sort before from-imports — emitting it unconditionally
+                # in filedialog-first order gave the generated file an unused
+                # import and an unsorted block (F401 + I001) on code the user
+                # never wrote.
+                if lbl_file:
+                    lines.append(f"        import os as _os")
                 lines.append(f"        from tkinter.filedialog import askopenfilename")
-                lines.append(f"        import os as _os")
                 lines.append(f"        path = askopenfilename(parent=self, title='Select file to send')")
                 lines.append(f"        if not path:")
                 lines.append(f"            return")

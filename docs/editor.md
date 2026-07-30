@@ -6,12 +6,21 @@
 - Hover any tab to see its full file path as a tooltip
 - Canvas-rendered regex-rule syntax highlighting; themes are JSON files in `themes/` — no Pygments dependency
 - Line numbers with code folding — click **▼**/**▶** markers to collapse/expand blocks; `# ── Name ───` section-marker comments fold from that header to the next section header at the same indent; IDOL designer markers (`# ── IDOL:BEGIN`, `# ── IDOL:IMPORTS:BEGIN`, etc.) fold their entire BEGIN…END block; **Up/Down arrow keys skip folded blocks**; pressing **Enter** on a folded section header unfolds the section first, then inserts a newline after the header line
-- Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes. When the cursor touches a bracket or quote, its matching partner is highlighted as you move — quotes are matched within the same line by counting quotes to tell openers from closers, and escaped quotes (`\"`) are skipped
-- Insert key toggles overwrite mode — block cursor and OVR status bar indicator
+- Bracket matching, auto-indent, auto-close pairs, wrap selection in brackets/quotes. When the cursor touches a bracket or quote, its matching partner is highlighted as you move. Matching is **code-only**: a bracket you typed into a comment, or one sitting in the middle of a string, no longer highlights against real code elsewhere in the file. Quotes match within the same line, and only when they genuinely open or close a string — so the apostrophe in `"don't"` is left alone, escaped quotes (`\"`) are skipped, and a `"""` pairs with the triple at the other end rather than with the quote next to it
 
 ## Font
 
-**View → Change Font** opens a font chooser dialog where you can set the editor font family, size, and bold/italic style. The selection persists across restarts.
+**Settings → Editor → Font** (Ctrl+, ) sets the editor font family, size and style. **Ctrl+L** opens the same chooser directly. The chooser is IDOL's own — it opens scoped to the font you are currently using, and its preview renders inside a fixed box, so a 72pt sample scrolls rather than stretching the dialog.
+
+The selection is a preference: it follows you across every project rather than being stored per project.
+
+## Colour Picker
+
+Hovering an inline colour swatch — the small square IDOL draws before a hex literal like `"#0d1117"` — opens a colour picker. Drag inside the saturation/value square or the hue strip, or type a hex value directly.
+
+The literal updates live as you drag, and the whole picking session is a single undo step, so Ctrl+Z puts the original colour back in one press. Your quote style and hex case are preserved: `'#ff00aa'` stays lowercase and single-quoted. `#rgb` shorthand expands to six digits.
+
+The picker stays open while the pointer is over either the swatch or the picker itself, with a short grace period so you can move between them. It closes on leave, on scroll, and when you switch tabs.
 
 ## Line Move & Duplicate
 
@@ -29,7 +38,7 @@ Enclosing scope pins to the top of the editor while you scroll — fully syntax-
 
 ## Minimap
 
-Live scaled-down view of the full file with hover zoom preview and mouse wheel scrolling. Toggle with the **MAP** button in the nav toolbar. The minimap is fold-aware — folded lines are hidden in the minimap too.
+Live scaled-down view of the full file with hover zoom preview and mouse wheel scrolling. Toggle with the **MAP** button in the nav toolbar, or **Settings → Editor → Show minimap**. The minimap is fold-aware — folded lines are hidden in the minimap too.
 
 ## Breadcrumb Bar
 
@@ -53,11 +62,21 @@ A thin bar between the tab row and the editor showing the full file path and cur
 |---|---|
 | **SPLIT button** (nav bar) or `Ctrl+\` | First open with multiple tabs — moves the active tab to the split. First open with one tab — opens a fresh Untitled in the split. Subsequent clicks toggle visibility without destroying tabs. |
 | **Drag a tab** past the midpoint of the main editor | **Moves** the tab to the split pane (removes it from main) |
-| **Right-click → Open in Split Editor** | **Copies** the tab — it stays open in both panes |
+| **Right-click → Open in Split Editor** | **Copies** the tab — it stays open in both panes. (A panel tab is *moved*; see below.) |
 | **Drag a split tab** left past the split edge | **Moves** the tab back to the main pane; blue drop zone confirms the drop target |
 | **Right-click a split tab → Open in Main Editor** | **Copies** to main — stays open in both panes |
 | **Split pane × button** | True close — prompts for any unsaved changes, then destroys the pane |
-| **Individual tab ×** in split | Closes that tab; if it was the last, the split pane closes |
+| **Individual tab ×** in split | Closes that tab. The pane stays open even when it was the last one. |
+
+The split closes only when **you** close it — the pane's × or the toggle. Closing its last tab, dragging that tab back to the main pane, or switching to the Designer all leave the pane where it is, ready for another tab. An empty split keeps its header, so you can drag one straight back in.
+
+The split belongs to the project: it is saved and restored per project, and closing a project disposes of it so one project's split files never carry into the next.
+
+### Panel tabs in the split
+
+Welcome, Packages, Learning Mode and Settings can live in either pane. There is only ever one of each, so **Open in Split Editor** *moves* one rather than copying it, and dragging works the same as with a file tab. Note that these have no saved buffer — moving one rebuilds its panel, so anything you had typed into the Settings search box or a package filter starts fresh on the other side.
+
+This is also where they open while the **Designer** has the main editor area, since a tab added there would be behind the canvas. See [GUI Designer → Layout](designer.md#layout).
 
 ### Caret and current-line highlight
 
@@ -69,7 +88,7 @@ Both panes keep their **current-line highlight** at all times, including when ne
 
 The SPLIT button hides and re-shows the split pane **without closing or discarding any tabs**. All open split tabs survive behind the scenes. Click SPLIT again (or `Ctrl+\`) to restore them exactly as you left them.
 
-Entering **Designer mode** also hides the split automatically; returning to Editor mode restores it.
+Switching to **Designer mode** leaves the split exactly as you had it. The designer occupies the left half, so an open split puts the canvas and your code side by side.
 
 ### Session persistence
 
@@ -93,6 +112,19 @@ The ⇕ button (in the split header) syncs both panes to the same scroll positio
 - **Smart Home** — first press jumps to the first non-whitespace character; second press jumps to column 0 (position-based, no state needed)
 - **Word occurrence highlights** — when the cursor rests on a word, all other occurrences in the file highlight automatically; updates on arrow-key navigation too
 - **Selection collapse** — pressing Left or Right arrow with a selection collapses to the start/end of the selection (VS Code behavior)
+
+## Auto-close Pairs
+
+Typing an opener inserts its closer. Typing that closer again steps over it instead of adding a second one — and **openers step over too**, so with the cursor just before an existing `(`, pressing `(` moves past it rather than wedging an empty `()` in front of it. The same applies to `[` and `{`.
+
+Pairing only happens in code. Inside a comment, inside a string or docstring, and in a plain-text file, what you type is what you get — `# don't` stays `# don't` instead of becoming `# don''t`. An unsaved **Untitled** tab still pairs, since that is where a new file spends its first minutes; the suppression starts once the file is saved under a plain-text name.
+
+Two deliberate exceptions keep the feature usable:
+
+- Inside a string, typing a quote onto the closing quote still steps over it — that closer *was* auto-inserted, and stepping over it is how you get back out of the string. It is also what makes typing `"""` open a docstring.
+- Wrapping a selection still works anywhere, including inside a string. Selecting a word and pressing `(` is something you asked for, not something the editor volunteered.
+
+All of it applies at every cursor when multi-cursor is active. Turn the feature off with **Settings → Editor → Auto-close brackets and quotes**.
 
 ## Undo / Redo
 
@@ -124,6 +156,8 @@ Open with **Ctrl+Shift+H** — a floating panel that records every copy and cut 
 - **Pin-to-top** — 📌 toolbar button keeps the panel floating above all other windows
 - The panel is a persistent hidden window; closing it with the × just hides it, history is preserved
 
+History is **saved per project** and restored when you reopen it, so what you copied while working on one project does not turn up while working on another. With no project open you get a separate scratch history of the last 20 entries, also kept between sessions. Both live under `~/.idol/clipboard/` — never inside the project folder, so copied text cannot end up committed.
+
 > The rows are rendered as Canvas primitives (not widget trees) — hover effects are sub-millisecond
 > `itemconfigure` calls with no full redraws.
 
@@ -152,7 +186,7 @@ The editor's right-click menu is an IDOL-style dark overlay (not a native OS men
 
 ## Active Line Highlight
 
-**View → Highlight Active Line** toggles a subtle background band on the line the cursor is on. **View → Active Line Color** opens a color picker to customize the highlight color. Both settings apply immediately to all open editor tabs.
+**Settings → Editor → Highlight active line** toggles a subtle background band on the line the cursor is on, and **Active line colour** overrides the theme's own highlight. Both apply immediately to every open tab. Reset the colour to go back to following whichever theme is active.
 
 ## Themes
 

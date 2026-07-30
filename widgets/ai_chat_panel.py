@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, messagebox, filedialog
+from tkinter import messagebox, filedialog
 from typing import Callable
 from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
 
@@ -337,6 +337,9 @@ class AiChatPanel(tk.Frame):
         if not url:
             return
         ollama_client.set_base_url(url)
+        # A server address is a preference, not workspace state. It used to be
+        # written into the session, which made it per-project.
+        idol_settings.set("ai.ollama_url", ollama_client.get_base_url())
         self._url_status.config(text="Connecting…", fg=_DIM)
         def _after_check(available: bool) -> None:
             self._ai_available = available

@@ -8,5 +8,9 @@ __pycache__/
 .claude/
 .vscode/
 
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+
 # Session files
 ~/.notepad_ide/

@@ -21,6 +21,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -34,12 +35,33 @@ from utils import conda_env
 # the user's own CLI works afterward too.
 
 _TOS_TIMEOUT = 60
+#: A dry run still solves and still fetches repodata; only the download and
+#: link steps are skipped. Budget accordingly.
+_DRY_RUN_TIMEOUT = 300
+
+
+def _link_actions(data: dict) -> list[dict]:
+    """The LINK list from `conda install --dry-run --json`, shape-tolerantly.
+
+    conda has moved this between `actions.LINK` and a bare `actions` list, and
+    reports a no-op solve as either an empty list or a missing key. None of
+    those is an error, so every shape resolves to a list rather than raising.
+    """
+    actions = data.get("actions")
+    if isinstance(actions, dict):
+        links = actions.get("LINK")
+    elif isinstance(actions, list):
+        links = actions
+    else:
+        links = None
+    return [ln for ln in (links or []) if isinstance(ln, dict)]
 
 
 def fetch_tos_pending(
     conda_exe: str | None,
     after_fn: Callable,
     on_done: Callable[[dict[str, str]], None],
+    channels: list[str] | None = None,
 ) -> None:
     """Check which channels still need ToS acceptance, on a daemon thread.
 
@@ -47,6 +69,13 @@ def fetch_tos_pending(
     Empty dict means nothing to accept (all accepted, ToS plugin absent,
     or the check failed — in which case the operation proceeds and any
     real ToS error surfaces from conda itself).
+
+    *channels* scopes the answer to the channels the pending command will
+    actually search. `conda tos` reports on everything the installation knows
+    about, so without this a conda-forge-only project whose ~/.condarc still
+    lists defaults gets an Anaconda ToS dialog for a channel the install is
+    about to exclude with `--override-channels`. None means "don't filter" —
+    the correct default for callers that have no channel list of their own.
     """
     def _run():
         pending: dict[str, str] = {}
@@ -62,8 +91,13 @@ def fetch_tos_pending(
                         continue
                     # "path" points at the local acceptance record once the
                     # ToS has been accepted; "None"/empty means still pending.
-                    if meta.get("path") in (None, "", "None"):
-                        pending[channel] = meta.get("text", "")
+                    if meta.get("path") not in (None, "", "None"):
+                        continue
+                    if channels is not None and not any(
+                            conda_env.channel_covers_url(c, channel)
+                            for c in channels):
+                        continue
+                    pending[channel] = meta.get("text", "")
         except Exception:
             pending = {}
         after_fn(0, on_done, pending)
@@ -91,6 +125,126 @@ def accept_tos(
         except Exception as e:
             ok, msg = False, str(e)
         after_fn(0, on_done, ok, msg)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# ── Channel configuration (read-only) ─────────────────────────────────────────
+# Never parse ~/.condarc to answer "what will conda search?". conda merges a
+# system file, the user file, the env's own .condarc, $CONDARC and
+# $CONDA_CHANNELS, and **environment variables beat files** — so a panel that
+# reports the user's ~/.condarc while an env var overrides it is a panel that
+# lies. `conda config --show` gives the effective answer and `--show-sources`
+# says which location produced it; both are needed to display it honestly.
+
+_CONFIG_TIMEOUT = 30
+
+
+@dataclass(frozen=True)
+class ChannelConfig:
+    """What conda will actually search for one env, and who said so.
+
+    ``ok`` is False when conda could not be queried at all — callers must say
+    "could not read" rather than rendering an empty list, which would imply
+    conda has no channels configured when it always has at least defaults.
+    """
+
+    channels: tuple[str, ...] = ()
+    priority: str = ""        # strict | flexible | disabled ("" = not reported)
+    source: str = ""          # display label for where `channels` came from
+    ok: bool = False
+
+
+def _source_rank(source: str, prefix: str | None) -> int:
+    """Precedence of one `--show-sources` key. Higher wins.
+
+    Ranked rather than trusting the order conda emits, which is not promised.
+    Command line beats env vars beats the env's own .condarc beats the user's
+    beats anything system-wide.
+    """
+    if source == "cmd_line":
+        return 4
+    if source == "envvars":
+        return 3
+    norm = os.path.normcase(source)
+    if prefix and norm.startswith(os.path.normcase(prefix)):
+        return 2
+    if norm.startswith(os.path.normcase(os.path.expanduser("~"))):
+        return 1
+    return 0
+
+
+def _source_label(source: str) -> str:
+    """Human label for a `--show-sources` key; home-relative for file paths."""
+    if source == "cmd_line":
+        return "the command line"
+    if source == "envvars":
+        return "environment variables"
+    home = os.path.expanduser("~")
+    if home and os.path.normcase(source).startswith(os.path.normcase(home)):
+        return "~" + source[len(home):]
+    return source
+
+
+def channel_config_from(shown: dict, sources: dict,
+                        prefix: str | None) -> ChannelConfig:
+    """Build a ChannelConfig from parsed `--show` / `--show-sources` output.
+
+    Kept separate from the subprocess call so the merge/precedence logic —
+    where the real bugs live — is testable against golden fixtures.
+    """
+    best_rank, best = -1, ""
+    for source, values in (sources or {}).items():
+        if not isinstance(values, dict) or "channels" not in values:
+            continue
+        rank = _source_rank(str(source), prefix)
+        if rank > best_rank:
+            best_rank, best = rank, str(source)
+    raw = (shown or {}).get("channels") or []
+    return ChannelConfig(
+        channels=tuple(str(c) for c in raw),
+        priority=str((shown or {}).get("channel_priority") or ""),
+        source=_source_label(best) if best else "",
+        ok=True,
+    )
+
+
+def _conda_config_json(conda_exe: str, args: list[str],
+                       env: dict[str, str] | None) -> dict:
+    result = subprocess.run(
+        [conda_exe, "config", *args, "--json"],
+        capture_output=True, text=True, timeout=_CONFIG_TIMEOUT, env=env,
+    )
+    data = json.loads(result.stdout)
+    return data if isinstance(data, dict) else {}
+
+
+def fetch_channel_config(
+    conda_exe: str | None,
+    prefix: str | None,
+    after_fn: Callable,
+    on_done: Callable[[ChannelConfig], None],
+) -> None:
+    """Read *prefix*'s effective channel config on a daemon thread.
+
+    Calls on_done(ChannelConfig) on the main thread; a config with ok=False
+    means conda could not be asked (missing exe, timeout, unparseable JSON).
+
+    The subprocess runs with a synthesized activation environment, because
+    conda locates the env-level ``$CONDA_PREFIX/.condarc`` from CONDA_PREFIX
+    and IDOL never activates — with a bare environment that file is silently
+    missed and the reported list is wrong for the selected env.
+    """
+    def _run():
+        try:
+            env = conda_env.build_env(prefix) if prefix else None
+            shown = _conda_config_json(
+                conda_exe, ["--show", "channels", "channel_priority"], env)
+            sources = _conda_config_json(conda_exe, ["--show-sources"], env)
+            cfg = channel_config_from(shown, sources, prefix)
+        except Exception:
+            cfg = ChannelConfig()
+        after_fn(0, on_done, cfg)
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -180,12 +334,52 @@ class CondaManager:
         self._python_exe: str = ""
         self._prefix: str | None = None
         self._conda_exe: str | None = None
+        self._channels: list[str] = []
+        self._override = False
 
     def set_python(self, exe: str) -> None:
         """Point the manager at a conda env via its python executable."""
         self._python_exe = exe
         self._prefix = conda_env.conda_prefix_for(exe)
         self._conda_exe = conda_env.find_conda_exe(self._prefix) if self._prefix else None
+
+    def set_channels(self, channels: list[str] | None,
+                     override: bool = False) -> None:
+        """Channels every install is scoped to, highest priority first.
+
+        *override* adds ``--override-channels``, which makes the given list the
+        whole search space and ignores the user's .condarc entirely. Pass it
+        only when the project genuinely states its channels: for a project
+        without an environment.yml the honest behaviour is to let conda use its
+        own configuration rather than to pin a list IDOL merely inferred.
+
+        Empty channels means "no -c flags at all" — never an empty override,
+        which would leave conda with nowhere to look.
+        """
+        self._channels = [c for c in (channels or []) if c]
+        self._override = bool(override and self._channels)
+
+    @property
+    def channels(self) -> list[str]:
+        """The channels installs are scoped to (empty = conda's own config)."""
+        return list(self._channels)
+
+    def _channel_args(self, only: str | None = None) -> list[str]:
+        """`-c` flags in priority order; `-c A -c B` ranks A above B.
+
+        *only* narrows the command to a single channel with
+        `--override-channels`, for "install this from exactly here" — a
+        per-command scope that must not disturb the configured list, since the
+        manager is shared and the next install should be normal again.
+        """
+        if only:
+            return ["-c", only, "--override-channels"]
+        args: list[str] = []
+        for channel in self._channels:
+            args += ["-c", channel]
+        if self._override:
+            args.append("--override-channels")
+        return args
 
     @property
     def available(self) -> bool:
@@ -197,14 +391,26 @@ class CondaManager:
         """The conda executable serving this env (for the ToS helpers)."""
         return self._conda_exe
 
+    @property
+    def prefix(self) -> str | None:
+        """The env prefix every conda call is scoped to with `-p`."""
+        return self._prefix
+
     def fetch_installed(
         self,
         on_done: Callable[[dict[str, str], dict[str, str]], None],
     ) -> None:
         """Fetch installed packages via `conda list -p <prefix> --json`.
 
-        Calls on_done(name_to_version, name_to_origin) on the main thread;
-        origin is "pypi" for pip-installed packages, "conda" otherwise.
+        Calls on_done(name_to_version, name_to_origin) on the main thread.
+
+        **Origin is the channel the package actually came from**, normalized to
+        a spec the user recognises (`pkgs/main` → `defaults`) — not a
+        conda/pypi flag. That is a superset of the old value rather than a
+        different one: conda reports the literal string `"pypi"` for
+        pip-installed packages, so every `origin == "pypi"` routing check still
+        means exactly what it did, while the rest now carry real provenance
+        instead of a constant.
         """
         conda_exe, prefix = self._conda_exe, self._prefix
 
@@ -218,9 +424,8 @@ class CondaManager:
                 )
                 for p in json.loads(result.stdout):
                     installed[p["name"]] = p["version"]
-                    origins[p["name"]] = (
-                        "pypi" if p.get("channel") == "pypi" else "conda"
-                    )
+                    origins[p["name"]] = conda_env.normalize_installed_channel(
+                        p.get("channel") or "") or "conda"
             except Exception:
                 installed, origins = {}, {}
             self._after(0, on_done, installed, origins)
@@ -233,6 +438,7 @@ class CondaManager:
         on_line: Callable[[str], None],
         on_done: Callable[[], None],
         on_error: Callable[[str], None] | None = None,
+        only_channel: str | None = None,
     ) -> None:
         """Install via conda only — *name* must be a conda package name.
 
@@ -242,10 +448,12 @@ class CondaManager:
         thing. Explicit PyPI picks go through the panel's pip route instead.
         """
         conda_exe, prefix = self._conda_exe, self._prefix
+        chan = self._channel_args(only_channel)
 
         def _run():
             try:
-                rc = self._stream([conda_exe, "install", "-p", prefix, "-y", name],
+                rc = self._stream([conda_exe, "install", "-p", prefix, "-y",
+                                   *chan, name],
                                   on_line, env=None)
                 if rc != 0:
                     self._after(0, on_line,
@@ -258,6 +466,61 @@ class CondaManager:
                 else:
                     self._after(0, on_line, str(e) + "\n")
             self._after(0, on_done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def dry_run(
+        self,
+        name: str,
+        on_done: Callable[[bool, list[tuple[str, str, str]], str], None],
+        only_channel: str | None = None,
+    ) -> None:
+        """Solve an install without performing it, on a daemon thread.
+
+        Calls on_done(ok, packages, message) on the main thread, where
+        *packages* is `[(name, version, channel)]` for everything the install
+        would link, and *message* is conda's own text when the solve failed.
+
+        This is the answer to "which channel is this actually coming from, and
+        is something here fighting?" that does not involve installing anything
+        or editing a git-tracked file to experiment. `--dry-run` still solves
+        and still fetches repodata, so it is cheaper than an install but not
+        free — callers should treat it as a deliberate action, not a hover.
+        """
+        conda_exe, prefix = self._conda_exe, self._prefix
+        chan = self._channel_args(only_channel)
+
+        def _run():
+            ok, packages, message = False, [], ""
+            try:
+                result = subprocess.run(
+                    [conda_exe, "install", "-p", prefix, "--dry-run", "--json",
+                     *chan, name],
+                    capture_output=True, text=True, timeout=_DRY_RUN_TIMEOUT,
+                )
+                data = json.loads(result.stdout or "{}")
+                ok = bool(data.get("success")) and not data.get("error")
+                for link in _link_actions(data):
+                    packages.append((
+                        str(link.get("name", "")),
+                        str(link.get("version", "")),
+                        conda_env.normalize_installed_channel(
+                            str(link.get("channel", ""))),
+                    ))
+                if not ok:
+                    # conda's own conflict text is far better than anything we
+                    # could synthesise from the JSON, so surface it verbatim.
+                    message = str(data.get("error")
+                                  or data.get("message")
+                                  or (result.stderr or "").strip())[-1500:]
+                elif not packages:
+                    message = "Everything this needs is already installed."
+            except json.JSONDecodeError:
+                message = ("conda did not return a readable result — it may be "
+                           "too old for `--dry-run --json`.")
+            except Exception as e:
+                message = str(e)
+            self._after(0, on_done, ok, packages, message)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -318,30 +581,62 @@ class CondaSearchIndex:
     Downloads each channel's channeldata.json (defaults/main is ~5 MB,
     conda-forge ~22 MB) into ``~/.idol/conda_index/`` and fuzzy-searches it
     in memory — the conda-side mirror of the panel's local PyPI name index.
-    Channels come from ``~/.condarc`` (utils.conda_env.configured_channels),
-    so search results always match what `conda install` can actually reach.
     The fetch is plain HTTPS — it never goes through conda, so no ToS gate.
+
+    **The caller supplies the channel list.** This class used to call
+    ``configured_channels()`` itself, which made it structurally unable to
+    serve a per-project list: the channels now come from the project's
+    environment.yml when it has one. "Loaded" is therefore a property of *a
+    set of channels*, not a bare flag — ``_loaded_for`` records which set the
+    in-memory index was built from, so switching projects rebuilds rather than
+    silently answering out of the previous project's channels. That has to be
+    derived rather than event-driven: opening a different project with the
+    same interpreter fires no interpreter change to hang a refresh off.
+
+    The on-disk cache is per channel and global, so a rebuild after a project
+    switch re-reads what it already has and fetches only the delta.
     """
 
     def __init__(self, after_fn: Callable) -> None:
         self._after = after_fn
         self._packages: dict[str, dict] = {}   # name → {summary, version, channel, home, license}
-        self._loaded = False
+        #: channel → its own full package map, kept alongside the merged view
+        #: so a single-channel search is not answered out of merged results.
+        self._by_channel: dict[str, dict[str, dict]] = {}
+        self._loaded_for: tuple[str, ...] | None = None   # channel set behind _packages
         self._loading = False
         self._pending: list[Callable[[int], None]] = []   # on_done callbacks queued mid-load
+        self._missing: tuple[str, ...] = ()    # channels that published no channeldata
 
     @property
     def ready(self) -> bool:
-        return self._loaded
+        return self._loaded_for is not None
 
-    def ensure_loaded(self, on_done: Callable[[int], None] | None = None,
+    @property
+    def missing_channels(self) -> tuple[str, ...]:
+        """Channels the last load found no channeldata.json for.
+
+        Not an error: channeldata.json is generated at index time and plenty of
+        channels never publish one. Such a channel contributes nothing to
+        search while still installing normally, which is invisible unless the
+        panel says so.
+        """
+        return self._missing
+
+    def is_loaded_for(self, channels: list[str]) -> bool:
+        """True when the in-memory index was built from exactly *channels*."""
+        return self._loaded_for == tuple(channels)
+
+    def ensure_loaded(self, channels: list[str],
+                      on_done: Callable[[int], None] | None = None,
                       force: bool = False) -> None:
-        """Load (fetching/caching as needed) on a daemon thread.
+        """Load *channels* (fetching/caching as needed) on a daemon thread.
 
         Calls on_done(package_count) on the main thread. If a load is already
         in flight, on_done is queued and fires when that load completes.
         """
-        if self._loaded and not force:
+        wanted = tuple(channels)
+        if self._loaded_for == wanted and not force:
             if on_done:
                 self._after(0, on_done, len(self._packages))
             return
@@ -353,15 +648,26 @@ class CondaSearchIndex:
 
         def _run():
             packages: dict[str, dict] = {}
-            for chan_name, url in conda_env.channeldata_urls(
-                    conda_env.configured_channels()):
+            by_channel: dict[str, dict[str, dict]] = {}
+            missing: list[str] = []
+            for chan_name, url in conda_env.channeldata_urls(list(wanted)):
                 data = self._load_channel(chan_name, url, force)
+                if not data:
+                    missing.append(chan_name)
+                # Kept per channel *as well as* merged. The merged view drops
+                # every package a higher channel already claimed, so filtering
+                # it down to one channel would hide packages that channel
+                # really does offer — searching "defaults" would return
+                # nothing that conda-forge also carries.
+                by_channel[chan_name] = data
                 # First channel wins on name clashes — mirrors conda's
                 # channel priority order.
                 for name, meta in data.items():
                     packages.setdefault(name, meta)
             self._packages = packages
-            self._loaded = True
+            self._by_channel = by_channel
+            self._missing = tuple(missing)
+            self._loaded_for = wanted
             self._loading = False
             pending, self._pending = self._pending, []
             for cb in pending:
@@ -404,14 +710,25 @@ class CondaSearchIndex:
             }
         return out
 
-    def search(self, query: str, limit: int = 20) -> list[dict]:
-        """Ranked in-memory search: exact > prefix > name-substring > summary hit."""
+    def channels_loaded(self) -> tuple[str, ...]:
+        """Channel display names the index currently holds packages for."""
+        return tuple(self._by_channel)
+
+    def search(self, query: str, limit: int = 20,
+               channel: str | None = None) -> list[dict]:
+        """Ranked in-memory search: exact > prefix > name-substring > summary hit.
+
+        *channel* restricts the search to one channel's own package map rather
+        than the merged view — see `_by_channel` for why that distinction is
+        not cosmetic.
+        """
         q = query.strip().lower()
-        if not q or not self._packages:
+        packages = self._by_channel.get(channel, {}) if channel else self._packages
+        if not q or not packages:
             return []
         words = q.split()
         exact, prefix, name_hit, summary_hit = [], [], [], []
-        for name, meta in self._packages.items():
+        for name, meta in packages.items():
             lname = name.lower()
             if lname == q:
                 exact.append(name)
@@ -426,7 +743,7 @@ class CondaSearchIndex:
         summary_hit.sort()
         results = []
         for name in exact + prefix + name_hit + summary_hit:
-            results.append({"name": name, **self._packages[name]})
+            results.append({"name": name, **packages[name]})
             if len(results) >= limit:
                 break
         return results

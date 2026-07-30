@@ -12,8 +12,7 @@ from tkinter import BooleanVar, Label, StringVar, Tk, ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 from tkinter.messagebox import showerror, askyesnocancel, askyesno
 
-from tkfontchooser import askfont
-from tkinter.colorchooser import askcolor
+from widgets.font_chooser import askfont
 
 from widgets.canvas_codeview import CanvasCodeView
 from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
@@ -38,6 +37,9 @@ from editor.git_manager import GitManager, get_global_identity
 from menus.menubar import build_menubar
 from utils import session as session_utils
 from utils import recent as recent_utils
+from utils import settings as settings_utils
+from utils import clipboard_store
+from utils import starter_templates
 from utils.thread_safe_after import make_thread_safe_after
 from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
@@ -48,6 +50,8 @@ from widgets.ai_chat_panel import AiChatPanel
 from widgets.package_manager import PackageManagerPanel
 from widgets.welcome import WelcomePanel
 from widgets.clipboard_history import ClipboardHistoryPanel
+from widgets.color_picker import ColorPickerPopup, askcolor
+from widgets.settings_panel import SettingsPanel
 from widgets.designer_properties import DesignerProperties
 from widgets.designer_palette import DesignerPalette
 from widgets.designer_component_tray import ComponentTray
@@ -361,23 +365,14 @@ class IDOL(Tk):
         self.title("IDOL")
         self.geometry("1280x800")
 
-        # On Linux/X11 the classic Tk file dialog (tk_getOpenFile etc.) uses
-        # a Motif-style widget whose Listbox defaults to invisible selection
-        # colors — the user can't see which file they just clicked. Set
-        # readable defaults via Tk's option database. Every IDOL tk.Listbox
-        # already passes its own bg/fg/selectbackground/selectforeground in
-        # its constructor, which overrides option_add — so these defaults
-        # only land on listboxes that don't specify their own (i.e. the
-        # file dialog's). Entry/Text are NOT included here because some
-        # IDOL widgets (designer properties, etc.) build dark-themed
-        # entries without explicit bg.
-        import platform as _pl_init
-
-        if _pl_init.system() == "Linux":
-            self.option_add("*Listbox.background", "#ffffff")
-            self.option_add("*Listbox.foreground", "#000000")
-            self.option_add("*Listbox.selectBackground", "#0078d4")
-            self.option_add("*Listbox.selectForeground", "#ffffff")
+        # (Removed: a Linux-only `option_add("*Listbox.…")` block that aimed to
+        # fix the invisible file-dialog selection. It could never have worked —
+        # Tk's X11 file dialog renders its file list with `::tk::IconList`, a
+        # *canvas*, and contains no Listbox at all. The real cause was ttk's
+        # TEntry selection colours; the fix lives in
+        # `widgets/notebook.py._initialize_style`, next to the `theme_create`
+        # call that dropped them. The block was also inert for IDOL's own
+        # listboxes, every one of which sets its colours explicitly.)
 
         self._safe_after = make_thread_safe_after(self)
 
@@ -450,16 +445,41 @@ class IDOL(Tk):
         self._learning_active_lid: str = ""
         self._learning_reg_map: dict = {}  # widget → lid, built on activate
 
+        # Settings tab
+        self._settings_tab = None
+        self._settings_panel: SettingsPanel | None = None
+
+        # Inline colour picker (hover a hex swatch in the editor)
+        self._color_popup = None                       # ColorPickerPopup | None
+        self._color_cv: CanvasCodeView | None = None   # editor it belongs to
+        self._color_span: list[int] | None = None      # [line, col_start, col_end]
+        self._color_group_open: bool = False           # undo group is open
+        self._color_dismiss_bound: bool = False        # bindtag class-bind done
+
+        # The open project's `.idol-project` file, or None when no project is
+        # open. Latched by `_set_open_project`, never re-derived from the
+        # explorer root — see that method for why.
+        self._project_path: str | None = None
+
+        # The explorer's current root, latched by `_on_explorer_root_change`.
+        # Empty until the first root is set, which is why every reader still
+        # carries a fallback: `_build_layout` runs before the startup path that
+        # sets a root. Three sites read this and it was assigned nowhere at all,
+        # so all three silently used their fallback — see that method.
+        self._explorer_root: str = ""
+
         # Clipboard History
         self._clip_top: tk.Toplevel | None = None
         self._clip_panel: ClipboardHistoryPanel | None = None
+        # Project root the loaded history belongs to; None = scratch history.
+        self._clip_scope: str | None = None
+        self._clip_save_after_id: str | None = None
 
         # Canvas Editor sandbox — preview of the canvas-rendered editor
 
         # Split editor
         self._split_active: bool = False  # right pane has been built and has tabs
         self._split_shown: bool = False  # right pane is currently visible
-        self._split_was_shown: bool = False  # was visible before designer hid it
         self._split_sash_pos: int | None = None
         self._active_pane: str = "left"  # "left" | "right"
         self._notebook_r: CustomNotebook | None = None
@@ -558,6 +578,15 @@ class IDOL(Tk):
         build_menubar(self)
         self._bind_shortcuts()
         self._start_highlight_loop()
+
+        # Preferences before any session restore. The migration reads the old
+        # auto-session, so it has to run before anything overwrites that file,
+        # and applying here means a project's stale copy can no longer win.
+        settings_utils.migrate_legacy()
+        self._apply_user_preferences()
+        # Live-apply: the panel only writes to the store, and the store tells
+        # us. No control needs to know which widgets it affects.
+        settings_utils.subscribe(self._on_setting_changed)
 
         if initial_file and os.path.isfile(initial_file):
             # Launched as `python main.py <file>` — no project and no session
@@ -1125,7 +1154,12 @@ class IDOL(Tk):
         )
         self.notebook._split_open_ref = lambda: self._split_active and self._split_shown
         self.notebook._get_tab_path = lambda tab_id: self._files.get(tab_id)
-        self.notebook._can_drag_out = lambda tab_id: tab_id != self._welcome_tab
+        # No `_can_drag_out` filter: every tab, panel tabs included, can be
+        # dragged to the other pane. Welcome used to be pinned here because
+        # dragging it out could leave the main notebook blank — that is now
+        # `_backfill_main_notebook`'s job, and pinning it also meant Welcome
+        # could never reach the split, which is the only visible pane in
+        # designer mode.
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add=True)
         self.notebook.bind(
@@ -1463,39 +1497,58 @@ class IDOL(Tk):
             )
 
     def _bind_shortcuts(self) -> None:
+        # Every chord is bound **once**, and shifted letters are written in the
+        # explicit `<Control-Shift-x>` form. Tk treats `<Control-G>` (capital
+        # letter, so Shift is implied) and `<Control-Shift-G>` as the same
+        # chord, but as two separate table entries — it then fires only the
+        # more specific one, silently. That is how Source Control's Ctrl+Shift+G
+        # and the designer's Generate Code both claimed the key with only the
+        # second one ever firing, while both menus advertised it. Writing the
+        # modifier out makes a collision visible on the page, and
+        # `tests/test_keybindings.py` fails the build if one is added anyway.
+        #
+        # Ctrl+, — the near-universal Settings binding (VS Code, Chrome, most
+        # editors). macOS uses Cmd+, so bind both rather than making mac users
+        # learn a different one.
+        self.bind("<Control-comma>", self.view_settings)
+        if sys.platform == "darwin":
+            self.bind("<Command-comma>", self.view_settings)
         self.bind("<Control-n>", lambda _: self.file_new())
         self.bind("<Control-o>", lambda _: self.file_open())
         self.bind("<Control-s>", lambda _: self.file_save())
-        self.bind("<Control-S>", lambda _: self.file_save_as())
+        self.bind("<Control-Shift-S>", lambda _: self.file_save_as())
         self.bind("<Control-w>", lambda _: self.file_close())
         if sys.platform == "darwin":
             self.bind("<Command-w>", lambda _: self.file_close())
         self.bind("<Control-q>", lambda _: self.file_exit())
         self.bind("<Control-f>", lambda _: self.edit_find_replace())
+        # Ctrl+L keeps working after Change Font moved into Settings — the
+        # shortcut still opens the chooser directly, which is faster than the
+        # panel for the one thing it does. Its discoverable home is now the
+        # Editor > Font row rather than the View menu.
         self.bind("<Control-l>", lambda _: self.view_change_font())
         self.bind("<F5>", lambda _: self.debug_file())
         self.bind("<Control-F5>", lambda _: self._nav_run())
-        self.bind("<F10>", lambda _: self._debug_step_over())
+        self.bind("<F10>", lambda _: self._f10())
         self.bind("<F11>", lambda _: self._debug_step_in())
         self.bind("<Shift-F11>", lambda _: self._debug_step_out())
         self.bind("<Shift-F5>", lambda _: self.run_stop())
         self.bind("<Control-grave>", lambda _: self.view_show_panel("terminal"))
-        self.bind("<Control-U>", lambda _: self.view_show_panel("output"))
-        self.bind("<Control-M>", lambda _: self.view_show_panel("problems"))
-        self.bind("<Control-Y>", lambda _: self.view_show_panel("debug"))
-        self.bind("<Control-G>", lambda _: self.view_source_control())
+        self.bind("<Control-Shift-U>", lambda _: self.view_show_panel("output"))
+        self.bind("<Control-Shift-M>", lambda _: self.view_show_panel("problems"))
+        self.bind("<Control-Shift-Y>", lambda _: self.view_show_panel("debug"))
+        self.bind("<Control-Shift-G>", lambda _: self.view_source_control())
         self.bind("<Control-backslash>", lambda _: self.view_split_editor())
-        self.bind("<Control-P>", lambda _: self.open_command_palette())
-        self.bind("<Control-Shift-G>", lambda _: self.designer_generate_code())
+        self.bind("<Control-Shift-P>", lambda _: self.open_command_palette())
+        # Generate Code reads as a build, so it takes the build key. It used to
+        # be Ctrl+Shift+G, which Source Control already owned.
+        self.bind("<Control-Shift-B>", lambda _: self.designer_generate_code())
         self.bind("<Control-b>", lambda _: self.view_toggle_sidebar())
         self.bind("<F12>", lambda _: self._goto_definition())
-        self.bind("<F10>", lambda _: self.view_zen_mode())
         self.bind("<F1>", lambda _: self.view_learning_mode())
         self.bind("<F2>", lambda _: self.view_ai_chat())
         self.bind("<F3>", lambda _: self.view_package_manager())
-        self.bind(
-            "<Control-H>", lambda _: self.view_clipboard_history()
-        )  # Ctrl+Shift+H
+        self.bind("<Control-Shift-H>", lambda _: self.view_clipboard_history())
         self.bind("<Scroll_Lock>", lambda _: self._toggle_scroll_lock())
         self.bind("<Escape>", self._on_escape)
 
@@ -1726,6 +1779,10 @@ class IDOL(Tk):
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
         cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("left"), add="+")
+        self._bind_color_picker_dismiss(cv)
+        # A tab created after startup must inherit the user's preferences, or
+        # "Autocomplete: off" comes back on the moment you open a file.
+        self._apply_editor_prefs(cv)
 
     def _wire_breakpoint_gutter(self, cv, tab_id: str, filepath: str | None) -> None:
         """Wire the canvas engine's debug gutter to the host breakpoint store.
@@ -1860,18 +1917,184 @@ class IDOL(Tk):
         self._set_active_pane("right" if nb is self._notebook_r else "left")
         return True
 
+    # ── Panel tabs ────────────────────────────────────────────────────────────
+    # Welcome, Packages, Learning and Settings are single-instance tabs holding
+    # a panel rather than a code buffer.  Each lives in whichever notebook
+    # opened it, so the table below pairs the attribute holding its tab id with
+    # the one holding its panel, and every builder takes the notebook to build
+    # into.  Tk cannot reparent a widget, so moving one between panes is close +
+    # rebuild — which is also why none of this tries to preserve panel state.
+
+    _PANEL_TAB_SLOTS = {
+        "welcome":  ("_welcome_tab",  "_welcome_panel"),
+        "packages": ("_pkg_tab",      "_pkg_panel"),
+        "learning": ("_learning_tab", "_learning_panel"),
+        "settings": ("_settings_tab", "_settings_panel"),
+    }
+
+    def _panel_kind_of(self, tab_id: str | None) -> str | None:
+        """Which panel tab *tab_id* is, or None for an ordinary editor tab."""
+        if not tab_id:
+            return None
+        for kind, (tab_attr, _) in self._PANEL_TAB_SLOTS.items():
+            if getattr(self, tab_attr, None) == tab_id:
+                return kind
+        return None
+
+    def _panel_tab_home(self, kind: str) -> CustomNotebook | None:
+        """The notebook currently holding panel tab *kind*, or None.
+
+        Clears the slots when the tab has gone — closed from under us, or its
+        pane destroyed — so callers can read None as "build a fresh one".
+        """
+        tab_attr, panel_attr = self._PANEL_TAB_SLOTS[kind]
+        tab_id = getattr(self, tab_attr, None)
+        if tab_id:
+            for nb in (self.notebook, self._notebook_r):
+                if nb is None:
+                    continue
+                try:
+                    if tab_id in nb.tabs():
+                        return nb
+                except Exception:
+                    pass
+        setattr(self, tab_attr, None)
+        setattr(self, panel_attr, None)
+        return None
+
+    def _pane_visible(self, nb: CustomNotebook) -> bool:
+        """Is *nb* on screen?  A tab in a pane that isn't may as well not exist."""
+        if nb is self._notebook_r:
+            return bool(self._split_active and self._split_shown)
+        return not self._designer_mode
+
+    def _pane_name(self, nb: CustomNotebook) -> str:
+        return "right" if nb is self._notebook_r else "left"
+
+    def _designer_split_notebook(self) -> CustomNotebook | None:
+        """The notebook to open into while the designer owns the screen.
+
+        Designer mode pack_forgets `self.notebook` — the canvas takes its slot
+        inside `_nb_frame_l` — so a tab added there is invisible and the click
+        that added it reads as nothing happening.  The split pane is the one
+        editor surface still showing in that mode, so tabs go there, opening the
+        split if it isn't up yet.  Returns None outside designer mode, where the
+        main notebook is visible and stays the target.
+        """
+        if not self._designer_mode:
+            return None
+        self._ensure_split_shown()
+        return self._notebook_r
+
+    def _panel_target_notebook(self) -> CustomNotebook:
+        """Which notebook a panel tab should open into."""
+        return self._designer_split_notebook() or self.notebook
+
+    def _forget_panel_tab(self, kind: str) -> None:
+        """Close panel tab *kind*, wherever it lives.  No prompt — no buffer."""
+        nb = self._panel_tab_home(kind)
+        tab_attr, panel_attr = self._PANEL_TAB_SLOTS[kind]
+        tab_id = getattr(self, tab_attr, None)
+        if nb is not None and tab_id:
+            try:
+                nb.forget(list(nb.tabs()).index(tab_id))
+            except Exception:
+                pass
+        setattr(self, tab_attr, None)
+        setattr(self, panel_attr, None)
+        if kind == "learning":
+            self._learning_deactivate_cursors()
+
+    def _build_panel_tab(self, kind: str, nb: CustomNotebook) -> None:
+        """Build panel tab *kind* inside *nb*, select it, and record its slots.
+
+        The backfill at the end is here rather than at each call site because
+        every path that relocates a panel tab forgets it first, and the one it
+        left may have been the main notebook's last tab.
+        """
+        {
+            "welcome":  self._build_welcome_tab,
+            "packages": self._build_packages_tab,
+            "learning": self._build_learning_tab,
+            "settings": self._build_settings_tab,
+        }[kind](nb)
+        self._set_active_pane(self._pane_name(nb))
+        self._refresh_nav_bar()
+        self._backfill_main_notebook()
+
+    def _toggle_panel_tab(self, kind: str, close_on_reselect: bool = True) -> bool:
+        """Reveal or close panel tab *kind*; True when the click is handled.
+
+        False means the caller should build a fresh tab: either there wasn't
+        one, or the one there was sits in a pane that is not on screen (designer
+        mode hides the main notebook, the split can be hidden), in which case it
+        is forgotten here so the rebuild lands where it can be seen.
+        """
+        nb = self._panel_tab_home(kind)
+        if nb is None:
+            return False
+        was_visible = self._pane_visible(nb)
+        if not was_visible and nb is not self._panel_target_notebook():
+            # Out of sight in a pane we would not open into anyway — drop it so
+            # the caller's rebuild lands somewhere the user can see. (When it
+            # *is* the target pane, `_panel_target_notebook` has just revealed
+            # that pane, so the tab is simply selected below.)
+            self._forget_panel_tab(kind)
+            return False
+        tab_id = getattr(self, self._PANEL_TAB_SLOTS[kind][0])
+        # Close-on-second-press applies only to a tab that was already in front
+        # of the user; a pane revealed a line ago has not been "pressed".
+        if was_visible and nb.select() == tab_id:
+            if not close_on_reselect:
+                return True
+            self._forget_panel_tab(kind)
+            if nb is self.notebook and not nb.tabs():
+                # Closing Welcome must not silently re-open it, so this is a
+                # blank buffer rather than `_backfill_main_notebook`.
+                self._new_tab("Untitled", "")
+        else:
+            nb.select(tab_id)
+            self._set_active_pane(self._pane_name(nb))
+        self._refresh_nav_bar()
+        return True
+
+    def _move_panel_tab(self, kind: str, nb: CustomNotebook) -> None:
+        """Move panel tab *kind* into *nb* — the drag/drop path."""
+        if self._panel_tab_home(kind) is nb:
+            nb.select(getattr(self, self._PANEL_TAB_SLOTS[kind][0]))
+            self._set_active_pane(self._pane_name(nb))
+            return
+        self._forget_panel_tab(kind)
+        self._build_panel_tab(kind, nb)
+
+    def _backfill_main_notebook(self) -> None:
+        """Never leave the main notebook empty.
+
+        Welcome is the usual filler, but it can be the very tab that just left
+        for the other pane, and in designer mode `view_welcome` targets the
+        split — so a blank buffer is the fallback that always lands here.
+        """
+        if self.notebook.tabs():
+            return
+        if self._designer_mode or self._panel_tab_home("welcome") is not None:
+            self._new_tab("Untitled", "")
+        else:
+            self.view_welcome()
+
     def _close_tab(self, index: int, notebook: CustomNotebook | None = None) -> None:
         nb = notebook or self.notebook
         tabs = nb.tabs()
         if index >= len(tabs):
             return
         tab_id = tabs[index]
-        closing_welcome = tab_id == self._welcome_tab
-        if closing_welcome:
-            # Welcome tab has no dirty state — just close it
-            nb.forget(index)
-            self._welcome_tab = None
-            self._welcome_panel = None
+        kind = self._panel_kind_of(tab_id)
+        if kind:
+            # Panel tabs hold no buffer, so there is nothing to prompt about.
+            self._forget_panel_tab(kind)
+            self._refresh_nav_bar()
+            # Closing Welcome must not silently re-open it, so an emptied main
+            # notebook is backfilled with a blank buffer rather than by
+            # `_backfill_main_notebook`.
             if nb is self.notebook and not nb.tabs():
                 self._new_tab("Untitled", "")
             return
@@ -1912,15 +2135,19 @@ class IDOL(Tk):
                 warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
                 self._statusbar.set_diagnostics(errors, warnings)
         nb.forget(index)
-        if nb is self._notebook_r and not nb.tabs():
-            # Last split tab gone — nothing to preserve, fully close the pane
-            self._close_split()
-        elif nb is self.notebook and not nb.tabs():
+        # An emptied split pane stays open. Closing a tab is not a request to
+        # close the pane — the split is a layout the user chose, and only the
+        # user's own toggle (the pane's × / the split command) takes it away.
+        # The empty pane keeps its header, so another tab can be dragged in.
+        if nb is self.notebook and not nb.tabs():
             self.view_welcome()
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
     def _on_tab_changed(self, *_) -> None:
+        # A picker anchored to a swatch in the outgoing tab is pointing at a
+        # buffer that is no longer on screen — same staleness as scrolling.
+        self._close_color_popup()
         tab_id = self._current_tab_id
         if tab_id is None:
             return
@@ -1960,26 +2187,15 @@ class IDOL(Tk):
         if tab_id and tab_id in self._codeviews:
             self._last_editor_tab = tab_id
 
-        # Learning Mode overlay sync — show when on learning tab, hide otherwise
-        # Keep _pkg_tab in sync when the tab is closed via the × button
-        if self._pkg_tab:
-            try:
-                tabs = self.notebook.tabs()
-            except Exception:
-                tabs = []
-            if self._pkg_tab not in tabs:
-                self._pkg_tab = None
-                self._pkg_panel = None
-                self._refresh_nav_bar()
-
-        if self._learning_tab:
-            try:
-                tabs = self.notebook.tabs()
-            except Exception:
-                tabs = []
-            if self._learning_tab not in tabs:
-                # Tab was closed via the × button
-                self._close_learning_mode()
+        # Keep the panel-tab slots in sync for closures that bypass `_close_tab`.
+        # `_panel_tab_home` clears the slot itself when the tab has gone, so the
+        # learning teardown hangs off its return value rather than off the
+        # (by then already cleared) slot.
+        if self._pkg_tab and self._panel_tab_home("packages") is None:
+            self._refresh_nav_bar()
+        if self._learning_tab and self._panel_tab_home("learning") is None:
+            self._learning_deactivate_cursors()
+            self._refresh_nav_bar()
 
         if self._split_active and self._split_shown:
             self._patch_scroll_callbacks()
@@ -2360,12 +2576,149 @@ class IDOL(Tk):
             cv.set_runtime_error_line(None)
         self._runtime_error_tab_id = None
 
+    # ── Inline colour picker ──────────────────────────────────────────────────
+
+    def _on_swatch_motion(self, event, cv: CanvasCodeView) -> bool:
+        """Open/keep/dismiss the colour picker for the swatch under the pointer.
+
+        Returns True when the pointer is over a swatch, so the caller can skip
+        the LSP hover for that motion.
+        """
+        hit = cv.color_swatch_at(event.x, event.y)
+        if hit is None:
+            # Off the swatch — but the pointer may be travelling to the popup,
+            # so this only *schedules* the close. The popup cancels it the
+            # moment it sees an <Enter> of its own.
+            if self._color_popup is not None:
+                self._color_popup.schedule_close()
+            return False
+
+        if self._color_popup is not None:
+            self._color_popup.keep_alive()
+            same = (cv is self._color_cv
+                    and self._color_span is not None
+                    and self._color_span[0] == hit["line"]
+                    and self._color_span[1] == hit["col_start"])
+            if same:
+                return True                 # already showing this one
+            self._color_popup.close()       # different swatch — restart
+        self._open_color_popup(cv, hit)
+        return True
+
+    def _open_color_popup(self, cv: CanvasCodeView, hit: dict) -> None:
+        # The LSP popup and its pending timer must go — they would land on top.
+        if self._hover_after_id:
+            self.after_cancel(self._hover_after_id)
+            self._hover_after_id = None
+        self._dismiss_hover()
+
+        self._color_cv = cv
+        self._color_span = [hit["line"], hit["col_start"], hit["col_end"]]
+        # One undo step for the whole picking session, however many drags it
+        # takes. Ended in `_on_color_popup_closed`, which every exit path runs.
+        cv.begin_undo_group()
+        self._color_group_open = True
+
+        x1, _y1, _x2, y2 = hit["bbox"]
+        self._color_popup = ColorPickerPopup(
+            self, hit["color"],
+            on_change=self._on_color_picked,
+            on_close=self._on_color_popup_closed,
+        )
+        self._color_popup.show_at(
+            cv.canvas.winfo_rootx() + int(x1),
+            cv.canvas.winfo_rooty() + int(y2) + 6,
+        )
+
+    def _on_color_picked(self, color: str) -> None:
+        """Live-apply a picked colour to the literal the popup was opened on."""
+        cv, span = self._color_cv, self._color_span
+        if cv is None or span is None:
+            return
+        line, col_start, col_end = span
+        new_span = cv.replace_color_literal(line, col_start, col_end, color)
+        if new_span is None:
+            # The literal is gone or no longer a colour — the buffer moved
+            # under us. Stop rather than rewrite whatever now occupies the span.
+            self._close_color_popup()
+            return
+        # Track the literal's new bounds: expanding `#rgb` to `#rrggbb` shifts
+        # the end column, and the next drag step must replace the new text.
+        span[1], span[2] = new_span
+
+    def _on_color_popup_closed(self) -> None:
+        if self._color_group_open and self._color_cv is not None:
+            self._color_cv.end_undo_group()
+        self._color_group_open = False
+        self._color_popup = None
+        self._color_cv = None
+        self._color_span = None
+
+    def _close_color_popup(self) -> None:
+        """Close the picker if one is open (no-op otherwise)."""
+        if self._color_popup is not None:
+            self._color_popup.close()       # fires _on_color_popup_closed
+
+    #: Bindtag carrying the colour-picker dismissal handlers. See
+    #: `_bind_color_picker_dismiss` for why it is not a plain widget binding.
+    _COLOR_DISMISS_TAG = "IDOLColorPickerDismiss"
+
+    def _bind_color_picker_dismiss(self, cv: CanvasCodeView) -> None:
+        """Wire the ways an open colour picker becomes stale. Both panes.
+
+        Scrolling moves the swatch out from under a popup anchored to where it
+        used to be, and no `<Motion>` fires when the wheel turns under a still
+        pointer — so the popup sits there pointing at the wrong line. Closing
+        outright is right rather than scheduling: the anchor is already wrong
+        and there is nothing to travel back to.
+
+        Leaving the canvas only *schedules* a close, because the pointer
+        heading for the popup leaves the canvas on the way. Without it a popup
+        could outlive a pointer that left and never arrived.
+
+        **These go on an earlier bindtag, not on the widget.** The engine's own
+        wheel handlers return `"break"`, and in Tk that stops every remaining
+        binding for the event — including ones added with `add="+"`, which run
+        after. As plain widget bindings these never fired on Windows at all.
+        Linux only appeared to work for an unrelated reason: X11 delivers the
+        wheel as `<Button-4>`/`<Button-5>`, and a button grab emits crossing
+        events, so the `<Leave>` handler was closing the popup there. A tag
+        inserted ahead of the widget's own runs first and cannot be suppressed;
+        none of these handlers return `"break"`, so the engine still scrolls.
+        """
+        canvas = cv.canvas
+        tag = self._COLOR_DISMISS_TAG
+        if not self._color_dismiss_bound:
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                canvas.bind_class(tag, seq, self._on_scroll_dismiss_color)
+            canvas.bind_class(tag, "<Leave>", self._on_leave_dismiss_color)
+            self._color_dismiss_bound = True
+        tags = canvas.bindtags()
+        if tag not in tags:
+            canvas.bindtags((tag,) + tags)
+
+    def _on_scroll_dismiss_color(self, _event=None) -> None:
+        """Wheel over the editor — the anchor has moved, drop the popup.
+
+        Returns None, never `"break"`: the engine's scroll must still happen.
+        """
+        self._close_color_popup()
+
+    def _on_leave_dismiss_color(self, _event=None) -> None:
+        if self._color_popup is not None:
+            self._color_popup.schedule_close()
+
     # ── LSP hover popup ───────────────────────────────────────────────────────
 
     def _on_hover_motion(self, event, cv: CanvasCodeView, path: str) -> None:
         """Debounce mouse motion; trigger hover request after 600 ms of stillness."""
         if self._completion.visible:
             return  # don't hover while the completion popup is open
+        # Colour swatches win over the LSP hover popup: they occupy a few
+        # pixels the LSP has nothing to say about, and two popups over the same
+        # spot would fight.
+        if self._on_swatch_motion(event, cv):
+            return
         if self._hover_after_id:
             self.after_cancel(self._hover_after_id)
         self._dismiss_hover()
@@ -2613,6 +2966,56 @@ class IDOL(Tk):
             self._ensure_clip_panel()
         self._clip_panel.push(text, source=source)
 
+    # ── Clipboard history persistence ─────────────────────────────────────────
+
+    def _clip_scope_root(self) -> str | None:
+        """Project root owning the clipboard history, or None for scratch.
+
+        Reads the same latched `_project_path` `_autosave_workspace` writes to,
+        so the history and the session file can never disagree about which
+        project is open. A folder you merely opened is not a project and gets
+        the scratch history.
+        """
+        proj = self._project_path
+        return os.path.dirname(proj) if proj else None
+
+    def _schedule_clip_save(self) -> None:
+        """Debounced save of the active clipboard history.
+
+        Fired on every copy, so it coalesces: a burst of copies writes once.
+        """
+        if self._clip_save_after_id:
+            self.after_cancel(self._clip_save_after_id)
+        self._clip_save_after_id = self.after(800, self._save_clip_history)
+
+    def _save_clip_history(self) -> None:
+        """Write the panel's ring to whichever history it currently holds."""
+        if self._clip_save_after_id:
+            self.after_cancel(self._clip_save_after_id)
+            self._clip_save_after_id = None
+        if self._clip_panel is None:
+            return
+        clipboard_store.save(self._clip_scope, self._clip_panel.export_entries())
+
+    def _sync_clip_scope(self) -> None:
+        """Swap the clipboard history when the open project changes.
+
+        Saves the outgoing history before loading the incoming one, so the
+        project you just left keeps exactly what it had. Does nothing until
+        the panel exists — with no panel there is nothing to save, and
+        `_ensure_clip_panel` loads the right scope when one is finally made.
+        """
+        scope = self._clip_scope_root()
+        if self._clip_panel is None:
+            self._clip_scope = scope
+            return
+        if scope == self._clip_scope:
+            return
+        self._save_clip_history()          # flush the outgoing scope
+        self._clip_scope = scope
+        self._clip_panel.set_max(clipboard_store.max_for(scope))
+        self._clip_panel.load_entries(clipboard_store.load(scope))
+
     def _ensure_clip_panel(self) -> None:
         """Create the persistent clipboard history Toplevel on first use."""
         if self._clip_top is not None:
@@ -2628,14 +3031,20 @@ class IDOL(Tk):
             top.withdraw()
             cv = self._current_codeview
             if cv:
-                cv.insert("insert", text)
-                cv.focus_set()
+                cv.insert(text)
+                cv.canvas.focus_set()
 
-        panel = ClipboardHistoryPanel(top, on_paste=_paste)
+        panel = ClipboardHistoryPanel(top, on_paste=_paste,
+                                      on_change=self._schedule_clip_save)
         panel.set_window(top)
         panel.pack(fill="both", expand=True)
         self._clip_top = top
         self._clip_panel = panel
+        # The panel is created lazily — on first copy or first Ctrl+Shift+H —
+        # so this is where the current scope's history first gets loaded.
+        self._clip_scope = self._clip_scope_root()
+        panel.set_max(clipboard_store.max_for(self._clip_scope))
+        panel.load_entries(clipboard_store.load(self._clip_scope))
 
     def view_clipboard_history(self) -> None:
         """Toggle the Clipboard History overlay (Ctrl+H)."""
@@ -3236,8 +3645,6 @@ class IDOL(Tk):
         Navigates there and returns True if found; returns False otherwise so
         the caller can fall back to the LSP.
         """
-        import re
-
         pat = re.compile(r"^\s*(def|class)\s+" + re.escape(word) + r"\b")
         for i, line in enumerate(cv.lines):
             if pat.match(line):
@@ -3331,7 +3738,11 @@ class IDOL(Tk):
     # ── File operations ───────────────────────────────────────────────────────
 
     def file_new(self) -> None:
-        if (
+        nb = self._designer_split_notebook()
+        if nb is not None:
+            self._new_tab_in(nb, "Untitled", "")
+            self._set_active_pane("right")
+        elif (
             self._split_active
             and self._split_shown
             and self._active_pane == "right"
@@ -3382,9 +3793,15 @@ class IDOL(Tk):
         now" action, so a running shell follows it.  Casual root changes (Set
         as Root Directory, File > Open) go through `_set_explorer_root` and
         leave the shell where the user left it.
+
+        This is also the one place that re-latches the open project, for the
+        same reason: it is the only root change that means "different
+        workspace". A folder with no project file latches None, which is how
+        `_teardown_project` (it re-roots to $HOME) closes the project.
         """
         self._set_explorer_root(path)
         self._output.cd_terminal(path)
+        self._set_open_project(self._find_project_file(path))
 
     def _open_dir_in_terminal(self, path: str) -> None:
         """Explorer → Open in Terminal: cd the live terminal to *path* and reveal it."""
@@ -3400,6 +3817,10 @@ class IDOL(Tk):
 
     def _on_explorer_root_change(self, root: str) -> None:
         """Called whenever the explorer navigates to a new root directory."""
+        # Latch it. `Explorer.set_root` fires this hook unconditionally, so this
+        # is the one place every root change passes through — which is what the
+        # three `self._explorer_root` readers have always assumed and never got.
+        self._explorer_root = root
         # Records the start directory for the *next* terminal session only — a
         # running shell is left alone.  Explorer → Open in Terminal is the
         # explicit way to move a live terminal.
@@ -3414,6 +3835,9 @@ class IDOL(Tk):
             self._comp_tray.set_project_dir(root)
         if hasattr(self, "_designer_palette") and self._designer_palette:
             self._designer_palette.set_project_dir(root)
+        # The Package Manager's channel bar reads the root's environment.yml.
+        if getattr(self, "_pkg_panel", None):
+            self._pkg_panel.set_project_dir(root)
         # If the designer is open, silently drop back to editor mode so the
         # now-stale form state (from the old project root) doesn't persist into
         # the session.  Without this, closing IDOL after a root change would
@@ -3544,21 +3968,30 @@ class IDOL(Tk):
         # Remember the currently active tab so we can restore it when select=False.
         prev_tab_id = self._current_tab_id
 
+        # Designer mode has the main notebook off screen, so the file goes to
+        # the split pane — otherwise opening one looks like nothing happened.
+        # Everywhere else this lands in main exactly as it always has.
+        nb = self._designer_split_notebook() or self.notebook
+
         # If the current tab is an empty unmodified Untitled, remember it so we
         # can close it after the new tab is open (closing first would trigger the
         # "no tabs left" fallback and spawn another Untitled).
-        # Only replace if prev_tab_id is actually in the main notebook (not split).
+        # Only replace if prev_tab_id is in the pane we're about to open into.
         replace = (
             select
             and prev_tab_id is not None
-            and prev_tab_id in self.notebook.tabs()
+            and prev_tab_id in nb.tabs()
             and self._titles.get(prev_tab_id) == "Untitled"
             and not self._dirty.get(prev_tab_id)
             and self._codeviews.get(prev_tab_id) is not None
             and not _cv_text(self._codeviews[prev_tab_id]).strip()
         )
 
-        self._new_tab(os.path.basename(path), content, filepath=path)
+        if nb is self.notebook:
+            self._new_tab(os.path.basename(path), content, filepath=path)
+        else:
+            self._new_tab_in(nb, os.path.basename(path), content, filepath=path)
+            self._set_active_pane("right")
         recent_utils.add_file(path)
         if self._welcome_panel:
             self._welcome_panel.refresh()
@@ -3568,11 +4001,11 @@ class IDOL(Tk):
         # a leftover from when that was also how you got the terminal there.)
 
         if replace:
-            tabs = self.notebook.tabs()
+            tabs = nb.tabs()
             if prev_tab_id in tabs:
-                self._close_tab(tabs.index(prev_tab_id))
-        elif not select and prev_tab_id and prev_tab_id in self.notebook.tabs():
-            self.notebook.select(prev_tab_id)
+                self._close_tab(tabs.index(prev_tab_id), nb)
+        elif not select and prev_tab_id and prev_tab_id in nb.tabs():
+            nb.select(prev_tab_id)
 
     def _open_temp_file(self, tmp_path: str, title: str, origin: str = "") -> None:
         """Reopen a recovered scratch file as the dirty tab it used to be.
@@ -3866,15 +4299,19 @@ class IDOL(Tk):
             tabs += list(self._notebook_r.tabs())
         return tabs
 
-    def _project_file_path(self, root: str | Path | None = None) -> str | None:
-        """The `.idol-project` file for *root* (default: the explorer root).
+    def _find_project_file(self, root: str | Path) -> str | None:
+        """Discover the `.idol-project` file inside *root*, if any.
 
         Prefers `<dir>/<dirname>.idol-project`, the name `workspace_save`
         writes, and falls back to the first `*.idol-project` in the folder.
         Returns None when the folder has no project file — a folder you merely
         opened is not a project, and nothing here ever creates one.
+
+        This is pure discovery. To ask *which project is currently open*, read
+        `self._project_path` — the two are not interchangeable, which is the
+        whole point of tracking it (see `_set_open_project`).
         """
-        root = str(root if root is not None else (self._sidebar.explorer._root or ""))
+        root = str(root or "")
         if not root or not os.path.isdir(root):
             return None
         p = Path(root)
@@ -3884,14 +4321,37 @@ class IDOL(Tk):
         others = sorted(p.glob("*.idol-project"))
         return str(others[0]) if others else None
 
+    def _set_open_project(self, project_file: str | None) -> None:
+        """Latch which `.idol-project` is open — None when there is no project.
+
+        Everything that needs "which project am I in" reads `_project_path`
+        instead of re-deriving it from the explorer root, because the explorer
+        root moves for reasons that are not a project change: **Set as Root
+        Directory** on a subfolder used to hide the project file and silently
+        stop `_autosave_workspace` from writing it, and pointing the tree at an
+        unrelated folder that happened to contain a different `.idol-project`
+        would have saved this project's state into that one.
+
+        Only the deliberate "I work somewhere else now" paths move the latch:
+        `_set_project_root` (project open / create / close / restore) and
+        `workspace_save` (which turns a plain folder into a project).
+        """
+        resolved = os.path.abspath(project_file) if project_file else None
+        if resolved == self._project_path:
+            return
+        self._project_path = resolved
+        # The clipboard history is scoped to the open project, so it follows
+        # the latch rather than the explorer root.
+        self._sync_clip_scope()
+
     def _autosave_workspace(self) -> None:
         """Persist workspace state before the project is torn down or we exit.
 
-        Writes the project's own `.idol-project` when the root has one — that
-        is the file reopening the project reads, and writing only the
-        auto-session (as every caller used to) is why a closed-and-reopened
-        project came back without its split tabs or layout. The auto-session
-        is refreshed too, since that is what a cold start reads.
+        Writes the open project's `.idol-project` — that is the file reopening
+        the project reads, and writing only the auto-session (as every caller
+        used to) is why a closed-and-reopened project came back without its
+        split tabs or layout. The auto-session is refreshed too, since that is
+        what a cold start reads.
 
         This saves *bookkeeping* only — which tabs are open, the split, the
         sash, the interpreter. Unsaved buffer content rides along as
@@ -3899,10 +4359,13 @@ class IDOL(Tk):
         `session._tab_entry`), which is what makes closing without a prompt
         safe. It never creates a project file where none exists.
         """
-        proj = self._project_file_path()
+        proj = self._project_path
         if proj:
             session_utils.save(self, proj)
         session_utils.save(self)
+        # Flush any debounced clipboard save — a copy in the last 800 ms would
+        # otherwise be lost to the teardown that follows every caller here.
+        self._save_clip_history()
 
     def workspace_new(self, *_) -> None:
         """Close the current workspace and open a fresh one."""
@@ -3938,10 +4401,19 @@ class IDOL(Tk):
         self._output.update_problems([])
         self._breakpoints.clear()
         self._refresh_debug_breakpoints()
-        self._welcome_tab = None
-        self._welcome_panel = None
-        if add_untitled:
-            self.view_welcome()
+        # Every panel tab has just gone with its notebook (the split pane above,
+        # the loop for the main one) — clear the slots so the next open builds
+        # rather than selecting a dead tab.
+        for kind, (tab_attr, panel_attr) in self._PANEL_TAB_SLOTS.items():
+            if kind == "learning" and getattr(self, tab_attr, None):
+                self._learning_deactivate_cursors()
+            setattr(self, tab_attr, None)
+            setattr(self, panel_attr, None)
+        # The Welcome tab is opened at the *end* of this method, not here.
+        # Designer mode is still on at this point — the explorer re-root below
+        # is what turns it off — and `view_welcome` follows designer mode into
+        # the split pane, which teardown has just disposed of.  Reopening it
+        # here would leave a closed project with a stray split.
         # Deactivate any shell-active env (venv or conda) BEFORE the explorer
         # root resets to $HOME below — after that cd the toolbar has no cwd
         # target and the env would outlive the project.
@@ -3954,6 +4426,11 @@ class IDOL(Tk):
             self._on_venv_deactivated()
         self._set_run_entry(None)
         self._set_project_root(str(Path.home()))
+        # Closing means no project, full stop. `_set_project_root` above would
+        # otherwise latch a `.idol-project` sitting in $HOME — someone who has
+        # opened their home folder as a project would find that closing any
+        # project silently reopened that one and autosaved into it.
+        self._set_open_project(None)
         self._sidebar.source_control.refresh({}, {})
         self._sidebar.source_control.refresh_history([])
         # Reset designer state
@@ -3965,6 +4442,10 @@ class IDOL(Tk):
             self._enter_editor_mode()
         self._hide_mode_bar()
         self._designer_project_type = "cli"
+        # Last, so it lands in the main notebook of a fully reset workspace —
+        # see the note above the env teardown.
+        if add_untitled:
+            self.view_welcome()
 
     def workspace_close(self, *_) -> None:
         """Close the current project. No prompt — see `_autosave_workspace`."""
@@ -3973,12 +4454,17 @@ class IDOL(Tk):
 
     def workspace_save(self, *_) -> None:
         """Save project to <name>.idol-project in the explorer root (no dialog needed)."""
-        root = getattr(self, "_explorer_root", None) or str(
+        root = self._explorer_root or str(
             self._sidebar.explorer._root or os.getcwd()
         )
         project_name = os.path.basename(root) or "project"
         path = os.path.join(root, f"{project_name}.idol-project")
         session_utils.save(self, path)
+        # Saving is what turns a plain folder into a project, so it is one of
+        # the two paths allowed to move the latch (the other is
+        # `_set_project_root`). Without this, Save Project would write the file
+        # and then keep autosaving as if no project were open.
+        self._set_open_project(path)
 
     def workspace_open(self, *_) -> None:
         initial = str(self._sidebar.explorer._root or os.getcwd())
@@ -3994,6 +4480,11 @@ class IDOL(Tk):
         # Full teardown of the current project (designer, LSP diags, tabs, etc.)
         self._teardown_project(add_untitled=False)
         if session_utils.restore(self, path):
+            # Latch the file the user actually opened, not whatever
+            # `_set_project_root`'s discovery found inside the folder — a
+            # folder holding two `.idol-project` files would otherwise start
+            # autosaving into the one that wins by name.
+            self._set_open_project(path)
             project_dir = os.path.dirname(path)
             recent_utils.add_project(project_dir)
         else:
@@ -4100,9 +4591,94 @@ class IDOL(Tk):
 
     # ── View operations ───────────────────────────────────────────────────────
 
-    def view_change_theme(self) -> None:
-        """Apply the selected theme to every canvas tab + the sidebar."""
+    # ── User preferences ──────────────────────────────────────────────────────
+
+    def _apply_editor_prefs(self, cv: CanvasCodeView) -> None:
+        """Push editor preferences onto one codeview.
+
+        Called for every tab as it is created, not just on change — otherwise
+        a tab opened after startup silently reverts to the engine's built-in
+        defaults, which is how "Autocomplete: off" would come back on as soon
+        as you opened a file.
+        """
+        if cv is None:
+            return
+        cv.highlight_active_line = bool(
+            settings_utils.get("editor.highlight_active_line"))
+        color = settings_utils.get("editor.active_line_color") or None
+        # An empty override means "follow the theme", which is what the
+        # engine's None already means.
+        cv._active_line_color = color or self._active_line_color
+        cv.autocomplete_enabled = bool(settings_utils.get("editor.autocomplete"))
+        cv.smart_pairs_enabled = bool(settings_utils.get("editor.smart_pairs"))
+        cv.tab_size = int(settings_utils.get("editor.tab_size") or 4)
+
+    def _apply_user_preferences(self) -> None:
+        """Apply everything from `utils/settings.py` to the live UI.
+
+        Called once at startup and again whenever a preference changes, so the
+        Settings panel gets live-apply for free rather than each control
+        knowing how to reach into the widgets it affects.
+        """
+        theme = settings_utils.get("appearance.theme")
+        from utils.theme_loader import list_themes as _theme_ids
+        if theme not in _theme_ids():
+            # A theme from an older build, or a hand-edited file. Fall back
+            # rather than leaving the View > Theme radio group with nothing
+            # checked and the editor on whatever it happened to load.
+            theme = settings_utils.default_for("appearance.theme")
+        self.theme_var.set(theme)
+        self.view_change_theme(persist=False)
+
+        font = settings_utils.get_editor_font()
+        if font:
+            self._editor_font = font
+            for cv in self._codeviews.values():
+                if cv is not None:
+                    cv.set_font(*font)
+
+        self.minimap_visible_var.set(
+            bool(settings_utils.get("editor.minimap_visible")))
+        self.view_toggle_minimap(persist=False)
+
+        from utils import ollama_client
+        ollama_client.set_base_url(settings_utils.get("ai.ollama_url"))
+        panel = getattr(self, "_ai_chat_panel", None)
+        if panel is not None and hasattr(panel, "_url_var"):
+            panel._url_var.set(ollama_client.get_base_url())
+
+        override = settings_utils.get("editor.active_line_color") or None
+        if override:
+            self._active_line_color = override
+        self.highlight_line_var.set(
+            bool(settings_utils.get("editor.highlight_active_line")))
+        for cv in self._codeviews.values():
+            self._apply_editor_prefs(cv)
+            if cv is not None:
+                cv.render()
+
+        self.sidebar_visible_var.set(
+            bool(settings_utils.get("appearance.show_sidebar")))
+        self.output_visible_var.set(
+            bool(settings_utils.get("appearance.show_panels")))
+
+    def _refresh_all_editor_prefs(self) -> None:
+        for cv in self._codeviews.values():
+            self._apply_editor_prefs(cv)
+            if cv is not None:
+                cv.render()
+
+    def view_change_theme(self, persist: bool = True) -> None:
+        """Apply the selected theme to every canvas tab + the sidebar.
+
+        `persist=False` is for `_apply_user_preferences`, which is applying a
+        stored value — writing it back would be a no-op at best and, during
+        the fallback above, would quietly overwrite the user's choice with the
+        default.
+        """
         scheme = self.theme_var.get()
+        if persist:
+            settings_utils.set("appearance.theme", scheme)
         for cv in self._codeviews.values():
             if cv is not None:
                 cv.set_theme(scheme)
@@ -4139,7 +4715,26 @@ class IDOL(Tk):
             pass
 
     def view_change_font(self, *_) -> None:
-        font = askfont(self)
+        # Open on what the editor is actually showing. `_editor_font` holds a
+        # previous choice; before any, read the live font off a codeview rather
+        # than guessing a default. The old dialog was handed nothing at all and
+        # always opened on the first family in the list.
+        if self._editor_font:
+            family, size, weight, slant = self._editor_font
+        else:
+            cv = self._current_codeview
+            actual = cv._font.actual() if cv is not None else {}
+            family = actual.get("family", "Consolas")
+            size = int(actual.get("size", 11) or 11)
+            weight = actual.get("weight", "normal")
+            slant = actual.get("slant", "roman")
+
+        # No Effects box: underline and strikeout are for Designer widget
+        # fonts. The code editor has no use for them, and showing controls it
+        # would ignore is worse than not showing them.
+        font = askfont(self, family=family, size=abs(size), weight=weight,
+                       slant=slant, title="Change Editor Font",
+                       show_effects=False, text="AaBbYyZz 0123 (){}[]")
         if not font:
             return
         family = font["family"]
@@ -4147,28 +4742,27 @@ class IDOL(Tk):
         weight = font.get("weight", "normal") or "normal"
         slant = font.get("slant", "roman") or "roman"
         self._editor_font = (family, size, weight, slant)
+        settings_utils.set_editor_font(family, size, weight, slant)
         for cv in self._codeviews.values():
             if cv is not None:
                 cv.set_font(family, size, weight, slant)
 
     def view_toggle_highlight(self) -> None:
-        enabled = self.highlight_line_var.get()
-        for cv in self._codeviews.values():
-            if cv is not None:
-                cv.highlight_active_line = enabled
-                cv.render()
+        # Writing to the store is what makes the toggle survive a restart; the
+        # subscription then applies it, so there is nothing to do here.
+        settings_utils.set("editor.highlight_active_line",
+                           bool(self.highlight_line_var.get()))
 
     def view_active_line_color(self) -> None:
         result = askcolor(self._active_line_color or "#ffffff", parent=self)
         color = result[1] if result else None
         if color:
-            self._active_line_color = color
-            for cv in self._codeviews.values():
-                if cv is not None:
-                    cv._active_line_color = color
-                    cv.render()
+            settings_utils.set("editor.active_line_color", color)
 
-    def view_toggle_output(self) -> None:
+    def view_toggle_output(self, persist: bool = True) -> None:
+        if persist:
+            settings_utils.set("appearance.show_panels",
+                               bool(self.output_visible_var.get()))
         if self.output_visible_var.get():
             self._v_pane.add(self._output, weight=1)
         else:
@@ -4188,8 +4782,10 @@ class IDOL(Tk):
     def view_new_terminal(self) -> None:
         self.view_show_panel("terminal")
 
-    def view_toggle_minimap(self) -> None:
+    def view_toggle_minimap(self, persist: bool = True) -> None:
         show = self.minimap_visible_var.get()
+        if persist:
+            settings_utils.set("editor.minimap_visible", bool(show))
         for cv in self._codeviews.values():
             if cv is None:
                 continue
@@ -4254,22 +4850,16 @@ class IDOL(Tk):
 
     def view_welcome(self) -> None:
         """Open (or focus) the Welcome tab."""
-        if self._welcome_tab:
-            try:
-                if self._welcome_tab not in self.notebook.tabs():
-                    raise ValueError
-                if self.notebook.select() == self._welcome_tab:
-                    # Already focused — do nothing (don't close on second press)
-                    return
-                self.notebook.select(self._welcome_tab)
-                if self._welcome_panel:
-                    self._welcome_panel.refresh()
-                return
-            except Exception:
-                self._welcome_tab = None
-                self._welcome_panel = None
+        # close_on_reselect=False — Welcome is the notebook's fallback tab, so
+        # a second press re-focuses it rather than closing it.
+        if self._toggle_panel_tab("welcome", close_on_reselect=False):
+            if self._welcome_panel:
+                self._welcome_panel.refresh()
+            return
+        self._build_panel_tab("welcome", self._panel_target_notebook())
 
-        frame = ttk.Frame(self.notebook)
+    def _build_welcome_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
         panel = WelcomePanel(
             frame,
             on_new_file=self.file_new,
@@ -4280,13 +4870,14 @@ class IDOL(Tk):
             on_learning=self.view_learning_mode,
             on_designer=self._enter_designer_mode,
             on_packages=self.view_package_manager,
+            on_settings=self.view_settings,
             on_open_temp=self._open_temp_file,
             get_open_temps=lambda: set(self._temp_files.values()),
         )
         panel.pack(fill="both", expand=True)
-        self.notebook.add(frame, text="  Welcome  ")
-        self.notebook.select(frame)
-        self._welcome_tab = self.notebook.select()
+        nb.add(frame, text="  Welcome  ")
+        nb.select(frame)
+        self._welcome_tab = nb.select()
         self._welcome_panel = panel
         self._apply_theme_to_sidebar_no_cv()
 
@@ -4302,14 +4893,14 @@ class IDOL(Tk):
             self.workspace_open()
             return
         # Find the .idol-project file inside the project directory
-        from pathlib import Path as _P
 
-        candidate = self._project_file_path(path)
+        candidate = self._find_project_file(path)
         if candidate:
             # Reuse workspace_open flow without the file dialog
             self._autosave_workspace()
             self._teardown_project(add_untitled=False)
             if session_utils.restore(self, str(candidate)):
+                self._set_open_project(str(candidate))
                 # Re-add so the project moves back to the top of the recent
                 # list, matching the File > Open Project path.  *path* is the
                 # entry's own stored string, so the dedupe inside add_project
@@ -4327,28 +4918,12 @@ class IDOL(Tk):
 
     def view_package_manager(self) -> None:
         """Toggle the Package Manager tab (F3)."""
-        if self._pkg_tab:
-            try:
-                tabs = self.notebook.tabs()
-                if self._pkg_tab not in tabs:
-                    raise ValueError
-                if self.notebook.select() == self._pkg_tab:
-                    # Already focused — close it
-                    idx = list(tabs).index(self._pkg_tab)
-                    self.notebook.forget(idx)
-                    self._pkg_tab = None
-                    self._pkg_panel = None
-                    self._refresh_nav_bar()
-                    return
-                else:
-                    self.notebook.select(self._pkg_tab)
-                    self._refresh_nav_bar()
-                    return
-            except Exception:
-                self._pkg_tab = None
-                self._pkg_panel = None
+        if self._toggle_panel_tab("packages"):
+            return
+        self._build_panel_tab("packages", self._panel_target_notebook())
 
-        frame = ttk.Frame(self.notebook)
+    def _build_packages_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
         panel = PackageManagerPanel(
             frame,
             get_output_panel=lambda: self._output.output,
@@ -4356,12 +4931,90 @@ class IDOL(Tk):
             open_ai_panel=self._ensure_ai_panel_open,
         )
         panel.pack(fill="both", expand=True)
+        # Project dir before interpreter: set_python paints the channel bar, and
+        # it should read the project's environment.yml on the first paint rather
+        # than showing ~/.condarc's list and correcting itself.
+        panel.set_project_dir(
+            str(getattr(self._sidebar.explorer, "_root", "") or ""))
         panel.set_python(self._active_python)
-        self.notebook.add(frame, text="📦 Packages")
-        self.notebook.select(frame)
-        self._pkg_tab = self.notebook.select()
+        nb.add(frame, text="📦 Packages")
+        nb.select(frame)
+        self._pkg_tab = nb.select()
         self._pkg_panel = panel
-        self._refresh_nav_bar()
+
+    def view_settings(self, *_) -> None:
+        """Toggle the Settings tab (Ctrl+,). Same tab pattern as Packages."""
+        if self._toggle_panel_tab("settings"):
+            return
+        self._build_panel_tab("settings", self._panel_target_notebook())
+
+    def _build_settings_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
+        panel = SettingsPanel(frame)
+        panel.pack(fill="both", expand=True)
+        nb.add(frame, text="⚙ Settings")
+        nb.select(frame)
+        self._settings_tab = nb.select()
+        self._settings_panel = panel
+        panel.focus_search()
+
+    def _on_setting_changed(self, key: str, _value) -> None:
+        """Apply a preference the moment it changes.
+
+        Dispatched per key rather than re-running everything: re-theming every
+        open tab because someone edited the Ollama URL would be a visible stall.
+        """
+        if key == "appearance.theme":
+            theme = settings_utils.get("appearance.theme")
+            from utils.theme_loader import list_themes as _theme_ids
+            if theme in _theme_ids():
+                self.theme_var.set(theme)
+                self.view_change_theme(persist=False)
+        elif key == "editor.font":
+            font = settings_utils.get_editor_font()
+            if font:
+                self._editor_font = font
+                for cv in self._codeviews.values():
+                    if cv is not None:
+                        cv.set_font(*font)
+        elif key == "editor.minimap_visible":
+            self.minimap_visible_var.set(
+                bool(settings_utils.get("editor.minimap_visible")))
+            self.view_toggle_minimap(persist=False)
+        elif key == "ai.ollama_url":
+            from utils import ollama_client
+            ollama_client.set_base_url(settings_utils.get("ai.ollama_url"))
+            panel = getattr(self, "_ai_chat_panel", None)
+            if panel is not None and hasattr(panel, "_url_var"):
+                panel._url_var.set(ollama_client.get_base_url())
+        elif key == "editor.active_line_color":
+            override = settings_utils.get("editor.active_line_color") or None
+            if override:
+                self._active_line_color = override
+            else:
+                # Cleared — fall back to the active theme's own colour rather
+                # than leaving the last override in place.
+                cv = self._current_codeview
+                if cv is not None:
+                    self._active_line_color = cv._palette.get("current_line_bg")
+            self._refresh_all_editor_prefs()
+        elif key == "editor.highlight_active_line":
+            self.highlight_line_var.set(
+                bool(settings_utils.get("editor.highlight_active_line")))
+            self._refresh_all_editor_prefs()
+        elif key in ("editor.autocomplete", "editor.smart_pairs",
+                     "editor.tab_size"):
+            self._refresh_all_editor_prefs()
+        elif key == "appearance.show_sidebar":
+            want = bool(settings_utils.get("appearance.show_sidebar"))
+            if want != self.sidebar_visible_var.get():
+                self.sidebar_visible_var.set(want)
+                self.view_toggle_sidebar(persist=False)
+        elif key == "appearance.show_panels":
+            want = bool(settings_utils.get("appearance.show_panels"))
+            if want != self.output_visible_var.get():
+                self.output_visible_var.set(want)
+                self.view_toggle_output(persist=False)
 
     # ── Learning Mode ─────────────────────────────────────────────────────────
 
@@ -4369,46 +5022,28 @@ class IDOL(Tk):
         """Unconditionally close the learning tab and restore all widget state."""
         if not self._learning_tab:
             return
-        try:
-            idx = list(self.notebook.tabs()).index(self._learning_tab)
-            self.notebook.forget(idx)
-        except Exception:
-            pass
-        self._learning_tab = None
-        self._learning_panel = None
-        self._learning_deactivate_cursors()
+        self._forget_panel_tab("learning")
         self._refresh_nav_bar()
 
     def view_learning_mode(self) -> None:
         """Toggle the Learning Mode tab (F1)."""
-        if self._learning_tab:
-            try:
-                if self._learning_tab not in self.notebook.tabs():
-                    raise ValueError
-                if self.notebook.select() == self._learning_tab:
-                    self._close_learning_mode()
-                    return
-                else:
-                    self.notebook.select(self._learning_tab)
-                    self._refresh_nav_bar()
-                    return
-            except Exception:
-                self._close_learning_mode()
-                return
+        if self._toggle_panel_tab("learning"):
+            return
+        self._build_panel_tab("learning", self._panel_target_notebook())
 
-        frame = ttk.Frame(self.notebook)
+    def _build_learning_tab(self, nb: CustomNotebook) -> None:
+        frame = ttk.Frame(nb)
         panel = LearningPanel(frame)
         panel.pack(fill="both", expand=True)
 
-        self.notebook.add(frame, text="  📖 Learning  ")
-        self.notebook.select(frame)
+        nb.add(frame, text="  📖 Learning  ")
+        nb.select(frame)
 
-        self._learning_tab = self.notebook.select()
+        self._learning_tab = nb.select()
         self._learning_panel = panel
         self._learning_active_lid = ""
 
         self._learning_activate_cursors()
-        self._refresh_nav_bar()
 
     def view_ai_chat(self) -> None:
         """Toggle the AI Chat right panel (F2)."""
@@ -4757,10 +5392,10 @@ class IDOL(Tk):
     def _on_learning_click(self, widget, lid: str) -> None:
         """Show guide content and flash the clicked widget."""
         self._learning_active_lid = lid
-        try:
-            self.notebook.select(self._learning_tab)
-        except Exception:
-            pass
+        # `_reveal_tab`, not `notebook.select` — the learning tab may be living
+        # in the split pane (it is where it opens in designer mode), and
+        # selecting a split tab on the main notebook is a silent no-op.
+        self._reveal_tab(self._learning_tab)
         if self._learning_panel:
             self._learning_panel.show(lid)
         self._learning_flash(widget)
@@ -4945,11 +5580,15 @@ class IDOL(Tk):
         """Switch the main content area to the designer canvas."""
         if self._designer_mode:
             return
-        if self._split_active and self._split_shown:
-            self._split_was_shown = True
-            self._hide_split()
-        else:
-            self._split_was_shown = False
+        # The split stays exactly as the user left it. `self.notebook` and
+        # `self._designer_frame` are both children of `_nb_frame_l` and swap
+        # inside it, so the designer only ever occupies the *left* half of
+        # `_split_pane` — the split's right frame is untouched by the mode
+        # change. Hiding and restoring it here was policy, not a layout
+        # requirement, and it was the toggle that could lose a split entirely:
+        # if the last split tab was closed while designer mode had it hidden,
+        # the old auto-close destroyed the pane and there was nothing left to
+        # restore on the way back out.
         self._designer_mode = True
         self._designer_project_type = "gui"
         self.notebook.pack_forget()
@@ -5101,11 +5740,8 @@ class IDOL(Tk):
                 pass
 
         self._refresh_mode_bar()
-
-        # Restore split if it was visible before entering designer mode
-        if self._split_was_shown and self._split_active and not self._split_shown:
-            self._split_was_shown = False
-            self.after(50, self._show_split)
+        # No split restore here — entering designer mode no longer hides it, so
+        # there is nothing to put back.
 
         def _restore_editor_focus():
             cv = self._current_codeview
@@ -8463,18 +9099,14 @@ class IDOL(Tk):
         self._set_designer_dirty()
         self._refresh_generate_code_state()
 
+    # Thin wrappers over `utils/starter_templates.py`. The template is shared
+    # with the project wizard, which writes the same main.py at project
+    # creation — see that module for what drifting copies cost.
     def _idol_main_py_content(self, form_name: str) -> str:
-        return (
-            f"# Generated by IDOL Designer\n"
-            f"from {form_name} import {form_name}\n"
-            f"\n"
-            f'if __name__ == "__main__":\n'
-            f"    app = {form_name}()\n"
-            f"    app.mainloop()\n"
-        )
+        return starter_templates.idol_main_py(form_name)
 
     def _is_idol_main_py(self, content: str) -> bool:
-        return "# Generated by IDOL Designer" in content
+        return starter_templates.is_idol_main_py(content)
 
     def _on_form_set_as_main(self, name: str) -> None:
         from pathlib import Path as _Path
@@ -9085,7 +9717,6 @@ class IDOL(Tk):
             extract_helper_methods as _helpers,
             extract_user_imports as _user_imports,
             rename_self_attributes as _rename_attrs,
-            load as _load,
         )
 
         json_path = _Path(root) / f"{form.name}.form.json"
@@ -9184,11 +9815,11 @@ class IDOL(Tk):
     def _ensure_split_shown(self, open_tab_id: str | None = None) -> None:
         """Build + show the split pane if needed, optionally opening a tab.
 
-        Guarantees a live ``self._notebook_r`` on return. A re-show can tear the
-        pane down — ``_show_split`` calls ``_close_split`` when the notebook was
-        left empty (e.g. after dragging the split's last tab back to main, which
-        only hides the pane). When that happens we fall through and rebuild, so
-        callers never end up calling ``.add`` on a ``None`` notebook.
+        Guarantees a live ``self._notebook_r`` on return. The re-check after
+        ``_show_split`` is kept as a cheap invariant: nothing tears the pane
+        down here any more (``_show_split`` used to destroy an emptied pane),
+        but a ``None`` notebook still falls through to a rebuild rather than
+        letting a caller ``.add`` onto nothing.
         """
         if self._split_active and self._notebook_r is not None:
             if not self._split_shown:
@@ -9227,10 +9858,11 @@ class IDOL(Tk):
         """Re-show a hidden split pane, restoring the sash position."""
         if not self._split_active or self._split_shown:
             return
-        # Guard: tabs were all closed somehow — destroy cleanly instead of showing empty pane
-        if not self._notebook_r or not self._notebook_r.tabs():
-            self._close_split()
-            return
+        if self._notebook_r is None:
+            return          # nothing built to show
+        # An empty notebook is shown as-is. This used to destroy the pane
+        # instead, which meant re-showing a split whose tabs had all been closed
+        # silently removed it — the auto-close this workflow no longer has.
         self._split_pane.add(self._nb_frame_r, weight=1)
         # Restore the saved sash; _position_split_sash falls back to midpoint if
         # the saved value is stale/out of range (the "opens all the way right" bug).
@@ -9245,6 +9877,11 @@ class IDOL(Tk):
         """Right-click: open a copy of tab_id in the split, keep it in main too."""
         if not tab_id:
             return
+        if self._panel_kind_of(tab_id):
+            # A panel tab is single-instance — there is no second Package
+            # Manager to open alongside the first, so this moves it instead.
+            self._move_to_split(tab_id)
+            return
         self._ensure_split_shown()
         self._add_tab_to_split(tab_id)
         self._set_active_pane("right")
@@ -9252,7 +9889,13 @@ class IDOL(Tk):
 
     def _move_to_split(self, tab_id: str | None) -> None:
         """Drag main→split: move the tab (remove from main, open in split)."""
-        if not tab_id or tab_id == self._welcome_tab:
+        if not tab_id:
+            return
+        kind = self._panel_kind_of(tab_id)
+        if kind:
+            self._ensure_split_shown()
+            if self._notebook_r is not None:
+                self._move_panel_tab(kind, self._notebook_r)
             return
         path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
@@ -9270,15 +9913,17 @@ class IDOL(Tk):
             if tmp:
                 self._temp_files[new_tid] = tmp
         self._remove_tab_silent(tab_id, self.notebook)
-        # If main notebook is now empty, show Welcome so it's never blank
-        if not self.notebook.tabs():
-            self.view_welcome()
+        # If main notebook is now empty, backfill it so it's never blank
+        self._backfill_main_notebook()
         self._set_active_pane("right")
         self._patch_scroll_callbacks()
 
     def _copy_to_main(self, tab_id: str | None) -> None:
         """Right-click on split tab: open a copy in main, keep it in split too."""
         if not tab_id:
+            return
+        if self._panel_kind_of(tab_id):
+            self._move_to_main(tab_id)      # single-instance — see _copy_to_split
             return
         path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
@@ -9290,6 +9935,10 @@ class IDOL(Tk):
     def _move_to_main(self, tab_id: str | None) -> None:
         """Drag split→main: move the tab (remove from split, open in main)."""
         if not tab_id:
+            return
+        kind = self._panel_kind_of(tab_id)
+        if kind:
+            self._move_panel_tab(kind, self.notebook)
             return
         path = self._files.get(tab_id)
         title = self._titles.get(tab_id, "Untitled")
@@ -9307,9 +9956,8 @@ class IDOL(Tk):
                 self._temp_files[new_tid] = tmp
         self._remove_tab_silent(tab_id, self._notebook_r)
         self._set_active_pane("left")
-        # If split is now empty, hide it (don't destroy — X button does that)
-        if self._notebook_r and not self._notebook_r.tabs():
-            self._hide_split()
+        # The pane stays put when its last tab moves back to main — dragging a
+        # tab out is a tab operation, not a request to dismantle the layout.
 
     def _add_tab_to_split(self, tab_id: str) -> None:
         """Open a copy of main-pane tab_id in the split notebook."""
@@ -9321,7 +9969,8 @@ class IDOL(Tk):
 
     def _remove_tab_silent(self, tab_id: str, nb: "CustomNotebook") -> None:
         """Remove a tab from notebook without unsaved-changes prompt."""
-        closed_path = self._files.pop(tab_id, None)
+        # Discarding the popped path is deliberate — see the LSP note below.
+        self._files.pop(tab_id, None)
         self._titles.pop(tab_id, None)
         self._dirty.pop(tab_id, None)
         self._clean_crcs.pop(tab_id, None)
@@ -9607,6 +10256,16 @@ class IDOL(Tk):
             if cv is not None:
                 cv.on_scroll = None
         for tab_id in list(self._notebook_r.tabs() if self._notebook_r else ()):
+            kind = self._panel_kind_of(tab_id)
+            if kind:
+                # A panel tab parked in this pane goes down with it — clear its
+                # slots, or the next open selects into a destroyed widget.
+                tab_attr, panel_attr = self._PANEL_TAB_SLOTS[kind]
+                setattr(self, tab_attr, None)
+                setattr(self, panel_attr, None)
+                if kind == "learning":
+                    self._learning_deactivate_cursors()
+                continue
             closed_path = self._files.pop(tab_id, None)
             self._titles.pop(tab_id, None)
             self._dirty.pop(tab_id, None)
@@ -9639,7 +10298,6 @@ class IDOL(Tk):
         self._split_mode_bar_spacer = None
         self._split_active = False
         self._split_shown = False
-        self._split_was_shown = False
         self._set_active_pane("left")
         self._refresh_nav_bar()
 
@@ -9714,9 +10372,17 @@ class IDOL(Tk):
         )
         cv.canvas.bind("<Leave>", lambda _: self._cancel_hover(), add="+")
         cv.canvas.bind("<FocusIn>", lambda _: self._set_active_pane("right"), add="+")
+        self._bind_color_picker_dismiss(cv)
+        # A tab created after startup must inherit the user's preferences, or
+        # "Autocomplete: off" comes back on the moment you open a file.
+        self._apply_editor_prefs(cv)
 
-    def view_toggle_sidebar(self) -> None:
-        """Show or hide the entire left sidebar (Ctrl+B)."""
+    def view_toggle_sidebar(self, persist: bool = True) -> None:
+        """Show or hide the entire left sidebar (Ctrl+B).
+
+        `persist=False` when the store is the one driving the change, so
+        applying a preference does not immediately write it back.
+        """
         if self._sidebar_shown:
             self._h_pane.forget(self._sidebar)
             self._sidebar_shown = False
@@ -9737,6 +10403,8 @@ class IDOL(Tk):
                 self.after(100, self._apply_ai_panel_sash)
             self._sidebar_shown = True
             self.sidebar_visible_var.set(True)
+        if persist:
+            settings_utils.set("appearance.show_sidebar", self._sidebar_shown)
         self._refresh_nav_bar()
 
     def view_source_control(self) -> None:
@@ -9941,8 +10609,6 @@ class IDOL(Tk):
 
     def _get_short_interp_label(self, label: str) -> str:
         """Extract 'Python X.Y.Z' from a full interpreter label string."""
-        import re
-
         m = re.match(r"(Python\s+\S+)", label)
         return m.group(1) if m else label.split("(")[0].strip()
 
@@ -9951,8 +10617,6 @@ class IDOL(Tk):
         from editor.project_manager import ProjectManager
         from utils import settings as _settings
 
-        root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
-        saved = _settings.get(f"interpreter:{root}")
         # Snapshot the current value — if session restore sets a different interpreter
         # before the background thread returns, don't override it.
         _snapshot = self._active_python
@@ -9962,6 +10626,15 @@ class IDOL(Tk):
                 # session.restore (or wizard) already set a more authoritative
                 # interpreter after we launched — leave it alone.
                 return
+            # Read the remembered interpreter *here*, not at call time.
+            # `_init_interpreter` runs from `_build_layout`, which is before the
+            # startup path that opens a project and sets the explorer root — so
+            # at call time there is no root to key on yet. This callback is
+            # delivered through `_safe_after`, and an `after` callback cannot
+            # run until the mainloop starts, which is after `__init__` returns.
+            # So by the time we are here the root is settled.
+            root = self._explorer_root or os.path.expanduser("~")
+            saved = _settings.get(f"interpreter:{root}")
             path, label = sys.executable, "Python"
             if saved:
                 for lbl, exe in results:
@@ -10002,7 +10675,7 @@ class IDOL(Tk):
                 self._statusbar._interp_lbl, "interpreter_selector"
             )
             self._statusbar._interp_lbl._learning_registered = True
-        root = getattr(self, "_explorer_root", None) or os.path.expanduser("~")
+        root = self._explorer_root or os.path.expanduser("~")
         _settings.set(f"interpreter:{root}", path)
         if self._pkg_panel:
             self._pkg_panel.set_python(path)
@@ -10094,7 +10767,11 @@ class IDOL(Tk):
             )
 
         output.write("\nChecking conda Terms of Service…\n", tag="info")
-        conda_backend.fetch_tos_pending(conda.conda_exe, self._safe_after, _on_tos)
+        # Same scoping as the Package Manager's own gate: only channels this
+        # install will search can block it (see fetch_tos_pending).
+        conda_backend.fetch_tos_pending(
+            conda.conda_exe, self._safe_after, _on_tos,
+            channels=conda.channels or None)
 
     def _on_pillow_install_done(self, output, conda: bool) -> None:
         # Both backends fire on_done even when the install failed — probe the
@@ -10622,6 +11299,20 @@ class IDOL(Tk):
         if self._debugger:
             self._debugger.continue_()
 
+    def _f10(self) -> None:
+        """F10 — Step Over during a live debug session, Zen Mode otherwise.
+
+        Both features were bound to F10 directly, and Tk fires only one binding
+        per chord, so Zen Mode (registered second) won and Step Over never fired
+        at all — while the debugger docs and the step controls both advertised
+        it. They are never both meaningful at once: you are not reaching for a
+        distraction-free layout mid-step. One dispatcher owns the key.
+        """
+        if self._debugger and self._debugger.active:
+            self._debug_step_over()
+        else:
+            self.view_zen_mode()
+
     def _debug_step_over(self) -> None:
         if self._debugger:
             self._debugger.next_()
@@ -10822,7 +11513,7 @@ class IDOL(Tk):
                 ]
             ],
             # Designer
-            ("Generate Code", "Ctrl+Shift+G", self.designer_generate_code),
+            ("Generate Code", "Ctrl+Shift+B", self.designer_generate_code),
             # Editor
             ("Fold All", "", self.view_fold_all),
             ("Unfold All", "", self.view_unfold_all),
@@ -10885,8 +11576,14 @@ class IDOL(Tk):
                 # Refresh pkg panel installed list if it's open
                 if self._pkg_panel:
                     self.after(0, self._pkg_panel._load_installed)
-            except Exception as e:
-                self.after(0, lambda: output.write(str(e) + "\n", tag="err"))
+            except Exception as exc:
+                # Bind the message now, not in the lambda: Python deletes the
+                # `except ... as` name when the block ends, and this callback
+                # runs later on the main thread — closing over `exc` raised
+                # NameError inside the Tk callback, so a failed pip command
+                # reported nothing to the Output panel at all.
+                msg = str(exc)
+                self.after(0, lambda: output.write(msg + "\n", tag="err"))
 
         _threading.Thread(target=_run, daemon=True).start()
 

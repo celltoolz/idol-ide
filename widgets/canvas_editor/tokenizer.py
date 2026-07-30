@@ -2,13 +2,16 @@
 
 Pure, stateless logic extracted from canvas_codeview.py (P3 decomposition).
 `TokenizerMixin` is inherited by `CanvasCodeView`; it owns the regex rule
-table (`PYTHON_RULES`), the comment/string scanners, and the per-line
-triple-quote state scan.
+table (`PYTHON_RULES`), the comment/string scanners, the per-line
+triple-quote state scan, and the caret-context scan (`_caret_contexts` /
+`_context_at`) that tells the rest of the editor whether a position is in
+code, in a string or in a comment.
 
-It reaches into the host only for two attributes, both owned and
+It reaches into the host only for three attributes, all owned and
 maintained by `CanvasCodeView`:
   * `self.language`  (str)            — selects the diff vs. python path
   * `self._ml_state` (list[str|None]) — per-line triple-quote continuation
+  * `self.lines`     (list[str])      — read by `_caret_contexts`
 
 The tokenizer emits category NAMES (e.g. "keyword_flow", "string"); the
 renderer resolves them to colors against the active theme, so a theme swap
@@ -130,6 +133,84 @@ class TokenizerMixin:
                 return i
             i += 1
         return None
+
+    # ── Caret context ────────────────────────────────────────────────────────
+
+    def _caret_contexts(self, line_idx: int) -> list[str]:
+        """Per-caret-position context for one line: "code", "string" or
+        "comment".
+
+        Returns ``len(line) + 1`` entries. Element *i* is the context a caret
+        sitting immediately **before** character *i* is in; the last element is
+        the end-of-line caret. Callers that need to classify a *character*
+        rather than a caret slot read the pair straddling it: ``out[i] !=
+        out[i + 1]`` means char *i* opened or closed something. That one test
+        is what tells a string **delimiter** apart from a quote sitting in some
+        other string's body — the `'` in `"don't"` has "string" on both sides,
+        while the `"` that opens the literal has "code" on its left.
+
+        Continuation state for triple-quoted strings comes from the host's
+        `_ml_state`, the same per-line scan the renderer colours from, so a
+        docstring body is recognised on every one of its lines and not just the
+        one that opened it.
+        """
+        line = self.lines[line_idx] if 0 <= line_idx < len(self.lines) else ""
+        triple = (self._ml_state[line_idx]
+                  if 0 <= line_idx < len(self._ml_state) else None)
+        out: list[str] = []
+        i, n = 0, len(line)
+        while i < n:
+            if triple:
+                if line[i:i + 3] == triple * 3:     # closing delimiter
+                    out.extend(["string"] * 3)
+                    triple = None
+                    i += 3
+                    continue
+                if line[i] == "\\" and i + 1 < n:
+                    out.extend(["string", "string"])
+                    i += 2
+                    continue
+                out.append("string")
+                i += 1
+                continue
+            ch = line[i]
+            if ch == "#":
+                # Caret before the `#` is still code — typing a `(` there is
+                # code, not prose. Everything after it, including the
+                # end-of-line slot, is comment.
+                out.append("code")
+                out.extend(["comment"] * (n - i))
+                return out
+            if line[i:i + 3] in ("'''", '"""'):
+                out.extend(["code", "string", "string"])
+                triple = ch
+                i += 3
+                continue
+            if ch in ("'", '"'):
+                out.append("code")                  # caret before the opener
+                q, i = ch, i + 1
+                while i < n:                        # single-quoted run
+                    c2 = line[i]
+                    if c2 == "\\" and i + 1 < n:
+                        out.extend(["string", "string"])
+                        i += 2
+                        continue
+                    out.append("string")            # includes the closer slot
+                    i += 1
+                    if c2 == q:
+                        break                       # caret past it is code
+                continue
+            out.append("code")
+            i += 1
+        out.append("string" if triple else "code")
+        return out
+
+    def _context_at(self, line_idx: int, col: int) -> str:
+        """Context of the caret at (line_idx, col) — see `_caret_contexts`."""
+        contexts = self._caret_contexts(line_idx)
+        if col <= 0:
+            return contexts[0]
+        return contexts[min(col, len(contexts) - 1)]
 
     _DIFF_META_PREFIXES = ("+++", "---", "diff ", "index ", "new file",
                            "deleted file", "Binary", "similarity",

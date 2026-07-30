@@ -22,6 +22,8 @@ IDOL includes a full **VB6-style drag-and-drop GUI builder** for Tkinter applica
 
 Entering Designer mode swaps the File Explorer out and the Widget Palette in — same left-panel slot, no floating windows. The left panel is split: the **FORMS tree** sits at the top, and the **Widget Palette** fills the rest. Exiting Designer restores the Explorer.
 
+The canvas takes over the main editor area, so anything that opens a tab while you are designing goes to the **split pane** instead — opening the split if it isn't already there. That covers the Package Manager, Welcome, Learning Mode and Settings (nav bar, menus, `F1` / `F3` / `Ctrl+,`), `File → New`, `File → Open`, and clicking an entry in the Problems panel. The panel or file lands beside your form rather than behind it, and switching back to the Editor leaves it exactly where it is. See [Split Editor](editor.md#split-editor).
+
 ## Canvas
 
 - **Dotted-grid design surface** — form rendered at real size with a simulated title bar and drop shadow
@@ -33,7 +35,7 @@ Entering Designer mode swaps the File Explorer out and the Widget Palette in —
 - **Multi-select** — rubber-band drag to select multiple widgets; Ctrl+Click to toggle individual widgets; drag the group to move all at once
 - **Primary vs secondary selection** — the last-clicked widget is the primary (amber border + full resize handles); all others are secondary (blue border only); resize dragging on any handle propagates the delta to all selected widgets
 - **Copy / Paste** — Ctrl+C / Ctrl+V to duplicate; right-click context menu with Copy, Paste, Delete, Bring to Front, Send to Back
-- **Arrow-key nudge** — 8px nudge (matching the snap grid) with arrow keys; hold **Shift** for 1px precision
+- **Arrow-key nudge** — 8px nudge (matching the snap grid) with arrow keys; hold **Shift** for 1px precision. Shift *inverts* the snap setting rather than switching it off, so with snap already disabled the arrows step 1px and Shift+arrow gives you the 8px grid
 - **Z-order** — Bring to Front / Send to Back preserved on every mutation
 - **Menu bar strip** — live menu bar rendered below the title bar from your menu items; clicking a top-level name opens a native dropdown; clicking a command or check/radio item with a handler navigates to that handler in the editor
 - **Canvas scrollbars** — the canvas has horizontal and vertical scrollbars with mousewheel support on all platforms (Windows/macOS via `<MouseWheel>`; Linux via `<Button-4>`/`<Button-5>`; hold **Shift** to scroll horizontally); the form recenters automatically after a resize drag
@@ -113,10 +115,10 @@ together, mirroring the existing Variable and Layout headers:
 
 ### Font Picker
 
-The `font` property row opens a font chooser dialog pre-populated with the widget's current family, size, and style. Supports bold, italic, underline, and overstrike. The chosen font is stored as a `"Family size style"` string (e.g. `"Arial 12 bold"`) and emitted in generated code as a font **tuple** — `('Segoe UI', 12, 'bold')` — so multi-word family names (Segoe UI, Times New Roman, …) are valid; a bare spaced-family string would otherwise be parsed by Tk as a list and crash with `expected integer`.
+The `font` property row opens IDOL's own font chooser, scoped to the widget's current family, size and style — the family list scrolls that font into view rather than starting at the top. Supports bold, italic, underline and overstrike; the underline and strikeout checkboxes appear here because widget fonts use them, and are hidden for the editor font, which does not. The chosen font is stored as a `"Family size style"` string (e.g. `"Arial 12 bold"`) and emitted in generated code as a font **tuple** — `('Segoe UI', 12, 'bold')` — so multi-word family names (Segoe UI, Times New Roman, …) are valid; a bare spaced-family string would otherwise be parsed by Tk as a list and crash with `expected integer`.
 
 ### Color Picker
-Background and Foreground properties open `tkinter.colorchooser`. The row tints immediately and the canvas widget updates live. Non-input widgets (Button, Label, Frame, etc.) start with no explicit background color, inheriting the OS default. Input widgets (Entry, Text, Listbox) default to white. A `×` button appears on hover to clear a color back to the OS default.
+Background and Foreground properties open IDOL's own colour chooser — an HSV square with a hue strip, hex and R/G/B fields, and old/new preview swatches. The row tints immediately and the canvas widget updates live. Non-input widgets (Button, Label, Frame, etc.) start with no explicit background color, inheriting the OS default. Input widgets (Entry, Text, Listbox) default to white. A `×` button appears on hover to clear a color back to the OS default.
 
 ### State
 Button, Entry, Text, Combobox, and other widgets expose a `state` dropdown (normal / readonly / disabled). Selecting readonly or disabled reveals conditional color rows (`readonlybackground`, `disabledbackground`, `disabledforeground`) that auto-fill with defaults and hide when not applicable.
@@ -785,7 +787,7 @@ Key points:
 
 ## Code Generation
 
-**Auto-generation** — code is regenerated automatically 0.6 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+G`).
+**Auto-generation** — code is regenerated automatically 0.6 seconds after any canvas or property change. Rapid edits coalesce into a single run. You can also trigger it manually with `Designer → Generate Code` (`Ctrl+Shift+B` — the build key; Ctrl+Shift+G is Source Control).
 
 ```python
 import tkinter as tk

@@ -19,7 +19,7 @@ from typing import Callable
 from utils.ui_font import UI_FONT
 
 
-_MAX   = 50      # ring buffer depth
+_MAX   = 50      # default ring depth — overridden per scope via set_max()
 _ROW_H = 54      # px per row
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -63,11 +63,19 @@ class ClipboardHistoryPanel(Frame):
     _PX = 10   # horizontal padding
     _PY = 7    # vertical padding (top of row)
 
-    def __init__(self, parent, on_paste: Callable[[str], None] | None = None):
+    def __init__(self, parent,
+                 on_paste: Callable[[str], None] | None = None,
+                 on_change: Callable[[], None] | None = None):
         super().__init__(parent, bg=_BG)
         self._on_paste  = on_paste
+        # Fired whenever the ring's *contents* change (push, clear, pin) so the
+        # host can persist. Deliberately not fired by load_entries or set_max —
+        # the host already knows about those, and re-entering the save path
+        # while loading would write the history back over itself.
+        self._on_change = on_change
         self._window    = None          # set via set_window(); used by pin button
         self._pinned_top: bool = False
+        self._max: int = _MAX
         self._ring:    deque[ClipEntry] = deque()
         self._visible: list[ClipEntry]  = []
         self._hovered: int | None       = None
@@ -158,15 +166,54 @@ class ClipboardHistoryPanel(Frame):
             return
         self._ring = deque(e for e in self._ring if e.text != text)
         self._ring.appendleft(ClipEntry(text=text, source=source))
-        if len(self._ring) > _MAX:
-            pinned   = [e for e in self._ring if e.pinned]
-            unpinned = [e for e in self._ring if not e.pinned]
-            keep = _MAX - len(pinned)
-            self._ring = deque(pinned + unpinned[:keep])
+        self._trim()
         self._apply_filter()
+        self._fire_change()
 
     def clear_unpinned(self) -> None:
         self._ring = deque(e for e in self._ring if e.pinned)
+        self._apply_filter()
+        self._fire_change()
+
+    def set_max(self, n: int) -> None:
+        """Set the ring depth. Trims immediately if the ring already exceeds it."""
+        self._max = max(1, int(n))
+        if len(self._ring) > self._max:
+            self._trim()
+            self._apply_filter()
+
+    def export_entries(self) -> list[dict]:
+        """The ring as plain dicts, newest first — for `utils.clipboard_store`."""
+        return [
+            {"text": e.text, "source": e.source,
+             "ts": e.ts.isoformat(), "pinned": e.pinned}
+            for e in self._ring
+        ]
+
+    def load_entries(self, entries: list[dict]) -> None:
+        """Replace the ring with *entries* (newest first).
+
+        Swaps in a different scope's history wholesale — the old contents are
+        dropped, not merged, so one project's copies can't leak into another's.
+        The host saves the outgoing history before calling this.
+        """
+        restored: deque[ClipEntry] = deque()
+        for item in entries:
+            text = item.get("text") or ""
+            if not text.strip():
+                continue
+            try:
+                ts = datetime.fromisoformat(item.get("ts") or "")
+            except ValueError:
+                # A history written by a future/older format, or hand-edited.
+                # The timestamp only drives the row's "3m ago" label, so a bad
+                # one is not worth dropping the entry over.
+                ts = datetime.now()
+            restored.append(ClipEntry(text=text, source=item.get("source") or "",
+                                      ts=ts, pinned=bool(item.get("pinned"))))
+        self._ring = restored
+        self._trim()
+        self._q.set("")          # a stale filter would hide the new history
         self._apply_filter()
 
     def focus_search(self) -> None:
@@ -174,6 +221,37 @@ class ClipboardHistoryPanel(Frame):
         self._search.select_range(0, "end")
 
     # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _trim(self) -> None:
+        """Drop oldest unpinned entries until the ring fits `self._max`.
+
+        Pinned entries are never dropped, so a ring that is all pins can sit
+        above the cap — that is the user's explicit choice and outranks it.
+
+        Recency order is preserved. The previous `pinned + unpinned[:keep]`
+        rebuild sorted every pin to the top, so the list silently reshuffled
+        the moment the ring first overflowed; now overflow only removes the
+        oldest unpinned entries and leaves everything else where it was.
+        """
+        if len(self._ring) <= self._max:
+            return
+        budget = max(0, self._max - sum(1 for e in self._ring if e.pinned))
+        kept: deque[ClipEntry] = deque()
+        for e in self._ring:
+            if e.pinned:
+                kept.append(e)
+            elif budget:
+                kept.append(e)
+                budget -= 1
+        self._ring = kept
+
+    def _fire_change(self) -> None:
+        """Tell the host the ring changed so it can persist."""
+        if self._on_change is not None:
+            try:
+                self._on_change()
+            except Exception:
+                pass
 
     def _toggle_topmost(self) -> None:
         if self._window is None:
@@ -334,3 +412,7 @@ class ClipboardHistoryPanel(Frame):
             if idx in self._row_bgs:
                 del self._row_bgs[idx]
             self._draw_row(self._visible[idx], idx, w)
+            # A pin is curation the user expects to survive a restart, so it
+            # persists like a push does. `_visible` holds the same ClipEntry
+            # objects as `_ring`, so the flag is already on the stored entry.
+            self._fire_change()

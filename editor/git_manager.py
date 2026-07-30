@@ -72,7 +72,7 @@ GUTTER_COLORS = {
 }
 
 
-def _run_git(args: list[str], cwd: str) -> str:
+def _run_git(args: list[str], cwd: str, timeout: int = 10) -> str:
     """Run git and return stdout, or '' on any failure."""
     try:
         result = subprocess.run(
@@ -82,7 +82,7 @@ def _run_git(args: list[str], cwd: str) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=10,
+            timeout=timeout,
         )
         return result.stdout if result.returncode == 0 else ""
     except Exception:
@@ -114,6 +114,38 @@ def get_global_identity(after_fn: Callable, callback: Callable[[str, str], None]
         email = _run_git(["config", "user.email"], cwd).strip()
         after_fn(0, lambda n=name, e=email: callback(n, e))
     threading.Thread(target=_run, daemon=True).start()
+
+
+def probe_identity(timeout: int = 5) -> tuple[bool, str]:
+    """Is git usable, and is an identity configured?  → `(ok, warning)`.
+
+    The synchronous counterpart to `get_global_identity`, for callers that need
+    an answer before they can draw — the New Project wizard decides from it
+    whether to offer "Initialize git repository" at all.
+
+    **Total by construction.** Every call goes through `_run_git`, which
+    swallows a missing binary, a non-zero exit and a call that outlives its
+    timeout alike, so this returns a verdict rather than raising. That is the
+    whole point: the wizard runs it during `__init__` on the main thread, and
+    an unhandled `subprocess.TimeoutExpired` out of a slow `git config` took
+    the New Project dialog down with it. An unset config key exits non-zero,
+    which `_run_git` reports as `''` — the same answer as an empty value, and
+    the same verdict either way.
+
+    Runs from the home directory: the identity read is the *global* one, and
+    the project being asked about does not exist yet.
+    """
+    home = os.path.expanduser("~")
+    if not _run_git(["--version"], home, timeout=timeout).strip():
+        return False, "Git is not installed or not found on PATH."
+
+    name  = _run_git(["config", "user.name"],  home, timeout=timeout).strip()
+    email = _run_git(["config", "user.email"], home, timeout=timeout).strip()
+
+    missing = [f for f, v in (("user.name", name), ("user.email", email)) if not v]
+    if missing:
+        return False, f"Git identity not configured: {', '.join(missing)} missing."
+    return True, ""
 
 
 def _parse_staged_unstaged(output: str, root: str) -> tuple[dict[str, str], dict[str, str]]:

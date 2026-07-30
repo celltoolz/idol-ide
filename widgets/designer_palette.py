@@ -247,7 +247,6 @@ class DesignerPalette(tk.Frame):
         self._items.clear()
         self._add_item(None, "Pointer", self._draw_pointer)
         ttk.Separator(self._list, orient="horizontal").pack(fill="x", pady=4)
-        from designer.registry import canvas_item_types, REGISTRY
         for type_key in canvas_item_types():
             reg = REGISTRY[type_key]
             self._add_item(type_key, reg["label"], reg["draw_preview"])

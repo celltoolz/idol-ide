@@ -248,7 +248,6 @@ class BreadcrumbBar(tk.Frame):
                     with_footer: bool = False):
         """Create the Toplevel + scrollable canvas. Returns
         (popup, inner, canvas, vsb, rows, selected_idx, footer_or_None)."""
-        from tkinter import ttk
 
         popup = tk.Toplevel(self)
         popup.overrideredirect(True)
@@ -297,8 +296,6 @@ class BreadcrumbBar(tk.Frame):
         `on_activate` overrides what Enter/space does with a row's payload —
         the symbol pickers leave it None and navigate to a line number.
         """
-        ROW_H = 26
-
         def _highlight(idx: int) -> None:
             _highlight_rows(rows, idx)
 

@@ -5,6 +5,240 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-29] — Panels That Open Where You Can See Them
+
+### Added
+- **The Package Manager now shows which conda channels it is actually searching.** A
+  **CHANNELS** line above the package list, for conda environments only, numbering them in the
+  order conda searches them — `1 conda-forge · 2 pytorch` — alongside the current priority mode.
+  - Underneath it, **where that list came from**: your project's `environment.yml`, your
+    `~/.condarc`, or an environment variable. conda merges five different config locations and
+    environment variables silently beat files, so "I edited `.condarc` and nothing changed" is a
+    normal afternoon. Now you can see which one is winning.
+  - If your project has an `environment.yml`, its channels are what you see — that file travels
+    with your code, so a teammate resolves packages the way you do. IDOL will not keep a second
+    copy of the list in its own settings.
+  - Channel URLs containing a token are masked before they are displayed.
+  - **?** opens a new three-page guide covering what a channel is, why the order is a real
+    setting rather than a display preference, the reason copied `conda config` instructions so
+    often come out backwards, and what Anaconda's licensing threshold means for the `defaults`
+    channel.
+- **You can now edit that list, and it actually changes what conda does.** **✎ Edit** on the
+  CHANNELS bar opens a two-pane picker: a catalog of well-known channels on the left
+  (conda-forge, defaults, bioconda, pytorch, nvidia, intel, rapidsai) plus a box for anything
+  custom — a name, a URL, an `owner/label` channel, or a `file:///path` local channel — and your
+  ordered list on the right with `▲ ▼ ✕`. Pick a channel to see what it is and what to watch
+  out for.
+  - **Save writes your project's `environment.yml`**, touching only the `channels:` block and
+    leaving your dependencies and comments alone. Installs then run with your channels in your
+    order and nothing else, and search re-indexes immediately — fetching only channels it
+    hasn't already cached.
+  - **New conda projects get the same list at creation.** `conda create` used to be solved
+    against whatever `~/.condarc` said, which could differ from the `environment.yml` written
+    beside it — a project that disagreed with itself from the first minute.
+  - **Removing `defaults` writes `nodefaults`**, which is how the file says "and don't add
+    Anaconda's default channels". So there is no separate switch to forget to tick, and a
+    teammate whose own `~/.condarc` lists `defaults` will not silently get it back.
+  - **↺ Restore** puts the last removed channel back at the position it came from. In a list
+    where the order *is* the configuration, re-adding at the bottom is a silent
+    misconfiguration, not a small inconvenience.
+  - On a folder with no `environment.yml`, the label reads **✎ Create environment.yml** and asks
+    first — it is a git-tracked file appearing in your project. A project without one keeps
+    behaving exactly as before: conda uses its own configuration and IDOL adds nothing.
+  - **The Terms of Service prompt now asks the right question.** It is scoped to the channels an
+    operation will actually search, so a project pinned to conda-forge is never asked to accept
+    Anaconda's terms — even if your `~/.condarc` still lists `defaults`.
+- **The channel editor now tells you when a list is wrong, while you're making it wrong.** A
+  strip under the description box updates as you edit, and the bar's second line carries the
+  worst of it so you don't need to open the editor to notice.
+  - **"bioconda needs conda-forge searched before it"** — with a **Fix order** button that moves
+    only what has to move and leaves the rest of your order alone.
+  - **"conda-forge and defaults are built against different compiler and BLAS stacks"** — the
+    classic conda breakage, where the solver quietly takes some packages from each and you find
+    out weeks later as an import error. It **stays quiet under strict priority**, because that's
+    the actual fix rather than something to nag about.
+  - **"this channel URL contains a credential"** — a tokenized channel has to be written to
+    `environment.yml` literally or it won't work, and that file usually goes into git. Worth
+    saying once; masked everywhere it's displayed or logged.
+  - **"publishes no searchable package index"** — informational. Some channels, local ones
+    especially, don't ship the file search reads. Installing from them works fine; you just
+    won't find their packages by searching.
+  - **Saving an empty list stops being a mystery.** It was already refused — conda reads an
+    empty `channels:` as "use defaults", the opposite of what emptying it looks like it means —
+    but the button simply did nothing. Now it greys out and says why.
+- **You can now see where each installed package actually came from, and try an install before
+  committing to it.**
+  - **Channel badges** on the installed list — `· pip` for pip-installed, or the channel name
+    when a package came from somewhere other than the one searched first. Packages from your
+    primary channel get no badge, because a badge on every row is a badge on nothing; the odd
+    one out is what explains surprising behaviour.
+  - **▾ All channels** beside the `conda | PyPI` toggle narrows search and install to a single
+    channel. Search then looks in that channel's own index — including packages another channel
+    also offers, which the normal view hides behind whichever ranks higher — and install runs
+    with `--override-channels` so you get that channel's build and no other. It's a temporary
+    lens: it doesn't change your project's channel list and isn't saved.
+  - **⇢ Preview** solves an install without performing it and lists every package it would
+    bring in, with the channel each would come from. If it can't be solved you get conda's own
+    conflict message, which names the packages actually in conflict. Together with the channel
+    chip, that answers "is bioconda why this won't install?" without editing your
+    `environment.yml` to run the experiment.
+
+### Fixed
+- **A preview scoped to one channel warned you about the channel you had just scoped it to.**
+  Narrow a preview to conda-forge in a project whose first channel is `defaults`, and the summary
+  reported "1 channel(s) other than defaults would be used — conda-forge" on every single run.
+  Scoping an install to a channel guarantees everything comes from it, so that note was handing
+  back the instruction as though it were a surprise. The comparison is now against the channel you
+  scoped to, and against your first channel only when you haven't scoped at all.
+- **One long version number knocked the preview table out of line.** The version column was a
+  fixed width that real conda versions outgrow — `libwinpthread 12.0.0.r4.gg4f2fc60ca` is 21
+  characters — and the row that overflowed pushed its channel nine columns to the right of every
+  other row. In a table you read to find out where packages come from, the channel column is the
+  one worth keeping straight. Both columns are now sized from the actual results.
+- **A local `file://` conda channel could never be searched.** Its index URL was built as
+  `https://conda.anaconda.org/file:///srv/your-channel/channeldata.json`, which is not a
+  place. Local and air-gapped channels now resolve correctly. (Installing from one always
+  worked — that goes through conda, not IDOL's index.)
+- **Conda search could answer out of the previous project's channels.** The index tracked
+  whether it had loaded, but not *what* it had loaded, so opening a different project without
+  changing interpreter left the old channels' results in place. It is now keyed by the channel
+  set itself, which also means switching projects re-uses the cache instead of re-downloading.
+- **Installing a package you found by searching conda left the details pane offering to install
+  it again.** The list on the left updated correctly — new version, channel badge — while the
+  buttons beside it still said **Install**, with **Uninstall** greyed out. Only packages looked
+  up on PyPI were being re-rendered after an operation, and a conda search result never goes
+  through PyPI. Both sources now refresh through the same path.
+- **Every project came up on the last interpreter you picked anywhere.** The chosen interpreter
+  is meant to be remembered per project — open project A on 3.11 and project B on 3.13, and each
+  should come back the way you left it. In practice there was only ever *one* remembered
+  interpreter for the whole machine, so opening B handed you A's.
+  - The attribute holding "which folder am I in" was read in three places and set in none, so
+    every read fell through to your home directory. It never looked broken because the save and
+    the load were wrong in the same way, so the value round-tripped perfectly — it was just
+    always stored under the wrong name.
+  - Existing preferences are unaffected; the first time you pick an interpreter in a project it
+    is remembered for that project from then on.
+- **Package Manager, Welcome, Learning Mode and Settings did nothing in the GUI Designer.**
+  Clicking any of them — from the nav bar, the Help menu, the View menu, `F1`/`F3`/`Ctrl+,` —
+  looked like a dead button.
+  - The Designer takes over the main editor area, so the tab was being opened behind it. It
+    existed; you just had no way to see it without switching back to the Editor first.
+  - All four now open in the **split pane** while the Designer is up, opening the split if it
+    isn't already there — so the panel sits beside your form instead of behind it. Switch back
+    to the Editor and the tab is right where you left it.
+- **File → New and File → Open had the same problem in the Designer**, and now behave the same
+  way. Anything that opens a file benefits: clicking an entry in the Problems panel while
+  designing shows you the file rather than silently loading it out of sight.
+- **Dragging a Welcome / Packages / Learning / Settings tab into the split pane replaced it with
+  a blank Untitled tab** and closed the original. Only code buffers knew how to move between
+  panes; the panels were being copied as if they were text. They now move properly, in either
+  direction. Welcome can be dragged out too — it used to be pinned to the left pane — and the
+  main editor is never left blank when it goes.
+- **New Project wizard: the finish screen's buttons looked disabled.** "Open Project →" and
+  "← Back" kept the greyed-out styling and the plain arrow cursor from the setup progress
+  screen, even though both were live. Both now look and behave like every other button in the
+  wizard, and Back returns you to a working Summary step.
+- **The New Project wizard could fail to open at all** if git was installed but slow to answer —
+  a stalled network drive, a large global config, a wedged credential helper. The wizard checks
+  for git and a configured identity while it builds, and two of those three checks had no
+  timeout handling, so a slow one took the dialog down instead of falling back to "git
+  unavailable". The check now always returns an answer, and worst case you get the same warning
+  you'd get with git missing.
+- **Typing `(` in front of an existing `(` inserted an empty pair in front of it.** With the
+  cursor just before the bracket in `def __init__(self):`, pressing `(` gave you
+  `def __init__()(self):`. Closing brackets already did the sensible thing — pressing `)` on a
+  `)` steps over it — but openers had no such rule, so they fell through to auto-pairing.
+  - Openers now step over too: the first press moves past the bracket, and only a second press
+    inserts. `[` and `{` had the same fault and got the same fix.
+- **Auto-pairing fired inside comments and strings**, where it is noise rather than help —
+  typing the apostrophe in `# don't` gave you `# don''t`.
+  - Brackets and quotes now only auto-pair in **code**. Comments, strings, docstrings and
+    plain-text files insert exactly what you typed. A new **Untitled** tab still pairs — that is
+    where a file spends its first minutes — and the suppression begins once it is saved under a
+    plain-text name.
+  - Typing a quote onto a string's closing quote still steps over it, since that closer *was*
+    auto-inserted and stepping over it is how you leave the string. Typing `"""` still opens a
+    docstring, and wrapping a selection still works everywhere.
+- **Bracket highlighting matched across comments and strings.** A `(` written in a comment drew
+  a match against real code elsewhere in the file. Highlighting is code-only now, and a quote
+  highlights only when it genuinely opens or closes a string — so the apostrophe in `"don't"`
+  is left alone, and a `"""` pairs with the triple at the other end instead of with the quote
+  beside it.
+- **Multi-cursor ignored the "auto-close brackets and quotes" setting entirely.** Turning the
+  preference off still auto-paired at every secondary cursor. Every cursor now follows the same
+  rules as the primary one.
+
+---
+
+## [2026-07-28] — Settings, Colour & Font Choosers, Cross-Platform Fixes
+
+### Added
+- **Settings panel** — `Ctrl+,`, **View → Settings**, or the Welcome tab. Opens as a tab so it
+  can stay up while you try a change. Two panes with a category list, plus a search box that
+  spans every category and matches a setting's key as well as its name. Every change applies
+  immediately; a **↺** marks anything that differs from its default and puts it back.
+  - Preferences now live in `~/.idol/settings.json`, which records **only what you changed** —
+    anything left at its default is absent, so a future IDOL can improve a default without
+    overriding your choice.
+  - Newly adjustable: tab size, autocomplete on/off, auto-close brackets and quotes.
+  - Newly *remembered*: Highlight Active Line, Active Line Colour, Show Sidebar, Show bottom
+    panel. These were settable before but forgotten on every restart.
+  - See [docs/settings.md](docs/settings.md).
+- **Inline colour picker in the editor** — hover the swatch beside a hex literal like
+  `"#0d1117"` and a picker opens. Drag the saturation/value square or hue strip, or type hex.
+  The literal updates live, and the whole session is one undo step. Your quote style and hex
+  case are preserved; `#rgb` shorthand expands.
+- **IDOL's own colour and font choosers** — replacing `tkinter.colorchooser` and the
+  `tkfontchooser` dependency, which is now gone from `requirements.txt`. The font chooser opens
+  scoped to the font you are actually using and scrolls it into view; its preview renders in a
+  fixed box, so a 72pt sample scrolls instead of stretching the dialog.
+- **Clipboard history is saved per project** and restored when you reopen it, so what you copied
+  in one project stays there. With no project open you get a separate scratch history of the
+  last 20 entries. Both live under `~/.idol/clipboard/`, never in the project folder, so copied
+  text cannot end up committed.
+- **Test suite and CI** — pytest suite in `tests/`, GitHub Actions across Linux and Windows on
+  Python 3.11 and 3.13, with lint and tests both gating. Closes the gap where nothing checked
+  generated projects.
+
+### Fixed
+- **Opening a project silently changed your theme and editor font.** Theme, font, minimap and the
+  Ollama server URL were stored in the session file, which is also written into each project — so
+  restoring a project applied that project's copy. They are preferences now and follow you
+  instead. Existing values are migrated automatically on first launch; anything you had already
+  customised wins.
+- **Find/Replace could not be undone.** The editor's public mutation API never snapshotted the
+  buffer, so Ctrl+Z after a replace skipped past it to whatever you last typed. Replace All now
+  undoes as a single step.
+- **A deleted problem stayed in the Problems panel.** Selecting the code causing a diagnostic and
+  pressing Backspace left it listed until the next keystroke.
+- **Selection drifted at a colour swatch.** Selection, multi-cursor selection and find highlights
+  all mis-measured lines containing a hex literal, and clicking to the right of a swatch landed on
+  the wrong character.
+- **Pasting from clipboard history crashed**, and left the editor without a caret.
+- **The split editor closed itself.** Closing its last tab, dragging that tab back, or switching to
+  the Designer would take the pane down — and one combination lost a split outright across a mode
+  switch. It now closes only when you close it, and an emptied pane stays open for the next tab.
+- **File dialogs on Linux hid the file you clicked.** Tk's X11 dialog reads two ttk style values to
+  colour its selection, and IDOL's theme left both empty — so the highlight and the filename were
+  drawn invisible. Windows and macOS use the native dialog and were never affected.
+- **Ruff reported different problems on different machines.** Ruff 0.16 widened its default rule
+  set from 59 rules to 413, and `requirements.txt` allowed any version. Ruff is now pinned, IDOL
+  applies a defined baseline to projects that have no ruff config of their own, and **honours the
+  project's own config when it has one**. Generated projects no longer flag themselves.
+- **The Designer's font picker never opened on the widget's current font**, and the editor's never
+  opened on the editor's.
+- **Colours drifted by one channel value** each time the picker opened on them.
+
+### Changed
+- **View menu slimmed.** Change Font, Highlight Active Line, Active Line Color and Show Minimap
+  moved into Settings, which can show their current value and reset them. Show Sidebar, Show
+  Panels, Zen Mode and the Theme submenu stayed — they are toggles you flip constantly, and they
+  now write the same stored value the panel reads. `Ctrl+L` still opens the font chooser directly.
+- **Zen Mode is deliberately not remembered** — it is a focus mode, and reopening with everything
+  hidden would be worse than pressing F10 again.
+
+---
+
 ## [2026-07-27] — Split-Pane and Designer Fixes
 
 ### Fixed

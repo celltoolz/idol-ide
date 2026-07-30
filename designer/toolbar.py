@@ -12,7 +12,7 @@ Groups:
 """
 
 import tkinter as tk
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from designer.canvas import DesignerCanvas
@@ -364,9 +364,9 @@ class DesignerToolbar(tk.Frame):
 
         def _do_grid():
             try:    r = int(rows_var.get())
-            except: r = None
+            except ValueError: r = None
             try:    co = int(cols_var.get())
-            except: co = None
+            except ValueError: co = None
             result = c.arrange_grid(rows=r, cols=co)
             if result:
                 used_r, used_co = result

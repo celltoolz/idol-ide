@@ -1,8 +1,7 @@
 """DebugPanel — split panel: breakpoint list (left) + locals viewer (right)."""
 from __future__ import annotations
 
-import os
-from tkinter import Frame, Label, PanedWindow, Text, ttk
+from tkinter import Frame, Label, PanedWindow, Text
 from typing import Callable
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar

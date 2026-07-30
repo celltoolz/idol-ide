@@ -20,14 +20,15 @@ import tkinter.font as tkfont
 
 from .breadcrumb_bar import BreadcrumbBar
 from .canvas_editor.constants import (
-    _CLOSERS,
     _FONT_FAMILY,
     _FONT_SIZE,
     _IDOL_BEGIN_RE,
     _IDOL_END_RE,
     _MINIMAP_W,
     _PAIRS,
+    _QUOTES,
     _SECTION_MARKER,
+    _SKIP_OVER,
 )
 from .canvas_editor.tokenizer import TokenizerMixin
 from .canvas_editor.fold import FoldMixin
@@ -299,7 +300,12 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         the same non-empty op (e.g. "insert_char") collapse into one
         undo entry so the user undoes whole words, not single chars.
         Any cursor movement or different op breaks the chain.
+
+        Inside a `begin_undo_group` / `end_undo_group` pair this is a
+        no-op — the group already took its one snapshot up front.
         """
+        if self._undo_group:
+            return
         self._redo_stack.clear()
         if op and op == self._undo_op:
             return  # coalesce — reuse existing snapshot
@@ -309,6 +315,22 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if len(self._undo_stack) > self._UNDO_LIMIT:
             del self._undo_stack[0]
         self._undo_op = op
+
+    def begin_undo_group(self) -> None:
+        """Collapse every mutation until `end_undo_group` into one undo step.
+
+        Takes a single snapshot up front and suppresses the per-method
+        pushes inside, so a bulk edit (Replace All) undoes as one action
+        rather than one match at a time. Nests by depth — only the
+        outermost pair snapshots. Always pair it in a `try`/`finally`;
+        a group left open would silently swallow every later push.
+        """
+        if self._undo_group == 0:
+            self._push_undo("")
+        self._undo_group += 1
+
+    def end_undo_group(self) -> None:
+        self._undo_group = max(0, self._undo_group - 1)
 
     def _undo(self) -> None:
         if not self._undo_stack:
@@ -427,6 +449,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if not text:
             return
         before_line = self.cur_line
+        self._push_undo("")
         self._insert_text(text)
         self._ensure_visible()
         self.render()
@@ -442,13 +465,17 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if sel is not None:
             (sl, _), (el, _) = sel
             deleted_newlines = el - sl
+        self._push_undo("")
         self._delete_selection()
+        # `_delete_selection` doesn't fire change itself, and a delete is
+        # not always followed by an insert that would: Replace All with an
+        # empty replacement is pure deletion, and used to leave the tab
+        # clean and the linter stale. Firing here is safe for
+        # `replace_range` too — an extra notification, never a missing one.
+        self._fire_change()
         self.render()
         if deleted_newlines and self.on_lines_changed:
             self.on_lines_changed(self.cur_line, -deleted_newlines)
-        # `_delete_selection` doesn't fire change itself — the host
-        # callers (replace_range, delete_range) rely on the per-method
-        # fire in `_insert_text` / etc. to land that side effect.
 
     def delete_range(self,
                      start: tuple[int, int],
@@ -470,11 +497,68 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
                       text: str) -> None:
         """Replace `[start, end)` with *text*. Cursor lands at the end
         of the inserted text."""
-        self.delete_range(start, end)
-        if text:
-            self._insert_text(text)
-            self._ensure_visible()
-            self.render()
+        # One undo step for the pair — and it must be taken here, not left
+        # to `delete_range`, which returns early on an empty range (a pure
+        # insertion) and would leave the insert below unsnapshotted.
+        self.begin_undo_group()
+        try:
+            self.delete_range(start, end)
+            if text:
+                self._insert_text(text)
+                self._ensure_visible()
+                self.render()
+        finally:
+            self.end_undo_group()
+
+    # ── Inline colour swatches ───────────────────────────────────────────────
+
+    def color_swatch_at(self, x: int, y: int) -> dict | None:
+        """The colour swatch under canvas pixel (x, y), or None.
+
+        Returns ``{"color", "line", "col_start", "col_end", "bbox"}`` where the
+        columns bound the whole literal *including its quotes* and ``bbox`` is
+        the swatch's canvas rectangle — enough for a caller to both replace the
+        literal and position a popup against the swatch.
+        """
+        for x1, y1, x2, y2, color, line, cs, ce in self._color_swatches:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                return {"color": color, "line": line,
+                        "col_start": cs, "col_end": ce,
+                        "bbox": (x1, y1, x2, y2)}
+        return None
+
+    def replace_color_literal(self, line: int, col_start: int, col_end: int,
+                              new_color: str) -> tuple[int, int] | None:
+        """Rewrite the hex literal at ``[col_start, col_end)`` to *new_color*.
+
+        Preserves the original quote style and hex case so picking a colour
+        never reformats the code around it — a lowercase literal stays
+        lowercase, and `'…'` does not become `"…"`. ``#rgb`` shorthand expands,
+        since an arbitrary picked colour rarely has a valid short form.
+
+        Returns the (possibly shifted) column bounds of the new literal so a
+        caller mid-drag can keep editing the same span, or None if the target
+        no longer looks like a colour literal (the buffer changed underneath).
+        """
+        if not (0 <= line < len(self.lines)):
+            return None
+        text = self.lines[line]
+        if not (0 <= col_start < col_end <= len(text)):
+            return None
+        token = text[col_start:col_end]
+        if _extract_hex_color(token) is None:
+            return None
+        quote = token[0]
+        digits = new_color.lstrip("#")
+        # Match the case the user was already using.
+        body = token[1:-1].lstrip("#")
+        if body.isupper():
+            digits = digits.upper()
+        else:
+            digits = digits.lower()
+        replacement = f"{quote}#{digits}{quote}"
+        self.replace_range((line, col_start), (line, col_end), replacement)
+        return col_start, col_start + len(replacement)
 
     # ── Public viewport API ──────────────────────────────────────────────────
 
@@ -800,8 +884,12 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         self._undo_stack: list = []   # (lines, cur_line, cur_col, sel_anchor)
         self._redo_stack: list = []
         self._undo_op: str = ""       # last push type — drives coalescing
+        self._undo_group: int = 0     # >0 = inside begin/end_undo_group
         self.highlight_active_line: bool = True
         self._active_line_color: str | None = None
+        # Host-settable editing behaviour, driven by user preferences.
+        self.autocomplete_enabled: bool = True
+        self.smart_pairs_enabled: bool = True
         # ── Host hooks for context-menu items ────────────────────
         # When set, the right-click menu includes the corresponding
         # entry. None → item omitted. Lets the engine ship a richer
@@ -818,6 +906,13 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # folded line. Rebuilt every render. Each entry is
         # (x1, y1, x2, y2, physical_line_index).
         self._fold_dot_rects: list[tuple[float, float, float, float, int]] = []
+        # Hit-test rectangles for the inline colour swatches drawn before hex
+        # string literals. Rebuilt every render. Each entry is
+        # (x1, y1, x2, y2, hex_color, line, col_start, col_end) where the
+        # columns bound the *literal including its quotes*.
+        self._color_swatches: list[
+            tuple[float, float, float, float, str, int, int, int]
+        ] = []
         # Diagnostics — list of dicts: {"line": int, "col_start": int,
         # "col_end": int, "severity": "error"|"warning"|"info",
         # "message": str}. Render draws a squiggly underline; eventual
@@ -855,6 +950,11 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # File path the buffer is backed by — passed to LSP via the host.
         # `None` means scratch buffer / unsaved.
         self.filepath: str | None = None
+        # Canonical language id, kept in step with `filepath` by set_filepath.
+        # Seeded here so a view that is never given a path is still readable —
+        # the tokenizer and the auto-pair gate both consult it on every paint
+        # and every keystroke.
+        self.language: str = language_from_path(None)
         # Autocomplete popup state.
         self._ac_top: tk.Toplevel | None = None
         self._ac_listbox: tk.Listbox | None = None
@@ -918,6 +1018,8 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # Fresh per-render hit-test list for the clickable "···"
         # indicators drawn after each folded line.
         self._fold_dot_rects = []
+        # Same idea for the inline colour swatches — see `color_swatch_at`.
+        self._color_swatches = []
         # Track the actual rightmost rendered x across visible rows —
         # this becomes `_content_w_cache` at the end of render() and
         # drives horizontal scrollbar range. Measuring at draw time
@@ -1137,6 +1239,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             # using the italic font when the category specifies it.
             x = text_x0
             fg = self._palette["fg"]
+            col = 0            # running column, for swatch hit-testing
             for txt, cat in self._tokenize(line, i):
                 if cat is None:
                     color, italic = fg, False
@@ -1153,10 +1256,18 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
                     sy = y + (self._line_h - sq) // 2
                     c.create_rectangle(sx, sy, sx + sq, sy + sq,
                                        fill=hex_color, outline=fg)
+                    # Record where it landed so `color_swatch_at` can hit-test
+                    # it. Rebuilt every render, so scrolling, folding and edits
+                    # can never leave a stale rect behind.
+                    self._color_swatches.append(
+                        (sx, sy, sx + sq, sy + sq, hex_color,
+                         i, col, col + len(txt))
+                    )
                     x += sq + 3
                 c.create_text(x, y + 1, text=txt, anchor="nw",
                               fill=color, font=font)
                 x += font.measure(txt)
+                col += len(txt)
 
             # Subtract text_x0 so the cached width is scroll-independent
             # (the value that `_content_width()` compares against).
@@ -1364,8 +1475,9 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             c2 = ec if line_idx == el else len(line_text)
             if c1 == c2:
                 continue
-            x1 = text_x0 + self._font.measure(line_text[:c1])
-            x2 = text_x0 + self._font.measure(line_text[:c2])
+            # Swatch- and italic-aware — see `_draw_selection`.
+            x1 = text_x0 + self._measure_to_col(line_text, c1)
+            x2 = text_x0 + self._measure_to_col(line_text, c2)
             color = cur_bg if idx == self._find_current_idx else match_bg
             c.create_rectangle(x1, y, x2, y + self._line_h,
                                fill=color, outline="")
@@ -1522,8 +1634,13 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             c1, c2 = 0, e[1]
         else:
             c1, c2 = 0, len(line_text)
-        x1 = self._text_x0 + self._font.measure(line_text[:c1])
-        x2 = self._text_x0 + self._font.measure(line_text[:c2])
+        # `_measure_to_col`, not a raw font.measure: the render loop inserts a
+        # colour-preview square before every hex literal and uses the italic
+        # font for some token categories, so a plain measure drifts from where
+        # the glyphs actually are. Selecting toward a swatch used to track
+        # correctly until the swatch, then run short by its width.
+        x1 = self._text_x0 + self._measure_to_col(line_text, c1)
+        x2 = self._text_x0 + self._measure_to_col(line_text, c2)
         if s[0] < line_idx < e[0]:
             x2 = canvas_w   # middle of multi-line selection: full row
         if x1 < x2:
@@ -1577,13 +1694,32 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if eff_x <= self._text_x:
             return 0
         target = eff_x - self._text_x
-        best, best_d = 0, target
-        cum = 0
-        for col, ch in enumerate(line, start=1):
-            cum += self._font.measure(ch)
-            d = abs(cum - target)
-            if d < best_d:
-                best, best_d = col, d
+        # Walks tokens rather than characters so it stays the exact inverse of
+        # `_measure_to_col`: same italic fonts, same colour-square offset. A
+        # plain per-character measure drifted past every hex literal, so a
+        # click to the right of a swatch landed short by the square's width.
+        best, best_d = 0, abs(target)
+        cum = 0.0
+        col = 0
+        for txt, cat in self._tokenize(line):
+            if cat is not None:
+                _, italic = self._token_style.get(cat, (None, False))
+                font = self._font_italic if italic else self._font
+            else:
+                font = self._font
+            if cat == "string" and _extract_hex_color(txt):
+                cum += max(6, self._line_h - 10) + 3
+                # The square occupies width but no columns — re-test the
+                # boundary so a click on it resolves to the literal's start.
+                d = abs(cum - target)
+                if d < best_d:
+                    best, best_d = col, d
+            for ch in txt:
+                cum += font.measure(ch)
+                col += 1
+                d = abs(cum - target)
+                if d < best_d:
+                    best, best_d = col, d
             if cum > target + self._char_w:
                 break
         return best
@@ -2009,8 +2145,9 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
             return "break"
 
         # Alt+Up/Down  — move current line / selection block
-        # Shift+Alt+Up — duplicate above (cursor stays)
-        # Shift+Alt+Down — duplicate below (cursor follows)
+        # Both Shift+Alt directions duplicate *below*; only the cursor differs
+        # (Down follows the copy, Up stays on the original) — see
+        # `_duplicate_lines`, which takes exactly that one flag.
         if alt and ks in ("Up", "Down"):
             if shift:
                 self._duplicate_lines(cursor_follows=(ks == "Down"))
@@ -2213,17 +2350,85 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
 
     # ── Auto-pair brackets / quotes ───────────────────────────────────────────
 
+    def _pairing_suppressed(self) -> bool:
+        """True when this buffer is a saved plain-text file, where auto-pairing
+        is noise rather than help.
+
+        `language` is "text" for a `.txt` file *and* for an unsaved Untitled
+        buffer, so the filepath is what tells the two apart — pairing stays on
+        while you are typing Python into a scratch tab you haven't saved yet,
+        which is where a new file spends its first minutes."""
+        return self.language == "text" and bool(self.filepath)
+
+    def _insert_char_plain(self, ch: str) -> None:
+        """Insert `ch` with no pairing and no skip-over, coalescing undo the
+        way ordinary typing does."""
+        self._push_undo("insert_char" if not self.sel_anchor else "")
+        self._insert_text(ch)
+
     def _insert_char_with_pairs(self, ch: str) -> None:
         """Smart insert for a single typed character: auto-pair brackets
-        and quotes, skip over an already-present closer, and avoid
-        pairing when typing into the middle of a word."""
+        and quotes, skip over an already-present partner, and avoid
+        pairing when typing into the middle of a word.
+
+        Pairing is code-only. Inside a comment, inside a string literal or
+        docstring, and in a plain-text file, the character is inserted as
+        typed — the apostrophe in `# don't` should not become `# don''t`."""
+        if not self.smart_pairs_enabled or self._pairing_suppressed():
+            # Plain insert. Also disables skip-over, which is the same
+            # feature seen from the other side — with pairing off there is no
+            # auto-inserted closer to skip, and swallowing a typed `)` would
+            # be the surprise the preference exists to remove.
+            self._insert_char_plain(ch)
+            return
+
         line = self.lines[self.cur_line]
         next_ch = line[self.cur_col] if self.cur_col < len(line) else ""
+        context = self._context_at(self.cur_line, self.cur_col)
 
-        # Skip over an already-present closing char (e.g. typed `)` when
-        # the cursor is already sitting on the auto-inserted `)`).
-        if not self.sel_anchor and ch in _CLOSERS and next_ch == ch:
+        # Wrap a selection in the pair instead of replacing it. This is an
+        # explicit gesture rather than something the editor volunteered, so it
+        # runs ahead of the comment/string gates below — selecting a word
+        # inside a string and pressing `(` should still bracket it. The guard
+        # is the one this branch has always carried.
+        if (self.sel_anchor and ch in _PAIRS
+                and not next_ch.isalnum() and next_ch != "_"):
+            self._push_undo("")
+            wrapped_text = self._selected_text()
+            self._delete_selection()
+            self._insert_text(ch + wrapped_text + _PAIRS[ch])
+            # Move cursor back to just past the closing char so further
+            # typing extends inside the pair.
+            self.cur_col -= 1
+            return
+
+        if context == "comment":
+            # Prose, not code. Skip-over goes too, for the same reason as the
+            # preference-off path above: with pairing suppressed here, nothing
+            # in this comment was auto-inserted, so stepping over a `)` the
+            # user typed by hand would silently eat the keystroke.
+            self._insert_char_plain(ch)
+            return
+
+        # Skip over an identical char already sitting at the cursor.
+        #
+        # Closers have always done this (typing `)` onto the `)` that `(`
+        # auto-inserted). Openers now do it too: typing `(` immediately before
+        # an existing `(` used to wedge an empty pair in front of it —
+        # `def __init__|(self):` became `def __init__()(self):`, which is
+        # never what anyone means.
+        #
+        # Inside a string only quotes may skip. The closing quote *was*
+        # auto-inserted and stepping over it is how you leave the string, but
+        # a `)` in a string's body was typed by hand and eating it would lose
+        # a character.
+        skippable = ch in _QUOTES if context == "string" else ch in _SKIP_OVER
+        if not self.sel_anchor and skippable and next_ch == ch:
             self.cur_col += 1
+            return
+
+        if context == "string":
+            self._insert_char_plain(ch)
             return
 
         # Snapshot before any state mutation.  Plain single-char typing
@@ -2238,15 +2443,6 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         # when typing into the middle of a word (e.g. typing `(` between
         # `fo` and `o` in `foo`).
         if ch in _PAIRS and not next_ch.isalnum() and next_ch != "_":
-            if self.sel_anchor:
-                # Wrap selection in the pair instead of replacing it.
-                wrapped_text = self._selected_text()
-                self._delete_selection()
-                self._insert_text(ch + wrapped_text + _PAIRS[ch])
-                # Move cursor back to just past the closing char so further
-                # typing extends inside the pair.
-                self.cur_col -= 1
-                return
             # Don't double-pair quotes when one is right behind us (e.g.
             # typing the closing `"` of a string the user explicitly
             # opened character-by-character).
@@ -2323,6 +2519,13 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if self.sel_anchor:
             self._push_undo("")
             self._delete_selection()
+            # `_delete_selection` deliberately doesn't notify — callers that
+            # follow it with an insert fire once at the end instead. This path
+            # has no insert, so without firing here the host never hears about
+            # it: the tab stayed clean and the Problems panel kept showing
+            # diagnostics for code the user had just selected and deleted,
+            # until some later keystroke happened to fire a change.
+            self._fire_change()
             return
         if self.cur_col == 0 and self.cur_line == 0:
             return
@@ -2357,6 +2560,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if self.sel_anchor:
             self._push_undo("")
             self._delete_selection()
+            self._fire_change()     # see `_delete_back` — no insert follows
             return
         line = self.lines[self.cur_line]
         at_end_of_file = (self.cur_col >= len(line) and

@@ -57,9 +57,6 @@ _RULES: dict[str, tuple[str, str]] = {
                       "read afterward. Either use it or remove the assignment."),
 
     # ── Exception handling ────────────────────────────────────────────────────
-    "F841":          ("Unused variable",
-                      "A value was assigned to this variable but the variable was never "
-                      "read afterward. Either use it or remove the assignment."),
     "E722":          ("Bare except clause",
                       "'except:' with no exception type catches everything, including "
                       "keyboard interrupts. Use 'except Exception:' or a specific type instead."),

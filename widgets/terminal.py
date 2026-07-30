@@ -1641,7 +1641,6 @@ class TerminalPanel(ttk.Frame):
                 live_start_y = self._sb_phys_rows * self._char_h
                 was_at_bottom = canvas_h <= 1 or top_y >= live_start_y - self._char_h
 
-                old_sb_rows = self._sb_phys_rows
                 if self._screen.in_alt_screen:
                     # Alternate screen: drain pyte history without persisting
                     # to scrollback so TUI output never corrupts the main buffer.
@@ -1649,7 +1648,6 @@ class TerminalPanel(ttk.Frame):
                         self._screen.history.top.popleft()
                 else:
                     self._flush_scrollback()
-                delta_sb = self._sb_phys_rows - old_sb_rows
 
                 had_cursor_up = self._screen.had_cursor_up
                 cursor_up_min_y = self._screen.cursor_up_min_y
@@ -2209,7 +2207,7 @@ class TerminalPanel(ttk.Frame):
         if is_pwsh:
             # Set-ExecutionPolicy -Scope Process allows running the unsigned
             # Activate.ps1 without touching the system-wide policy (same as VS Code).
-            self._send_silently(f'Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned\r')
+            self._send_silently('Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned\r')
             self._send_silently(f'& "{activate}"\r')
         elif is_bashlike and platform.system() == "Windows" and "Scripts" in activate.parts:
             # Scripts/activate for Windows venvs internally calls cygpath, which is

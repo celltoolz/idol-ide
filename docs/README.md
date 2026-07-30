@@ -15,7 +15,8 @@ Full reference documentation for IDOL (Integrated Development and Objective Lear
 | [Debugger](debugger.md) | Breakpoints, step controls, LOCALS/BREAKPOINTS panel, floating panel |
 | [AI Chat](ai-chat.md) | Ollama integration, send file/selection, token counter, remote host |
 | [Package Manager](package-manager.md) | Installed packages, PyPI search, install/uninstall, AI examples |
-| [Learning Mode](learning-mode.md) | Hover explanations, AI explanations, coverage |
+| [Learning Mode](learning-mode.md) | Click explanations, AI explanations, coverage |
+| [Settings](settings.md) | Preferences panel, where settings are stored, reset to default |
 | [Project & Session](project.md) | Project wizard, interpreter management, session persistence, status bar, zen mode |
 | [GUI Designer](designer.md) | Canvas, palette, toolbar, properties, events, code generation, containment, menu editor |
 | [Keyboard Shortcuts](keyboard-shortcuts.md) | Full shortcut reference |

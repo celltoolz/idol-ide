@@ -35,19 +35,20 @@ Completed sessions live at the bottom as a historical record.
   - "Warn on manual .py edit detected before regen"
   - "Show confirmation before overwriting user code zones"
 
-- **Replace `tkfontchooser`** — drop the external dependency; build a native IDOL font chooser:
-  - Left: scrollable font list (`tkfont.families()`) with filter entry
-  - Center: Size entry + Bold / Italic checkboxes
-  - Right: live preview label in selected font
-  - OK / Cancel; matches current `set_font()` API
+- ~~**Replace `tkfontchooser`**~~ — done (2026-07-28). `widgets/font_chooser.py`;
+  dependency dropped from `requirements.txt`. Family list + filter, style, size,
+  opt-in effects, fixed-size scrolling preview. Both call sites now open on the
+  current font, which neither did before: the designer passed `font=init`, which
+  landed in `**font_args` where nothing read it, and the editor passed nothing.
 
-- **Custom color chooser** — replace `tkinter.colorchooser` (bare RGB slider on Linux):
-  - Canvas-drawn color wheel or HSV square
-  - R/G/B sliders + numeric entries + **Hex value entry** (type `#FF00AA` directly)
-  - Old / New preview swatches; same return signature as `colorchooser.askcolor`
-  - Hooks into Designer color rows + Settings active-line color
+- ~~**Custom color chooser**~~ — done (2026-07-28). `ColorChooserDialog` +
+  a drop-in `askcolor` in `widgets/color_picker.py`, wrapping the same
+  `ColorPicker` frame the editor's hover popup uses. HSV square, hue strip, hex
+  and R/G/B fields, old/new swatches. Generated user projects deliberately keep
+  the stdlib chooser.
 
-- **Editor fg/bg color hover** — hovering a hex string literal (e.g. `"#FF00AA"`) shows a color swatch tooltip; clicking opens the IDOL color chooser. Canvas editor already renders inline color swatches — extend to interactive.
+- ~~**Editor fg/bg color hover**~~ — done (2026-07-28). Hovering an inline
+  swatch opens the picker; live edits, one undo step per session.
 
 - **References code-peek zoom** — hovering a row in the References panel shows a small floating zoom window with the reference's surrounding code, similar to the minimap zoom but smaller. Exact sizing/layout TBD in a dedicated design session before implementation.
 
@@ -161,6 +162,85 @@ Curated palette of production-quality canvas-drawn widgets that ship with IDOL a
 - **Learning Mode in Designer** — hover-driven explanations when F1 is active; needs interaction model design before code
 - **Floating sticky-note mini editor** — mini panel that auto-grabs selection, stays on top, with copy helpers
 - **Canvas File Dialog** — replace OS file picker with dark-theme IDOL dialog; same dialog reused for Open Form, Save Form, Export Project, Save As
+
+---
+
+## 🧪 Testing & CI
+
+The suite landed 2026-07-27 (`tests/`, pytest, GitHub Actions on Linux + Windows,
+Python 3.11/3.13, lint and tests both gating). See the Testing section in
+`CONTRIBUTING.md` for fixtures and conventions. Coverage today is **only** the
+areas touched during that pass — editor undo, clipboard persistence, the tracked
+project root, ruff config policy, codegen output, and the starter template.
+Everything below is what is *not* covered yet.
+
+### macOS CI
+
+Not in the matrix. IDOL claims macOS support and **nothing has ever tested it** —
+not CI, not manually. Adding `macos-latest` is a two-line matrix change; the real
+cost is triaging what it finds, which is likely a burst of platform-specific
+failures all at once rather than a clean pass.
+
+Known macOS-specific code paths that would finally get exercised:
+- `utils/thread_safe_after.py` exists *because* `tkinter.after()` on macOS
+  Python 3.14+ must not be called off the main thread — the one platform where
+  the threading model's central rule actually bites is the one never tested.
+- `utils/ui_font.py` picks `Helvetica Neue`.
+- `session.py` sash restore has a documented "sashpos() is unreliable on macOS"
+  workaround measuring the frame directly.
+- `conda_env.py` POSIX paths are written but marked untested on real macOS.
+
+Do it on its own branch — expect it to be red for a while before it is green.
+
+### Expanding the suite
+
+Roughly in order of value-per-effort. The pattern for app-level logic without
+booting `IDOL` (a `tk.Tk` subclass owning the whole object graph) is the stand-in
+host in `tests/test_project_root.py`.
+
+- **Terminal** (`widgets/terminal.py`) — the biggest untested surface and the most
+  platform-divergent: pywinpty vs ptyprocess, the pyte screen buffer, scrollback
+  flushing, alt-screen drain, ANSI/OSC parsing (incl. the OSC 7778 conda-prefix
+  tracking), resize. The pyte-facing parts are pure logic over a fake PTY and
+  need no real shell — start there rather than spawning one in CI.
+- **Git** (`editor/git_manager.py`) — status/diff/hunk parsing are pure functions
+  over `git` output and can be tested against captured fixtures with no repo at
+  all. `folder_status()` is a pure max-priority reduction and is the single
+  source of truth for every M/A/U/D decoration in the app. Higher-level flows can
+  run against a real temp repo (`git init`, commit, mutate) — deterministic and
+  cheap, but needs `git` on the runner.
+- **Session persistence** (`utils/session.py`) — the portable-path `_rel`/`_abs`
+  round trip, the legacy-migration/`_remap_moved_project` path, and the documented
+  invariant that `restore()` must never leave the notebook empty. All pure enough
+  to test with temp dirs, and a regression here silently loses a user's work.
+- **Codegen breadth** — currently six form shapes. The preservation logic is the
+  risky part: `extract_event_bodies`, user `__init__` zones, helper methods, and
+  `rename_self_attributes`, which the docs already note has known misses.
+- **Conda / interpreter discovery** (`utils/conda_env.py`) — pure path probing,
+  trivially fakeable with temp directory trees, and currently verified only on
+  Windows by hand.
+- **Diagnostics mapping** (`_ruff_severity`) — a pure code→severity function that
+  decides whether something shows red, yellow, or blue.
+
+### CI housekeeping
+
+- **Bump the action versions.** Every job logs `Node.js 20 is deprecated` —
+  `actions/checkout@v4` and `actions/setup-python@v5` are pinned to the Node 20
+  runtime and GitHub is force-running them on Node 24. Cosmetic today (all four
+  jobs pass), but it becomes a hard failure when Node 20 support is dropped.
+  Bump to the releases built for Node 24 (`checkout@v5`, `setup-python@v6` at
+  time of writing) and re-run once — action major bumps occasionally change
+  input names, so it needs a green run, not just an edit.
+
+### CI additions worth considering
+
+- **Cache the pip install** — already on; revisit if install time grows.
+- **A smoke-launch job** — start `main.py` under Xvfb, wait, assert it is still
+  alive and produced no traceback. Catches import-time and startup breakage that
+  unit tests miss; this was done by hand throughout the 2026-07-27 pass.
+- **Coverage reporting** — only once the suite is broad enough for the number to
+  mean something. A high percentage over six modules would be actively
+  misleading.
 
 ---
 
