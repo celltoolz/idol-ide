@@ -200,6 +200,23 @@ def validate(channels: list[str], priority: str = "",
     return issues
 
 
+def preview_note_channels(packages: list[tuple[str, str, str]],
+                          scope: str, primary: str) -> list[str]:
+    """Channels in a dry-run result worth flagging, measured against the right one.
+
+    *packages* is `[(name, version, channel)]` from `CondaManager.dry_run`.
+
+    The baseline is the **scope** when one is set, not the primary channel:
+    `-c X --override-channels` guarantees every package comes from X, so
+    measuring a scoped preview against the primary would flag X on every single
+    run — reporting back the thing the user just asked for, dressed up as a
+    warning. Unscoped, the primary is the right baseline, because a package
+    arriving from further down the list is the interesting case.
+    """
+    baseline = scope or primary
+    return sorted({channel for _, _, channel in packages} - {baseline})
+
+
 def blocking(issues: list[ChannelIssue]) -> list[ChannelIssue]:
     """The issues that must stop an action rather than merely warn about it."""
     return [i for i in issues if i.severity == "error"]

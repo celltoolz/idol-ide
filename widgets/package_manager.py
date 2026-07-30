@@ -17,7 +17,7 @@ from widgets.conda_channels_editor import CondaChannelsEditor
 from widgets.conda_tos_dialog import CondaTosDialog
 from widgets.learning_manager import LearningManager
 from utils import settings as _settings
-from utils.conda_channels import validate
+from utils.conda_channels import preview_note_channels, validate
 from utils.conda_env import (channel_edit_action, create_project_environment_yml,
                              is_conda_env, mask_channel, resolve_channels,
                              write_project_channels)
@@ -1269,11 +1269,16 @@ class PackageManagerPanel(tk.Frame):
             for pkg, version, channel in sorted(packages):
                 output.write(f"    {pkg.ljust(width)}  {version:<12} "
                              f"{mask_channel(channel)}\n")
-            others = sorted({c for _, _, c in packages} - {self._primary_channel()})
+            # `preview_note_channels` owns which channel this is measured
+            # against; the label has to name the same one or the note reads as
+            # a non-sequitur.
+            baseline = self._scope_channel or self._primary_channel()
+            others = preview_note_channels(packages, self._scope_channel,
+                                           self._primary_channel())
             if others:
                 output.write(
                     f"\n  Note: {len(others)} channel(s) other than "
-                    f"{self._primary_channel() or 'the first'} would be used — "
+                    f"{mask_channel(baseline) or 'the first'} would be used — "
                     f"{', '.join(mask_channel(c) for c in others)}.\n",
                     tag="info")
 

@@ -946,6 +946,39 @@ def test_dry_run_survives_a_missing_conda(monkeypatch):
     assert got[0][0] is False
 
 
+# ── the dry-run summary's "other channels" note ──────────────────────────────
+
+_SOLVE = [("numpy", "2.5.1", "defaults"), ("mkl", "2025.0", "defaults")]
+
+
+def test_note_is_silent_when_everything_comes_from_the_primary():
+    assert conda_channels.preview_note_channels(_SOLVE, "", "defaults") == []
+
+
+def test_note_flags_a_package_from_further_down_the_list():
+    solve = _SOLVE + [("libblas", "3.9", "conda-forge")]
+    assert conda_channels.preview_note_channels(
+        solve, "", "defaults") == ["conda-forge"]
+
+
+def test_a_scoped_preview_measures_against_the_scope():
+    """Otherwise every scoped preview reports back what the user just asked for.
+
+    `-c X --override-channels` guarantees a single channel, so measuring
+    against the primary would flag X every single time.
+    """
+    solve = [("numpy", "2.5.1", "conda-forge")]
+    assert conda_channels.preview_note_channels(
+        solve, "conda-forge", "defaults") == []
+    # …and without the scope, that same solve *is* worth flagging.
+    assert conda_channels.preview_note_channels(
+        solve, "", "defaults") == ["conda-forge"]
+
+
+def test_note_with_no_primary_yet_flags_everything_seen():
+    assert conda_channels.preview_note_channels(_SOLVE, "", "") == ["defaults"]
+
+
 # ── the detail panel after a conda install ────────────────────────────────────
 
 class _DetailStub:
