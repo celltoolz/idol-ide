@@ -718,6 +718,233 @@ def test_custom_channels_have_no_catalog_opinions():
     assert conda_channels.validate(["my-private-channel"]) == []
 
 
+# ── provenance: what channel a package actually came from ────────────────────
+
+def test_defaults_expansions_normalize_back_to_the_spec():
+    """conda reports the expansion; the active list holds the spec."""
+    for reported in ("pkgs/main", "pkgs/r", "pkgs/msys2"):
+        assert conda_env.normalize_installed_channel(reported) == "defaults"
+
+
+def test_repo_anaconda_urls_normalize_to_defaults():
+    assert conda_env.normalize_installed_channel(
+        "https://repo.anaconda.com/pkgs/main") == "defaults"
+
+
+def test_pypi_is_preserved_so_origin_routing_still_works():
+    """Uninstall routes on `origin == "pypi"`; that must survive normalizing."""
+    assert conda_env.normalize_installed_channel("pypi") == "pypi"
+
+
+def test_subdir_suffix_is_dropped():
+    assert conda_env.normalize_installed_channel("conda-forge/win-64") == "conda-forge"
+
+
+def test_plain_channel_name_is_unchanged():
+    assert conda_env.normalize_installed_channel("conda-forge") == "conda-forge"
+
+
+def test_custom_url_channel_normalizes_to_its_last_segment():
+    assert conda_env.normalize_installed_channel(
+        "https://my.mirror.example/private/") == "private"
+
+
+def test_empty_channel_normalizes_to_empty():
+    assert conda_env.normalize_installed_channel("") == ""
+    assert conda_env.normalize_installed_channel(None) == ""
+
+
+def test_fetch_installed_reports_the_real_channel(monkeypatch):
+    """origins carries provenance now, and pip routing is unaffected."""
+    listing = json.dumps([
+        {"name": "numpy", "version": "1.26.4", "channel": "conda-forge"},
+        {"name": "mkl", "version": "2023.1", "channel": "pkgs/main"},
+        {"name": "black", "version": "24.1", "channel": "pypi"},
+        {"name": "zlib", "version": "1.3"},                    # no channel key
+    ])
+    monkeypatch.setattr(conda_manager.subprocess, "run",
+                        lambda cmd, **kw: _FakeCompleted(listing))
+    m = conda_manager.CondaManager(after_fn=lambda _d, fn, *a: fn(*a))
+    m._conda_exe, m._prefix = "conda", "/envs/p"
+    done = threading.Event()
+    got: list[tuple[dict, dict]] = []
+
+    def _on_done(installed, origins):
+        got.append((installed, origins))
+        done.set()
+
+    m.fetch_installed(_on_done)
+    assert done.wait(timeout=10)
+    installed, origins = got[0]
+    assert installed["numpy"] == "1.26.4"
+    assert origins["numpy"] == "conda-forge"
+    assert origins["mkl"] == "defaults"       # normalized from pkgs/main
+    assert origins["black"] == "pypi"         # routing value preserved exactly
+    assert origins["zlib"] == "conda"         # no channel reported
+
+
+# ── the [All] / single-channel scope ─────────────────────────────────────────
+
+def test_scoping_an_install_overrides_the_configured_list():
+    m = conda_manager.CondaManager(after_fn=lambda *a: None)
+    m.set_channels(["conda-forge", "pytorch"], override=True)
+    assert m._channel_args("defaults") == ["-c", "defaults",
+                                           "--override-channels"]
+
+
+def test_scoping_does_not_disturb_the_configured_list():
+    """The manager is shared — the next unscoped install must be normal again."""
+    m = conda_manager.CondaManager(after_fn=lambda *a: None)
+    m.set_channels(["conda-forge", "pytorch"], override=True)
+    m._channel_args("defaults")
+    assert m._channel_args() == ["-c", "conda-forge", "-c", "pytorch",
+                                 "--override-channels"]
+    assert m.channels == ["conda-forge", "pytorch"]
+
+
+def _loaded_index(monkeypatch, extra_in_defaults=True):
+    idx = conda_manager.CondaSearchIndex(after_fn=lambda _d, fn, *a: fn(*a))
+
+    def fake_load(name, url, force):
+        pkgs = {"numpy": {"summary": "arrays", "version": "1",
+                          "channel": name, "home": "", "license": ""}}
+        if name == "defaults" and extra_in_defaults:
+            pkgs["mkl"] = {"summary": "math", "version": "2",
+                           "channel": name, "home": "", "license": ""}
+        return pkgs
+
+    monkeypatch.setattr(idx, "_load_channel", fake_load)
+    done = threading.Event()
+    idx.ensure_loaded(["conda-forge", "defaults"], on_done=lambda _n: done.set())
+    assert done.wait(timeout=10)
+    return idx
+
+
+def test_single_channel_search_is_not_answered_from_the_merged_view(monkeypatch):
+    """The reason per-channel maps exist.
+
+    The merged index drops every package a higher channel already claimed, so
+    filtering it would report that `defaults` does not offer numpy — when it
+    does, and an install scoped to `defaults` would happily find it.
+    """
+    idx = _loaded_index(monkeypatch)
+    assert idx.search("numpy")[0]["channel"] == "conda-forge"    # merged
+    assert [r["channel"] for r in idx.search("numpy", channel="defaults")] == [
+        "defaults"]
+
+
+def test_scoped_search_still_sees_that_channels_own_packages(monkeypatch):
+    idx = _loaded_index(monkeypatch)
+    assert [r["name"] for r in idx.search("mkl", channel="defaults")] == ["mkl"]
+    assert idx.search("mkl", channel="conda-forge") == []
+
+
+def test_scoped_search_on_an_unknown_channel_is_empty(monkeypatch):
+    idx = _loaded_index(monkeypatch)
+    assert idx.search("numpy", channel="not-loaded") == []
+
+
+def test_channels_loaded_reports_what_the_index_holds(monkeypatch):
+    assert _loaded_index(monkeypatch).channels_loaded() == ("conda-forge",
+                                                            "defaults")
+
+
+# ── the dry-run probe ────────────────────────────────────────────────────────
+
+def _dry_run(monkeypatch, stdout, only=None):
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        return _FakeCompleted(stdout)
+
+    monkeypatch.setattr(conda_manager.subprocess, "run", fake_run)
+    m = conda_manager.CondaManager(after_fn=lambda _d, fn, *a: fn(*a))
+    m._conda_exe, m._prefix = "conda", "/envs/p"
+    m.set_channels(["conda-forge"], override=True)
+    done = threading.Event()
+    got: list[tuple] = []
+
+    def _on_done(ok, packages, message):
+        got.append((ok, packages, message))
+        done.set()
+
+    m.dry_run("numpy", _on_done, only_channel=only)
+    assert done.wait(timeout=10), "dry_run never called back"
+    return seen[0], got[0]
+
+
+_DRY_OK = json.dumps({"success": True, "actions": {"LINK": [
+    {"name": "numpy", "version": "1.26.4", "channel": "conda-forge"},
+    {"name": "mkl", "version": "2023.1", "channel": "pkgs/main"}]}})
+
+
+def test_dry_run_never_installs_anything(monkeypatch):
+    cmd, _ = _dry_run(monkeypatch, _DRY_OK)
+    assert "--dry-run" in cmd
+    assert "--json" in cmd
+    assert "-y" not in cmd
+
+
+def test_dry_run_reports_per_package_provenance(monkeypatch):
+    _, (ok, packages, _) = _dry_run(monkeypatch, _DRY_OK)
+    assert ok is True
+    assert packages == [("numpy", "1.26.4", "conda-forge"),
+                        ("mkl", "2023.1", "defaults")]
+
+
+def test_dry_run_honours_a_channel_scope(monkeypatch):
+    cmd, _ = _dry_run(monkeypatch, _DRY_OK, only="defaults")
+    assert cmd[cmd.index("-c") + 1] == "defaults"
+    assert "--override-channels" in cmd
+
+
+def test_dry_run_accepts_the_bare_actions_list_shape(monkeypatch):
+    """conda has moved LINK between `actions.LINK` and a bare `actions` list."""
+    _, (ok, packages, _) = _dry_run(monkeypatch, json.dumps({
+        "success": True,
+        "actions": [{"name": "numpy", "version": "1", "channel": "conda-forge"}]}))
+    assert ok is True
+    assert packages == [("numpy", "1", "conda-forge")]
+
+
+def test_dry_run_treats_a_no_op_solve_as_success(monkeypatch):
+    """Nothing to do is not a failure, and must not read as one."""
+    _, (ok, packages, message) = _dry_run(
+        monkeypatch, json.dumps({"success": True}))
+    assert ok is True
+    assert packages == []
+    assert message
+
+
+def test_dry_run_surfaces_condas_own_conflict_text(monkeypatch):
+    """conda names the packages involved far better than we could."""
+    _, (ok, _, message) = _dry_run(monkeypatch, json.dumps({
+        "success": False, "error": "UnsatisfiableError: numpy conflicts"}))
+    assert ok is False
+    assert "UnsatisfiableError" in message
+
+
+def test_dry_run_survives_unparseable_output(monkeypatch):
+    _, (ok, packages, message) = _dry_run(monkeypatch, "not json")
+    assert ok is False
+    assert packages == []
+    assert message
+
+
+def test_dry_run_survives_a_missing_conda(monkeypatch):
+    def boom(cmd, **kwargs):
+        raise OSError("conda not found")
+
+    monkeypatch.setattr(conda_manager.subprocess, "run", boom)
+    m = conda_manager.CondaManager(after_fn=lambda _d, fn, *a: fn(*a))
+    done = threading.Event()
+    got: list[tuple] = []
+    m.dry_run("numpy", lambda *a: (got.append(a), done.set()))
+    assert done.wait(timeout=10)
+    assert got[0][0] is False
+
+
 # ── the shipped catalog ───────────────────────────────────────────────────────
 
 _REQUIRED_KEYS = {"id", "display_name", "spec", "tier", "description",

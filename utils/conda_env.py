@@ -418,6 +418,30 @@ def channel_base_url(spec: str) -> str:
     return f"https://conda.anaconda.org/{spec.strip('/')}"
 
 
+def normalize_installed_channel(reported: str) -> str:
+    """`conda list`'s `channel` value as a spec the user would recognise.
+
+    conda reports the *expansion*, not the spec: a package from `defaults`
+    comes back as `pkgs/main` (or `pkgs/r`, `pkgs/msys2`), and a channel added
+    by URL comes back as a URL. Comparing those raw against the active list —
+    which holds `defaults` and bare names — never matches, which is what makes
+    a provenance badge either silent or wrong.
+    """
+    spec = (reported or "").strip()
+    if not spec or spec == "pypi":
+        return spec
+    if spec.startswith("pkgs/"):
+        return "defaults"
+    if spec.startswith(("http://", "https://", "file://")):
+        base = spec.rstrip("/")
+        if channel_covers_url("defaults", base):
+            return "defaults"
+        return base.rsplit("/", 1)[-1] or base
+    # `<channel>/<subdir>` (e.g. "conda-forge/win-64") — the subdir is noise.
+    head = spec.split("/", 1)[0]
+    return head or spec
+
+
 def channel_covers_url(spec: str, url: str) -> bool:
     """True when *url* belongs to the channel *spec* names.
 

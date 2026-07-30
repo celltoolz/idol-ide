@@ -130,6 +130,52 @@ treatment at creation: `conda create` is scoped to the channels the project's
 A project **without** an `environment.yml` is left exactly as it was — conda uses its own
 configuration and IDOL adds no flags of its own.
 
+### Where a package came from
+
+Installed packages carry a badge when — and only when — there is something to say:
+
+- **`· pip`** — installed with pip rather than conda
+- **`· defaults`** (or any channel name) — came from a channel other than the one searched
+  first
+
+Packages from your primary channel get no badge. A badge on every row would be a badge on
+nothing; the useful signal is the odd one out, which is usually what explains surprising
+behaviour.
+
+### Searching or installing from one channel
+
+The **▾ All channels** chip beside the `conda | PyPI` toggle narrows both search and install to
+a single channel.
+
+- **Search** then looks only in that channel's own index — including packages another channel
+  also offers, which the normal merged view hides behind whichever channel ranks higher
+- **Install** runs with `-c <channel> --override-channels`, so you get that channel's build and
+  no other
+
+It's a temporary lens, not a setting: it doesn't change your project's channel list, isn't
+saved, and clears when you switch interpreters or search PyPI.
+
+### ⇢ Preview — what would actually happen
+
+On any package you haven't installed, **⇢ Preview** solves the install *without performing it*
+and writes the result to the Output panel:
+
+```
+✓ 4 package(s) would be installed:
+    numpy         1.26.4       conda-forge
+    mkl           2023.1       defaults
+    ...
+  Note: 1 channel(s) other than conda-forge would be used — defaults.
+```
+
+If it can't be solved, you get conda's own conflict message — which names the packages actually
+in conflict, and is the fastest way to find out which channel is causing a problem. Combined
+with the channel chip, that's how you answer "is bioconda the reason this won't install?"
+without touching your `environment.yml` to run the experiment.
+
+Preview still solves and still downloads channel indexes, so it takes about as long as the
+thinking part of an install — it just never changes anything.
+
 ## AI Integration
 
 **✦ Ask AI for examples** — sends the selected package to AI Chat with a prompt for beginner-friendly code examples.

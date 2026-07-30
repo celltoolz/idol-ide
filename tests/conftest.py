@@ -11,6 +11,7 @@ Two environmental facts shape everything here:
 """
 from __future__ import annotations
 
+import gc
 import subprocess
 import sys
 from pathlib import Path
@@ -56,13 +57,24 @@ def _tk_session():
 @pytest.fixture
 def tk_root(_tk_session):
     """A clean widget surface on the shared root — children are torn down
-    between tests so widget state cannot leak, but the root itself persists."""
+    between tests so widget state cannot leak, but the root itself persists.
+
+    The `gc.collect()` is load-bearing, not tidiness. `tkinter.Variable.__del__`
+    calls back into Tcl, so a `StringVar` left unreferenced by a GUI test is
+    finalized whenever a later, unrelated test happens to trigger a generational
+    collection — where it raises "main thread is not in main loop", gets
+    reported as a `PytestUnraisableExceptionWarning` against the *wrong* test,
+    and costs ~14 s of wall clock. Collecting here finalizes those objects while
+    the interpreter is still in a good state, which is both correct and about
+    twice as fast over a full run. Leave it in.
+    """
     for child in list(_tk_session.winfo_children()):
         try:
             child.destroy()
         except Exception:
             pass
     _tk_session.update()
+    gc.collect()
     return _tk_session
 
 

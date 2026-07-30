@@ -41,6 +41,11 @@ _ACCENT   = "#0e639c"
 _GREEN    = "#4ec9b0"
 _SEL_BG   = "#094771"
 _WARN     = "#ce9178"
+_GREY_BTN = "#3c3c3c"
+
+# Search-scope selector: no channel chosen means "however conda would resolve
+# it", which is not the same as any single channel and so needs its own label.
+_SCOPE_ALL = "▾ All channels"
 
 # Channel-bar edit label per conda_env.channel_edit_action verdict. Creating
 # environment.yml is named explicitly because it is a different action from
@@ -251,6 +256,10 @@ class PackageManagerPanel(tk.Frame):
         self._conda_results: dict[str, dict] = {}   # last conda search results by name
         self._project_dir: str = ""            # folder whose environment.yml we read
         self._chan_cfg: conda_backend.ChannelConfig | None = None
+        #: One channel to scope search and install to, or "" for all of them.
+        #: Transient by design — a view of the project's channels, never a
+        #: change to them, so it is not persisted and resets with the env.
+        self._scope_channel: str = ""
         self._group_view = bool(_settings.get("pkg_group_view", True))
         self._build()
         self.after(100, self._load_installed)
@@ -274,8 +283,11 @@ class PackageManagerPanel(tk.Frame):
         # channels (what conda install can reach), everything else PyPI.
         self._set_search_source(
             "conda" if self._backend is self._conda else "pypi")
-        # A config read from the previous env must not outlive it.
+        # A config read from the previous env must not outlive it, and a scope
+        # naming one of the old env's channels is meaningless in the new one.
         self._chan_cfg = None
+        self._scope_channel = ""
+        self._detail.set_preview_visible(self._backend is self._conda)
         self._sync_channel_bar()
         if self._backend is self._conda:
             # Pre-warm in the background, for the channels this project uses.
@@ -457,6 +469,11 @@ class PackageManagerPanel(tk.Frame):
                        bg=_ACCENT if active else _INPUT_BG)
         self._search_btn.config(
             text="conda ↗" if source == "conda" else "PyPI ↗")
+        # A channel scope means nothing to a PyPI search — drop it rather than
+        # leave a chip that silently stops applying.
+        if source != "conda":
+            self._scope_channel = ""
+        self._sync_scope_label()
         # Placeholder follows the source: swap the displayed hint (and restart
         # the cycle) unless the user is typing a real query.
         if (not self._hint_focused
@@ -465,6 +482,49 @@ class PackageManagerPanel(tk.Frame):
             self._search_entry.delete(0, "end")
             self._search_entry.insert(0, self._active_hints()[0])
             self._search_entry.config(fg=_DIM)
+
+    # ── Search scope ([All] or one channel) ───────────────────────────────────
+
+    def _sync_scope_label(self) -> None:
+        """Show the scope chip only where it means something, and say which."""
+        if self._backend is not self._conda or self._search_source != "conda":
+            self._scope_lbl.pack_forget()
+            return
+        self._scope_lbl.pack(side="right", padx=(4, 0), pady=2)
+        scoped = bool(self._scope_channel)
+        self._scope_lbl.config(
+            text=f"▾ {mask_channel(self._scope_channel)}" if scoped else _SCOPE_ALL,
+            fg="white" if scoped else _DIM,
+            bg=_ACCENT if scoped else _INPUT_BG)
+
+    def _open_scope_menu(self, event) -> None:
+        channels = self._effective_channels()
+        menu = tk.Menu(self, tearoff=0, bg=_PANEL_BG, fg=_FG,
+                       activebackground=_ACCENT, activeforeground="white",
+                       bd=0, font=(UI_FONT, 9))
+        menu.add_command(label="All channels",
+                         command=lambda: self._set_scope(""))
+        if channels:
+            menu.add_separator()
+        for i, channel in enumerate(channels, 1):
+            menu.add_command(label=f"{i}   {mask_channel(channel)}",
+                             command=lambda c=channel: self._set_scope(c))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _set_scope(self, channel: str) -> None:
+        """Narrow search and install to one channel, or back to all of them."""
+        if channel == self._scope_channel:
+            return
+        self._scope_channel = channel
+        self._sync_scope_label()
+        # Re-run whatever is on screen so the list matches the new scope
+        # instead of sitting there looking authoritative and being stale.
+        query = self._search_var.get().strip()
+        if query and query not in _ALL_HINTS and self._search_source == "conda":
+            self._do_conda_search(query)
 
     def _active_hints(self) -> list[str]:
         """The rotating hint set for the current search source."""
@@ -598,6 +658,16 @@ class PackageManagerPanel(tk.Frame):
                                   font=(UI_FONT, 8), anchor="w")
         self._chan_src.pack(fill="x", padx=(8, 0))
 
+        # Scope selector — [All] or one channel. Packed into the search bar
+        # beside the source toggle, since it narrows the same thing the toggle
+        # switches. A tk.Menu popup rather than a Combobox, per the house rule.
+        self._scope_lbl = tk.Label(search_frame, text=_SCOPE_ALL, bg=_INPUT_BG,
+                                   fg=_DIM, font=(UI_FONT, 8), padx=8, pady=3,
+                                   cursor="hand2")
+        self._scope_lbl.bind("<ButtonRelease-1>", self._open_scope_menu)
+        self._scope_lbl.bind("<Enter>", lambda _: self._scope_lbl.config(fg=_FG))
+        self._scope_lbl.bind("<Leave>", lambda _: self._sync_scope_label())
+
         # ── Main split (left tree / right detail) ─────────────────────────────
         pane = tk.PanedWindow(self, orient="horizontal", bg=_BORDER,
                               sashwidth=4, sashrelief="flat")
@@ -655,7 +725,8 @@ class PackageManagerPanel(tk.Frame):
         self._detail = _DetailPanel(right,
                                     on_install=self._install_pkg,
                                     on_uninstall=self._uninstall_pkg,
-                                    on_ask_ai=self._ask_ai)
+                                    on_ask_ai=self._ask_ai,
+                                    on_preview=self._preview_install)
         self._detail.pack(fill="both", expand=True)
         self._register_learning()
 
@@ -727,6 +798,23 @@ class PackageManagerPanel(tk.Frame):
 
     # ── Grouping (instant via builtin lookup) ─────────────────────────────────
 
+    def _origin_badge(self, name: str) -> str:
+        """Provenance suffix for a row — blank when there is nothing to say.
+
+        A badge on every package would be a badge on nothing: a fresh env has
+        dozens of rows all from the same channel. Only the *exception* is
+        worth marking — pip-installed, or a package that came from somewhere
+        other than the channel searched first. That is exactly the case where
+        provenance explains behaviour.
+        """
+        origin = self._origins.get(name, "")
+        if origin == "pypi":
+            return "  · pip"
+        primary = self._primary_channel()
+        if not origin or origin == "conda" or not primary:
+            return ""
+        return "" if origin == primary else f"  · {mask_channel(origin)}"
+
     def _populate_grouped(self) -> None:
         self._tree.delete(*self._tree.get_children())
         self._tree_label.config(text=f"INSTALLED  ({len(self._installed)})")
@@ -734,7 +822,7 @@ class PackageManagerPanel(tk.Frame):
         if not self._group_view:
             for name in sorted(self._installed, key=str.lower):
                 ver = self._installed[name]
-                badge = "  · pip" if self._origins.get(name) == "pypi" else ""
+                badge = self._origin_badge(name)
                 self._tree.insert("", "end", iid=f"pkg:{name}",
                                   text=f"  {name}  {ver}{badge}", tags=("installed",))
             self._tree.tag_configure("installed", foreground=_FG)
@@ -764,7 +852,7 @@ class PackageManagerPanel(tk.Frame):
                               tags=("category",), open=True)
             for name in pkgs:
                 ver = self._installed[name]
-                badge = "  · pip" if self._origins.get(name) == "pypi" else ""
+                badge = self._origin_badge(name)
                 self._tree.insert(cat_iid, "end", iid=f"pkg:{name}",
                                   text=f"  {name}  {ver}{badge}", tags=("installed",))
 
@@ -857,13 +945,16 @@ class PackageManagerPanel(tk.Frame):
         self._run_conda_search(query)
 
     def _run_conda_search(self, query: str) -> None:
-        results = self._conda_index.search(query)
+        scope = self._scope_channel or None
+        results = self._conda_index.search(query, channel=scope)
         self._conda_results = {r["name"]: r for r in results}
         self._tree.delete(*self._tree.get_children())
+        where = f" in {mask_channel(scope)}" if scope else ""
         if not results:
-            self._tree_label.config(text="CONDA RESULTS  (none found)")
+            self._tree_label.config(text=f"CONDA RESULTS{where}  (none found)")
         else:
-            self._tree_label.config(text=f"CONDA RESULTS  ({len(results)})")
+            self._tree_label.config(
+                text=f"CONDA RESULTS{where}  ({len(results)})")
         for r in results:
             name = r["name"]
             installed = name in self._installed
@@ -978,8 +1069,14 @@ class PackageManagerPanel(tk.Frame):
             self._selected_src = "conda"
             meta = self._conda_results[name]
             summary = meta["summary"] or "(no summary in channel metadata)"
+            # Where it is installed *from* is the interesting fact once it is
+            # installed; before that, which channel offers it.
+            origin = self._origins.get(name, "")
+            provenance = (f"installed from: {mask_channel(origin)}"
+                          if origin and origin != "conda"
+                          else f"channel: {mask_channel(meta['channel'])}")
             data = {"info": {
-                "summary": f"{summary}\n\nconda package — channel: {meta['channel']}",
+                "summary": f"{summary}\n\nconda package — {provenance}",
                 "version": meta["version"],
                 "home_page": meta["home"],
                 "license": meta["license"],
@@ -1075,7 +1172,9 @@ class PackageManagerPanel(tk.Frame):
         origin = self._origins.get(name, "pypi")
         backend = self._pip if force_pip else self._backend
         if backend is self._conda:
-            echo = {"install": f"$ conda install -y {name}",
+            scope = f" -c {mask_channel(self._scope_channel)} --override-channels" \
+                if self._scope_channel else ""
+            echo = {"install": f"$ conda install -y{scope} {name}",
                     "uninstall": (f"$ pip uninstall -y {name}" if origin == "pypi"
                                   else f"$ conda remove -y {name}")}[verb]
         else:
@@ -1095,11 +1194,74 @@ class PackageManagerPanel(tk.Frame):
 
         on_error = (lambda e: output.write(e + "\n", tag="err")) if output else None
         if verb == "install":
-            backend.install(name, on_line=_on_line,
-                            on_done=self._load_installed, on_error=on_error)
+            if backend is self._conda and self._scope_channel:
+                backend.install(name, on_line=_on_line,
+                                on_done=self._load_installed, on_error=on_error,
+                                only_channel=self._scope_channel)
+            else:
+                backend.install(name, on_line=_on_line,
+                                on_done=self._load_installed, on_error=on_error)
         else:
             backend.uninstall(name, origin, on_line=_on_line,
                               on_done=self._load_installed, on_error=on_error)
+
+    # ── Install preview (dry run) ─────────────────────────────────────────────
+
+    def _preview_install(self, name: str) -> None:
+        """Solve *name* without installing it and report what conda would do.
+
+        The answer to "where would this actually come from, and is something
+        here fighting?" without installing anything or editing a git-tracked
+        file to run the experiment.
+        """
+        if self._backend is not self._conda:
+            return
+        output = self._get_output_panel() if self._get_output_panel else None
+        scope = self._scope_channel or None
+        flags = (f" -c {mask_channel(scope)} --override-channels" if scope
+                 else "")
+        if output:
+            try:
+                output.master._set_active("output")
+            except Exception:
+                pass
+            output.write(f"\n$ conda install --dry-run{flags} {name}\n", tag="cmd")
+            output.write("Solving — nothing will be installed…\n", tag="info")
+
+        def _done(ok: bool, packages: list, message: str) -> None:
+            if not output:
+                return
+            if not ok:
+                output.write(f"\n✗ {name} cannot be installed as configured.\n",
+                             tag="err")
+                # conda's own conflict text names the packages involved, which
+                # is the part that actually identifies the culprit channel.
+                if message:
+                    output.write(message.rstrip() + "\n", tag="err")
+                return
+            if not packages:
+                output.write(f"✓ {message or 'Nothing to do.'}\n", tag="info")
+                return
+            output.write(f"\n✓ {len(packages)} package(s) would be installed:\n",
+                         tag="info")
+            width = max(len(p[0]) for p in packages)
+            for pkg, version, channel in sorted(packages):
+                output.write(f"    {pkg.ljust(width)}  {version:<12} "
+                             f"{mask_channel(channel)}\n")
+            others = sorted({c for _, _, c in packages} - {self._primary_channel()})
+            if others:
+                output.write(
+                    f"\n  Note: {len(others)} channel(s) other than "
+                    f"{self._primary_channel() or 'the first'} would be used — "
+                    f"{', '.join(mask_channel(c) for c in others)}.\n",
+                    tag="info")
+
+        self._conda.dry_run(name, _done, only_channel=scope)
+
+    def _primary_channel(self) -> str:
+        """The channel searched first, which is what a badge is measured against."""
+        channels = self._effective_channels()
+        return channels[0] if channels else ""
 
     # ── Ask AI ─────────────────────────────────────────────────────────────────
 
@@ -1269,11 +1431,13 @@ class _DetailPanel(tk.Frame):
                  on_install: Callable,
                  on_uninstall: Callable,
                  on_ask_ai: Callable,
+                 on_preview: Callable | None = None,
                  **kwargs) -> None:
         super().__init__(parent, bg=_PANEL_BG, **kwargs)
         self._on_install   = on_install
         self._on_uninstall = on_uninstall
         self._on_ask_ai    = on_ask_ai
+        self._on_preview   = on_preview
         self._current_name = ""
         self._current_summary = ""
         self._build()
@@ -1301,6 +1465,11 @@ class _DetailPanel(tk.Frame):
         self._uninstall_btn = self._make_action_btn(btn_row, "✕ Uninstall",
                                                      "#5a1a1a", self._do_uninstall)
         self._uninstall_btn.pack(side="left", padx=(0, 6))
+
+        # Shown only for conda-backed panels — pip has no equivalent solve to
+        # preview, so the button would be a promise pip cannot keep.
+        self._preview_btn = self._make_action_btn(btn_row, "⇢ Preview",
+                                                   _GREY_BTN, self._do_preview)
 
         self._ai_btn = self._make_action_btn(btn_row, "✦ Ask AI for examples",
                                               "#1a3a2a", self._do_ask_ai)
@@ -1389,6 +1558,7 @@ class _DetailPanel(tk.Frame):
         self._home_lbl.config(text="")
         self._install_btn.config(state="disabled")
         self._uninstall_btn.config(state="disabled")
+        self._preview_btn.config(state="disabled")
         self._ai_btn.config(state="disabled")
         self._set_desc("Click any package on the left to see its details.")
 
@@ -1430,6 +1600,10 @@ class _DetailPanel(tk.Frame):
         else:
             self._install_btn.config(state="normal", bg=_ACCENT, cursor="hand2")
             self._uninstall_btn.config(state="disabled", bg="#333333", cursor="arrow")
+        self._preview_btn.config(
+            state="disabled" if installed_ver else "normal",
+            bg="#333333" if installed_ver else _GREY_BTN,
+            cursor="arrow" if installed_ver else "hand2")
         self._ai_btn.config(state="normal", bg="#1a3a2a", cursor="hand2")
 
         desc = info.get("summary") or ""
@@ -1450,6 +1624,18 @@ class _DetailPanel(tk.Frame):
     def _do_uninstall(self) -> None:
         if self._current_name:
             self._on_uninstall(self._current_name)
+
+    def _do_preview(self) -> None:
+        if self._current_name and self._on_preview:
+            self._on_preview(self._current_name)
+
+    def set_preview_visible(self, visible: bool) -> None:
+        """Show ⇢ Preview only for a conda backend — pip has no solve to show."""
+        if visible:
+            self._preview_btn.pack(side="left", padx=(0, 6),
+                                   before=self._ai_btn)
+        else:
+            self._preview_btn.pack_forget()
 
     def _do_ask_ai(self) -> None:
         if self._current_name:

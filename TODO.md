@@ -96,12 +96,26 @@ Each phase is independently shippable. **Tests green before every commit** —
       findings closed: the tokenized-URL warning exists, and the empty-list
       refusal now greys Save and shows the reason instead of silently doing
       nothing.
-- [ ] **Phase 4 — provenance and probing.** `[All] / specific channel` selector
-      in the search bar (`-c X --override-channels`). Per-package channel badges
-      — nearly free, `conda list --json` already reports `channel` and
-      `conda_manager` already parses it. Transient `conda install --dry-run`
-      conflict probe with a modified `-c` set, so "is bioconda causing this?"
-      never dirties a git-tracked file.
+- [x] **Phase 4 — provenance and probing.** Badges mark only the *exception*
+      (`· pip`, or a channel other than the one searched first) — a badge on
+      every row is a badge on nothing. `origins` now carries the real channel
+      rather than a conda/pypi flag, which is a **superset** of the old value:
+      conda reports the literal `"pypi"` for pip-installed packages, so every
+      `origin == "pypi"` routing check still means what it did. The `▾ All
+      channels` chip scopes search *and* install; scoping search needed
+      per-channel maps in `CondaSearchIndex`, because the merged view drops
+      every package a higher channel already claimed and filtering it would
+      have reported that `defaults` does not offer numpy. `⇢ Preview` runs
+      `conda install --dry-run --json` and reports per-package channel
+      provenance, or conda's own conflict text on failure.
+      - **Also fixed, found by this work:** the test suite's `tk_root` fixture
+        now forces a `gc.collect()`. `tkinter.Variable.__del__` calls into Tcl,
+        so a `StringVar` orphaned by a GUI test was finalized during whatever
+        unrelated test later triggered a generational collection — raising
+        "main thread is not in main loop", reporting a
+        `PytestUnraisableExceptionWarning` against the **wrong** test, and
+        costing ~14 s. Full suite 27 s → 14.6 s, warning gone. Same family as
+        the open `make_thread_safe_after` bug below.
 
 **Deferred, note-and-move-on:** `.condarc` writes; `channel_priority` editing
 (see *Known, not yet scoped*); mirrors / `channel_alias` / `custom_channels` /

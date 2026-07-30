@@ -66,6 +66,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **Saving an empty list stops being a mystery.** It was already refused — conda reads an
     empty `channels:` as "use defaults", the opposite of what emptying it looks like it means —
     but the button simply did nothing. Now it greys out and says why.
+- **You can now see where each installed package actually came from, and try an install before
+  committing to it.**
+  - **Channel badges** on the installed list — `· pip` for pip-installed, or the channel name
+    when a package came from somewhere other than the one searched first. Packages from your
+    primary channel get no badge, because a badge on every row is a badge on nothing; the odd
+    one out is what explains surprising behaviour.
+  - **▾ All channels** beside the `conda | PyPI` toggle narrows search and install to a single
+    channel. Search then looks in that channel's own index — including packages another channel
+    also offers, which the normal view hides behind whichever ranks higher — and install runs
+    with `--override-channels` so you get that channel's build and no other. It's a temporary
+    lens: it doesn't change your project's channel list and isn't saved.
+  - **⇢ Preview** solves an install without performing it and lists every package it would
+    bring in, with the channel each would come from. If it can't be solved you get conda's own
+    conflict message, which names the packages actually in conflict. Together with the channel
+    chip, that answers "is bioconda why this won't install?" without editing your
+    `environment.yml` to run the experiment.
 
 ### Fixed
 - **A local `file://` conda channel could never be searched.** Its index URL was built as

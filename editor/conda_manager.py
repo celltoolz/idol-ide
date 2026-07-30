@@ -35,6 +35,26 @@ from utils import conda_env
 # the user's own CLI works afterward too.
 
 _TOS_TIMEOUT = 60
+#: A dry run still solves and still fetches repodata; only the download and
+#: link steps are skipped. Budget accordingly.
+_DRY_RUN_TIMEOUT = 300
+
+
+def _link_actions(data: dict) -> list[dict]:
+    """The LINK list from `conda install --dry-run --json`, shape-tolerantly.
+
+    conda has moved this between `actions.LINK` and a bare `actions` list, and
+    reports a no-op solve as either an empty list or a missing key. None of
+    those is an error, so every shape resolves to a list rather than raising.
+    """
+    actions = data.get("actions")
+    if isinstance(actions, dict):
+        links = actions.get("LINK")
+    elif isinstance(actions, list):
+        links = actions
+    else:
+        links = None
+    return [ln for ln in (links or []) if isinstance(ln, dict)]
 
 
 def fetch_tos_pending(
@@ -344,8 +364,16 @@ class CondaManager:
         """The channels installs are scoped to (empty = conda's own config)."""
         return list(self._channels)
 
-    def _channel_args(self) -> list[str]:
-        """`-c` flags in priority order; `-c A -c B` ranks A above B."""
+    def _channel_args(self, only: str | None = None) -> list[str]:
+        """`-c` flags in priority order; `-c A -c B` ranks A above B.
+
+        *only* narrows the command to a single channel with
+        `--override-channels`, for "install this from exactly here" — a
+        per-command scope that must not disturb the configured list, since the
+        manager is shared and the next install should be normal again.
+        """
+        if only:
+            return ["-c", only, "--override-channels"]
         args: list[str] = []
         for channel in self._channels:
             args += ["-c", channel]
@@ -374,8 +402,15 @@ class CondaManager:
     ) -> None:
         """Fetch installed packages via `conda list -p <prefix> --json`.
 
-        Calls on_done(name_to_version, name_to_origin) on the main thread;
-        origin is "pypi" for pip-installed packages, "conda" otherwise.
+        Calls on_done(name_to_version, name_to_origin) on the main thread.
+
+        **Origin is the channel the package actually came from**, normalized to
+        a spec the user recognises (`pkgs/main` → `defaults`) — not a
+        conda/pypi flag. That is a superset of the old value rather than a
+        different one: conda reports the literal string `"pypi"` for
+        pip-installed packages, so every `origin == "pypi"` routing check still
+        means exactly what it did, while the rest now carry real provenance
+        instead of a constant.
         """
         conda_exe, prefix = self._conda_exe, self._prefix
 
@@ -389,9 +424,8 @@ class CondaManager:
                 )
                 for p in json.loads(result.stdout):
                     installed[p["name"]] = p["version"]
-                    origins[p["name"]] = (
-                        "pypi" if p.get("channel") == "pypi" else "conda"
-                    )
+                    origins[p["name"]] = conda_env.normalize_installed_channel(
+                        p.get("channel") or "") or "conda"
             except Exception:
                 installed, origins = {}, {}
             self._after(0, on_done, installed, origins)
@@ -404,6 +438,7 @@ class CondaManager:
         on_line: Callable[[str], None],
         on_done: Callable[[], None],
         on_error: Callable[[str], None] | None = None,
+        only_channel: str | None = None,
     ) -> None:
         """Install via conda only — *name* must be a conda package name.
 
@@ -413,7 +448,7 @@ class CondaManager:
         thing. Explicit PyPI picks go through the panel's pip route instead.
         """
         conda_exe, prefix = self._conda_exe, self._prefix
-        chan = self._channel_args()
+        chan = self._channel_args(only_channel)
 
         def _run():
             try:
@@ -431,6 +466,61 @@ class CondaManager:
                 else:
                     self._after(0, on_line, str(e) + "\n")
             self._after(0, on_done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def dry_run(
+        self,
+        name: str,
+        on_done: Callable[[bool, list[tuple[str, str, str]], str], None],
+        only_channel: str | None = None,
+    ) -> None:
+        """Solve an install without performing it, on a daemon thread.
+
+        Calls on_done(ok, packages, message) on the main thread, where
+        *packages* is `[(name, version, channel)]` for everything the install
+        would link, and *message* is conda's own text when the solve failed.
+
+        This is the answer to "which channel is this actually coming from, and
+        is something here fighting?" that does not involve installing anything
+        or editing a git-tracked file to experiment. `--dry-run` still solves
+        and still fetches repodata, so it is cheaper than an install but not
+        free — callers should treat it as a deliberate action, not a hover.
+        """
+        conda_exe, prefix = self._conda_exe, self._prefix
+        chan = self._channel_args(only_channel)
+
+        def _run():
+            ok, packages, message = False, [], ""
+            try:
+                result = subprocess.run(
+                    [conda_exe, "install", "-p", prefix, "--dry-run", "--json",
+                     *chan, name],
+                    capture_output=True, text=True, timeout=_DRY_RUN_TIMEOUT,
+                )
+                data = json.loads(result.stdout or "{}")
+                ok = bool(data.get("success")) and not data.get("error")
+                for link in _link_actions(data):
+                    packages.append((
+                        str(link.get("name", "")),
+                        str(link.get("version", "")),
+                        conda_env.normalize_installed_channel(
+                            str(link.get("channel", ""))),
+                    ))
+                if not ok:
+                    # conda's own conflict text is far better than anything we
+                    # could synthesise from the JSON, so surface it verbatim.
+                    message = str(data.get("error")
+                                  or data.get("message")
+                                  or (result.stderr or "").strip())[-1500:]
+                elif not packages:
+                    message = "Everything this needs is already installed."
+            except json.JSONDecodeError:
+                message = ("conda did not return a readable result — it may be "
+                           "too old for `--dry-run --json`.")
+            except Exception as e:
+                message = str(e)
+            self._after(0, on_done, ok, packages, message)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -510,6 +600,9 @@ class CondaSearchIndex:
     def __init__(self, after_fn: Callable) -> None:
         self._after = after_fn
         self._packages: dict[str, dict] = {}   # name → {summary, version, channel, home, license}
+        #: channel → its own full package map, kept alongside the merged view
+        #: so a single-channel search is not answered out of merged results.
+        self._by_channel: dict[str, dict[str, dict]] = {}
         self._loaded_for: tuple[str, ...] | None = None   # channel set behind _packages
         self._loading = False
         self._pending: list[Callable[[int], None]] = []   # on_done callbacks queued mid-load
@@ -555,16 +648,24 @@ class CondaSearchIndex:
 
         def _run():
             packages: dict[str, dict] = {}
+            by_channel: dict[str, dict[str, dict]] = {}
             missing: list[str] = []
             for chan_name, url in conda_env.channeldata_urls(list(wanted)):
                 data = self._load_channel(chan_name, url, force)
                 if not data:
                     missing.append(chan_name)
+                # Kept per channel *as well as* merged. The merged view drops
+                # every package a higher channel already claimed, so filtering
+                # it down to one channel would hide packages that channel
+                # really does offer — searching "defaults" would return
+                # nothing that conda-forge also carries.
+                by_channel[chan_name] = data
                 # First channel wins on name clashes — mirrors conda's
                 # channel priority order.
                 for name, meta in data.items():
                     packages.setdefault(name, meta)
             self._packages = packages
+            self._by_channel = by_channel
             self._missing = tuple(missing)
             self._loaded_for = wanted
             self._loading = False
@@ -609,14 +710,25 @@ class CondaSearchIndex:
             }
         return out
 
-    def search(self, query: str, limit: int = 20) -> list[dict]:
-        """Ranked in-memory search: exact > prefix > name-substring > summary hit."""
+    def channels_loaded(self) -> tuple[str, ...]:
+        """Channel display names the index currently holds packages for."""
+        return tuple(self._by_channel)
+
+    def search(self, query: str, limit: int = 20,
+               channel: str | None = None) -> list[dict]:
+        """Ranked in-memory search: exact > prefix > name-substring > summary hit.
+
+        *channel* restricts the search to one channel's own package map rather
+        than the merged view — see `_by_channel` for why that distinction is
+        not cosmetic.
+        """
         q = query.strip().lower()
-        if not q or not self._packages:
+        packages = self._by_channel.get(channel, {}) if channel else self._packages
+        if not q or not packages:
             return []
         words = q.split()
         exact, prefix, name_hit, summary_hit = [], [], [], []
-        for name, meta in self._packages.items():
+        for name, meta in packages.items():
             lname = name.lower()
             if lname == q:
                 exact.append(name)
@@ -631,7 +743,7 @@ class CondaSearchIndex:
         summary_hit.sort()
         results = []
         for name in exact + prefix + name_hit + summary_hit:
-            results.append({"name": name, **self._packages[name]})
+            results.append({"name": name, **packages[name]})
             if len(results) >= limit:
                 break
         return results
