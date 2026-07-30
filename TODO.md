@@ -1,9 +1,48 @@
 # IDOL IDE — TODO
 
-Working list for the `fix/idol-todo-sweep` branch. Longer-term plans live in
-`ROADMAP.md`; this file is what's next.
+Working list for the `fix/v1.1.2-finish-todo-sweep` branch (`fix/idol-todo-sweep`
+merged to master as `fdc00f9`). Longer-term plans live in `ROADMAP.md`; this
+file is what's next.
 
 ## 🐛 Bugs
+
+- [ ] **Uninstalling Pillow leaves the Designer believing it is still there,
+      and the run just crashes.** Remove Pillow from the Package Manager in a
+      conda env, and the Designer keeps rendering image props as healthy — no
+      "⚠ click to install Pillow" row — then Run fails with a bare
+      `ModuleNotFoundError: No module named 'PIL'` from the generated
+      `from PIL import Image, ImageTk`.
+      - **Cause is a one-directional cache.** `DesignerProperties._pil_available`
+        (`widgets/designer_properties.py:109`) memoises the
+        `python -c "import PIL"` probe, and `_check_pil_async` short-circuits on
+        it — so once it is `True`, re-selecting the widget re-runs nothing. It
+        is invalidated in exactly two places: `set_active_python`
+        (`designer_properties.py:2118`) and `app._on_pillow_install_done`
+        (`app.py:10780`). **Install invalidates it; uninstall never does.**
+        That asymmetry is why this reads as a regression — installing Pillow
+        *from the Designer* has always cleared the warning correctly, so the
+        mechanism looks like it works. It was never wired the other way.
+        Nothing here changed in the conda-channels work.
+      - The real gap is that **`PackageManagerPanel` has no outbound
+        notification at all**. `_exec_backend_op` finishes with
+        `on_done=self._load_installed`, which refreshes its own tree and tells
+        nobody. Any consumer that caches "is package X present" has the same
+        bug latent; Pillow is just the one with a visible surface. Fix wants an
+        `on_packages_changed` callback wired in `app._build_packages_tab`,
+        firing after install *and* uninstall, with the Designer's invalidation
+        hanging off it — not another special case for Pillow.
+      - **Second, separable half: nothing classifies a run failure.**
+        `grep -rn "ModuleNotFoundError"` over the repo returns zero hits.
+        `app._on_runtime_error` (`app.py:2554`) is purely line-based — it jumps
+        to the line, paints the amber gutter triangle and flashes the Problems
+        tab. For a missing import that lands on a generated `import` line
+        inside the IDOL:BEGIN block, which is both unhelpful and un-editable.
+        Wants the run output scanned for `No module named '<x>'` and an
+        offer to install `<x>` — routed through the same conda/pip decision
+        `app._on_designer_install_pillow` (`app.py:10692`) already makes. Worth
+        scoping separately: it is a general feature (any missing dependency),
+        not a Pillow fix, and it is the half that actually tells a beginner
+        what to do.
 
 - [ ] **`make_thread_safe_after`'s pump loop re-arms against a destroyed
       widget.** `_pump` in `utils/thread_safe_after.py` ends with an
