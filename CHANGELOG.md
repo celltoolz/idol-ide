@@ -84,6 +84,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     `environment.yml` to run the experiment.
 
 ### Fixed
+- **A preview scoped to one channel warned you about the channel you had just scoped it to.**
+  Narrow a preview to conda-forge in a project whose first channel is `defaults`, and the summary
+  reported "1 channel(s) other than defaults would be used — conda-forge" on every single run.
+  Scoping an install to a channel guarantees everything comes from it, so that note was handing
+  back the instruction as though it were a surprise. The comparison is now against the channel you
+  scoped to, and against your first channel only when you haven't scoped at all.
+- **One long version number knocked the preview table out of line.** The version column was a
+  fixed width that real conda versions outgrow — `libwinpthread 12.0.0.r4.gg4f2fc60ca` is 21
+  characters — and the row that overflowed pushed its channel nine columns to the right of every
+  other row. In a table you read to find out where packages come from, the channel column is the
+  one worth keeping straight. Both columns are now sized from the actual results.
 - **A local `file://` conda channel could never be searched.** Its index URL was built as
   `https://conda.anaconda.org/file:///srv/your-channel/channeldata.json`, which is not a
   place. Local and air-gapped channels now resolve correctly. (Installing from one always

@@ -168,6 +168,11 @@ and writes the result to the Output panel:
   Note: 1 channel(s) other than conda-forge would be used — defaults.
 ```
 
+That last note compares against your **first** channel — a package arriving from further down the
+list is the interesting case. If you've narrowed the search with the channel chip, it compares
+against *that* channel instead, so a scoped preview stays quiet rather than announcing the channel
+you just scoped it to.
+
 If it can't be solved, you get conda's own conflict message — which names the packages actually
 in conflict, and is the fastest way to find out which channel is causing a problem. Combined
 with the channel chip, that's how you answer "is bioconda the reason this won't install?"
