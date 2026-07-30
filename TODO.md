@@ -4,6 +4,42 @@ Working list for the `fix/v1.1.2-finish-todo-sweep` branch (`fix/idol-todo-sweep
 merged to master as `fdc00f9`). Longer-term plans live in `ROADMAP.md`; this
 file is what's next.
 
+## 🚧 Active Work
+
+The agreed order for the three open bugs below, broken into shippable steps.
+Ordered by dependency, not by size: step 1 is what makes step 3 testable, and
+step 2's instrumentation is what makes the rest of step 2 diagnosable. Each step
+is its own commit.
+
+- [x] **Step 1 — guard every self-re-arming `after` loop.** Shipped, but as
+      **hygiene, not a bug fix** — the filed mechanism does not reproduce. See
+      *The re-arm loops* under Done for what was actually true.
+- [ ] **Step 2 — the three concrete runtime-indicator defects, plus
+      instrumentation.** Land *before* hunting the trigger, so the next
+      occurrence names itself: replace `except Exception: pass`
+      (`widgets/output.py:349`) with a log; prefer the innermost in-project
+      frame over `matches[-1]` (`:346`); key off `script_runner`'s real return
+      code instead of the `"exit code 0"` substring (`:341`). All three are
+      correct regardless of what the trigger turns out to be.
+      - **Blocking question before the trigger hunt:** was the failing Pillow
+        run started with `F5` (Output panel) or `Ctrl+F5`
+        (`run_file_in_terminal`, `app.py:10528` — goes to the PTY and never
+        touches `OutputPanel`)? If `Ctrl+F5`, no indicator was ever expected
+        and the bug collapses to the three defects above.
+- [ ] **Step 3 — `on_packages_changed`.** Wired in `app._build_packages_tab`,
+      fired after install *and* uninstall, with the Designer's `_pil_available`
+      invalidation hanging off it. Not another Pillow special case — the
+      callback is the fix. Testable at the widget level only once step 1 lands.
+- [ ] **Step 4 — classify a missing module from run output.** Scan for
+      `No module named '<x>'` and offer to install `<x>`, routed through the
+      same conda/pip decision `_on_designer_install_pillow` (`app.py:10692`)
+      already makes. Feature-sized and the half that actually tells a beginner
+      what to do; wants step 2 landed first so the run-output path is
+      trustworthy before a consumer is added to it.
+
+Steps 2 and 4 change the runtime-error indicator's behaviour, so
+`docs/terminal.md` ships with them (Definition of Done).
+
 ## 🐛 Bugs
 
 - [ ] **Uninstalling Pillow leaves the Designer believing it is still there,
@@ -84,41 +120,20 @@ file is what's next.
         should prefer the innermost frame whose file exists *and* sits inside
         the project, falling back to the first frame after `Traceback`.
       - **`"exit code 0" in text` is a whole-buffer substring test**
-        (`output.py:341`). Correct today only because every run path clears
+        (`output.py:341`). Mostly correct today because every run path clears
         first — but the Package Manager writes into this same panel *without*
         clearing (`get_output_panel` in `app._build_packages_tab`), so this is
-        one refactor away from a permanently-disabled indicator. Should key off
-        the actual return code, which `script_runner` already knows.
+        one refactor away from a permanently-disabled indicator. **And it is
+        already poisonable now, not only after that refactor:** a user program
+        that prints the string "exit code 0" anywhere suppresses the indicator
+        for its own crash. Should key off the actual return code, which
+        `script_runner` already knows.
       - **Verified non-firing path, possibly the answer here:** *Run in
         Terminal* (`Ctrl+F5` → `run_file_in_terminal`, `app.py:10528`) never
         reaches this code at all — output goes to the PTY, not the Output
         panel. If the failing run was started that way, no indicator is
         expected and nothing is broken. **Confirm which Run was used before
         treating this as a parse bug.**
-
-- [ ] **`make_thread_safe_after`'s pump loop re-arms against a destroyed
-      widget.** `_pump` in `utils/thread_safe_after.py` ends with an
-      unconditional `widget.after(16, _pump)`, so once the widget is gone the
-      next tick raises `RuntimeError: main thread is not in main loop`. Every
-      panel that owns a manager starts one of these loops
-      (`PackageManagerPanel`, `SourceControl`, the AI panel, …), so the raise
-      happens on any teardown that is not process exit — closing a panel tab
-      included. In the app it is swallowed by Tk's background-error handler and
-      invisible; it became visible as four
-      `PytestUnraisableExceptionWarning`s the moment a test constructed a panel
-      and let the `tk_root` fixture destroy it.
-      - Fix is a guard before re-arming — `if widget.winfo_exists()`, wrapped
-        in `try/except tk.TclError` since the widget can go away between the
-        check and the call. Same guard belongs on the drain loop's own
-        `widget.after`.
-      - **Why it matters beyond tidiness:** it makes panels effectively
-        untestable at the widget level. Phase 2's two panel tests were dropped
-        and their decisions extracted into pure `utils/conda_env` helpers
-        instead — which was the better design anyway, but it should have been a
-        free choice rather than a forced one. Fixing this unblocks real GUI
-        coverage for the Package Manager, and the fix is small enough that the
-        only reason it is filed rather than done is that it does not belong
-        inside a feature commit.
 
 ## ✨ Features
 
@@ -273,6 +288,39 @@ Each phase is independently shippable. **Tests green before every commit** —
 ## ✅ Done on this branch
 
 **Bugs**
+- [x] **The re-arm loops — filed as a crash, shipped as hygiene.** The entry
+      claimed an unguarded `widget.after(16, _pump)` raises
+      `RuntimeError: main thread is not in main loop` once the widget is gone,
+      and that this made panels untestable at the widget level. **Neither
+      reproduces.** `Misc.destroy()` deletes every Tcl command the widget
+      registered, and `Misc.after()` registers its callback as exactly such a
+      command — so the pending tick invokes a command that no longer exists,
+      which dies at the Tcl level and never re-enters Python. Measured for both
+      shapes IDOL has (loop on the destroyed widget; loop that touches the
+      widget first): no `report_callback_exception`, no unraisable exception.
+      Constructing `PackageManagerPanel` and `OutputPanel` and letting the
+      `tk_root` fixture destroy them passes with unraisable warnings promoted
+      to errors, **against the unfixed code**. The four
+      `PytestUnraisableExceptionWarning`s that motivated the entry were almost
+      certainly `tkinter.Variable.__del__` — the mechanism documented in the
+      Phase 4 note and already closed by the `gc.collect()` in `tk_root`.
+      - **Shipped anyway, because one shape genuinely does raise:** a loop
+        registered on widget A that re-arms against a *different*, destroyed
+        widget B — B's commands are gone while A keeps the loop alive. No site
+        in IDOL has that shape. `utils.thread_safe_after.rearm_after` now owns
+        every re-arm (ten sites, six of which the original entry never listed —
+        including a 25 ms perpetual loop in `app._highlight_active_line` and
+        the caret blink in `canvas_codeview`), and the AST allowlist in
+        `tests/test_after_rearm.py` is what stops a variant-B loop being added.
+        It returns the after-id rather than a bool: three sites store theirs to
+        `after_cancel` on an explicit stop, and a bool would have forced them
+        back onto bare `widget.after`.
+      - **The lesson worth keeping:** the structural test was red against all
+        ten sites; the three behavioural tests written alongside it passed
+        against knowingly unfixed code and were deleted. *Prove it fails
+        without the fix* caught this one — a plausible mechanism, traced
+        carefully through the code, that the interpreter simply does not do.
+        Measure the failure before writing the guard for it.
 - [x] **The remembered interpreter was machine-global, not per-project** —
       `self._explorer_root` was read by three sites and assigned by none, so
       every read fell through to its fallback and two of them keyed

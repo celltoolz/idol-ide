@@ -40,7 +40,7 @@ from utils import recent as recent_utils
 from utils import settings as settings_utils
 from utils import clipboard_store
 from utils import starter_templates
-from utils.thread_safe_after import make_thread_safe_after
+from utils.thread_safe_after import make_thread_safe_after, rearm_after
 from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
 from utils.ui_font import UI_FONT
@@ -2799,7 +2799,7 @@ class IDOL(Tk):
         self._git.get_status(self._on_git_status)
         self._git.get_ahead_behind(self._on_git_ahead_behind)
         # Poll every 30 s to catch external git operations
-        self.after(30_000, self._refresh_git)
+        rearm_after(self, 30_000, self._refresh_git)
 
     def _on_git_branch(self, branch: str) -> None:
         self._statusbar.set_branch(branch)
@@ -3733,7 +3733,7 @@ class IDOL(Tk):
                     outline=self._outline,
                     is_python=_cv_is_python(cv),
                 )
-        self.after(25, self._highlight_active_line)
+        rearm_after(self, 25, self._highlight_active_line)
 
     # ── File operations ───────────────────────────────────────────────────────
 

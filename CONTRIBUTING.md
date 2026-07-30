@@ -105,7 +105,7 @@ no widget imports, no stateful objects.
 | `git_remote_guide.py` | Content module — same pattern as `venv_guide.py` for git remote guide. |
 | `guide_types.py` | Shared `GuidePage` dataclass used by all guide content modules. |
 | `custom_cursor.py` | Cross-platform learning-mode cursor (arrow + question mark). Uses system cursor on Windows/macOS; generates XBM bitmap on Linux where system cursor is unreliable. |
-| `thread_safe_after.py` | `make_thread_safe_after(widget)` — returns an `after_fn` safe to call from daemon threads. Use this instead of `self.after` when constructing any manager that runs on background threads. |
+| `thread_safe_after.py` | `make_thread_safe_after(widget)` — returns an `after_fn` safe to call from daemon threads. Use this instead of `self.after` when constructing any manager that runs on background threads. Also `rearm_after(widget, delay_ms, callback) -> str \| None`: the single entry point for a **self-re-arming** `after` loop, returning the after-id or None once the widget is gone. It returns an id rather than a bool because several such loops also `after_cancel` what they stored on an explicit stop, and a bool would have forced those sites back onto bare `widget.after`. Note what this is *not* protecting against: destroying a widget deletes every Tcl command it registered, `after` callbacks included, so an unguarded loop on a destroyed widget dies at the Tcl level rather than raising into Python — measured, not assumed. The shape that does raise is a loop registered on widget A re-arming against a *different*, destroyed widget B; `tests/test_after_rearm.py` walks the AST of every module to keep one from being added. **This is the only `utils/` module that imports tkinter** — the import rule bars `utils/` from reaching into IDOL's `widgets/` layer, and this file is a tkinter lifecycle shim by definition, already taking a Tk widget and calling `.after()` on it. |
 | `ruff_rules.py` | Beginner-friendly descriptions for ruff diagnostic codes — maps rule IDs to plain-English explanations used in the Problems panel. |
 | `debug_input_guide.py` | Content module — `get_pages()` returning `GuidePage` dataclasses for the input()/debugger guide. Same pattern as `venv_guide.py`. |
 | `git_install_guide.py` | Content module — 3-page guide for installing git on Windows, macOS, and Linux. Opened from the Git Health panel when git is not found on PATH. |
@@ -356,6 +356,7 @@ Static data files. Any future static data files belong here, not inside package 
 - **Never pass `self.after` directly as `after_fn`** — on macOS Python 3.14+, `tkinter.after()` calls `tk.createcommand()` internally and must only be called from the main thread
 - Always use `make_thread_safe_after(self)` from `utils/thread_safe_after.py` instead: it queues callbacks from any thread and drains them on the main thread via a 16ms poll loop
 - The pattern is: do work on thread → `after_fn(0, callback, *args)`
+- **A loop that re-schedules itself goes through `rearm_after`, not `widget.after`** — `tests/test_after_rearm.py` fails on a new bare re-arm and names it. The alternative is equally accepted: store the after-id and `after_cancel` it in `destroy()`; add such a site to that test's allowlist with the reason
 
 ---
 
@@ -420,6 +421,15 @@ fail, restore. Twice on this codebase a test passed against knowingly broken
 code — once because it asserted on the helper rather than the thing that drew
 the pixels, once because it drove an internal method instead of the control a
 user touches. A test written after the fix and never seen red is a guess.
+
+**When it won't go red, suspect the bug report before the test.** The re-arm
+work is the case: three tests asserted that a destroyed widget's poll loop stops
+raising, and all three passed unfixed, because tkinter deletes a widget's
+`after` commands on `destroy()` and the tick never re-enters Python at all. The
+mechanism had been traced through the code and read perfectly — it just is not
+what the interpreter does. A guard written for an unmeasured failure is a guess
+too. Reproduce the failure first, in a throwaway script if need be, and let what
+you measure decide the fix's shape and its commit type.
 
 **Prefer behaviour when an event can be synthesised.** The scroll-dismiss test
 originally asserted that `"<MouseWheel>"` and `"_close_color_popup"` appeared in

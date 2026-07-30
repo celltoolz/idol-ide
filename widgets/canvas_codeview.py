@@ -91,6 +91,7 @@ def language_from_path(path: str | None) -> str:
 # time, so swapping themes is a one-call recolor.
 
 from utils.theme_loader import list_themes as _list_themes, load_theme as _load_theme
+from utils.thread_safe_after import rearm_after
 
 _DEFAULT_THEME = "monokai-bright"
 
@@ -1752,7 +1753,7 @@ class CanvasCodeView(TokenizerMixin, FoldMixin, GutterMixin, MultiCursorMixin, B
         if self._has_focus():
             self.cursor_visible = not self.cursor_visible
             self.render()
-        self.after(500, self._blink_cursor)
+        rearm_after(self, 500, self._blink_cursor)
 
     def _reset_blink(self) -> None:
         self.cursor_visible = True

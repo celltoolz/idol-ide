@@ -6,6 +6,7 @@ import tempfile
 import tkinter as tk
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
+from utils.thread_safe_after import rearm_after
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar
 
@@ -367,4 +368,4 @@ class OutputPanel(ttk.Frame):
                 self.write(text, tag)
         except queue.Empty:
             pass
-        self.after(50, self._poll)
+        rearm_after(self, 50, self._poll)

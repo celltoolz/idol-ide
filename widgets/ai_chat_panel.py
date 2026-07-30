@@ -11,6 +11,7 @@ from widgets.scrollbar import HorizontalScrollbar, VerticalScrollbar
 from utils import ollama_client
 from utils import settings as idol_settings
 from widgets.learning_manager import LearningManager
+from utils.thread_safe_after import rearm_after
 from utils.ui_font import UI_FONT
 
 _HISTORY_FILE = Path.home() / ".idol" / "ai_history.json"
@@ -683,7 +684,7 @@ class AiChatPanel(tk.Frame):
             except Exception:
                 return
             _idx[0] += 1
-            self._thinking_job = self.after(400, _tick)
+            self._thinking_job = rearm_after(self, 400, _tick)
 
         self._thinking_job = self.after(0, _tick)
 

@@ -11,6 +11,7 @@ from widgets.scrollbar import VerticalScrollbar
 
 from editor.git_manager import STATUS_COLORS, folder_status, status_colors
 from utils import bind_right_click
+from utils.thread_safe_after import rearm_after
 from utils.ui_font import UI_FONT
 
 
@@ -420,7 +421,7 @@ class FileExplorer(ttk.Frame):
                 _attempts[0] += 1
                 if _attempts[0] < 5:
                     # Retry up to 5 times at 50ms intervals
-                    self._tree.after(50, _place)
+                    rearm_after(self._tree, 50, _place)
                 else:
                     # Give up and fall back to dialog
                     try:

@@ -21,7 +21,7 @@ from utils.conda_channels import preview_note_channels, validate
 from utils.conda_env import (channel_edit_action, create_project_environment_yml,
                              is_conda_env, mask_channel, resolve_channels,
                              write_project_channels)
-from utils.thread_safe_after import make_thread_safe_after
+from utils.thread_safe_after import make_thread_safe_after, rearm_after
 from widgets.guide_window import GuideWindow, GuidePage
 from utils.ui_font import UI_FONT
 
@@ -756,10 +756,7 @@ class PackageManagerPanel(tk.Frame):
                 self._search_entry.delete(0, "end")
                 self._search_entry.insert(0, hints[self._hint_idx])
                 self._search_entry.config(fg=_DIM)
-        try:
-            self.after(3000, self._cycle_hint)
-        except Exception:
-            pass  # widget destroyed
+        rearm_after(self, 3000, self._cycle_hint)
 
     # ── Load installed packages ────────────────────────────────────────────────
 
