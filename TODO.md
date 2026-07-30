@@ -43,6 +43,58 @@ file is what's next.
         scoping separately: it is a general feature (any missing dependency),
         not a Pillow fix, and it is the half that actually tells a beginner
         what to do.
+      - **The Problems panel cannot help here, and that is expected** — worth
+        recording so it is not re-filed as a defect. `editor/pyflakes_linter.py`
+        is ruff plus `compile()`: ruff is a static linter that never resolves
+        imports and has no missing-module rule, and `compile()` only raises on
+        syntax — imports are not executed at compile time. Neither can know
+        `PIL` is gone. pylsp does not fill the gap either (its pyflakes plugin
+        reports *unused* imports, not unresolvable ones). So a missing
+        dependency is invisible until the run, which is precisely why the
+        run-output classification above is the right place to catch it rather
+        than a new diagnostic.
+
+- [ ] **The runtime-error indicator fires unreliably.** After a failed run it is
+      supposed to jump to the crashed line, paint the amber gutter triangle and
+      flash the Problems tab (`app._on_runtime_error`, `app.py:2554`). Sometimes
+      it does; on the Pillow `ModuleNotFoundError` above it did not.
+      - **Trigger not yet identified — do not assume it is the parse.** The
+        whole path was traced and the parts that look fragile are actually
+        sound: `script_runner` joins both drain threads *before* writing the
+        exit line and the sentinel (`script_runner.py:86-98`), and
+        `OutputPanel._poll` writes every queued line before the sentinel
+        reaches `_finish_run` (`output.py:358-370`) — so the traceback really
+        is in the widget when the check runs. `run()`/`run_code()` clear the
+        panel first (`output.py:286`, `303`), so the buffer holds only this
+        run. Both `ModuleNotFoundError` traceback shapes were reproduced
+        (direct, and nested inside a package `__init__`): single clean frames,
+        no `<frozen importlib._bootstrap>` noise, and `_TRACEBACK_RE`
+        (`output.py:12`) matches them. On paper it should have fired.
+      - **Fix this first, regardless: `except Exception: pass`**
+        (`output.py:349`). Every failure inside `_on_runtime_error` is
+        swallowed silently — a path that no longer exists, `_open_file_at`
+        raising, anything. It costs nothing to log, and it is the reason this
+        is currently undiagnosable. Do that before hunting further; the next
+        occurrence then names itself.
+      - **`matches[-1]` is the wrong frame to pick** (`output.py:346`). It
+        takes the innermost frame in the buffer, so an exception raised inside
+        a dependency points at a `site-packages` file and IDOL opens a library
+        instead of your code; a chained traceback ("During handling of the
+        above exception…") picks the wrong exception's frame entirely. It
+        should prefer the innermost frame whose file exists *and* sits inside
+        the project, falling back to the first frame after `Traceback`.
+      - **`"exit code 0" in text` is a whole-buffer substring test**
+        (`output.py:341`). Correct today only because every run path clears
+        first — but the Package Manager writes into this same panel *without*
+        clearing (`get_output_panel` in `app._build_packages_tab`), so this is
+        one refactor away from a permanently-disabled indicator. Should key off
+        the actual return code, which `script_runner` already knows.
+      - **Verified non-firing path, possibly the answer here:** *Run in
+        Terminal* (`Ctrl+F5` → `run_file_in_terminal`, `app.py:10528`) never
+        reaches this code at all — output goes to the PTY, not the Output
+        panel. If the failing run was started that way, no indicator is
+        expected and nothing is broken. **Confirm which Run was used before
+        treating this as a parse bug.**
 
 - [ ] **`make_thread_safe_after`'s pump loop re-arms against a destroyed
       widget.** `_pump` in `utils/thread_safe_after.py` ends with an
