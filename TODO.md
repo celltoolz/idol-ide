@@ -294,6 +294,26 @@ Each phase is independently shippable. **Tests green before every commit** —
 ## ✅ Done on this branch
 
 **Bugs**
+- [x] **Re-installing a conda package routed through pip.** Found by the user
+      immediately after verifying `on_packages_changed` in the real app —
+      uninstall Pillow, click Install on the pane still showing it, and it came
+      back from PyPI with IDOL's own pip-in-conda warning attached. The warning
+      was the tell: the panel genuinely believed PyPI had been chosen.
+      `_selected_src` had two values doing three jobs — `"pypi"` meant both
+      *the user picked a PyPI search result* and *we have no conda metadata for
+      this row*, and the installed list always took the second meaning while
+      being routed by the first. Fixed with the missing third state: `_listing`
+      records what the tree is showing, only a search result sets a preference,
+      an installed-list pick sets `""`, and `_wants_pip` falls back to the
+      package's recorded origin and then to the environment's own backend.
+      - **Do not "simplify" `_conda_detail_data` to key on `_listing`.** It
+        looks like the same question and is not: `_refresh_selected_detail`
+        runs after `_populate_grouped` has reset `_listing` to `"installed"`,
+        so that change silently reintroduces the Phase 4 stale-detail bug.
+      - Worth noting how it was found: **manual verification of a shipped fix
+        turned up an adjacent bug the tests could never have caught**, because
+        both halves were individually correct. Same lesson as the Phase 4
+        screenshot — run the thing after shipping it.
 - [x] **The re-arm loops — filed as a crash, shipped as hygiene.** The entry
       claimed an unguarded `widget.after(16, _pump)` raises
       `RuntimeError: main thread is not in main loop` once the widget is gone,

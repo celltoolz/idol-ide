@@ -258,7 +258,15 @@ class PackageManagerPanel(tk.Frame):
         self._tos_ok_exe: str | None = None   # conda exe whose ToS check passed
         self._conda_index = CondaSearchIndex(after_fn=_after)
         self._search_source = "pypi"          # "pypi" | "conda" — where search looks
-        self._selected_src = "pypi"           # source of the currently selected search result
+        #: What the tree is currently showing: "installed" | "pypi" | "conda".
+        #: Set by the three population methods, read by _on_select — a
+        #: selection only expresses a source preference when it came from a
+        #: search, and the installed list is not one.
+        self._listing = "installed"
+        #: Which source the user *chose* for the selected package: "pypi",
+        #: "conda", or "" for no choice at all (selected from the installed
+        #: list). The empty state is load-bearing — see _wants_pip.
+        self._selected_src = ""
         self._conda_results: dict[str, dict] = {}   # last conda search results by name
         self._project_dir: str = ""            # folder whose environment.yml we read
         self._chan_cfg: conda_backend.ChannelConfig | None = None
@@ -853,6 +861,7 @@ class PackageManagerPanel(tk.Frame):
         return "" if origin == primary else f"  · {mask_channel(origin)}"
 
     def _populate_grouped(self) -> None:
+        self._listing = "installed"
         self._tree.delete(*self._tree.get_children())
         self._tree_label.config(text=f"INSTALLED  ({len(self._installed)})")
 
@@ -900,6 +909,7 @@ class PackageManagerPanel(tk.Frame):
     # ── Local filter (instant, no network) ────────────────────────────────────
 
     def _filter_installed(self) -> None:
+        self._listing = "installed"
         raw = self._search_var.get().strip()
         if not raw or raw in _ALL_HINTS:
             self._populate_grouped()
@@ -982,6 +992,7 @@ class PackageManagerPanel(tk.Frame):
         self._run_conda_search(query)
 
     def _run_conda_search(self, query: str) -> None:
+        self._listing = "conda"
         scope = self._scope_channel or None
         results = self._conda_index.search(query, channel=scope)
         self._conda_results = {r["name"]: r for r in results}
@@ -1066,6 +1077,7 @@ class PackageManagerPanel(tk.Frame):
         self.after(0, lambda: self._populate_search(results))
 
     def _populate_search(self, results: list[str]) -> None:
+        self._listing = "pypi"
         self._tree.delete(*self._tree.get_children())
         if not results:
             self._tree_label.config(text="PYPI RESULTS  (none found)")
@@ -1107,7 +1119,10 @@ class PackageManagerPanel(tk.Frame):
             self._selected_src = "conda"
             self._detail.show(name, conda_data, self._installed.get(name))
             return
-        self._selected_src = "pypi"
+        # Only a search result expresses a source preference. A row picked out
+        # of the installed list expresses none, and recording "pypi" for it is
+        # what used to send a conda package's re-install through pip.
+        self._selected_src = "pypi" if self._listing == "pypi" else ""
         if name in self._pypi_cache:
             self._detail.show(name, self._pypi_cache[name],
                               self._installed.get(name))
@@ -1131,8 +1146,8 @@ class PackageManagerPanel(tk.Frame):
     # ── Install / Uninstall ────────────────────────────────────────────────────
 
     def _install_pkg(self, name: str) -> None:
-        if self._backend is self._conda and self._selected_src == "pypi":
-            # Explicit PyPI pick in a conda env → pip inside the env. Never
+        if self._backend is self._conda and self._wants_pip(name):
+            # PyPI pick in a conda env → pip inside the env. Never
             # conda-install a PyPI name (conda's `graphviz` is the C tool,
             # PyPI's is the Python bindings — same name, different product).
             self._notify(
@@ -1141,6 +1156,26 @@ class PackageManagerPanel(tk.Frame):
             self._run_backend_op("install", name, force_pip=True)
             return
         self._run_backend_op("install", name)
+
+    def _wants_pip(self, name: str) -> bool:
+        """Should this install go through pip rather than the conda backend?
+
+        Yes in exactly two cases: the user picked a PyPI search result, or the
+        package is installed and pip is where it came from (re-installing it
+        with conda would swap the product underneath them).
+
+        The third case is the point. A package selected from the *installed*
+        list carries no source choice, and `_selected_src` used to record
+        "pypi" for it anyway — so uninstalling a conda package and clicking
+        Install on the row still in front of you silently reinstalled it from
+        PyPI, warning included. With no choice and no origin on record, the
+        environment's own backend is the answer.
+        """
+        if self._selected_src == "pypi":
+            return True
+        if self._selected_src:
+            return False
+        return self._origins.get(name, "") == "pypi"
 
     def _uninstall_pkg(self, name: str) -> None:
         self._run_backend_op("uninstall", name)

@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-30] — The Designer Notices When You Remove a Package
 
 ### Fixed
+- **Re-installing a conda package fetched it from PyPI instead.** In a conda environment, click a
+  package in your installed list, uninstall it, then click **Install** on the panel still showing
+  it — and it came back through `pip` from PyPI, along with IDOL's own warning that installing
+  with pip inside a conda environment can conflict with conda's resolver. IDOL thought you had
+  explicitly asked for PyPI. You hadn't: picking a row out of your installed list isn't a choice
+  of source at all, but it was being recorded as one. It now installs the way your environment
+  normally would — conda in a conda env — and only stays on pip when the package actually came
+  from pip, which the `· pip` badge already tells you. Choosing a result from a **PyPI** or
+  **conda** search still means exactly what it says.
 - **Uninstalling Pillow left the GUI Designer insisting it was still installed.** Remove Pillow
   from the Package Manager and the Designer went on drawing image properties as perfectly healthy
   — no **⚠ click to install Pillow** row — right up until you hit Run and got a bare
