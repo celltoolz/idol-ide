@@ -233,11 +233,17 @@ class PackageManagerPanel(tk.Frame):
                  get_output_panel: Callable | None = None,
                  get_ai_panel: Callable | None = None,
                  open_ai_panel: Callable | None = None,
+                 on_packages_changed: Callable | None = None,
                  **kwargs) -> None:
         super().__init__(parent, bg=_BG, **kwargs)
         self._get_output_panel = get_output_panel
         self._get_ai_panel     = get_ai_panel
         self._open_ai_panel    = open_ai_panel
+        #: Fired after an install or uninstall finishes. This panel is the only
+        #: place that changes what is installed, and until this existed it told
+        #: nobody — it refreshed its own tree and left every other cache of
+        #: "is package X present" stale. See app._on_packages_changed.
+        self._on_packages_changed = on_packages_changed
         self._installed: dict[str, str] = {}   # name → version
         self._origins: dict[str, str] = {}     # name → "conda" | "pypi" (conda backend only)
         self._selected_pkg: str = ""
@@ -1214,14 +1220,27 @@ class PackageManagerPanel(tk.Frame):
         if verb == "install":
             if backend is self._conda and self._scope_channel:
                 backend.install(name, on_line=_on_line,
-                                on_done=self._load_installed, on_error=on_error,
+                                on_done=self._op_done, on_error=on_error,
                                 only_channel=self._scope_channel)
             else:
                 backend.install(name, on_line=_on_line,
-                                on_done=self._load_installed, on_error=on_error)
+                                on_done=self._op_done, on_error=on_error)
         else:
             backend.uninstall(name, origin, on_line=_on_line,
-                              on_done=self._load_installed, on_error=on_error)
+                              on_done=self._op_done, on_error=on_error)
+
+    def _op_done(self) -> None:
+        """Refresh our own tree, then tell everyone else the environment moved.
+
+        Deliberately fires on failure too — both backends call on_done whether
+        or not the operation succeeded, and the honest response to "we don't
+        know what happened" is to make every cached answer re-derive itself. A
+        needless re-probe costs a subprocess; a missed one is the bug this
+        callback exists for.
+        """
+        self._load_installed()
+        if self._on_packages_changed:
+            self._on_packages_changed()
 
     # ── Install preview (dry run) ─────────────────────────────────────────────
 

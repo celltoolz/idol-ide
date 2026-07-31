@@ -4929,6 +4929,7 @@ class IDOL(Tk):
             get_output_panel=lambda: self._output.output,
             get_ai_panel=lambda: self._ai_chat_panel,
             open_ai_panel=self._ensure_ai_panel_open,
+            on_packages_changed=self._on_packages_changed,
         )
         panel.pack(fill="both", expand=True)
         # Project dir before interpreter: set_python paints the channel bar, and
@@ -4941,6 +4942,25 @@ class IDOL(Tk):
         nb.select(frame)
         self._pkg_tab = nb.select()
         self._pkg_panel = panel
+
+    def _on_packages_changed(self) -> None:
+        """The active interpreter's installed set may have moved.
+
+        The one place every package-mutating path reports to, so a consumer
+        that caches "is package X present" registers its invalidation once
+        instead of being wired to each producer. Three paths call it: the
+        Package Manager's install/uninstall, the Designer's own install-Pillow
+        row, and `!pip` from the command palette. Only the first two used to
+        touch the Designer's cache, and only on install — which is why
+        uninstalling Pillow left the Designer showing image props as healthy
+        right up until the run failed on `from PIL import Image`.
+
+        Fired on failed operations too. Deciding whether an install "worked"
+        means probing the interpreter, which is exactly what the consumers do
+        for themselves; guessing here would just be a second, worse probe.
+        """
+        if hasattr(self, "_props_panel") and self._props_panel:
+            self._props_panel.invalidate_package_cache()
 
     def view_settings(self, *_) -> None:
         """Toggle the Settings tab (Ctrl+,). Same tab pattern as Packages."""
@@ -10777,7 +10797,10 @@ class IDOL(Tk):
         # Both backends fire on_done even when the install failed — probe the
         # interpreter before reporting success or touching the deps file.
         panel = self._props_panel
-        panel._pil_available = None
+        # refresh=False: this path writes the row itself, with a success or
+        # failure message. A re-render would discard that row and start a
+        # second probe racing the one below.
+        panel.invalidate_package_cache(refresh=False)
 
         def _result(ok: bool) -> None:
             if ok:
@@ -11576,6 +11599,10 @@ class IDOL(Tk):
                 # Refresh pkg panel installed list if it's open
                 if self._pkg_panel:
                     self.after(0, self._pkg_panel._load_installed)
+                # Outside that guard on purpose — `!pip install` works with the
+                # Packages tab closed, and the Designer's cache goes stale
+                # either way.
+                self.after(0, self._on_packages_changed)
             except Exception as exc:
                 # Bind the message now, not in the lambda: Python deletes the
                 # `except ... as` name when the block ends, and this callback

@@ -22,16 +22,13 @@ after step 1, exactly one item here has an observed symptom, and it goes first.
 - [x] **Step 1 — guard every self-re-arming `after` loop.** Shipped, but as
       **hygiene, not a bug fix** — the filed mechanism does not reproduce. See
       *The re-arm loops* under Done for what was actually true.
-- [ ] **Step 2 — `on_packages_changed`.** The only item with a real,
-      user-reproduced symptom: uninstall Pillow and the Designer still shows
-      image props as healthy. Wired in `app._build_packages_tab`, fired after
-      install *and* uninstall, with the Designer's `_pil_available`
-      invalidation hanging off it. Not another Pillow special case — the
-      callback is the fix.
-      - Step 1 was *claimed* to be what makes this testable at the widget
-        level. It wasn't: `PackageManagerPanel` builds and destroys cleanly
-        under `tk_root` with unraisable warnings promoted to errors, and did
-        so before step 1 too. A panel test is available; it always was.
+- [x] **Step 2 — `on_packages_changed`.** Shipped. Three producers report to
+      `app._on_packages_changed` (the panel's install/uninstall, the Designer's
+      install-Pillow row, `!pip` from the palette); the Designer's
+      `invalidate_package_cache` is the first consumer. Fires on failure too —
+      neither backend knows whether the operation worked. The re-render was the
+      half that made it visible: clearing the cache alone left the stale row on
+      screen until the user happened to reselect the widget.
 - [ ] **Step 3 — three latent defects in `_try_fire_runtime_error`.** Found by
       reading `widgets/output.py`, **not by any reported failure** — see the
       Bugs entry for why the symptom that prompted the read turned out not to
@@ -50,8 +47,10 @@ ships with it (Definition of Done). Steps 2 and 3 are both internal.
 
 ## 🐛 Bugs
 
-- [ ] **Uninstalling Pillow leaves the Designer believing it is still there,
-      and the run just crashes.** Remove Pillow from the Package Manager in a
+- [x] **Uninstalling Pillow leaves the Designer believing it is still there,
+      and the run just crashes.** *First half fixed (`on_packages_changed`);
+      the second half — classifying a missing module from run output — is
+      Active Work step 4 and stays open.* Remove Pillow from the Package Manager in a
       conda env, and the Designer keeps rendering image props as healthy — no
       "⚠ click to install Pillow" row — then Run fails with a bare
       `ModuleNotFoundError: No module named 'PIL'` from the generated

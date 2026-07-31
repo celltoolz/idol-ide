@@ -2117,7 +2117,36 @@ class DesignerProperties(tk.Frame):
 
     def set_active_python(self, exe: str) -> None:
         self._active_python = exe
+        self.invalidate_package_cache()
+
+    def invalidate_package_cache(self, refresh: bool = True) -> None:
+        """Forget what we know about the interpreter's packages.
+
+        The PIL probe is memoised — it costs a subprocess, and re-running it on
+        every widget selection would be absurd — so something has to say "ask
+        again" when the environment moves underneath us. It used to be cleared
+        on interpreter change and after a Pillow install from this panel, and
+        **nowhere else**: uninstalling Pillow from the Package Manager left the
+        cache saying True, image props rendering as healthy, and the run failing
+        with a bare ModuleNotFoundError.
+
+        *refresh* re-renders the active view so the answer already on screen is
+        corrected, which is the half that makes this visible — a cleared cache
+        alone leaves the stale row sitting there until the user happens to
+        reselect the widget. Only the widget and form views probe PIL on load,
+        and only when something actually carries an image, so nothing is
+        re-rendered that has no PIL row to correct. Pass False from a caller
+        that updates the row itself; re-rendering would discard the row it is
+        about to write and start a second probe racing the first.
+        """
         self._pil_available = None
+        if not refresh or self._comp_mode:
+            return
+        if self._current_widget is not None:
+            if self._current_widget.props.get("image"):
+                self.load_widget(self._current_widget)
+        elif self._form is not None and self._form.image:
+            self.load_form(self._form)
 
     def set_project_dir(self, path: str) -> None:
         self._project_dir = path

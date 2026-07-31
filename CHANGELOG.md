@@ -5,6 +5,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-30] — The Designer Notices When You Remove a Package
+
+### Fixed
+- **Uninstalling Pillow left the GUI Designer insisting it was still installed.** Remove Pillow
+  from the Package Manager and the Designer went on drawing image properties as perfectly healthy
+  — no **⚠ click to install Pillow** row — right up until you hit Run and got a bare
+  `ModuleNotFoundError: No module named 'PIL'` pointing at a line of generated code you can't
+  edit. The Designer only ever checks the interpreter once and remembers the answer, and that
+  memory was being cleared when you *installed* Pillow and never when you removed it. Installing
+  from the Designer had always worked, which is exactly why the whole thing looked wired up.
+  - The real gap was that the Package Manager never told anything it had finished. It refreshed
+    its own list and stopped there, so anything else remembering what you have installed was left
+    holding a stale answer. Install and uninstall now both announce themselves, and the Designer
+    re-checks and repaints on the spot rather than the next time you happen to click the widget.
+  - `!pip install` / `!pip uninstall` from the command palette announce themselves too, and so
+    does switching the active interpreter — point a project at an environment without Pillow and
+    the warning appears straight away instead of at the next run.
+
+---
+
 ## [2026-07-29] — Panels That Open Where You Can See Them
 
 ### Added
