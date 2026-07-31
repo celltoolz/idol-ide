@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-30] — The Designer Notices When You Remove a Package
 
 ### Fixed
+- **Installing from the Designer left the Package Manager showing the old answer.** With the
+  Packages tab open beside the Designer in a split, clicking **⚠ click to install Pillow**
+  installed it — and the panel inches away carried on offering **Install**, with **Uninstall**
+  greyed out, for a package that now existed. Refreshing or reopening the tab fixed it. The
+  Package Manager was announcing its own installs to everything else but was not itself
+  listening, so anything installed from elsewhere went unnoticed. It now updates in place, for
+  the Designer's install row and for `!pip` in the command palette alike.
 - **Re-installing a conda package fetched it from PyPI instead.** In a conda environment, click a
   package in your installed list, uninstall it, then click **Install** on the panel still showing
   it — and it came back through `pip` from PyPI, along with IDOL's own warning that installing

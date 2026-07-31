@@ -1265,17 +1265,32 @@ class PackageManagerPanel(tk.Frame):
                               on_done=self._op_done, on_error=on_error)
 
     def _op_done(self) -> None:
-        """Refresh our own tree, then tell everyone else the environment moved.
+        """Announce that the environment moved; the hub refreshes us with it.
 
         Deliberately fires on failure too — both backends call on_done whether
         or not the operation succeeded, and the honest response to "we don't
         know what happened" is to make every cached answer re-derive itself. A
         needless re-probe costs a subprocess; a missed one is the bug this
         callback exists for.
+
+        We do *not* refresh ourselves and then notify: `refresh_installed` is
+        one of the hub's consumers, so doing both would run `conda list` twice
+        for one operation. The fallback is for a panel with no host wired.
         """
-        self._load_installed()
         if self._on_packages_changed:
             self._on_packages_changed()
+        else:
+            self.refresh_installed()
+
+    def refresh_installed(self) -> None:
+        """Re-read the installed set from the active backend.
+
+        Public because the app-level package-changed hub calls it: an install
+        started somewhere else — the Designer's install-Pillow row, `!pip` in
+        the command palette — leaves this panel's tree and its detail buttons
+        describing an environment that has moved.
+        """
+        self._load_installed()
 
     # ── Install preview (dry run) ─────────────────────────────────────────────
 

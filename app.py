@@ -4958,9 +4958,17 @@ class IDOL(Tk):
         Fired on failed operations too. Deciding whether an install "worked"
         means probing the interpreter, which is exactly what the consumers do
         for themselves; guessing here would just be a second, worse probe.
+
+        Both consumers run for every producer, including when the producer is
+        one of them. The Package Manager was originally only a producer, which
+        is why installing Pillow from the Designer left the panel — sitting
+        right beside it in the split — still offering **Install** for a package
+        that was now installed.
         """
         if hasattr(self, "_props_panel") and self._props_panel:
             self._props_panel.invalidate_package_cache()
+        if getattr(self, "_pkg_panel", None):
+            self._pkg_panel.refresh_installed()
 
     def view_settings(self, *_) -> None:
         """Toggle the Settings tab (Ctrl+,). Same tab pattern as Packages."""
@@ -10797,10 +10805,12 @@ class IDOL(Tk):
         # Both backends fire on_done even when the install failed — probe the
         # interpreter before reporting success or touching the deps file.
         panel = self._props_panel
-        # refresh=False: this path writes the row itself, with a success or
-        # failure message. A re-render would discard that row and start a
-        # second probe racing the one below.
-        panel.invalidate_package_cache(refresh=False)
+        # Report to the hub like any other producer: this clears the Designer's
+        # cache, re-renders the row, and refreshes the Package Manager, which
+        # may be open beside us on the very package that just changed. The
+        # probe the re-render starts is the same one `_check_pil_async` below
+        # joins — `_start_pil_probe` coalesces them.
+        self._on_packages_changed()
 
         def _result(ok: bool) -> None:
             if ok:
@@ -11596,12 +11606,9 @@ class IDOL(Tk):
                 for line in proc.stdout:
                     self.after(0, lambda l=line: output.write(l))
                 proc.wait()
-                # Refresh pkg panel installed list if it's open
-                if self._pkg_panel:
-                    self.after(0, self._pkg_panel._load_installed)
-                # Outside that guard on purpose — `!pip install` works with the
-                # Packages tab closed, and the Designer's cache goes stale
-                # either way.
+                # The hub refreshes the Packages tab as well as the Designer,
+                # so this is the only call needed — and it is not gated on the
+                # tab being open, since `!pip install` works either way.
                 self.after(0, self._on_packages_changed)
             except Exception as exc:
                 # Bind the message now, not in the lambda: Python deletes the

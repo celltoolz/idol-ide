@@ -88,21 +88,39 @@ def test_scoped_conda_install_notifies(panel):
 
 
 @pytest.mark.gui
-def test_own_tree_still_refreshes(panel):
-    """The notification must be additive — the panel's own refresh still runs."""
+def test_the_hub_refreshes_the_panel_not_the_panel_itself(panel):
+    """`refresh_installed` is a hub consumer, so `_op_done` must not also do
+    its own reload — one operation would then run `conda list` twice.
+
+    Stubs `_load_installed`, not `refresh_installed`: the wrapper is what the
+    fix added, so counting calls to it would pass against the old code too.
+    """
+    reloads = []
+    panel._load_installed = lambda: reloads.append(1)
     panel._exec_backend_op("install", "requests")
-    assert "requests" in panel._installed
+    assert panel.fired == ["x"], "the hub was not notified"
+    assert reloads == [], "panel reloaded itself as well as being notified"
 
 
 @pytest.mark.gui
-def test_panel_works_without_a_listener(tk_root):
-    """on_packages_changed is optional; nothing may raise when it is absent."""
+def test_panel_refreshes_itself_with_no_listener(tk_root):
+    """Standalone fallback: with no host wired, the panel is its own consumer."""
     from widgets.package_manager import PackageManagerPanel
 
     p = PackageManagerPanel(tk_root)
     p._pip = p._conda = p._backend = _FakeBackend()
-    p._exec_backend_op("uninstall", "pillow")
+    p._exec_backend_op("install", "requests")
+    assert "requests" in p._installed
     p.destroy()
+
+
+@pytest.mark.gui
+def test_an_outside_install_refreshes_the_panel(panel):
+    """The reported bug, from the panel's side: something else installed a
+    package while this panel sat there showing the old answer."""
+    panel.backend.installed["numpy"] = "2.5.1"
+    panel.refresh_installed()
+    assert "numpy" in panel._installed
 
 
 # ── The listener: DesignerProperties.invalidate_package_cache ────────────────
@@ -129,6 +147,7 @@ class _Props:
 
     def __init__(self, widget=None, form=None, comp_mode=False) -> None:
         self._pil_available = True          # the stale "yes, PIL is here"
+        self._pil_gen = 0
         self._comp_mode = comp_mode
         self._current_widget = widget
         self._form = form
@@ -176,10 +195,10 @@ def test_component_mode_is_not_rerendered():
     assert p._pil_available is None
 
 
-def test_refresh_false_clears_without_rendering():
-    """What _on_pillow_install_done needs — it writes the row itself, and a
-    re-render would discard it and race a second probe against the first."""
+def test_invalidating_bumps_the_probe_generation():
+    """An uninstall can land while a probe is in flight, and that probe is
+    about to report on the environment as it was before."""
     p = _Props(widget=_Widget("logo.png"))
-    _invalidate(p, refresh=False)
-    assert p.rendered == []
-    assert p._pil_available is None
+    before = p._pil_gen
+    _invalidate(p)
+    assert p._pil_gen == before + 1

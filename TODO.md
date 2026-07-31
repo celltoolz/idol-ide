@@ -294,6 +294,24 @@ Each phase is independently shippable. **Tests green before every commit** —
 ## ✅ Done on this branch
 
 **Bugs**
+- [x] **The package-changed hub was wired in one direction only.** Install
+      Pillow from the Designer with the Packages tab open beside it, and the
+      panel kept offering **Install** for a package that now existed. My error
+      in the `on_packages_changed` commit: I documented three producers
+      reporting to the hub when only two did, and gave it one consumer when it
+      needed two. The Package Manager was a producer and not a listener, so
+      anything installed elsewhere went unnoticed. Both halves are now
+      complete, and CONTRIBUTING says so in the terms that were wrong: **a new
+      way to install belongs on this hook as much as a new cache does.**
+      - `_op_done` no longer reloads itself before notifying — `refresh_installed`
+        is a consumer, so doing both ran `conda list` twice per operation.
+      - Fanning out to several consumers made concurrent PIL probes routine, so
+        `_start_pil_probe` now coalesces them and `_pil_gen` discards an answer
+        whose environment changed mid-probe. That also killed the `refresh=False`
+        parameter, which only existed to dodge a probe race.
+      - **Found by the user running it, one commit after the fix it belongs
+        to.** Third time on this branch that manual verification caught what
+        tests structurally could not: every piece was individually correct.
 - [x] **Re-installing a conda package routed through pip.** Found by the user
       immediately after verifying `on_packages_changed` in the real app —
       uninstall Pillow, click Install on the pane still showing it, and it came
