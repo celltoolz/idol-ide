@@ -16,45 +16,32 @@ entry contained a careful trace proving nothing was wrong, and got filed anyway.
 
 ## 🚧 Active Work
 
-**All four steps shipped and pushed** (`6526a69`). The three items the user
-found while exercising step 4 are filed below — one bug, one feature — and the
-next round is deliberately unscoped until they are picked.
+Two items left before this branch closes, then the merge. Everything already
+shipped is under **Done** below. Each step is its own commit.
 
-Each step is its own commit. **Ordered by evidence, not by dependency** —
-after step 1, exactly one item here had an observed symptom, and it went first.
+**The terminal job is deliberately not in this round** — *Post-run analysis for
+terminal runs* under Features is the next branch's opener, not this one's
+closer.
 
-- [x] **Step 1 — guard every self-re-arming `after` loop.** Shipped, but as
-      **hygiene, not a bug fix** — the filed mechanism does not reproduce. See
-      *The re-arm loops* under Done for what was actually true.
-- [x] **Step 2 — `on_packages_changed`.** Shipped. Three producers report to
-      `app._on_packages_changed` (the panel's install/uninstall, the Designer's
-      install-Pillow row, `!pip` from the palette); the Designer's
-      `invalidate_package_cache` is the first consumer. Fires on failure too —
-      neither backend knows whether the operation worked. The re-render was the
-      half that made it visible: clearing the cache alone left the stale row on
-      screen until the user happened to reselect the widget.
-- [x] **Step 3 — three latent defects in `_try_fire_runtime_error`.** Shipped.
-      Exit status replaces the substring test (`ScriptRunner.returncode`);
-      `_pick_error_frame` takes the innermost frame inside `_run_root` instead
-      of `matches[-1]`; the swallowed exception now reports to the panel and
-      stderr. Each defect was verified caught by reintroducing it one at a
-      time. One test was rewritten mid-verification when its red turned out to
-      be an artifact of the stand-in rather than a real defect — it omitted the
-      exit line the old code depended on.
-- [x] **Step 4 — classify a missing module from run output.** Shipped as a
-      clickable line under the traceback. `utils/missing_module.py` carries the
-      import→package table for both ecosystems (the reason it exists:
-      `pip install PIL` fails and `pip install sklearn` installs a
-      tell-you-you-were-wrong stub), and `is_stdlib` reads
-      `sys.stdlib_module_names` so a missing `tkinter` is explained rather than
-      mis-offered. The Designer's Pillow path was generalised into
-      `app._install_into_active_env` rather than copied — that method carries
-      the conda ToS gate, and a third copy is a third place for it to drift.
-      Writes no dependency file: one click on a line in a log is too thin a
-      gesture to edit something git-tracked.
-
-Step 4 changes the runtime-error indicator's behaviour, so `docs/terminal.md`
-ships with it (Definition of Done). Steps 2 and 3 are both internal.
+- [ ] **Step 1 — runtime errors become real PROBLEMS entries.** The panel
+      flashes for a runtime error and has nothing to show; see the Bugs entry
+      for the verified detail and the two candidate resolutions. Going with
+      **(a)**, synthesize the entry: a merged app-held `_runtime_problems`
+      list unioned inside `update_problems`, not an injection, because that
+      method replaces the whole list on every lint pass. Cleared when the next
+      run starts and by the package-changed hub once the missing package is
+      installed. The missing-module case already knows file, line, module and
+      the package that would fix it, so the entry can be genuinely useful
+      rather than a restatement of the traceback.
+- [ ] **Step 2 — refresh the conda channel index by hand.** The backend is
+      already there (`ensure_loaded(force=True)`); only the affordance and its
+      in-flight state are missing. See the Features entry. Also closes the
+      dangling `CONTRIBUTING.md` reference to "Phase 5's Refresh", a phase that
+      was never scoped.
+- [ ] **Step 3 — merge to master and close the branch.** *After* the user has
+      verified steps 1 and 2 in the running app. Full suite plus `ruff check .`,
+      `git merge --no-ff`, push master, delete the branch local and remote —
+      same sequence as `fdc00f9`.
 
 ## 🐛 Bugs
 
@@ -83,101 +70,6 @@ ships with it (Definition of Done). Steps 2 and 3 are both internal.
         carry. (a) is the better product; (b) is the fallback if merging
         turns out to fight the diagnostics lifecycle.
 
-- [x] **Uninstalling Pillow leaves the Designer believing it is still there,
-      and the run just crashes.** *Both halves fixed —
-      `on_packages_changed` (step 2) and the missing-module offer (step 4).*
-      Remove Pillow from the Package Manager in a
-      conda env, and the Designer keeps rendering image props as healthy — no
-      "⚠ click to install Pillow" row — then Run fails with a bare
-      `ModuleNotFoundError: No module named 'PIL'` from the generated
-      `from PIL import Image, ImageTk`.
-      - **Cause is a one-directional cache.** `DesignerProperties._pil_available`
-        (`widgets/designer_properties.py:109`) memoises the
-        `python -c "import PIL"` probe, and `_check_pil_async` short-circuits on
-        it — so once it is `True`, re-selecting the widget re-runs nothing. It
-        is invalidated in exactly two places: `set_active_python`
-        (`designer_properties.py:2118`) and `app._on_pillow_install_done`
-        (`app.py:10780`). **Install invalidates it; uninstall never does.**
-        That asymmetry is why this reads as a regression — installing Pillow
-        *from the Designer* has always cleared the warning correctly, so the
-        mechanism looks like it works. It was never wired the other way.
-        Nothing here changed in the conda-channels work.
-      - The real gap is that **`PackageManagerPanel` has no outbound
-        notification at all**. `_exec_backend_op` finishes with
-        `on_done=self._load_installed`, which refreshes its own tree and tells
-        nobody. Any consumer that caches "is package X present" has the same
-        bug latent; Pillow is just the one with a visible surface. Fix wants an
-        `on_packages_changed` callback wired in `app._build_packages_tab`,
-        firing after install *and* uninstall, with the Designer's invalidation
-        hanging off it — not another special case for Pillow.
-      - **Second, separable half: nothing classifies a run failure.**
-        `grep -rn "ModuleNotFoundError"` over the repo returns zero hits.
-        `app._on_runtime_error` (`app.py:2554`) is purely line-based — it jumps
-        to the line, paints the amber gutter triangle and flashes the Problems
-        tab. For a missing import that lands on a generated `import` line
-        inside the IDOL:BEGIN block, which is both unhelpful and un-editable.
-        Wants the run output scanned for `No module named '<x>'` and an
-        offer to install `<x>` — routed through the same conda/pip decision
-        `app._on_designer_install_pillow` (`app.py:10692`) already makes. Worth
-        scoping separately: it is a general feature (any missing dependency),
-        not a Pillow fix, and it is the half that actually tells a beginner
-        what to do.
-      - **The Problems panel cannot help here, and that is expected** — worth
-        recording so it is not re-filed as a defect. `editor/pyflakes_linter.py`
-        is ruff plus `compile()`: ruff is a static linter that never resolves
-        imports and has no missing-module rule, and `compile()` only raises on
-        syntax — imports are not executed at compile time. Neither can know
-        `PIL` is gone. pylsp does not fill the gap either (its pyflakes plugin
-        reports *unused* imports, not unresolvable ones). So a missing
-        dependency is invisible until the run, which is precisely why the
-        run-output classification above is the right place to catch it rather
-        than a new diagnostic.
-
-- [x] **Three latent defects in `_try_fire_runtime_error`** (`widgets/output.py`).
-      *Fixed — see Active Work step 3.* **No reported symptom — they were not
-      urgent.** They were found
-      while investigating "the runtime-error indicator fires unreliably", which
-      **was a misfiling and has been withdrawn**: the `ModuleNotFoundError`
-      that prompted it was the *expected* result of deliberately uninstalling
-      Pillow to test the Designer's "click to install Pillow" row. The crash
-      was mentioned in passing, read as a second defect, and written up as one.
-      Nobody ever observed the indicator failing to fire.
-      - **The withdrawn entry's own analysis found nothing wrong**, which
-        should have been the tell. `script_runner` joins both drain threads
-        before writing the exit line and the sentinel
-        (`script_runner.py:86-98`); `OutputPanel._poll` writes every queued
-        line before the sentinel reaches `_finish_run` (`output.py:358-370`);
-        `run()`/`run_code()` clear first (`:286`, `:303`); `_TRACEBACK_RE`
-        (`:12`) matches both `ModuleNotFoundError` shapes. It should have
-        fired, and as far as anyone knows it did.
-      - **Still worth fixing, at the weight of latent defects:** each is wrong
-        on its own terms, none has a known victim.
-      - **`except Exception: pass`** (`output.py:349`) swallows every failure
-        inside `_on_runtime_error` — a stale path, `_open_file_at` raising,
-        anything. Logging it costs nothing and means a *future* report of this
-        shape arrives diagnosable instead of as a code-reading exercise.
-      - **`matches[-1]` is the wrong frame to pick** (`output.py:346`). It
-        takes the innermost frame in the buffer, so an exception raised inside
-        a dependency points at a `site-packages` file and IDOL opens a library
-        instead of your code; a chained traceback ("During handling of the
-        above exception…") picks the wrong exception's frame entirely. It
-        should prefer the innermost frame whose file exists *and* sits inside
-        the project, falling back to the first frame after `Traceback`.
-      - **`"exit code 0" in text` is a whole-buffer substring test**
-        (`output.py:341`). Mostly correct today because every run path clears
-        first — but the Package Manager writes into this same panel *without*
-        clearing (`get_output_panel` in `app._build_packages_tab`), so this is
-        one refactor away from a permanently-disabled indicator. **And it is
-        already poisonable now, not only after that refactor:** a user program
-        that prints the string "exit code 0" anywhere suppresses the indicator
-        for its own crash. Should key off the actual return code, which
-        `script_runner` already knows.
-      - **Not a defect, but worth knowing before the next report:** *Run in
-        Terminal* (`Ctrl+F5` → `run_file_in_terminal`, `app.py:10528`) never
-        reaches this code at all — output goes to the PTY, not the Output
-        panel. A run started that way is *expected* to show no indicator.
-        **Ask which Run was used before filing an indicator bug at all.**
-
 ## ✨ Features
 
 ### Conda Channels
@@ -198,91 +90,9 @@ seeds `environment.yml` → project edits are local. That is why no
 import/export round-trip is needed.
 
 Each phase is independently shippable. **Tests green before every commit** —
-`pytest -m "not gui"` and `ruff check .`.
+`pytest -m "not gui"` and `ruff check .`. All four phases shipped; they are
+under **Done** below. One item remains open:
 
-- [x] **Phase 1 — the channel bar, read-only.** A `CHANNELS` strip between the
-      search bar and the package list, conda interpreters only (same condition
-      as the existing `conda | PyPI` toggle). Numbered active list
-      (`1 conda-forge · 2 pytorch` — never top/bottom language), effective
-      `channel_priority`, and a dim source line (`from environment.yml` /
-      `from ~/.condarc (no environment.yml)` / `from $CONDA_CHANNELS`) so the
-      UI cannot lie about which config won. Tokenized URLs render masked.
-      Ships: `data/idol_conda_channels.json` catalog;
-      `utils/conda_env.project_channels(root)` reading `environment.yml` (pure
-      file parse — correct home, next to `configured_channels`); a read layer in
-      `editor/conda_manager.py` over `conda config --show` / `--show-sources
-      --json`, passing `env=build_env(prefix)` so the env-level `.condarc`
-      actually merges; `utils/conda_channels_guide.py` + `GuideWindow`. Zero
-      writes.
-- [x] **Phase 2 — make the list real.** The editor modal (dark `Toplevel`,
-      `ComponentConnector` precedent): Available / Searched two-pane, `Add →`,
-      `▲ ▼ ✕` on the right only, catalog description box below. Writes
-      `channels:` / `nodefaults` to `environment.yml`. `-c` threading through
-      **both** conda call sites — `CondaManager.install` and
-      `project_manager`'s `conda create` — with `--override-channels` only when
-      the project has an `environment.yml`. `CondaSearchIndex.ensure_loaded`
-      takes the channel list as an argument and derives loaded-ness from the
-      channel set (today it calls `configured_channels()` itself, so it cannot
-      be told about a per-project list, and a project switch that keeps the same
-      interpreter never re-fires). `file://` branch in `channeldata_urls` (a
-      local channel currently builds
-      `https://conda.anaconda.org/file:///…`). ToS `pending` filtered to the
-      active list — otherwise conda-forge-only users get a `defaults` ToS
-      dialog for a channel the install will not touch.
-      *Edit and threading ship together: an editor that writes a file which
-      does not change what installs is the UI lying, one phase early.*
-- [x] **Phase 3 — guardrails.** All five checks live in one pure place,
-      `utils/conda_channels.validate` → `list[ChannelIssue]` worst-first, so the
-      editor strip, the channel bar's one-line summary and the tests cannot
-      disagree. `empty` is the only **error** (the sole thing that may block
-      Save); `conflict` is **suppressed under `channel_priority: strict`**,
-      since strict is conda's own documented fix and warning about it would be
-      wrong; `order` carries `fix="reorder"` wired to a stable
-      `reorder_for_requirements` that moves only what must move; `credential`
-      warns about a git-tracked `environment.yml` rather than refusing (the raw
-      spec has to reach disk or the channel does not work); `unindexed` is
-      **info** — install still works, only search is empty. Both Phase 2
-      findings closed: the tokenized-URL warning exists, and the empty-list
-      refusal now greys Save and shows the reason instead of silently doing
-      nothing.
-- [x] **Phase 4 — provenance and probing.** Badges mark only the *exception*
-      (`· pip`, or a channel other than the one searched first) — a badge on
-      every row is a badge on nothing. `origins` now carries the real channel
-      rather than a conda/pypi flag, which is a **superset** of the old value:
-      conda reports the literal `"pypi"` for pip-installed packages, so every
-      `origin == "pypi"` routing check still means what it did. The `▾ All
-      channels` chip scopes search *and* install; scoping search needed
-      per-channel maps in `CondaSearchIndex`, because the merged view drops
-      every package a higher channel already claimed and filtering it would
-      have reported that `defaults` does not offer numpy. `⇢ Preview` runs
-      `conda install --dry-run --json` and reports per-package channel
-      provenance, or conda's own conflict text on failure.
-      - **Also fixed, found by this work:** the test suite's `tk_root` fixture
-        now forces a `gc.collect()`. `tkinter.Variable.__del__` calls into Tcl,
-        so a `StringVar` orphaned by a GUI test was finalized during whatever
-        unrelated test later triggered a generational collection — raising
-        "main thread is not in main loop", reporting a
-        `PytestUnraisableExceptionWarning` against the **wrong** test, and
-        costing ~14 s. Full suite 27 s → 14.6 s, warning gone. Same family as
-        the open `make_thread_safe_after` bug below.
-      - **Three follow-ups, all found by looking at screenshots of real
-        solves rather than by re-reading the code:** the detail pane went stale
-        after any install started from a *conda* search — `_refresh_selected_detail`
-        re-rendered only what was in `_pypi_cache`, which a channel-index result
-        never enters, so the pane still offered **Install** for a package whose
-        tree row had already grown a version and a badge (the bug predates this
-        branch; Phase 4 made it visible by giving the row something to
-        contradict, and `_conda_detail_data` now feeds both paths). The preview's
-        "other channels" note measured against the primary channel even under a
-        scope, so a conda-forge-scoped preview in a defaults-first project
-        reported conda-forge as unexpected on *every* run — handing back what the
-        user had just asked for, styled as a warning; the baseline is now the
-        scope when one is set, extracted to `conda_channels.preview_note_channels`
-        because the subtlety is the choice of baseline, not the set difference.
-        And the preview table hardcoded `:<12` for the version column while
-        measuring the name column, so one long conda version
-        (`libwinpthread 12.0.0.r4.gg4f2fc60ca`) shunted its channel nine columns
-        out of line — in a provenance table the channel is the column you scan.
 - [ ] **Refresh the channel index by hand.** `CondaSearchIndex.ensure_loaded`
       already takes `force=True` and the per-channel on-disk cache makes a
       rebuild cheap, but nothing in the UI calls it — the index refreshes only on
@@ -291,7 +101,8 @@ Each phase is independently shippable. **Tests green before every commit** —
       Small: a refresh affordance on the channel bar plus the in-flight state, no
       backend work. Filed because `CONTRIBUTING.md`'s `CondaSearchIndex` row
       already promises it as "Phase 5's Refresh" — a phase that was never scoped
-      into the four above, so the reference currently points at nothing.
+      alongside the four under **Done**, so the reference currently points at
+      nothing.
 
 **Deferred, note-and-move-on:** `.condarc` writes; `channel_priority` editing
 (see *Known, not yet scoped*); mirrors / `channel_alias` / `custom_channels` /
@@ -358,6 +169,12 @@ Each phase is independently shippable. **Tests green before every commit** —
 - **In `ROADMAP.md`, not here:** macOS CI, expanding the test suite (terminal, git, session persistence, codegen preservation, conda paths), and bumping the GitHub Actions versions off the deprecated Node 20 runtime.
 
 ## ✅ Done on this branch
+
+**This is the release ledger, not a per-branch list.** It accumulates everything
+finished for the coming v1.1.2 release, including the work merged to master as
+`fdc00f9` — so it stays intact across branches rather than being cleared when
+one closes. Newest groups first; each entry is written to be usable as release
+copy without rereading the diff.
 
 **Bugs**
 - [x] **The package-changed hub was wired in one direction only.** Install
@@ -450,6 +267,201 @@ Each phase is independently shippable. **Tests green before every commit** —
       `interpreter:C:\Users\Alex` twice before and the two real project paths
       after. Three tests in `tests/test_project_root.py`, all confirmed failing
       against the unfixed `app.py`.
+
+**Package Manager, Designer and the run path**
+- [x] **Uninstalling Pillow leaves the Designer believing it is still there,
+      and the run just crashes.** *Both halves fixed — the
+      `on_packages_changed` hub (`921242f`) and the missing-module offer
+      (`6526a69`).* Remove Pillow from the Package Manager in a
+      conda env, and the Designer keeps rendering image props as healthy — no
+      "⚠ click to install Pillow" row — then Run fails with a bare
+      `ModuleNotFoundError: No module named 'PIL'` from the generated
+      `from PIL import Image, ImageTk`.
+      - **Cause is a one-directional cache.** `DesignerProperties._pil_available`
+        (`widgets/designer_properties.py:109`) memoises the
+        `python -c "import PIL"` probe, and `_check_pil_async` short-circuits on
+        it — so once it is `True`, re-selecting the widget re-runs nothing. It
+        is invalidated in exactly two places: `set_active_python`
+        (`designer_properties.py:2118`) and `app._on_pillow_install_done`
+        (`app.py:10780`). **Install invalidates it; uninstall never does.**
+        That asymmetry is why this reads as a regression — installing Pillow
+        *from the Designer* has always cleared the warning correctly, so the
+        mechanism looks like it works. It was never wired the other way.
+        Nothing here changed in the conda-channels work.
+      - The real gap is that **`PackageManagerPanel` has no outbound
+        notification at all**. `_exec_backend_op` finishes with
+        `on_done=self._load_installed`, which refreshes its own tree and tells
+        nobody. Any consumer that caches "is package X present" has the same
+        bug latent; Pillow is just the one with a visible surface. Fix wants an
+        `on_packages_changed` callback wired in `app._build_packages_tab`,
+        firing after install *and* uninstall, with the Designer's invalidation
+        hanging off it — not another special case for Pillow.
+      - **Second, separable half: nothing classifies a run failure.**
+        `grep -rn "ModuleNotFoundError"` over the repo returns zero hits.
+        `app._on_runtime_error` (`app.py:2554`) is purely line-based — it jumps
+        to the line, paints the amber gutter triangle and flashes the Problems
+        tab. For a missing import that lands on a generated `import` line
+        inside the IDOL:BEGIN block, which is both unhelpful and un-editable.
+        Wants the run output scanned for `No module named '<x>'` and an
+        offer to install `<x>` — routed through the same conda/pip decision
+        `app._on_designer_install_pillow` (`app.py:10692`) already makes. Worth
+        scoping separately: it is a general feature (any missing dependency),
+        not a Pillow fix, and it is the half that actually tells a beginner
+        what to do.
+      - **The Problems panel cannot help here, and that is expected** — worth
+        recording so it is not re-filed as a defect. `editor/pyflakes_linter.py`
+        is ruff plus `compile()`: ruff is a static linter that never resolves
+        imports and has no missing-module rule, and `compile()` only raises on
+        syntax — imports are not executed at compile time. Neither can know
+        `PIL` is gone. pylsp does not fill the gap either (its pyflakes plugin
+        reports *unused* imports, not unresolvable ones). So a missing
+        dependency is invisible until the run, which is precisely why the
+        run-output classification above is the right place to catch it rather
+        than a new diagnostic.
+- [x] **Missing packages offer to install themselves.** A run that dies
+      on `No module named 'X'` grows a clickable line under the
+      traceback. `utils/missing_module.py` carries the import→package
+      table for both ecosystems — the reason it exists is that
+      `pip install PIL` fails outright and `pip install sklearn`
+      installs a stub whose only job is to say you wanted something
+      else — and `is_stdlib` reads `sys.stdlib_module_names`, so a
+      missing `tkinter` is explained rather than mis-offered. The
+      Designer's Pillow path was generalised into
+      `app._install_into_active_env` rather than copied: that method
+      carries the conda ToS gate, and a third copy is a third place for
+      it to drift. Writes no dependency file — one click on a line in a
+      log is too thin a gesture to edit something git-tracked.
+- [x] **Three latent defects in `_try_fire_runtime_error`** (`widgets/output.py`).
+      *Fixed in `05b0195`.* **No reported symptom — they were not urgent.**
+      They were found
+      while investigating "the runtime-error indicator fires unreliably", which
+      **was a misfiling and has been withdrawn**: the `ModuleNotFoundError`
+      that prompted it was the *expected* result of deliberately uninstalling
+      Pillow to test the Designer's "click to install Pillow" row. The crash
+      was mentioned in passing, read as a second defect, and written up as one.
+      Nobody ever observed the indicator failing to fire.
+      - **The withdrawn entry's own analysis found nothing wrong**, which
+        should have been the tell. `script_runner` joins both drain threads
+        before writing the exit line and the sentinel
+        (`script_runner.py:86-98`); `OutputPanel._poll` writes every queued
+        line before the sentinel reaches `_finish_run` (`output.py:358-370`);
+        `run()`/`run_code()` clear first (`:286`, `:303`); `_TRACEBACK_RE`
+        (`:12`) matches both `ModuleNotFoundError` shapes. It should have
+        fired, and as far as anyone knows it did.
+      - **Still worth fixing, at the weight of latent defects:** each is wrong
+        on its own terms, none has a known victim.
+      - **`except Exception: pass`** (`output.py:349`) swallows every failure
+        inside `_on_runtime_error` — a stale path, `_open_file_at` raising,
+        anything. Logging it costs nothing and means a *future* report of this
+        shape arrives diagnosable instead of as a code-reading exercise.
+      - **`matches[-1]` is the wrong frame to pick** (`output.py:346`). It
+        takes the innermost frame in the buffer, so an exception raised inside
+        a dependency points at a `site-packages` file and IDOL opens a library
+        instead of your code; a chained traceback ("During handling of the
+        above exception…") picks the wrong exception's frame entirely. It
+        should prefer the innermost frame whose file exists *and* sits inside
+        the project, falling back to the first frame after `Traceback`.
+      - **`"exit code 0" in text` is a whole-buffer substring test**
+        (`output.py:341`). Mostly correct today because every run path clears
+        first — but the Package Manager writes into this same panel *without*
+        clearing (`get_output_panel` in `app._build_packages_tab`), so this is
+        one refactor away from a permanently-disabled indicator. **And it is
+        already poisonable now, not only after that refactor:** a user program
+        that prints the string "exit code 0" anywhere suppresses the indicator
+        for its own crash. Should key off the actual return code, which
+        `script_runner` already knows.
+      - **Not a defect, but worth knowing before the next report:** *Run in
+        Terminal* (`Ctrl+F5` → `run_file_in_terminal`, `app.py:10528`) never
+        reaches this code at all — output goes to the PTY, not the Output
+        panel. A run started that way is *expected* to show no indicator.
+        **Ask which Run was used before filing an indicator bug at all.**
+
+**Conda Channels** *(four phases, all complete)*
+- [x] **Phase 1 — the channel bar, read-only.** A `CHANNELS` strip between the
+      search bar and the package list, conda interpreters only (same condition
+      as the existing `conda | PyPI` toggle). Numbered active list
+      (`1 conda-forge · 2 pytorch` — never top/bottom language), effective
+      `channel_priority`, and a dim source line (`from environment.yml` /
+      `from ~/.condarc (no environment.yml)` / `from $CONDA_CHANNELS`) so the
+      UI cannot lie about which config won. Tokenized URLs render masked.
+      Ships: `data/idol_conda_channels.json` catalog;
+      `utils/conda_env.project_channels(root)` reading `environment.yml` (pure
+      file parse — correct home, next to `configured_channels`); a read layer in
+      `editor/conda_manager.py` over `conda config --show` / `--show-sources
+      --json`, passing `env=build_env(prefix)` so the env-level `.condarc`
+      actually merges; `utils/conda_channels_guide.py` + `GuideWindow`. Zero
+      writes.
+- [x] **Phase 2 — make the list real.** The editor modal (dark `Toplevel`,
+      `ComponentConnector` precedent): Available / Searched two-pane, `Add →`,
+      `▲ ▼ ✕` on the right only, catalog description box below. Writes
+      `channels:` / `nodefaults` to `environment.yml`. `-c` threading through
+      **both** conda call sites — `CondaManager.install` and
+      `project_manager`'s `conda create` — with `--override-channels` only when
+      the project has an `environment.yml`. `CondaSearchIndex.ensure_loaded`
+      takes the channel list as an argument and derives loaded-ness from the
+      channel set (today it calls `configured_channels()` itself, so it cannot
+      be told about a per-project list, and a project switch that keeps the same
+      interpreter never re-fires). `file://` branch in `channeldata_urls` (a
+      local channel currently builds
+      `https://conda.anaconda.org/file:///…`). ToS `pending` filtered to the
+      active list — otherwise conda-forge-only users get a `defaults` ToS
+      dialog for a channel the install will not touch.
+      *Edit and threading ship together: an editor that writes a file which
+      does not change what installs is the UI lying, one phase early.*
+- [x] **Phase 3 — guardrails.** All five checks live in one pure place,
+      `utils/conda_channels.validate` → `list[ChannelIssue]` worst-first, so the
+      editor strip, the channel bar's one-line summary and the tests cannot
+      disagree. `empty` is the only **error** (the sole thing that may block
+      Save); `conflict` is **suppressed under `channel_priority: strict`**,
+      since strict is conda's own documented fix and warning about it would be
+      wrong; `order` carries `fix="reorder"` wired to a stable
+      `reorder_for_requirements` that moves only what must move; `credential`
+      warns about a git-tracked `environment.yml` rather than refusing (the raw
+      spec has to reach disk or the channel does not work); `unindexed` is
+      **info** — install still works, only search is empty. Both Phase 2
+      findings closed: the tokenized-URL warning exists, and the empty-list
+      refusal now greys Save and shows the reason instead of silently doing
+      nothing.
+- [x] **Phase 4 — provenance and probing.** Badges mark only the *exception*
+      (`· pip`, or a channel other than the one searched first) — a badge on
+      every row is a badge on nothing. `origins` now carries the real channel
+      rather than a conda/pypi flag, which is a **superset** of the old value:
+      conda reports the literal `"pypi"` for pip-installed packages, so every
+      `origin == "pypi"` routing check still means what it did. The `▾ All
+      channels` chip scopes search *and* install; scoping search needed
+      per-channel maps in `CondaSearchIndex`, because the merged view drops
+      every package a higher channel already claimed and filtering it would
+      have reported that `defaults` does not offer numpy. `⇢ Preview` runs
+      `conda install --dry-run --json` and reports per-package channel
+      provenance, or conda's own conflict text on failure.
+      - **Also fixed, found by this work:** the test suite's `tk_root` fixture
+        now forces a `gc.collect()`. `tkinter.Variable.__del__` calls into Tcl,
+        so a `StringVar` orphaned by a GUI test was finalized during whatever
+        unrelated test later triggered a generational collection — raising
+        "main thread is not in main loop", reporting a
+        `PytestUnraisableExceptionWarning` against the **wrong** test, and
+        costing ~14 s. Full suite 27 s → 14.6 s, warning gone. **This turned
+        out to be the real cause of the `make_thread_safe_after` warnings too**
+        — see *The re-arm loops* above, where the mechanism that entry blamed
+        was measured and found not to happen.
+      - **Three follow-ups, all found by looking at screenshots of real
+        solves rather than by re-reading the code:** the detail pane went stale
+        after any install started from a *conda* search — `_refresh_selected_detail`
+        re-rendered only what was in `_pypi_cache`, which a channel-index result
+        never enters, so the pane still offered **Install** for a package whose
+        tree row had already grown a version and a badge (the bug predates this
+        branch; Phase 4 made it visible by giving the row something to
+        contradict, and `_conda_detail_data` now feeds both paths). The preview's
+        "other channels" note measured against the primary channel even under a
+        scope, so a conda-forge-scoped preview in a defaults-first project
+        reported conda-forge as unexpected on *every* run — handing back what the
+        user had just asked for, styled as a warning; the baseline is now the
+        scope when one is set, extracted to `conda_channels.preview_note_channels`
+        because the subtlety is the choice of baseline, not the set difference.
+        And the preview table hardcoded `:<12` for the version column while
+        measuring the name column, so one long conda version
+        (`libwinpthread 12.0.0.r4.gg4f2fc60ca`) shunted its channel nine columns
+        out of line — in a provenance table the channel is the column you scan.
 
 **Panel tabs and the designer**
 - [x] **Panel tabs open where you can see them** — Welcome, Packages, Learning Mode and Settings are single-instance tabs that now live in whichever notebook opened them, not always the main one. Designer mode `pack_forget`s `self.notebook` (the canvas takes its slot), so clicking Package Manager / Welcome / Learning / Settings from the nav bar or the menus added a tab nobody could see and read as a dead button. They now open in the split pane while the designer is up, opening the split if it isn't. `_PANEL_TAB_SLOTS` + `_panel_tab_home` / `_toggle_panel_tab` / `_build_panel_tab` replace four hand-rolled copies of the same toggle.
