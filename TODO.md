@@ -16,8 +16,12 @@ entry contained a careful trace proving nothing was wrong, and got filed anyway.
 
 ## 🚧 Active Work
 
-Each step is its own commit. **Ordered by evidence now, not by dependency** —
-after step 1, exactly one item here has an observed symptom, and it goes first.
+**All four steps shipped and pushed** (`6526a69`). The three items the user
+found while exercising step 4 are filed below — one bug, one feature — and the
+next round is deliberately unscoped until they are picked.
+
+Each step is its own commit. **Ordered by evidence, not by dependency** —
+after step 1, exactly one item here had an observed symptom, and it went first.
 
 - [x] **Step 1 — guard every self-re-arming `after` loop.** Shipped, but as
       **hygiene, not a bug fix** — the filed mechanism does not reproduce. See
@@ -53,6 +57,31 @@ Step 4 changes the runtime-error indicator's behaviour, so `docs/terminal.md`
 ships with it (Definition of Done). Steps 2 and 3 are both internal.
 
 ## 🐛 Bugs
+
+- [ ] **PROBLEMS flashes for a runtime error but has nothing to show.**
+      Observed while testing the missing-module offer: a run dies on
+      `ModuleNotFoundError`, `_on_runtime_error` (`app.py:2554`) paints the
+      gutter triangle and calls `flash_problems_tab`, and the panel it points
+      at is empty. Expected: the flash means "there is something in here".
+      - **Not specific to missing modules — no runtime error has *ever*
+        appeared in that panel.** Verified: `ProblemsPanel` is fed only by
+        `BottomPanel.update_problems(entries)` (`bottom_panel.py:382`), whose
+        one caller is the diagnostics path (ruff + `compile()` + LSP). Nothing
+        in the codebase adds a runtime entry. The flash has always been
+        pointing at whatever the linter happened to have found.
+      - **The constraint that shapes the fix:** `update_problems` replaces the
+        whole list on every lint pass, so an entry inserted directly would be
+        wiped by the next keystroke. A runtime problem has to be *merged* —
+        app-held `_runtime_problems`, unioned in `update_problems` — not
+        injected. Cleared when the next run starts, and by the package-changed
+        hub once the missing package is installed.
+      - Two candidate resolutions, decide before building: **(a)** synthesize
+        the entry (user's suggestion — richest, and the missing-module case
+        already knows the file, line, module and the package that would fix
+        it), or **(b)** don't flash when there is nothing to show, which is
+        one line and honest but throws away the only signal the panel could
+        carry. (a) is the better product; (b) is the fallback if merging
+        turns out to fight the diagnostics lifecycle.
 
 - [x] **Uninstalling Pillow leaves the Designer believing it is still there,
       and the run just crashes.** *Both halves fixed —
@@ -269,6 +298,35 @@ Each phase is independently shippable. **Tests green before every commit** —
 `whitelist_channels`; auth beyond token masking; per-package
 `conda-forge::numpy` pinning (the guide mentions it exists); mamba/micromamba
 (libmamba honours the same config, so mostly free).
+
+### Post-run analysis for terminal runs
+
+- [ ] **Everything a failed run gets in OUTPUT, a failed run in the TERMINAL
+      gets nothing.** Two notes from testing that turn out to be one item:
+      the missing-module offer only appears in OUTPUT, and a crash in the
+      terminal never reaches the Problems panel or the runtime-error
+      indicator either. *Run in Terminal* (`Ctrl+F5` →
+      `run_file_in_terminal`, `app.py:10528`) sends output to the PTY, and
+      `_try_fire_runtime_error` / `_offer_missing_module` live on
+      `OutputPanel._finish_run`, which that path never touches. Currently
+      documented as expected behaviour in `docs/terminal.md` — accurate, but
+      it reads like a rule where it is really an absence.
+      - **The hook already exists and is already wired.** `TerminalPanel`
+        fires `on_command_done(exit_code)` from its OSC 133 shell integration
+        (`terminal.py:2451`), and `app.py:1191` already listens to clear
+        `_running_file`. So "did it fail, and when" is solved; the exit code
+        is right there.
+      - **What is missing is the text.** OUTPUT scans a `tk.Text` buffer;
+        the terminal's output lives in the pyte screen plus `_scrollback`,
+        so this needs a way to read back the last command's output as plain
+        text. Scope that first — it is the whole job. Note the terminal is an
+        interactive shell, so "the last command's output" has no clean
+        boundary except the OSC 133 markers themselves.
+      - **Only for runs IDOL started.** `_running_file` says which. Scanning
+        every shell command the user types for tracebacks would offer to pip
+        install things from output IDOL had no part in producing.
+      - Pairs with the PROBLEMS bug above: if runtime problems become
+        mergeable entries, both run paths should feed the same list.
 
 ## 🎨 UI/UX Polish
 
