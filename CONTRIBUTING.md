@@ -142,6 +142,8 @@ Key widgets: `ai_chat_panel.py`, `bottom_panel.py`, `breadcrumb_bar.py`,
 
 `output.py` — the OUTPUT tab, and the **runtime-error indicator**. `_try_fire_runtime_error` runs on the run's sentinel and answers two questions the buffer cannot: *did this fail* (`ScriptRunner.returncode`, never a substring search — see that row) and *which frame do we jump to*. `_pick_error_frame` takes the innermost frame **inside `_run_root`**, not `matches[-1]`: the innermost frame overall is in `site-packages` whenever a library raises, and is the wrong exception entirely under a chained traceback. `_run_root` is the run cwd (`app._compute_run_cwd`, so the project root or the script's dir) — except for `run_code`, which sets it to the scratch file's own directory, since a run-selection buffer lives in the system temp dir and scoping to the project would exclude the only frame that is the user's code. Frames whose file is gone are dropped, not merely deprioritised. A failure inside `on_runtime_error` is **reported**, to the panel and to stderr; it was swallowed, which made a non-firing indicator indistinguishable from "no traceback found" and cost a whole investigation. Note this panel is also written to by the Package Manager without clearing, which is what makes buffer-scanning unsafe in general here.
 
+`on_runtime_error(filepath, lineno, message)` carries the exception text as well as the location — `_exception_message` takes the last unindented line of the last traceback block, bounded by the exit line because this panel keeps being written to after a run ends. That third argument is what lets a crash become a PROBLEMS entry that says something; see `_build_problem_entries` below.
+
 The same `_finish_run` also drives the **missing-module offer**: `_offer_missing_module` turns `No module named 'X'` into a clickable line under the traceback. The panel does not decide *what* to install — only the app knows the active interpreter, so it asks through `resolve_missing_module(module) -> (package, backend) | None` and acts through `on_install_module(package)`, both plain attribute hooks like `on_runtime_error`. A stdlib module is explained rather than offered (see `utils/missing_module.py`). The offer tag is removed on click, so a second click cannot start a second install. This is the only place a missing dependency is catchable at all — ruff never resolves imports and `compile()` never executes them, so nothing knows the package is absent until the run.
 
 `app._install_into_active_env(package, output, on_done)` is the shared install path behind both this and the Designer's install-Pillow row: conda for a conda interpreter, pip otherwise, carrying the conda ToS gate. It is one method rather than one per caller **because of that gate** — a third copy is a third place for it to drift. `on_done(used_conda)` is told which backend ran, since that decides which dependency file a caller would write to. The missing-module path deliberately writes to none: one click on a line in a log is too thin a gesture to edit a git-tracked file, and the Package Manager's own installs don't either.
@@ -350,6 +352,16 @@ Static data files. Any future static data files belong here, not inside package 
 - **Contextual left panel.** Entering Designer mode swaps the explorer out and the palette in — same slot, no floating windows. Exiting Designer restores the explorer.
 - **No external image assets in palette.** Widget mini-previews are drawn procedurally on `tk.Canvas` per widget type. Defined in `registry.py` alongside the widget's other metadata.
 - **Enum dropdowns use `tk.Menu`, not `ttk.Combobox`.** Combobox embedded inside a Treeview fights with the tree's Button-1 binding (focus stealing, event bubbling). A `tk.Menu` popup posted below the cell is simpler and conflict-free.
+
+---
+
+### Runtime problems are merged, never injected
+
+`BottomPanel.update_problems(entries)` **replaces** the whole list, and the app rebuilds that list from scratch on every diagnostics event. So a runtime error pushed straight at the panel survives exactly until the next keystroke. `app._runtime_problems` holds the last failed run's entries and `_build_problem_entries` prepends them, which means every existing caller picks them up without knowing they exist — and the crash sorts above lint warnings, which is the right order for something the user just watched happen.
+
+`_refresh_problems()` is the one way to push: rebuild, send, re-count the status bar. It replaced three hand-copied versions of that four-line block. Clearing is `_clear_runtime_problems()` — idempotent and a no-op when the list is already empty, so the three callers that may or may not have something to clear (run start, project close, the package-changed hub) can all just call it.
+
+**This is the only route by which a crash reaches PROBLEMS.** `pyflakes_linter` is ruff plus `compile()`: ruff never resolves imports and `compile()` never executes them, so nothing static can know a module is missing. Before this the tab flashed for a runtime error and pointed at whatever the linter had last found.
 
 ---
 

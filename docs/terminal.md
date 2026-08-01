@@ -150,9 +150,11 @@ When a script crashes:
 1. IDOL jumps to the offending line
 2. Applies an amber highlight to that line
 3. Draws a right-pointing amber triangle (▶) in the gutter
-4. Flashes the PROBLEMS tab
+4. Adds the crash to the PROBLEMS panel and flashes the tab
 
-All indicators clear on the next keystroke.
+The highlight and triangle clear on the next keystroke; the PROBLEMS entry stays
+until the next run. See [Code Intelligence](intelligence.md) for how it sits
+alongside the linter's findings.
 
 **Which line it picks.** A traceback usually names several files. IDOL jumps to the
 innermost frame that is *your* code — inside the run's working directory — rather than the

@@ -23,16 +23,13 @@ shipped is under **Done** below. Each step is its own commit.
 terminal runs* under Features is the next branch's opener, not this one's
 closer.
 
-- [ ] **Step 1 — runtime errors become real PROBLEMS entries.** The panel
-      flashes for a runtime error and has nothing to show; see the Bugs entry
-      for the verified detail and the two candidate resolutions. Going with
-      **(a)**, synthesize the entry: a merged app-held `_runtime_problems`
-      list unioned inside `update_problems`, not an injection, because that
-      method replaces the whole list on every lint pass. Cleared when the next
-      run starts and by the package-changed hub once the missing package is
-      installed. The missing-module case already knows file, line, module and
-      the package that would fix it, so the entry can be genuinely useful
-      rather than a restatement of the traceback.
+- [x] **Step 1 — runtime errors become real PROBLEMS entries.** Shipped and
+      verified in the running app (all five checks: entry appears with the
+      exception message, survives a lint pass, clears on install, clears on a
+      clean run, sorts above lint warnings). Resolution **(a)** as planned,
+      with one change: the merge lives in `_build_problem_entries`, not
+      `update_problems` — app-side, already the single producer of the list,
+      so every caller picks it up for free. See **Done** for the detail.
 - [ ] **Step 2 — refresh the conda channel index by hand.** The backend is
       already there (`ensure_loaded(force=True)`); only the affordance and its
       in-flight state are missing. See the Features entry. Also closes the
@@ -45,30 +42,7 @@ closer.
 
 ## 🐛 Bugs
 
-- [ ] **PROBLEMS flashes for a runtime error but has nothing to show.**
-      Observed while testing the missing-module offer: a run dies on
-      `ModuleNotFoundError`, `_on_runtime_error` (`app.py:2554`) paints the
-      gutter triangle and calls `flash_problems_tab`, and the panel it points
-      at is empty. Expected: the flash means "there is something in here".
-      - **Not specific to missing modules — no runtime error has *ever*
-        appeared in that panel.** Verified: `ProblemsPanel` is fed only by
-        `BottomPanel.update_problems(entries)` (`bottom_panel.py:382`), whose
-        one caller is the diagnostics path (ruff + `compile()` + LSP). Nothing
-        in the codebase adds a runtime entry. The flash has always been
-        pointing at whatever the linter happened to have found.
-      - **The constraint that shapes the fix:** `update_problems` replaces the
-        whole list on every lint pass, so an entry inserted directly would be
-        wiped by the next keystroke. A runtime problem has to be *merged* —
-        app-held `_runtime_problems`, unioned in `update_problems` — not
-        injected. Cleared when the next run starts, and by the package-changed
-        hub once the missing package is installed.
-      - Two candidate resolutions, decide before building: **(a)** synthesize
-        the entry (user's suggestion — richest, and the missing-module case
-        already knows the file, line, module and the package that would fix
-        it), or **(b)** don't flash when there is nothing to show, which is
-        one line and honest but throws away the only signal the panel could
-        carry. (a) is the better product; (b) is the fallback if merging
-        turns out to fight the diagnostics lifecycle.
+*None open.* See **Done** below.
 
 ## ✨ Features
 
@@ -269,6 +243,38 @@ copy without rereading the diff.
       against the unfixed `app.py`.
 
 **Package Manager, Designer and the run path**
+- [x] **PROBLEMS flashed for a runtime error and had nothing to show.** A run
+      dies on `ModuleNotFoundError`, the gutter triangle appears, the tab
+      pulses amber — and the panel it draws attention to is empty. Found by
+      the user while exercising the missing-module offer.
+      - **Not specific to missing modules: no runtime error had *ever*
+        appeared there.** `ProblemsPanel` is fed only by
+        `BottomPanel.update_problems`, whose one caller is the diagnostics
+        path. Nothing in the codebase added a runtime entry, so the flash had
+        always been pointing at whatever the linter last found — which for a
+        crash caused by a missing import is nothing, since ruff never resolves
+        imports and `compile()` never executes them.
+      - **Merged, not injected — that is the whole design.** `update_problems`
+        replaces the entire list on every lint pass, so an entry pushed at the
+        panel would survive until the next keystroke and no longer.
+        `app._runtime_problems` holds it and `_build_problem_entries`
+        prepends, so every existing caller picks it up without knowing it
+        exists and the crash sorts above lint warnings. Cleared on run start,
+        on project close, and by the package-changed hub — installing the
+        missing package makes the error about an environment that is gone.
+      - `on_runtime_error` grew a third argument so the entry says something:
+        `_exception_message` takes the last unindented line of the *last*
+        traceback block, so a chained traceback reports the exception that
+        actually stopped the run. Bounded by the exit line, because the
+        Package Manager streams conda output into this same panel afterwards
+        and an unbounded search backwards would return that instead.
+      - Fell out on the way: the rebuild/push/re-count block was hand-copied
+        in three places and is now `_refresh_problems()`, which is what made
+        adding the merge a one-line change rather than three.
+      - **Verified red the meaningful way.** The new methods simply do not
+        exist on the unfixed code, so that failure proves nothing; reverting
+        the merge line itself turned six tests red, including the one pinning
+        that lint problems are *not* replaced.
 - [x] **Uninstalling Pillow leaves the Designer believing it is still there,
       and the run just crashes.** *Both halves fixed — the
       `on_packages_changed` hub (`921242f`) and the missing-module offer

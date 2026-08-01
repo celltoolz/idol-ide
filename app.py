@@ -399,6 +399,13 @@ class IDOL(Tk):
             None  # tab showing last crash indicator
         )
         self._lsp_diagnostics: dict[str, list] = {}  # uri → diag list
+        #: Problems from the last failed *run*, merged into the panel alongside
+        #: the linter's. Held here rather than pushed into the panel because
+        #: `update_problems` replaces the whole list on every lint pass — an
+        #: injected entry would survive until the next keystroke and no longer.
+        #: Nothing had ever put a runtime error in that panel, so the flash on
+        #: a crash pointed at whatever ruff happened to have found.
+        self._runtime_problems: list[dict] = []
         self._hover_after_id: str | None = None
         self._hover_popup = None
         self._lsp_change_after_id: str | None = None
@@ -1186,6 +1193,16 @@ class IDOL(Tk):
                 _orig()
 
         self._output.output._on_run_done = _run_done_hook
+
+        # A new run invalidates the last one's problems — same wrapping idiom.
+        _orig_run_start = self._output.output._on_run_start
+
+        def _run_start_hook(_orig=_orig_run_start):
+            self._clear_runtime_problems()
+            if _orig:
+                _orig()
+
+        self._output.output._on_run_start = _run_start_hook
 
         # Terminal shell integration: OSC 133;D fires when the prompt appears
         self._output.terminal.on_command_done = lambda exit_code=None: (
@@ -2131,11 +2148,7 @@ class IDOL(Tk):
             if stale_uris:
                 for u in stale_uris:
                     del self._lsp_diagnostics[u]
-                entries = self._build_problem_entries()
-                self._output.update_problems(entries)
-                errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
-                warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
-                self._statusbar.set_diagnostics(errors, warnings)
+                self._refresh_problems()
         nb.forget(index)
         # An emptied split pane stays open. Closing a tab is not a request to
         # close the pane — the split is a layout the user chose, and only the
@@ -2529,15 +2542,16 @@ class IDOL(Tk):
                     self._apply_diagnostics(cv, diags)
                 break
         # Rebuild the full problems list and push to the panel
-        entries = self._build_problem_entries()
-        self._output.update_problems(entries)
-        errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
-        warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
-        self._statusbar.set_diagnostics(errors, warnings)
+        self._refresh_problems()
 
     def _build_problem_entries(self) -> list[dict]:
-        """Flatten _lsp_diagnostics into a list of dicts for ProblemsPanel."""
-        entries = []
+        """Flatten _lsp_diagnostics into a list of dicts for ProblemsPanel.
+
+        Runtime problems are merged in here rather than pushed to the panel, so
+        every existing caller picks them up without knowing they exist. They go
+        first: a crash you just watched happen outranks a lint warning.
+        """
+        entries = list(self._runtime_problems)
         for uri, diags in self._lsp_diagnostics.items():
             filepath = uri_to_path(uri).replace("/", os.sep)
             if os.name == "nt" and filepath.startswith("\\"):
@@ -2546,6 +2560,14 @@ class IDOL(Tk):
             entries.extend(_diags_to_entries(diags, filepath, filename))
         return entries
 
+    def _refresh_problems(self) -> None:
+        """Rebuild the problems list, push it, and re-count the status bar."""
+        entries = self._build_problem_entries()
+        self._output.update_problems(entries)
+        errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
+        warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
+        self._statusbar.set_diagnostics(errors, warnings)
+
     def _apply_diagnostics(self, codeview, diags: list) -> None:
         """Push LSP diagnostics to the editor. Canvas engine renders
         squigglies from its own diagnostic list using palette colors."""
@@ -2553,7 +2575,8 @@ class IDOL(Tk):
 
     # ── Runtime error indicator ───────────────────────────────────────────────
 
-    def _on_runtime_error(self, filepath: str, lineno: int) -> None:
+    def _on_runtime_error(self, filepath: str, lineno: int,
+                          message: str = "") -> None:
         """Jump to crashed line, apply amber highlight and gutter triangle."""
         self._clear_runtime_error()
         self._open_file_at(filepath, lineno, 0)
@@ -2565,8 +2588,29 @@ class IDOL(Tk):
                 if cv:
                     cv.set_runtime_error_line(lineno)
                 break
+        # Give the flash something to be about. Without this the tab flashed
+        # amber and the panel it pointed at held whatever the linter last found
+        # — which for a crash caused by a missing import is nothing at all,
+        # since ruff never resolves imports and compile() never runs them.
+        self._runtime_problems = [{
+            "filepath": filepath,
+            "filename": os.path.basename(filepath),
+            "line": lineno,
+            "col": 0,
+            "severity": SEV_ERROR,
+            "message": message or "Run failed here",
+        }]
+        self._refresh_problems()
         if self._output._active != "problems":
             self._output.flash_problems_tab()
+
+    def _clear_runtime_problems(self) -> None:
+        """Drop the last run's problems. Cheap and idempotent, so callers that
+        may or may not have one can just call it."""
+        if not self._runtime_problems:
+            return
+        self._runtime_problems = []
+        self._refresh_problems()
 
     def _clear_runtime_error(self) -> None:
         """Remove the amber line highlight and gutter triangle."""
@@ -4400,6 +4444,7 @@ class IDOL(Tk):
             self.notebook.forget(tab_id)
         # Clear LSP diagnostics and breakpoints from the old project
         self._lsp_diagnostics.clear()
+        self._runtime_problems = []
         self._output.update_problems([])
         self._breakpoints.clear()
         self._refresh_debug_breakpoints()
@@ -4971,6 +5016,9 @@ class IDOL(Tk):
             self._props_panel.invalidate_package_cache()
         if getattr(self, "_pkg_panel", None):
             self._pkg_panel.refresh_installed()
+        # A ModuleNotFoundError left in the panel is about an environment that
+        # no longer exists once something has been installed into it.
+        self._clear_runtime_problems()
 
     def view_settings(self, *_) -> None:
         """Toggle the Settings tab (Ctrl+,). Same tab pattern as Packages."""

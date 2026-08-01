@@ -14,6 +14,7 @@ from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
+_RUN_END_RE   = re.compile(r"^Process finished with exit code ", re.M)
 _OFFER_TAG    = "install_offer"
 
 _GUIDE_FG     = "#f1fa8c"   # amber — stands out from the dim Clear button
@@ -383,13 +384,15 @@ class OutputPanel(ttk.Frame):
         """
         if self._runner.returncode == 0:
             return
-        matches = _TRACEBACK_RE.findall(self._text.get("1.0", "end"))
+        text = self._text.get("1.0", "end")
+        matches = _TRACEBACK_RE.findall(text)
         frame = self._pick_error_frame(matches)
         if frame is None:
             return
         filepath, lineno = frame
         try:
-            self.on_runtime_error(filepath, lineno)
+            self.on_runtime_error(filepath, lineno,
+                                  self._exception_message(text))
         except Exception as exc:
             # Swallowing this is what made the last report of a non-firing
             # indicator undiagnosable: a stale path, or _open_file_at raising,
@@ -397,6 +400,35 @@ class OutputPanel(ttk.Frame):
             # and keep the detail for whoever launched IDOL from a terminal.
             _traceback.print_exc()
             self.write(f"\n(could not open the error location: {exc})\n", "info")
+
+    @staticmethod
+    def _exception_message(text: str) -> str:
+        """The `SomeError: detail` line that ended the last traceback.
+
+        Python closes a traceback with the exception at column 0, after the
+        indented frame lines — so the last unindented line of the block is it.
+        `rfind` takes the *last* traceback, which under a chained one
+        ("During handling of the above exception…") is the exception that
+        actually stopped the run.
+
+        Bounded by the exit line because this panel keeps writing after the
+        traceback, and an unbounded search backwards would return whatever the
+        Package Manager streamed in next.
+        """
+        start = text.rfind("Traceback (most recent call last):")
+        if start == -1:
+            return ""
+        region = text[start:]
+        end = _RUN_END_RE.search(region)
+        if end:
+            region = region[:end.start()]
+        for line in reversed(region.splitlines()):
+            if not line.strip() or line[:1].isspace():
+                continue        # blank, or an indented frame line
+            if line.startswith("Traceback"):
+                break
+            return line.strip()
+        return ""
 
     # ── Missing-module offer ──────────────────────────────────────────────────
 

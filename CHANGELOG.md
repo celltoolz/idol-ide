@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-30] — The Designer Notices When You Remove a Package
 
 ### Added
+- **A crash now shows up in the PROBLEMS panel.** The tab has always flashed amber when a run
+  failed — and the panel it was pointing at held whatever the linter last found, which for a
+  crash caused by a missing import is nothing at all. Now the failure is listed there, at the
+  top, with the exception's own message: `ModuleNotFoundError: No module named 'PIL'`. Click it
+  to jump to the line, the same as any other entry.
+  - It sits **alongside** your lint warnings rather than replacing them, and typing doesn't
+    sweep it away. It clears when you run again, open another project, or install the package
+    that was missing.
+  - Linting reads your code without running it, so a runtime failure is invisible to it. This
+    is the only way such a failure can reach the panel at all.
 - **A missing package now offers to install itself.** When a run stops with
   `ModuleNotFoundError: No module named 'PIL'`, a clickable line appears under the traceback —
   `⬇ Install 'pillow' with conda` — which installs into your active interpreter, conda or pip

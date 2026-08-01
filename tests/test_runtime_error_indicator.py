@@ -36,6 +36,7 @@ class _Panel:
         self._runner = _Runner(returncode)
         self._run_root = os.path.normcase(os.path.abspath(root)) if root else ""
         self.fired: list[tuple[str, int]] = []
+        self.messages: list[str] = []
         self.written: list[str] = []
         self.raise_on_fire: Exception | None = None
 
@@ -52,13 +53,17 @@ class _Panel:
     def write(self, text, tag=None) -> None:
         self.written.append(text)
 
-    def on_runtime_error(self, path, lineno) -> None:
+    def on_runtime_error(self, path, lineno, message="") -> None:
         if self.raise_on_fire:
             raise self.raise_on_fire
         self.fired.append((path, lineno))
+        self.messages.append(message)
 
     _pick_error_frame = _pick
     _is_under_run_root = OutputPanel._is_under_run_root
+    # staticmethod: accessing it on the class yields the plain function, which
+    # would bind as a method here and swallow `text` into `self`.
+    _exception_message = staticmethod(OutputPanel._exception_message)
 
 
 def _tb(*frames: tuple[str, int]) -> str:
@@ -156,6 +161,48 @@ def test_a_failure_reports_instead_of_vanishing(project):
     _fire(panel)
     assert panel.fired == []
     assert any("tab is gone" in w for w in panel.written)
+
+
+# ── The exception message ────────────────────────────────────────────────────
+#
+# The PROBLEMS entry is only worth having if it says what went wrong. Python
+# closes a traceback with the exception at column 0, after the indented frames.
+
+_msg = OutputPanel._exception_message
+
+
+def test_exception_message_is_the_last_unindented_line():
+    text = _tb(("app.py", 4))
+    assert _msg(text) == "ValueError: boom"
+
+
+def test_exception_message_ignores_output_written_after_the_run():
+    """This panel keeps being written to — the Package Manager streams pip and
+    conda output through it — so the search has to stop at the exit line."""
+    text = (_tb(("app.py", 4))
+            + "\nProcess finished with exit code 1\n"
+            + "\n$ conda install -y pillow\nSolving environment: done\n")
+    assert _msg(text) == "ValueError: boom"
+
+
+def test_chained_traceback_reports_the_exception_that_stopped_the_run():
+    text = (_tb(("app.py", 4))
+            + "\nDuring handling of the above exception, another occurred:\n\n"
+            + "Traceback (most recent call last):\n"
+            + '  File "app.py", line 9, in <module>\n'
+            + "RuntimeError: the real one\n")
+    assert _msg(text) == "RuntimeError: the real one"
+
+
+def test_no_traceback_gives_no_message():
+    assert _msg("just some output\n") == ""
+
+
+def test_message_reaches_the_host(project):
+    panel = _Panel(text=_tb((project["app"], 4)), returncode=1,
+                   root=project["root"])
+    _fire(panel)
+    assert panel.messages == ["ValueError: boom"]
 
 
 # ── The run root ─────────────────────────────────────────────────────────────
