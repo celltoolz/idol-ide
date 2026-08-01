@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-30] — The Designer Notices When You Remove a Package
 
 ### Fixed
+- **A crash inside a library sent you to the library, not to your code.** When a script failed,
+  IDOL jumped to the last file named in the traceback — which, whenever the exception was raised
+  inside a package you installed, was a file in `site-packages` you can't do anything about. It
+  now jumps to the innermost frame that is actually yours, skipping frames whose file no longer
+  exists, and falls back to the innermost real file when nothing in the traceback belongs to your
+  project. Chained tracebacks ("During handling of the above exception…") no longer land on the
+  wrong exception's frame either.
+  - Whether a run failed is now judged by its exit status rather than by searching the output
+    text for `exit code 0` — a program that merely printed that string suppressed the indicator
+    for its own crash.
+  - If IDOL can't open the location it found, it now says so in the OUTPUT panel instead of
+    doing nothing at all.
 - **Installing from the Designer left the Package Manager showing the old answer.** With the
   Packages tab open beside the Designer in a split, clicking **⚠ click to install Pillow**
   installed it — and the panel inches away carried on offering **Install**, with **Uninstall**

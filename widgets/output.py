@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import queue
 import re
 import tempfile
 import tkinter as tk
+import traceback as _traceback
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
 from utils.thread_safe_after import rearm_after
@@ -52,6 +54,10 @@ class OutputPanel(ttk.Frame):
         self._queue: queue.Queue = queue.Queue()
         self._runner = ScriptRunner(on_output=self._queue.put)
         self._is_running = False
+        #: Where the current run considers "the project" — used to tell the
+        #: user's own frames from a dependency's when picking which one to
+        #: jump to. Normcased absolute, or "" before the first run.
+        self._run_root: str = ""
         self.on_runtime_error: Optional[Callable[[str, int], None]] = None
 
         self._build_ui()
@@ -288,6 +294,7 @@ class OutputPanel(ttk.Frame):
         if cwd:
             self.write(f"$ cd {cwd}\n", "info")
         self.write(f"$ python {filepath}\n\n", "info")
+        self._set_run_root(cwd, filepath)
         self._start_run()
         self._runner.run(filepath, python_path, cwd)
 
@@ -311,6 +318,10 @@ class OutputPanel(ttk.Frame):
         )
         tmp.write(code)
         tmp.close()
+        # The scratch file, not *cwd* — a run-selection buffer lives in the
+        # system temp dir, so scoping to the project would rule out the only
+        # frame that is actually the user's code.
+        self._set_run_root(os.path.dirname(tmp.name), tmp.name)
         self._runner.run(tmp.name, python_path, cwd)
 
     def terminate(self) -> None:
@@ -319,6 +330,17 @@ class OutputPanel(ttk.Frame):
             self.write("\nProcess terminated by user.\n", "warning")
 
     # ── Internals ─────────────────────────────────────────────────────────────
+
+    def _set_run_root(self, cwd: str | None, filepath: str) -> None:
+        """Record the boundary between the user's code and everything else.
+
+        The run cwd when there is one — `app._compute_run_cwd` makes that the
+        project root or the script's directory — and the script's own folder
+        otherwise, which is the legacy inherit-IDOL's-cwd case where the
+        project root is not knowable from here.
+        """
+        base = cwd or os.path.dirname(os.path.abspath(filepath))
+        self._run_root = os.path.normcase(os.path.abspath(base))
 
     def _start_run(self) -> None:
         self._is_running = True
@@ -337,18 +359,72 @@ class OutputPanel(ttk.Frame):
             self._try_fire_runtime_error()
 
     def _try_fire_runtime_error(self) -> None:
-        """Parse the output for a Python traceback and fire on_runtime_error."""
-        text = self._text.get("1.0", "end")
-        if "exit code 0" in text:
+        """Parse the output for a Python traceback and fire on_runtime_error.
+
+        The success check reads the process's actual exit status rather than
+        searching the buffer for "exit code 0". That string is only in the
+        buffer because `script_runner` writes it there, and this panel is
+        written to by things that are not runs at all — the Package Manager
+        streams pip and conda output through it without clearing first. A
+        program that merely *prints* "exit code 0" was enough to suppress the
+        indicator for its own crash.
+        """
+        if self._runner.returncode == 0:
             return
-        matches = _TRACEBACK_RE.findall(text)
-        if not matches:
+        matches = _TRACEBACK_RE.findall(self._text.get("1.0", "end"))
+        frame = self._pick_error_frame(matches)
+        if frame is None:
             return
-        filepath, lineno_str = matches[-1]
+        filepath, lineno = frame
         try:
-            self.on_runtime_error(filepath, int(lineno_str))
-        except Exception:
-            pass
+            self.on_runtime_error(filepath, lineno)
+        except Exception as exc:
+            # Swallowing this is what made the last report of a non-firing
+            # indicator undiagnosable: a stale path, or _open_file_at raising,
+            # looked exactly like "no traceback found". Name it in the panel
+            # and keep the detail for whoever launched IDOL from a terminal.
+            _traceback.print_exc()
+            self.write(f"\n(could not open the error location: {exc})\n", "info")
+
+    def _pick_error_frame(self, matches) -> "tuple[str, int] | None":
+        """Choose which traceback frame to jump to.
+
+        The innermost frame — `matches[-1]` — is the wrong answer twice over.
+        An exception raised *inside* a dependency ends in `site-packages`, so
+        IDOL opened a library file instead of the code that called it; and a
+        chained traceback ("During handling of the above exception…") ends in
+        whichever exception was re-raised last, which may be nothing to do
+        with where the run actually went wrong.
+
+        Innermost frame that is the user's own code, then. Frames whose file
+        no longer exists are skipped entirely rather than merely deprioritised
+        — jumping to a path that is gone is the failure the caller can do
+        least with.
+        """
+        frames: list[tuple[str, int]] = []
+        for path, lineno in matches:
+            try:
+                n = int(lineno)
+            except ValueError:
+                continue
+            if os.path.isfile(path):
+                frames.append((path, n))
+        if not frames:
+            return None
+        if self._run_root:
+            for path, n in reversed(frames):
+                if self._is_under_run_root(path):
+                    return path, n
+        # Nothing in the project: the innermost real file still beats nothing.
+        return frames[-1]
+
+    def _is_under_run_root(self, path: str) -> bool:
+        try:
+            common = os.path.commonpath(
+                [os.path.normcase(os.path.abspath(path)), self._run_root])
+        except ValueError:
+            return False        # different drives on Windows
+        return common == self._run_root
 
     def _on_stdin_submit(self, _=None) -> None:
         text = self._stdin_entry.get()

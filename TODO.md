@@ -29,12 +29,14 @@ after step 1, exactly one item here has an observed symptom, and it goes first.
       neither backend knows whether the operation worked. The re-render was the
       half that made it visible: clearing the cache alone left the stale row on
       screen until the user happened to reselect the widget.
-- [ ] **Step 3 — three latent defects in `_try_fire_runtime_error`.** Found by
-      reading `widgets/output.py`, **not by any reported failure** — see the
-      Bugs entry for why the symptom that prompted the read turned out not to
-      exist. Real defects, low urgency: the swallowed exception (`:349`),
-      `matches[-1]` picking the wrong frame (`:346`), and the `"exit code 0"`
-      whole-buffer substring test (`:341`).
+- [x] **Step 3 — three latent defects in `_try_fire_runtime_error`.** Shipped.
+      Exit status replaces the substring test (`ScriptRunner.returncode`);
+      `_pick_error_frame` takes the innermost frame inside `_run_root` instead
+      of `matches[-1]`; the swallowed exception now reports to the panel and
+      stderr. Each defect was verified caught by reintroducing it one at a
+      time. One test was rewritten mid-verification when its red turned out to
+      be an artifact of the stand-in rather than a real defect — it omitted the
+      exit line the old code depended on.
 - [ ] **Step 4 — classify a missing module from run output.** Scan for
       `No module named '<x>'` and offer to install `<x>`, routed through the
       same conda/pip decision `_on_designer_install_pillow` (`app.py:10692`)
@@ -97,8 +99,9 @@ ships with it (Definition of Done). Steps 2 and 3 are both internal.
         run-output classification above is the right place to catch it rather
         than a new diagnostic.
 
-- [ ] **Three latent defects in `_try_fire_runtime_error`** (`widgets/output.py`).
-      **No reported symptom — do not treat these as urgent.** They were found
+- [x] **Three latent defects in `_try_fire_runtime_error`** (`widgets/output.py`).
+      *Fixed — see Active Work step 3.* **No reported symptom — they were not
+      urgent.** They were found
       while investigating "the runtime-error indicator fires unreliably", which
       **was a misfiling and has been withdrawn**: the `ModuleNotFoundError`
       that prompted it was the *expected* result of deliberately uninstalling

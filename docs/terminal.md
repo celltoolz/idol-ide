@@ -153,3 +153,18 @@ When a script crashes:
 4. Flashes the PROBLEMS tab
 
 All indicators clear on the next keystroke.
+
+**Which line it picks.** A traceback usually names several files. IDOL jumps to the
+innermost frame that is *your* code — inside the run's working directory — rather than the
+innermost frame overall, so an exception raised deep inside a library takes you to the call
+you wrote instead of to a file in `site-packages`. Frames whose file no longer exists are
+skipped. If no frame is in your project, it falls back to the innermost one that still exists.
+
+Only a run that actually failed triggers this, judged by the process's exit status — so a
+program that catches its own exception, prints the traceback and exits cleanly is left alone.
+If IDOL can't open the location it names the reason in the OUTPUT panel rather than doing
+nothing.
+
+This applies to **Run** (`F5`), which streams into the OUTPUT panel. **Run in Terminal**
+(`Ctrl+F5`) sends output to the PTY instead, where there is no indicator — expected, not a
+fault.
