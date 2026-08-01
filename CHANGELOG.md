@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-07-30] — The Designer Notices When You Remove a Package
 
+### Added
+- **A missing package now offers to install itself.** When a run stops with
+  `ModuleNotFoundError: No module named 'PIL'`, a clickable line appears under the traceback —
+  `⬇ Install 'pillow' with conda` — which installs into your active interpreter, conda or pip
+  as appropriate, ToS prompt included.
+  - **It knows that the name you import isn't the name you install.** `PIL` comes from
+    `pillow`, `cv2` from `opencv-python`, `yaml` from `PyYAML`; about thirty of the common
+    traps are translated, and where conda and PyPI disagree you get the right name for the
+    environment you're actually in. Anything unrecognised is offered under its own name.
+  - **Standard-library modules get an explanation instead of a bad offer.** A missing
+    `tkinter` means your Python was built without it, so no `pip install` can help, and IDOL
+    says so rather than sending you at a package that doesn't exist.
+  - It doesn't touch `requirements.txt` or `environment.yml` — one click in a log shouldn't
+    edit a file that goes into git.
+  - This was the only place such a failure *could* be caught: the PROBLEMS panel never sees
+    it, because linting doesn't resolve imports and a syntax check doesn't run them.
+
 ### Fixed
 - **A crash inside a library sent you to the library, not to your code.** When a script failed,
   IDOL jumped to the last file named in the traceback — which, whenever the exception was raised

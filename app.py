@@ -1202,6 +1202,8 @@ class IDOL(Tk):
         self._output._set_active = _synced_set_active
 
         self._output.output.on_runtime_error = self._on_runtime_error
+        self._output.output.resolve_missing_module = self._resolve_missing_module
+        self._output.output.on_install_module = self._install_missing_module
         self._output.on_ask_ai_problems = self._ask_ai_about_problems
         self._output.problems.on_ask_ai_entry = self._ask_ai_about_entry
         self._v_pane.add(self._output, weight=1)
@@ -10717,18 +10719,58 @@ class IDOL(Tk):
         if getattr(self, "_lsp", None):
             self._lsp.set_python_environment(path)
 
-    def _on_designer_install_pillow(self) -> None:
+    def _resolve_missing_module(self, module: str) -> "tuple[str, str] | None":
+        """Map an import name to something installable in the active env.
+
+        Only the app knows which interpreter is active, so the Output panel
+        asks rather than deciding. Returns (package, backend) for the label, or
+        None to decline the offer entirely.
+        """
+        from utils import missing_module as _mm
         from utils.conda_env import is_conda_env
 
+        conda = is_conda_env(self._active_python)
+        return _mm.distribution_for(module, conda=conda), (
+            "conda" if conda else "pip")
+
+    def _install_missing_module(self, package: str) -> None:
         output = self._output.output
+
+        def _done(_used_conda: bool) -> None:
+            # Deliberately does *not* write environment.yml / requirements.txt.
+            # The Package Manager's own installs don't either, and this is one
+            # click on a line in a log — too thin a gesture to edit a
+            # git-tracked file off. Adding the dependency stays explicit.
+            output.write(f"\n{package} install finished — run again.\n",
+                         tag="info")
+            self._on_packages_changed()
+
+        self._install_into_active_env(package, output, _done)
+
+    def _on_designer_install_pillow(self) -> None:
+        output = self._output.output
+        self._install_into_active_env(
+            "pillow", output,
+            lambda used_conda: self._on_pillow_install_done(
+                output, conda=used_conda))
+
+    def _install_into_active_env(self, package: str, output, on_done) -> None:
+        """Install *package* the way the active interpreter installs things.
+
+        conda when the interpreter is a conda env, pip otherwise — the same
+        decision the Package Manager makes, and the reason this is one method
+        rather than one per caller: it carries the conda ToS gate, and a third
+        copy of that gate is a third place for it to drift.
+
+        *on_done* is told which backend ran, because the answer decides which
+        dependency file a caller would write to.
+        """
+        from utils.conda_env import is_conda_env
+
         try:
             self._output._set_active("output")
         except Exception:
             pass
-
-        # Conda interpreters install the conda `pillow` package (same name,
-        # same product on both conda and PyPI) so conda's resolver stays
-        # consistent; pip is the fallback when no conda exe can be located.
         if is_conda_env(self._active_python):
             conda = getattr(self._pkg_panel, "_conda", None)
             if conda is None:
@@ -10737,40 +10779,40 @@ class IDOL(Tk):
                 conda = CondaManager(self._safe_after)
             conda.set_python(self._active_python)
             if conda.available:
-                self._conda_install_pillow(conda, output)
+                self._conda_install_package(conda, package, output, on_done)
                 return
             output.write(
-                "\nconda executable not found — installing Pillow with pip.\n",
+                f"\nconda executable not found — installing {package} with pip.\n",
                 tag="info")
-        self._pip_install_pillow(output)
+        self._pip_install_package(package, output, on_done)
 
-    def _pip_install_pillow(self, output) -> None:
+    def _pip_install_package(self, package: str, output, on_done) -> None:
         pip = getattr(self._pkg_panel, "_pip", None)
         if pip is None:
             from editor.pip_manager import PipManager
 
             pip = PipManager(self._safe_after)
         pip.set_python(self._active_python)
-        output.write("\n$ pip install pillow\n", tag="cmd")
+        output.write(f"\n$ pip install {package}\n", tag="cmd")
         pip.install(
-            "pillow",
+            package,
             on_line=output.write,
-            on_done=lambda: self._on_pillow_install_done(output, conda=False),
+            on_done=lambda: on_done(False),
             on_error=lambda e: output.write(e + "\n", tag="err"),
         )
 
-    def _conda_install_pillow(self, conda, output) -> None:
+    def _conda_install_package(self, conda, package: str, output, on_done) -> None:
         # Conda installs download from Anaconda's channels, which require
         # accepted Terms of Service — same gate as the Package Manager panel.
         from editor import conda_manager as conda_backend
         from widgets.conda_tos_dialog import CondaTosDialog
 
         def _exec() -> None:
-            output.write("\n$ conda install -y pillow\n", tag="cmd")
+            output.write(f"\n$ conda install -y {package}\n", tag="cmd")
             conda.install(
-                "pillow",
+                package,
                 on_line=output.write,
-                on_done=lambda: self._on_pillow_install_done(output, conda=True),
+                on_done=lambda: on_done(True),
                 on_error=lambda e: output.write(e + "\n", tag="err"),
             )
 
@@ -10790,7 +10832,7 @@ class IDOL(Tk):
                 on_accept=lambda: conda_backend.accept_tos(
                     conda.conda_exe, self._safe_after, _on_accept_done),
                 on_decline=lambda: output.write(
-                    "Pillow install cancelled — conda Terms of Service "
+                    f"{package} install cancelled — conda Terms of Service "
                     "not accepted\n", tag="err"),
             )
 

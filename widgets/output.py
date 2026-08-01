@@ -8,11 +8,13 @@ import tkinter as tk
 import traceback as _traceback
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
+from utils import missing_module as _missing_module
 from utils.thread_safe_after import rearm_after
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
+_OFFER_TAG    = "install_offer"
 
 _GUIDE_FG     = "#f1fa8c"   # amber — stands out from the dim Clear button
 _GUIDE_FG_HOV = "#ffffff"
@@ -59,6 +61,13 @@ class OutputPanel(ttk.Frame):
         #: jump to. Normcased absolute, or "" before the first run.
         self._run_root: str = ""
         self.on_runtime_error: Optional[Callable[[str, int], None]] = None
+        #: Host hooks for the missing-module offer. `resolve_missing_module`
+        #: maps an import name to (package, backend) for the *active*
+        #: interpreter — only the app knows which that is — and returns None to
+        #: decline the offer; `on_install_module` performs the install.
+        self.resolve_missing_module: Optional[
+            Callable[[str], "tuple[str, str] | None"]] = None
+        self.on_install_module: Optional[Callable[[str], None]] = None
 
         self._build_ui()
         self._poll()
@@ -94,6 +103,8 @@ class OutputPanel(ttk.Frame):
         self._text.tag_configure("success", foreground="#50fa7b")
         self._text.tag_configure("warning", foreground="#f1fa8c")
         self._text.tag_configure("stdin",   foreground=self._STDIN_FG)
+        self._text.tag_configure(_OFFER_TAG, foreground="#73c991",
+                                 underline=True)
 
         self._text.bind("<Button-3>", self._show_ctx)
         self._text.bind("<Button-2>", self._show_ctx)  # macOS two-finger tap
@@ -357,6 +368,7 @@ class OutputPanel(ttk.Frame):
             self._on_run_done()
         if self.on_runtime_error:
             self._try_fire_runtime_error()
+        self._offer_missing_module()
 
     def _try_fire_runtime_error(self) -> None:
         """Parse the output for a Python traceback and fire on_runtime_error.
@@ -385,6 +397,69 @@ class OutputPanel(ttk.Frame):
             # and keep the detail for whoever launched IDOL from a terminal.
             _traceback.print_exc()
             self.write(f"\n(could not open the error location: {exc})\n", "info")
+
+    # ── Missing-module offer ──────────────────────────────────────────────────
+
+    def _offer_missing_module(self) -> None:
+        """Turn `No module named 'X'` into something the user can act on.
+
+        Nothing else in IDOL can catch this. Ruff never resolves imports and
+        `compile()` never executes them, so a missing dependency is invisible
+        until the run — which makes the run output the right and only place to
+        notice it. See the Problems-panel note in TODO.md.
+        """
+        if self._runner.returncode == 0:
+            return
+        module = _missing_module.parse(self._text.get("1.0", "end"))
+        if not module:
+            return
+        if _missing_module.is_stdlib(module):
+            top = module.split(".")[0]
+            self.write(
+                f"\n'{top}' is part of the Python standard library, so no "
+                f"package will supply it — this interpreter was built without "
+                f"it. On Linux that is usually a separate system package.\n",
+                "warning")
+            return
+        if not (self.resolve_missing_module and self.on_install_module):
+            return
+        resolved = self.resolve_missing_module(module)
+        if not resolved:
+            return
+        self._write_install_offer(module, *resolved)
+
+    def _write_install_offer(self, module: str, package: str,
+                             backend: str) -> None:
+        self._text.configure(state="normal")
+        start = self._text.index("end-1c")
+        self._text.insert("end", f"\n  ⬇ Install '{package}' with {backend}",
+                          _OFFER_TAG)
+        end = self._text.index("end-1c")
+        # Only worth explaining when the two names differ — which is the whole
+        # reason the offer names a package rather than echoing the import.
+        if package.lower() != module.lower():
+            self._text.insert(
+                "end", f"     ({module} comes from the {package} package)",
+                "info")
+        self._text.insert("end", "\n")
+        self._text.tag_add(_OFFER_TAG, start, end)
+        self._text.tag_raise(_OFFER_TAG)
+        self._text.configure(state="disabled")
+        self._text.see("end")
+
+        def _click(_e=None):
+            # One offer per run: re-clicking mid-install would start a second.
+            self._text.tag_remove(_OFFER_TAG, "1.0", "end")
+            self._text.configure(cursor="")
+            if self.on_install_module:
+                self.on_install_module(package)
+
+        self._text.tag_unbind(_OFFER_TAG, "<ButtonRelease-1>")
+        self._text.tag_bind(_OFFER_TAG, "<ButtonRelease-1>", _click)
+        self._text.tag_bind(_OFFER_TAG, "<Enter>",
+                            lambda _e: self._text.configure(cursor="hand2"))
+        self._text.tag_bind(_OFFER_TAG, "<Leave>",
+                            lambda _e: self._text.configure(cursor=""))
 
     def _pick_error_frame(self, matches) -> "tuple[str, int] | None":
         """Choose which traceback frame to jump to.

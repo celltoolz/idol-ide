@@ -168,3 +168,35 @@ nothing.
 This applies to **Run** (`F5`), which streams into the OUTPUT panel. **Run in Terminal**
 (`Ctrl+F5`) sends output to the PTY instead, where there is no indicator — expected, not a
 fault.
+
+## Missing Packages
+
+When a run dies with `ModuleNotFoundError: No module named 'X'`, IDOL appends a clickable
+line under the traceback:
+
+```
+  ⬇ Install 'pillow' with conda     (PIL comes from the pillow package)
+```
+
+Clicking it installs into the **active interpreter**, using conda when that interpreter is a
+conda environment and pip otherwise — the same decision the Package Manager makes, including
+the conda Terms of Service prompt where one applies.
+
+**The name you import often isn't the name you install.** `PIL` comes from `pillow`, `cv2`
+from `opencv-python`, `yaml` from `PyYAML`. IDOL translates for about thirty of the common
+ones, and where conda and PyPI disagree (`opencv-python` on PyPI is `opencv` on conda) it
+offers the right name for your environment. Anything it doesn't recognise is offered under its
+own name, which is correct for most packages.
+
+**Standard-library modules are explained rather than offered.** `No module named 'tkinter'`
+means your Python was built without it — usually a separate system package on Linux — and no
+package manager can supply it, so IDOL says that instead of offering an install that would
+fail.
+
+Installing this way does **not** add the package to `requirements.txt` or `environment.yml`.
+One click on a line in a log is too thin a gesture to edit a file that goes into git; add the
+dependency deliberately when you're sure you want it.
+
+This is the only place a missing dependency can be caught. The PROBLEMS panel can't help:
+ruff never resolves imports, and a syntax check never executes them, so nothing knows the
+package is absent until the code actually runs.

@@ -37,12 +37,17 @@ after step 1, exactly one item here has an observed symptom, and it goes first.
       time. One test was rewritten mid-verification when its red turned out to
       be an artifact of the stand-in rather than a real defect — it omitted the
       exit line the old code depended on.
-- [ ] **Step 4 — classify a missing module from run output.** Scan for
-      `No module named '<x>'` and offer to install `<x>`, routed through the
-      same conda/pip decision `_on_designer_install_pillow` (`app.py:10692`)
-      already makes. A genuine feature — it is what would have made the Pillow
-      uninstall self-explanatory instead of a bare traceback. Wants step 3
-      landed first, since it adds a consumer to the run-output path.
+- [x] **Step 4 — classify a missing module from run output.** Shipped as a
+      clickable line under the traceback. `utils/missing_module.py` carries the
+      import→package table for both ecosystems (the reason it exists:
+      `pip install PIL` fails and `pip install sklearn` installs a
+      tell-you-you-were-wrong stub), and `is_stdlib` reads
+      `sys.stdlib_module_names` so a missing `tkinter` is explained rather than
+      mis-offered. The Designer's Pillow path was generalised into
+      `app._install_into_active_env` rather than copied — that method carries
+      the conda ToS gate, and a third copy is a third place for it to drift.
+      Writes no dependency file: one click on a line in a log is too thin a
+      gesture to edit something git-tracked.
 
 Step 4 changes the runtime-error indicator's behaviour, so `docs/terminal.md`
 ships with it (Definition of Done). Steps 2 and 3 are both internal.
@@ -50,9 +55,9 @@ ships with it (Definition of Done). Steps 2 and 3 are both internal.
 ## 🐛 Bugs
 
 - [x] **Uninstalling Pillow leaves the Designer believing it is still there,
-      and the run just crashes.** *First half fixed (`on_packages_changed`);
-      the second half — classifying a missing module from run output — is
-      Active Work step 4 and stays open.* Remove Pillow from the Package Manager in a
+      and the run just crashes.** *Both halves fixed —
+      `on_packages_changed` (step 2) and the missing-module offer (step 4).*
+      Remove Pillow from the Package Manager in a
       conda env, and the Designer keeps rendering image props as healthy — no
       "⚠ click to install Pillow" row — then Run fails with a bare
       `ModuleNotFoundError: No module named 'PIL'` from the generated
