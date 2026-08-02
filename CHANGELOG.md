@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [2026-07-30] — The Designer Notices When You Remove a Package
 
 ### Added
+- **⟳ Refresh index on the CHANNELS bar.** conda search reads a package index cached per
+  channel and refreshed weekly, which is what makes it instant and usable offline — but it also
+  meant a package published in the last few days simply couldn't be found, with no way to say
+  "look again". Now there is one. It re-downloads every channel you have listed, tells you how
+  many packages it found, and re-runs the search you had on screen so you see the new answer
+  without asking twice.
 - **A crash now shows up in the PROBLEMS panel.** The tab has always flashed amber when a run
   failed — and the panel it was pointing at held whatever the linter last found, which for a
   crash caused by a missing import is nothing at all. Now the failure is listed there, at the

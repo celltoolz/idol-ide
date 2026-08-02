@@ -51,6 +51,8 @@ _SCOPE_ALL = "▾ All channels"
 # environment.yml is named explicitly because it is a different action from
 # editing one — it drops a git-tracked file into the project.
 _EDIT_LABELS = {"": "", "edit": "✎ Edit", "create": "✎ Create environment.yml"}
+_REFRESH_IDLE = "⟳ Refresh index"
+_REFRESH_BUSY = "⟳ Refreshing…"
 
 _CACHE_FILE   = Path.home() / ".idol" / "pkg_cache.json"
 _LOOKUP_FILE  = Path(__file__).parent.parent / "data" / "idol_package_categories.json"
@@ -274,6 +276,10 @@ class PackageManagerPanel(tk.Frame):
         #: Transient by design — a view of the project's channels, never a
         #: change to them, so it is not persisted and resets with the env.
         self._scope_channel: str = ""
+        #: A manual index refresh is in flight. Guards the affordance against a
+        #: second click — `ensure_loaded` would queue the callback behind the
+        #: running load and report done twice for one visible refresh.
+        self._chan_refreshing: bool = False
         self._group_view = bool(_settings.get("pkg_group_view", True))
         self._build()
         self.after(100, self._load_installed)
@@ -405,6 +411,46 @@ class PackageManagerPanel(tk.Frame):
             text=f"{cfg.priority} priority" if cfg and cfg.ok and cfg.priority else "")
         self._chan_edit.config(text=_EDIT_LABELS[
             channel_edit_action(self._project_dir, stated)])
+        # Nothing to re-fetch with no channels; don't offer an action that
+        # would return immediately having done nothing. The in-flight label is
+        # left alone — a repaint mid-refresh must not reset it to idle.
+        if not self._chan_refreshing:
+            self._chan_refresh.config(
+                text=_REFRESH_IDLE if channels else "", fg=_DIM)
+
+    def _refresh_channel_index(self) -> None:
+        """Re-fetch every active channel's channeldata, ignoring the cache.
+
+        The index is otherwise only rebuilt when it expires (weekly) or when
+        the channel set changes, so a package published today cannot be
+        searched for until then. `force=True` is what the backend has always
+        accepted; nothing called it.
+
+        Re-running the current search afterwards is the point — a refresh whose
+        result you have to go and ask for again has not finished the job.
+        """
+        if self._chan_refreshing:
+            return
+        channels, _ = self._resolve_channels()
+        if not channels:
+            return
+        self._chan_refreshing = True
+        self._chan_refresh.config(text=_REFRESH_BUSY, fg=_DIM)
+
+        def _done(count: int) -> None:
+            self._chan_refreshing = False
+            self._chan_refresh.config(text=_REFRESH_IDLE, fg=_DIM)
+            # missing_channels may have changed, and it feeds a guardrail on
+            # the source line — repaint rather than leave the old verdict.
+            self._render_channel_bar()
+            self._notify(f"Channel index refreshed — {count} packages "
+                         f"from {len(channels)} channel(s).\n")
+            if self._search_source == "conda" and self._listing == "conda":
+                query = self._search_var.get().strip()
+                if query and query not in _ALL_HINTS:
+                    self._run_conda_search(query)
+
+        self._conda_index.ensure_loaded(channels, _done, force=True)
 
     def _open_channel_guide(self) -> None:
         from utils.conda_channels_guide import get_pages
@@ -660,6 +706,20 @@ class PackageManagerPanel(tk.Frame):
         self._chan_edit.bind("<Enter>", lambda _: self._chan_edit.config(fg=_FG))
         self._chan_edit.bind("<Leave>", lambda _: self._chan_edit.config(fg=_DIM))
         self._chan_edit.pack(side="right", padx=(0, 12))
+        # Search reads a channeldata.json cache that only expires weekly, so a
+        # package published today is unfindable until it ages out. This is the
+        # "look again" the backend has always been able to do.
+        self._chan_refresh = tk.Label(chan_top, text=_REFRESH_IDLE, bg=_BG,
+                                      fg=_DIM, font=(UI_FONT, 8),
+                                      cursor="hand2")
+        self._chan_refresh.bind("<ButtonRelease-1>",
+                                lambda _: self._refresh_channel_index())
+        self._chan_refresh.bind(
+            "<Enter>", lambda _: self._chan_refresh.config(
+                fg=_FG if not self._chan_refreshing else _DIM))
+        self._chan_refresh.bind("<Leave>",
+                                lambda _: self._chan_refresh.config(fg=_DIM))
+        self._chan_refresh.pack(side="right", padx=(0, 12))
         self._chan_prio = tk.Label(chan_top, text="", bg=_BG, fg=_DIM,
                                    font=(UI_FONT, 8))
         self._chan_prio.pack(side="right", padx=(0, 12))

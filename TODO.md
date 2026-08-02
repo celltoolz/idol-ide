@@ -30,15 +30,13 @@ closer.
       with one change: the merge lives in `_build_problem_entries`, not
       `update_problems` — app-side, already the single producer of the list,
       so every caller picks it up for free. See **Done** for the detail.
-- [ ] **Step 2 — refresh the conda channel index by hand.** The backend is
-      already there (`ensure_loaded(force=True)`); only the affordance and its
-      in-flight state are missing. See the Features entry. Also closes the
-      dangling `CONTRIBUTING.md` reference to "Phase 5's Refresh", a phase that
-      was never scoped.
-- [ ] **Step 3 — merge to master and close the branch.** *After* the user has
-      verified steps 1 and 2 in the running app. Full suite plus `ruff check .`,
-      `git merge --no-ff`, push master, delete the branch local and remote —
-      same sequence as `fdc00f9`.
+- [x] **Step 2 — refresh the conda channel index by hand.** Shipped and
+      verified in the running app. `⟳ Refresh index` on the CHANNELS bar. See
+      **Done** for the detail.
+- [ ] **Step 3 — merge to master and close the branch.** **Held** at the
+      user's request for a final run-through of the whole branch first. Then:
+      full suite plus `ruff check .`, `git merge --no-ff`, push master, delete
+      the branch local and remote — same sequence as `fdc00f9`.
 
 ## 🐛 Bugs
 
@@ -64,19 +62,10 @@ seeds `environment.yml` → project edits are local. That is why no
 import/export round-trip is needed.
 
 Each phase is independently shippable. **Tests green before every commit** —
-`pytest -m "not gui"` and `ruff check .`. All four phases shipped; they are
-under **Done** below. One item remains open:
-
-- [ ] **Refresh the channel index by hand.** `CondaSearchIndex.ensure_loaded`
-      already takes `force=True` and the per-channel on-disk cache makes a
-      rebuild cheap, but nothing in the UI calls it — the index refreshes only on
-      its weekly expiry. So a channel that published a package today cannot be
-      searched for it until the cache ages out, with no way to say "look again".
-      Small: a refresh affordance on the channel bar plus the in-flight state, no
-      backend work. Filed because `CONTRIBUTING.md`'s `CondaSearchIndex` row
-      already promises it as "Phase 5's Refresh" — a phase that was never scoped
-      alongside the four under **Done**, so the reference currently points at
-      nothing.
+`pytest -m "not gui"` and `ruff check .`. **Nothing open** — all four phases and
+the manual index refresh are under **Done** below. The decisions above are kept
+here because the *channel_priority* item under **Known, not yet scoped** turns
+on them.
 
 **Deferred, note-and-move-on:** `.condarc` writes; `channel_priority` editing
 (see *Known, not yet scoped*); mirrors / `channel_alias` / `custom_channels` /
@@ -382,7 +371,25 @@ copy without rereading the diff.
         panel. A run started that way is *expected* to show no indicator.
         **Ask which Run was used before filing an indicator bug at all.**
 
-**Conda Channels** *(four phases, all complete)*
+**Conda Channels** *(four phases plus the manual index refresh, all complete)*
+- [x] **Refresh the channel index by hand.** `⟳ Refresh index` on the CHANNELS
+      bar. `CondaSearchIndex.ensure_loaded` had always taken `force=True` and
+      nothing ever called it, so the index rebuilt only on its weekly expiry or
+      a channel-set change — a package published today could not be searched
+      for until the cache aged out, with no way to say "look again".
+      - **It re-runs the search on screen.** A refresh whose result you have to
+        go and ask for again has not finished the job; without this you click
+        refresh, see "done", and are still looking at the stale result list.
+        Only when a conda search is actually displayed — `_search_source` *and*
+        `_listing` both have to agree, since either can be pointing elsewhere.
+      - Repaints the bar afterwards: `missing_channels` feeds a guardrail on
+        the source line and a refresh is exactly what changes it.
+      - Re-entry guarded by `_chan_refreshing`. `ensure_loaded` queues a second
+        caller's callback behind the running load, so an unguarded double-click
+        reports done twice for one visible refresh. A repaint arriving
+        mid-refresh must not reset the in-flight label.
+      - Closes the dangling `CONTRIBUTING.md` promise of "Phase 5's Refresh" —
+        a phase that never existed. That reference now points at real code.
 - [x] **Phase 1 — the channel bar, read-only.** A `CHANNELS` strip between the
       search bar and the package list, conda interpreters only (same condition
       as the existing `conda | PyPI` toggle). Numbered active list
