@@ -640,6 +640,54 @@ Each file in `docs/` maps to a feature area. When you change a feature, update t
 - When a planned item ships, move it from the backlog to the Shipped section with a date
 - Add new planned items as they are decided
 
+### `TODO.md`
+- The **✅ Done** section is the **release ledger**, not a per-branch list. It accumulates across every branch in a version and is not cleared when one merges — it is what the release notes are written from, so each entry should be usable as source material without rereading the diff
+- Entries carry the *why*, not just the *what*, including decisions that were considered and rejected. Several entries here have saved re-litigating a settled question months later
+- The **filing rule** at the top of that file is load-bearing: what was seen, what was expected instead, and whether the thing that failed was already known broken. Two entries were once written from a plausible mechanism rather than a confirmed failure, and both dissolved on contact
+
+---
+
+## Release Notes
+
+Published to GitHub Releases. **`CHANGELOG.md` is the dated, per-milestone detail; the release
+notes are the curated user-facing summary of a whole version**, and they are written from
+`TODO.md`'s release ledger rather than from the diff.
+
+Fixed structure, in this order:
+
+```
+# IDOL vX.Y.Z — <theme, not just the number>
+
+<two or three sentences on what the release is about>
+
+## 🛠️ Fixed
+## 🆕 Added
+## 🔎 Left out of scope
+
+Full Changelog: https://github.com/celltoolz/idol-ide/blob/master/CHANGELOG.md
+```
+
+**Write for the person using IDOL, not the person who wrote it.** Behaviour and symptom, never
+a method name — `_selected_src` means nothing to a reader, "picking a package out of your
+installed list isn't a choice of source, but it was being recorded as one" means everything.
+The mechanics belong in this file and in the commit message; the release notes carry what
+changed on screen. A bullet a user cannot check against their own experience is a bullet
+written for the wrong audience.
+
+**Lead each bullet with the symptom, in bold, in the past tense.** "Opening a project silently
+changed your theme and editor font" — the thing they actually hit — then the explanation.
+Group bullets under bold sub-headings inside each section; a flat list of thirty fixes is
+unreadable.
+
+**`🔎 Left out of scope` is the section that earns trust.** Write it as decisions with
+reasons, never as apologies, and say what is next. Anything a user might reasonably expect to
+work and find doesn't — like the terminal getting none of the post-run help the Output panel
+gets — belongs here, stated plainly, rather than being discovered. It comes straight from the
+open items and the *Known, not yet scoped* list.
+
+**Scope the notes to the version, not the branch.** A version usually spans several branches;
+the ledger already accumulates that way, so the notes should too.
+
 ---
 
 ## What NOT To Do
