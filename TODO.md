@@ -1,8 +1,11 @@
 # IDOL IDE — TODO
 
-Working list for the `fix/v1.1.2-finish-todo-sweep` branch (`fix/idol-todo-sweep`
-merged to master as `fdc00f9`). Longer-term plans live in `ROADMAP.md`; this
-file is what's next.
+Working list for v1.1.2. Both branches are merged to master —
+`fix/idol-todo-sweep` as `fdc00f9`, `fix/v1.1.2-finish-todo-sweep` after it.
+Longer-term plans live in `ROADMAP.md`; this file is what's next.
+
+**Nothing is in flight.** The next branch opens on *Post-run analysis for
+terminal runs* under Features — the only substantial item still open.
 
 **Filing rule, learned the hard way twice on this branch.** Two entries here
 were written from a plausible mechanism rather than a confirmed failure, and
@@ -16,27 +19,8 @@ entry contained a careful trace proving nothing was wrong, and got filed anyway.
 
 ## 🚧 Active Work
 
-Two items left before this branch closes, then the merge. Everything already
-shipped is under **Done** below. Each step is its own commit.
-
-**The terminal job is deliberately not in this round** — *Post-run analysis for
-terminal runs* under Features is the next branch's opener, not this one's
-closer.
-
-- [x] **Step 1 — runtime errors become real PROBLEMS entries.** Shipped and
-      verified in the running app (all five checks: entry appears with the
-      exception message, survives a lint pass, clears on install, clears on a
-      clean run, sorts above lint warnings). Resolution **(a)** as planned,
-      with one change: the merge lives in `_build_problem_entries`, not
-      `update_problems` — app-side, already the single producer of the list,
-      so every caller picks it up for free. See **Done** for the detail.
-- [x] **Step 2 — refresh the conda channel index by hand.** Shipped and
-      verified in the running app. `⟳ Refresh index` on the CHANNELS bar. See
-      **Done** for the detail.
-- [ ] **Step 3 — merge to master and close the branch.** **Held** at the
-      user's request for a final run-through of the whole branch first. Then:
-      full suite plus `ruff check .`, `git merge --no-ff`, push master, delete
-      the branch local and remote — same sequence as `fdc00f9`.
+*Nothing in flight.* The v1.1.2 round is closed — every step is under **Done**,
+and the whole branch was run through by hand before the merge.
 
 ## 🐛 Bugs
 
@@ -230,6 +214,27 @@ copy without rereading the diff.
       `interpreter:C:\Users\Alex` twice before and the two real project paths
       after. Three tests in `tests/test_project_root.py`, all confirmed failing
       against the unfixed `app.py`.
+
+**The v1.1.2 closing round** *(the four planned steps, in the order they shipped)*
+- [x] **Guard every self-re-arming `after` loop** — hygiene, not the crash it
+      was filed as. Detail under *The re-arm loops* below.
+- [x] **`on_packages_changed`** — the package-changed hub. Detail under
+      *Uninstalling Pillow* and *The package-changed hub* below.
+- [x] **The three latent `_try_fire_runtime_error` defects** — right frame,
+      real exit status, no swallowed exception. Detail below.
+- [x] **Classify a missing module from run output** — the install offer.
+      Detail under *Missing packages offer to install themselves* below.
+- [x] **Runtime errors become real PROBLEMS entries** — verified against all
+      five behaviours in the running app: the entry appears with the
+      exception's own message, survives a lint pass, clears on install, clears
+      on a clean run, and sorts above lint warnings. Resolution (a) as planned
+      with one change — the merge lives in `_build_problem_entries` rather
+      than `update_problems`, which is app-side and already the single
+      producer of the list, so every caller picks it up for free.
+- [x] **Refresh the conda channel index by hand** — detail under *Conda
+      Channels* below.
+- [x] **Merged to master** after a full manual run-through of the branch, with
+      `pytest` (599 passed, 1 skipped) and `ruff check .` both green.
 
 **Package Manager, Designer and the run path**
 - [x] **PROBLEMS flashed for a runtime error and had nothing to show.** A run
