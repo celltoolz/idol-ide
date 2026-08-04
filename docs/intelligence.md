@@ -38,9 +38,22 @@ When a script crashes, IDOL:
 1. Jumps to the offending line
 2. Applies an amber highlight to that line
 3. Draws a right-pointing amber triangle (▶) in the gutter
-4. Flashes the PROBLEMS tab
+4. Adds the crash to the PROBLEMS panel and flashes the tab
 
-All indicators clear on the next keystroke.
+The line highlight and gutter triangle clear on the next keystroke. The PROBLEMS
+entry is more persistent — it stays until you run again, open a different
+project, or install the package that was missing.
+
+**The crash is listed above any lint warnings**, with the exception's own message
+(`ModuleNotFoundError: No module named 'PIL'`), because something you just
+watched fail matters more than an unused import. It sits alongside the linter's
+findings rather than replacing them, and a lint pass triggered by your next
+keystroke won't sweep it away.
+
+This is the only way a crash reaches PROBLEMS. Linting is static — it reads your
+code without running it — so a failure that only happens at runtime is invisible
+to it. Before this, the tab flashed for a crash and the panel it pointed at held
+whatever the linter had last found, which for a missing import was nothing.
 
 ## Diagnostic Statusbar Badge
 

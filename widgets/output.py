@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import os
 import queue
 import re
 import tempfile
 import tkinter as tk
+import traceback as _traceback
 from tkinter import Entry, Frame, Label, Text, ttk
 from typing import Callable, Optional
+from utils import missing_module as _missing_module
+from utils.thread_safe_after import rearm_after
 from utils.ui_font import UI_FONT
 from widgets.scrollbar import VerticalScrollbar
 
 _TRACEBACK_RE = re.compile(r'File "([^"]+)", line (\d+)')
+_RUN_END_RE   = re.compile(r"^Process finished with exit code ", re.M)
+_OFFER_TAG    = "install_offer"
 
 _GUIDE_FG     = "#f1fa8c"   # amber — stands out from the dim Clear button
 _GUIDE_FG_HOV = "#ffffff"
@@ -51,7 +57,18 @@ class OutputPanel(ttk.Frame):
         self._queue: queue.Queue = queue.Queue()
         self._runner = ScriptRunner(on_output=self._queue.put)
         self._is_running = False
+        #: Where the current run considers "the project" — used to tell the
+        #: user's own frames from a dependency's when picking which one to
+        #: jump to. Normcased absolute, or "" before the first run.
+        self._run_root: str = ""
         self.on_runtime_error: Optional[Callable[[str, int], None]] = None
+        #: Host hooks for the missing-module offer. `resolve_missing_module`
+        #: maps an import name to (package, backend) for the *active*
+        #: interpreter — only the app knows which that is — and returns None to
+        #: decline the offer; `on_install_module` performs the install.
+        self.resolve_missing_module: Optional[
+            Callable[[str], "tuple[str, str] | None"]] = None
+        self.on_install_module: Optional[Callable[[str], None]] = None
 
         self._build_ui()
         self._poll()
@@ -87,6 +104,8 @@ class OutputPanel(ttk.Frame):
         self._text.tag_configure("success", foreground="#50fa7b")
         self._text.tag_configure("warning", foreground="#f1fa8c")
         self._text.tag_configure("stdin",   foreground=self._STDIN_FG)
+        self._text.tag_configure(_OFFER_TAG, foreground="#73c991",
+                                 underline=True)
 
         self._text.bind("<Button-3>", self._show_ctx)
         self._text.bind("<Button-2>", self._show_ctx)  # macOS two-finger tap
@@ -287,6 +306,7 @@ class OutputPanel(ttk.Frame):
         if cwd:
             self.write(f"$ cd {cwd}\n", "info")
         self.write(f"$ python {filepath}\n\n", "info")
+        self._set_run_root(cwd, filepath)
         self._start_run()
         self._runner.run(filepath, python_path, cwd)
 
@@ -310,6 +330,10 @@ class OutputPanel(ttk.Frame):
         )
         tmp.write(code)
         tmp.close()
+        # The scratch file, not *cwd* — a run-selection buffer lives in the
+        # system temp dir, so scoping to the project would rule out the only
+        # frame that is actually the user's code.
+        self._set_run_root(os.path.dirname(tmp.name), tmp.name)
         self._runner.run(tmp.name, python_path, cwd)
 
     def terminate(self) -> None:
@@ -318,6 +342,17 @@ class OutputPanel(ttk.Frame):
             self.write("\nProcess terminated by user.\n", "warning")
 
     # ── Internals ─────────────────────────────────────────────────────────────
+
+    def _set_run_root(self, cwd: str | None, filepath: str) -> None:
+        """Record the boundary between the user's code and everything else.
+
+        The run cwd when there is one — `app._compute_run_cwd` makes that the
+        project root or the script's directory — and the script's own folder
+        otherwise, which is the legacy inherit-IDOL's-cwd case where the
+        project root is not knowable from here.
+        """
+        base = cwd or os.path.dirname(os.path.abspath(filepath))
+        self._run_root = os.path.normcase(os.path.abspath(base))
 
     def _start_run(self) -> None:
         self._is_running = True
@@ -334,20 +369,169 @@ class OutputPanel(ttk.Frame):
             self._on_run_done()
         if self.on_runtime_error:
             self._try_fire_runtime_error()
+        self._offer_missing_module()
 
     def _try_fire_runtime_error(self) -> None:
-        """Parse the output for a Python traceback and fire on_runtime_error."""
+        """Parse the output for a Python traceback and fire on_runtime_error.
+
+        The success check reads the process's actual exit status rather than
+        searching the buffer for "exit code 0". That string is only in the
+        buffer because `script_runner` writes it there, and this panel is
+        written to by things that are not runs at all — the Package Manager
+        streams pip and conda output through it without clearing first. A
+        program that merely *prints* "exit code 0" was enough to suppress the
+        indicator for its own crash.
+        """
+        if self._runner.returncode == 0:
+            return
         text = self._text.get("1.0", "end")
-        if "exit code 0" in text:
-            return
         matches = _TRACEBACK_RE.findall(text)
-        if not matches:
+        frame = self._pick_error_frame(matches)
+        if frame is None:
             return
-        filepath, lineno_str = matches[-1]
+        filepath, lineno = frame
         try:
-            self.on_runtime_error(filepath, int(lineno_str))
-        except Exception:
-            pass
+            self.on_runtime_error(filepath, lineno,
+                                  self._exception_message(text))
+        except Exception as exc:
+            # Swallowing this is what made the last report of a non-firing
+            # indicator undiagnosable: a stale path, or _open_file_at raising,
+            # looked exactly like "no traceback found". Name it in the panel
+            # and keep the detail for whoever launched IDOL from a terminal.
+            _traceback.print_exc()
+            self.write(f"\n(could not open the error location: {exc})\n", "info")
+
+    @staticmethod
+    def _exception_message(text: str) -> str:
+        """The `SomeError: detail` line that ended the last traceback.
+
+        Python closes a traceback with the exception at column 0, after the
+        indented frame lines — so the last unindented line of the block is it.
+        `rfind` takes the *last* traceback, which under a chained one
+        ("During handling of the above exception…") is the exception that
+        actually stopped the run.
+
+        Bounded by the exit line because this panel keeps writing after the
+        traceback, and an unbounded search backwards would return whatever the
+        Package Manager streamed in next.
+        """
+        start = text.rfind("Traceback (most recent call last):")
+        if start == -1:
+            return ""
+        region = text[start:]
+        end = _RUN_END_RE.search(region)
+        if end:
+            region = region[:end.start()]
+        for line in reversed(region.splitlines()):
+            if not line.strip() or line[:1].isspace():
+                continue        # blank, or an indented frame line
+            if line.startswith("Traceback"):
+                break
+            return line.strip()
+        return ""
+
+    # ── Missing-module offer ──────────────────────────────────────────────────
+
+    def _offer_missing_module(self) -> None:
+        """Turn `No module named 'X'` into something the user can act on.
+
+        Nothing else in IDOL can catch this. Ruff never resolves imports and
+        `compile()` never executes them, so a missing dependency is invisible
+        until the run — which makes the run output the right and only place to
+        notice it. See the Problems-panel note in TODO.md.
+        """
+        if self._runner.returncode == 0:
+            return
+        module = _missing_module.parse(self._text.get("1.0", "end"))
+        if not module:
+            return
+        if _missing_module.is_stdlib(module):
+            top = module.split(".")[0]
+            self.write(
+                f"\n'{top}' is part of the Python standard library, so no "
+                f"package will supply it — this interpreter was built without "
+                f"it. On Linux that is usually a separate system package.\n",
+                "warning")
+            return
+        if not (self.resolve_missing_module and self.on_install_module):
+            return
+        resolved = self.resolve_missing_module(module)
+        if not resolved:
+            return
+        self._write_install_offer(module, *resolved)
+
+    def _write_install_offer(self, module: str, package: str,
+                             backend: str) -> None:
+        self._text.configure(state="normal")
+        start = self._text.index("end-1c")
+        self._text.insert("end", f"\n  ⬇ Install '{package}' with {backend}",
+                          _OFFER_TAG)
+        end = self._text.index("end-1c")
+        # Only worth explaining when the two names differ — which is the whole
+        # reason the offer names a package rather than echoing the import.
+        if package.lower() != module.lower():
+            self._text.insert(
+                "end", f"     ({module} comes from the {package} package)",
+                "info")
+        self._text.insert("end", "\n")
+        self._text.tag_add(_OFFER_TAG, start, end)
+        self._text.tag_raise(_OFFER_TAG)
+        self._text.configure(state="disabled")
+        self._text.see("end")
+
+        def _click(_e=None):
+            # One offer per run: re-clicking mid-install would start a second.
+            self._text.tag_remove(_OFFER_TAG, "1.0", "end")
+            self._text.configure(cursor="")
+            if self.on_install_module:
+                self.on_install_module(package)
+
+        self._text.tag_unbind(_OFFER_TAG, "<ButtonRelease-1>")
+        self._text.tag_bind(_OFFER_TAG, "<ButtonRelease-1>", _click)
+        self._text.tag_bind(_OFFER_TAG, "<Enter>",
+                            lambda _e: self._text.configure(cursor="hand2"))
+        self._text.tag_bind(_OFFER_TAG, "<Leave>",
+                            lambda _e: self._text.configure(cursor=""))
+
+    def _pick_error_frame(self, matches) -> "tuple[str, int] | None":
+        """Choose which traceback frame to jump to.
+
+        The innermost frame — `matches[-1]` — is the wrong answer twice over.
+        An exception raised *inside* a dependency ends in `site-packages`, so
+        IDOL opened a library file instead of the code that called it; and a
+        chained traceback ("During handling of the above exception…") ends in
+        whichever exception was re-raised last, which may be nothing to do
+        with where the run actually went wrong.
+
+        Innermost frame that is the user's own code, then. Frames whose file
+        no longer exists are skipped entirely rather than merely deprioritised
+        — jumping to a path that is gone is the failure the caller can do
+        least with.
+        """
+        frames: list[tuple[str, int]] = []
+        for path, lineno in matches:
+            try:
+                n = int(lineno)
+            except ValueError:
+                continue
+            if os.path.isfile(path):
+                frames.append((path, n))
+        if not frames:
+            return None
+        if self._run_root:
+            for path, n in reversed(frames):
+                if self._is_under_run_root(path):
+                    return path, n
+        # Nothing in the project: the innermost real file still beats nothing.
+        return frames[-1]
+
+    def _is_under_run_root(self, path: str) -> bool:
+        try:
+            common = os.path.commonpath(
+                [os.path.normcase(os.path.abspath(path)), self._run_root])
+        except ValueError:
+            return False        # different drives on Windows
+        return common == self._run_root
 
     def _on_stdin_submit(self, _=None) -> None:
         text = self._stdin_entry.get()
@@ -367,4 +551,4 @@ class OutputPanel(ttk.Frame):
                 self.write(text, tag)
         except queue.Empty:
             pass
-        self.after(50, self._poll)
+        rearm_after(self, 50, self._poll)

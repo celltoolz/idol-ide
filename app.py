@@ -40,7 +40,7 @@ from utils import recent as recent_utils
 from utils import settings as settings_utils
 from utils import clipboard_store
 from utils import starter_templates
-from utils.thread_safe_after import make_thread_safe_after
+from utils.thread_safe_after import make_thread_safe_after, rearm_after
 from widgets.learning_manager import LearningManager
 from utils.custom_cursor import get_learn_cursor
 from utils.ui_font import UI_FONT
@@ -399,6 +399,13 @@ class IDOL(Tk):
             None  # tab showing last crash indicator
         )
         self._lsp_diagnostics: dict[str, list] = {}  # uri → diag list
+        #: Problems from the last failed *run*, merged into the panel alongside
+        #: the linter's. Held here rather than pushed into the panel because
+        #: `update_problems` replaces the whole list on every lint pass — an
+        #: injected entry would survive until the next keystroke and no longer.
+        #: Nothing had ever put a runtime error in that panel, so the flash on
+        #: a crash pointed at whatever ruff happened to have found.
+        self._runtime_problems: list[dict] = []
         self._hover_after_id: str | None = None
         self._hover_popup = None
         self._lsp_change_after_id: str | None = None
@@ -1187,6 +1194,16 @@ class IDOL(Tk):
 
         self._output.output._on_run_done = _run_done_hook
 
+        # A new run invalidates the last one's problems — same wrapping idiom.
+        _orig_run_start = self._output.output._on_run_start
+
+        def _run_start_hook(_orig=_orig_run_start):
+            self._clear_runtime_problems()
+            if _orig:
+                _orig()
+
+        self._output.output._on_run_start = _run_start_hook
+
         # Terminal shell integration: OSC 133;D fires when the prompt appears
         self._output.terminal.on_command_done = lambda exit_code=None: (
             self._running_file and self._set_running_file(None)
@@ -1202,6 +1219,8 @@ class IDOL(Tk):
         self._output._set_active = _synced_set_active
 
         self._output.output.on_runtime_error = self._on_runtime_error
+        self._output.output.resolve_missing_module = self._resolve_missing_module
+        self._output.output.on_install_module = self._install_missing_module
         self._output.on_ask_ai_problems = self._ask_ai_about_problems
         self._output.problems.on_ask_ai_entry = self._ask_ai_about_entry
         self._v_pane.add(self._output, weight=1)
@@ -2129,11 +2148,7 @@ class IDOL(Tk):
             if stale_uris:
                 for u in stale_uris:
                     del self._lsp_diagnostics[u]
-                entries = self._build_problem_entries()
-                self._output.update_problems(entries)
-                errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
-                warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
-                self._statusbar.set_diagnostics(errors, warnings)
+                self._refresh_problems()
         nb.forget(index)
         # An emptied split pane stays open. Closing a tab is not a request to
         # close the pane — the split is a layout the user chose, and only the
@@ -2527,15 +2542,16 @@ class IDOL(Tk):
                     self._apply_diagnostics(cv, diags)
                 break
         # Rebuild the full problems list and push to the panel
-        entries = self._build_problem_entries()
-        self._output.update_problems(entries)
-        errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
-        warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
-        self._statusbar.set_diagnostics(errors, warnings)
+        self._refresh_problems()
 
     def _build_problem_entries(self) -> list[dict]:
-        """Flatten _lsp_diagnostics into a list of dicts for ProblemsPanel."""
-        entries = []
+        """Flatten _lsp_diagnostics into a list of dicts for ProblemsPanel.
+
+        Runtime problems are merged in here rather than pushed to the panel, so
+        every existing caller picks them up without knowing they exist. They go
+        first: a crash you just watched happen outranks a lint warning.
+        """
+        entries = list(self._runtime_problems)
         for uri, diags in self._lsp_diagnostics.items():
             filepath = uri_to_path(uri).replace("/", os.sep)
             if os.name == "nt" and filepath.startswith("\\"):
@@ -2544,6 +2560,14 @@ class IDOL(Tk):
             entries.extend(_diags_to_entries(diags, filepath, filename))
         return entries
 
+    def _refresh_problems(self) -> None:
+        """Rebuild the problems list, push it, and re-count the status bar."""
+        entries = self._build_problem_entries()
+        self._output.update_problems(entries)
+        errors = sum(1 for e in entries if e.get("severity") == SEV_ERROR)
+        warnings = sum(1 for e in entries if e.get("severity") == SEV_WARNING)
+        self._statusbar.set_diagnostics(errors, warnings)
+
     def _apply_diagnostics(self, codeview, diags: list) -> None:
         """Push LSP diagnostics to the editor. Canvas engine renders
         squigglies from its own diagnostic list using palette colors."""
@@ -2551,7 +2575,8 @@ class IDOL(Tk):
 
     # ── Runtime error indicator ───────────────────────────────────────────────
 
-    def _on_runtime_error(self, filepath: str, lineno: int) -> None:
+    def _on_runtime_error(self, filepath: str, lineno: int,
+                          message: str = "") -> None:
         """Jump to crashed line, apply amber highlight and gutter triangle."""
         self._clear_runtime_error()
         self._open_file_at(filepath, lineno, 0)
@@ -2563,8 +2588,29 @@ class IDOL(Tk):
                 if cv:
                     cv.set_runtime_error_line(lineno)
                 break
+        # Give the flash something to be about. Without this the tab flashed
+        # amber and the panel it pointed at held whatever the linter last found
+        # — which for a crash caused by a missing import is nothing at all,
+        # since ruff never resolves imports and compile() never runs them.
+        self._runtime_problems = [{
+            "filepath": filepath,
+            "filename": os.path.basename(filepath),
+            "line": lineno,
+            "col": 0,
+            "severity": SEV_ERROR,
+            "message": message or "Run failed here",
+        }]
+        self._refresh_problems()
         if self._output._active != "problems":
             self._output.flash_problems_tab()
+
+    def _clear_runtime_problems(self) -> None:
+        """Drop the last run's problems. Cheap and idempotent, so callers that
+        may or may not have one can just call it."""
+        if not self._runtime_problems:
+            return
+        self._runtime_problems = []
+        self._refresh_problems()
 
     def _clear_runtime_error(self) -> None:
         """Remove the amber line highlight and gutter triangle."""
@@ -2799,7 +2845,7 @@ class IDOL(Tk):
         self._git.get_status(self._on_git_status)
         self._git.get_ahead_behind(self._on_git_ahead_behind)
         # Poll every 30 s to catch external git operations
-        self.after(30_000, self._refresh_git)
+        rearm_after(self, 30_000, self._refresh_git)
 
     def _on_git_branch(self, branch: str) -> None:
         self._statusbar.set_branch(branch)
@@ -3733,7 +3779,7 @@ class IDOL(Tk):
                     outline=self._outline,
                     is_python=_cv_is_python(cv),
                 )
-        self.after(25, self._highlight_active_line)
+        rearm_after(self, 25, self._highlight_active_line)
 
     # ── File operations ───────────────────────────────────────────────────────
 
@@ -4398,6 +4444,7 @@ class IDOL(Tk):
             self.notebook.forget(tab_id)
         # Clear LSP diagnostics and breakpoints from the old project
         self._lsp_diagnostics.clear()
+        self._runtime_problems = []
         self._output.update_problems([])
         self._breakpoints.clear()
         self._refresh_debug_breakpoints()
@@ -4929,6 +4976,7 @@ class IDOL(Tk):
             get_output_panel=lambda: self._output.output,
             get_ai_panel=lambda: self._ai_chat_panel,
             open_ai_panel=self._ensure_ai_panel_open,
+            on_packages_changed=self._on_packages_changed,
         )
         panel.pack(fill="both", expand=True)
         # Project dir before interpreter: set_python paints the channel bar, and
@@ -4941,6 +4989,36 @@ class IDOL(Tk):
         nb.select(frame)
         self._pkg_tab = nb.select()
         self._pkg_panel = panel
+
+    def _on_packages_changed(self) -> None:
+        """The active interpreter's installed set may have moved.
+
+        The one place every package-mutating path reports to, so a consumer
+        that caches "is package X present" registers its invalidation once
+        instead of being wired to each producer. Three paths call it: the
+        Package Manager's install/uninstall, the Designer's own install-Pillow
+        row, and `!pip` from the command palette. Only the first two used to
+        touch the Designer's cache, and only on install — which is why
+        uninstalling Pillow left the Designer showing image props as healthy
+        right up until the run failed on `from PIL import Image`.
+
+        Fired on failed operations too. Deciding whether an install "worked"
+        means probing the interpreter, which is exactly what the consumers do
+        for themselves; guessing here would just be a second, worse probe.
+
+        Both consumers run for every producer, including when the producer is
+        one of them. The Package Manager was originally only a producer, which
+        is why installing Pillow from the Designer left the panel — sitting
+        right beside it in the split — still offering **Install** for a package
+        that was now installed.
+        """
+        if hasattr(self, "_props_panel") and self._props_panel:
+            self._props_panel.invalidate_package_cache()
+        if getattr(self, "_pkg_panel", None):
+            self._pkg_panel.refresh_installed()
+        # A ModuleNotFoundError left in the panel is about an environment that
+        # no longer exists once something has been installed into it.
+        self._clear_runtime_problems()
 
     def view_settings(self, *_) -> None:
         """Toggle the Settings tab (Ctrl+,). Same tab pattern as Packages."""
@@ -10689,18 +10767,58 @@ class IDOL(Tk):
         if getattr(self, "_lsp", None):
             self._lsp.set_python_environment(path)
 
-    def _on_designer_install_pillow(self) -> None:
+    def _resolve_missing_module(self, module: str) -> "tuple[str, str] | None":
+        """Map an import name to something installable in the active env.
+
+        Only the app knows which interpreter is active, so the Output panel
+        asks rather than deciding. Returns (package, backend) for the label, or
+        None to decline the offer entirely.
+        """
+        from utils import missing_module as _mm
         from utils.conda_env import is_conda_env
 
+        conda = is_conda_env(self._active_python)
+        return _mm.distribution_for(module, conda=conda), (
+            "conda" if conda else "pip")
+
+    def _install_missing_module(self, package: str) -> None:
         output = self._output.output
+
+        def _done(_used_conda: bool) -> None:
+            # Deliberately does *not* write environment.yml / requirements.txt.
+            # The Package Manager's own installs don't either, and this is one
+            # click on a line in a log — too thin a gesture to edit a
+            # git-tracked file off. Adding the dependency stays explicit.
+            output.write(f"\n{package} install finished — run again.\n",
+                         tag="info")
+            self._on_packages_changed()
+
+        self._install_into_active_env(package, output, _done)
+
+    def _on_designer_install_pillow(self) -> None:
+        output = self._output.output
+        self._install_into_active_env(
+            "pillow", output,
+            lambda used_conda: self._on_pillow_install_done(
+                output, conda=used_conda))
+
+    def _install_into_active_env(self, package: str, output, on_done) -> None:
+        """Install *package* the way the active interpreter installs things.
+
+        conda when the interpreter is a conda env, pip otherwise — the same
+        decision the Package Manager makes, and the reason this is one method
+        rather than one per caller: it carries the conda ToS gate, and a third
+        copy of that gate is a third place for it to drift.
+
+        *on_done* is told which backend ran, because the answer decides which
+        dependency file a caller would write to.
+        """
+        from utils.conda_env import is_conda_env
+
         try:
             self._output._set_active("output")
         except Exception:
             pass
-
-        # Conda interpreters install the conda `pillow` package (same name,
-        # same product on both conda and PyPI) so conda's resolver stays
-        # consistent; pip is the fallback when no conda exe can be located.
         if is_conda_env(self._active_python):
             conda = getattr(self._pkg_panel, "_conda", None)
             if conda is None:
@@ -10709,40 +10827,40 @@ class IDOL(Tk):
                 conda = CondaManager(self._safe_after)
             conda.set_python(self._active_python)
             if conda.available:
-                self._conda_install_pillow(conda, output)
+                self._conda_install_package(conda, package, output, on_done)
                 return
             output.write(
-                "\nconda executable not found — installing Pillow with pip.\n",
+                f"\nconda executable not found — installing {package} with pip.\n",
                 tag="info")
-        self._pip_install_pillow(output)
+        self._pip_install_package(package, output, on_done)
 
-    def _pip_install_pillow(self, output) -> None:
+    def _pip_install_package(self, package: str, output, on_done) -> None:
         pip = getattr(self._pkg_panel, "_pip", None)
         if pip is None:
             from editor.pip_manager import PipManager
 
             pip = PipManager(self._safe_after)
         pip.set_python(self._active_python)
-        output.write("\n$ pip install pillow\n", tag="cmd")
+        output.write(f"\n$ pip install {package}\n", tag="cmd")
         pip.install(
-            "pillow",
+            package,
             on_line=output.write,
-            on_done=lambda: self._on_pillow_install_done(output, conda=False),
+            on_done=lambda: on_done(False),
             on_error=lambda e: output.write(e + "\n", tag="err"),
         )
 
-    def _conda_install_pillow(self, conda, output) -> None:
+    def _conda_install_package(self, conda, package: str, output, on_done) -> None:
         # Conda installs download from Anaconda's channels, which require
         # accepted Terms of Service — same gate as the Package Manager panel.
         from editor import conda_manager as conda_backend
         from widgets.conda_tos_dialog import CondaTosDialog
 
         def _exec() -> None:
-            output.write("\n$ conda install -y pillow\n", tag="cmd")
+            output.write(f"\n$ conda install -y {package}\n", tag="cmd")
             conda.install(
-                "pillow",
+                package,
                 on_line=output.write,
-                on_done=lambda: self._on_pillow_install_done(output, conda=True),
+                on_done=lambda: on_done(True),
                 on_error=lambda e: output.write(e + "\n", tag="err"),
             )
 
@@ -10762,7 +10880,7 @@ class IDOL(Tk):
                 on_accept=lambda: conda_backend.accept_tos(
                     conda.conda_exe, self._safe_after, _on_accept_done),
                 on_decline=lambda: output.write(
-                    "Pillow install cancelled — conda Terms of Service "
+                    f"{package} install cancelled — conda Terms of Service "
                     "not accepted\n", tag="err"),
             )
 
@@ -10777,7 +10895,12 @@ class IDOL(Tk):
         # Both backends fire on_done even when the install failed — probe the
         # interpreter before reporting success or touching the deps file.
         panel = self._props_panel
-        panel._pil_available = None
+        # Report to the hub like any other producer: this clears the Designer's
+        # cache, re-renders the row, and refreshes the Package Manager, which
+        # may be open beside us on the very package that just changed. The
+        # probe the re-render starts is the same one `_check_pil_async` below
+        # joins — `_start_pil_probe` coalesces them.
+        self._on_packages_changed()
 
         def _result(ok: bool) -> None:
             if ok:
@@ -11573,9 +11696,10 @@ class IDOL(Tk):
                 for line in proc.stdout:
                     self.after(0, lambda l=line: output.write(l))
                 proc.wait()
-                # Refresh pkg panel installed list if it's open
-                if self._pkg_panel:
-                    self.after(0, self._pkg_panel._load_installed)
+                # The hub refreshes the Packages tab as well as the Designer,
+                # so this is the only call needed — and it is not gated on the
+                # tab being open, since `!pip install` works either way.
+                self.after(0, self._on_packages_changed)
             except Exception as exc:
                 # Bind the message now, not in the lambda: Python deletes the
                 # `except ... as` name when the block ends, and this callback

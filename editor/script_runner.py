@@ -23,6 +23,11 @@ class ScriptRunner:
         self._on_output = on_output
         self._process: subprocess.Popen | None = None
         self._stdin_lock = threading.Lock()
+        #: Exit status of the last run, or None if it never got that far (no
+        #: interpreter, spawn failure). Callers that need to know whether the
+        #: run failed must read this rather than scanning the output text: the
+        #: exit line is written into a panel other things also write to.
+        self.returncode: int | None = None
 
     def run(
         self, filepath: str, python_path: str = "python", cwd: str | None = None,
@@ -40,6 +45,10 @@ class ScriptRunner:
         environment is used (conda pythons need the env's PATH entries on
         Windows to resolve DLLs); otherwise IDOL's environment is inherited.
         """
+        # Cleared here, on the caller's thread, so a reader that checks it
+        # after the sentinel can never see the previous run's status.
+        self.returncode = None
+
         def _run():
             try:
                 self._process = subprocess.Popen(
@@ -88,6 +97,7 @@ class ScriptRunner:
                 self._process.wait()
 
                 rc = self._process.returncode
+                self.returncode = rc
                 tag = "success" if rc == 0 else "stderr"
                 self._on_output((f"\nProcess finished with exit code {rc}\n", tag))
             except FileNotFoundError:

@@ -21,7 +21,7 @@ from utils.conda_channels import preview_note_channels, validate
 from utils.conda_env import (channel_edit_action, create_project_environment_yml,
                              is_conda_env, mask_channel, resolve_channels,
                              write_project_channels)
-from utils.thread_safe_after import make_thread_safe_after
+from utils.thread_safe_after import make_thread_safe_after, rearm_after
 from widgets.guide_window import GuideWindow, GuidePage
 from utils.ui_font import UI_FONT
 
@@ -51,6 +51,8 @@ _SCOPE_ALL = "▾ All channels"
 # environment.yml is named explicitly because it is a different action from
 # editing one — it drops a git-tracked file into the project.
 _EDIT_LABELS = {"": "", "edit": "✎ Edit", "create": "✎ Create environment.yml"}
+_REFRESH_IDLE = "⟳ Refresh index"
+_REFRESH_BUSY = "⟳ Refreshing…"
 
 _CACHE_FILE   = Path.home() / ".idol" / "pkg_cache.json"
 _LOOKUP_FILE  = Path(__file__).parent.parent / "data" / "idol_package_categories.json"
@@ -233,11 +235,17 @@ class PackageManagerPanel(tk.Frame):
                  get_output_panel: Callable | None = None,
                  get_ai_panel: Callable | None = None,
                  open_ai_panel: Callable | None = None,
+                 on_packages_changed: Callable | None = None,
                  **kwargs) -> None:
         super().__init__(parent, bg=_BG, **kwargs)
         self._get_output_panel = get_output_panel
         self._get_ai_panel     = get_ai_panel
         self._open_ai_panel    = open_ai_panel
+        #: Fired after an install or uninstall finishes. This panel is the only
+        #: place that changes what is installed, and until this existed it told
+        #: nobody — it refreshed its own tree and left every other cache of
+        #: "is package X present" stale. See app._on_packages_changed.
+        self._on_packages_changed = on_packages_changed
         self._installed: dict[str, str] = {}   # name → version
         self._origins: dict[str, str] = {}     # name → "conda" | "pypi" (conda backend only)
         self._selected_pkg: str = ""
@@ -252,7 +260,15 @@ class PackageManagerPanel(tk.Frame):
         self._tos_ok_exe: str | None = None   # conda exe whose ToS check passed
         self._conda_index = CondaSearchIndex(after_fn=_after)
         self._search_source = "pypi"          # "pypi" | "conda" — where search looks
-        self._selected_src = "pypi"           # source of the currently selected search result
+        #: What the tree is currently showing: "installed" | "pypi" | "conda".
+        #: Set by the three population methods, read by _on_select — a
+        #: selection only expresses a source preference when it came from a
+        #: search, and the installed list is not one.
+        self._listing = "installed"
+        #: Which source the user *chose* for the selected package: "pypi",
+        #: "conda", or "" for no choice at all (selected from the installed
+        #: list). The empty state is load-bearing — see _wants_pip.
+        self._selected_src = ""
         self._conda_results: dict[str, dict] = {}   # last conda search results by name
         self._project_dir: str = ""            # folder whose environment.yml we read
         self._chan_cfg: conda_backend.ChannelConfig | None = None
@@ -260,6 +276,10 @@ class PackageManagerPanel(tk.Frame):
         #: Transient by design — a view of the project's channels, never a
         #: change to them, so it is not persisted and resets with the env.
         self._scope_channel: str = ""
+        #: A manual index refresh is in flight. Guards the affordance against a
+        #: second click — `ensure_loaded` would queue the callback behind the
+        #: running load and report done twice for one visible refresh.
+        self._chan_refreshing: bool = False
         self._group_view = bool(_settings.get("pkg_group_view", True))
         self._build()
         self.after(100, self._load_installed)
@@ -391,6 +411,46 @@ class PackageManagerPanel(tk.Frame):
             text=f"{cfg.priority} priority" if cfg and cfg.ok and cfg.priority else "")
         self._chan_edit.config(text=_EDIT_LABELS[
             channel_edit_action(self._project_dir, stated)])
+        # Nothing to re-fetch with no channels; don't offer an action that
+        # would return immediately having done nothing. The in-flight label is
+        # left alone — a repaint mid-refresh must not reset it to idle.
+        if not self._chan_refreshing:
+            self._chan_refresh.config(
+                text=_REFRESH_IDLE if channels else "", fg=_DIM)
+
+    def _refresh_channel_index(self) -> None:
+        """Re-fetch every active channel's channeldata, ignoring the cache.
+
+        The index is otherwise only rebuilt when it expires (weekly) or when
+        the channel set changes, so a package published today cannot be
+        searched for until then. `force=True` is what the backend has always
+        accepted; nothing called it.
+
+        Re-running the current search afterwards is the point — a refresh whose
+        result you have to go and ask for again has not finished the job.
+        """
+        if self._chan_refreshing:
+            return
+        channels, _ = self._resolve_channels()
+        if not channels:
+            return
+        self._chan_refreshing = True
+        self._chan_refresh.config(text=_REFRESH_BUSY, fg=_DIM)
+
+        def _done(count: int) -> None:
+            self._chan_refreshing = False
+            self._chan_refresh.config(text=_REFRESH_IDLE, fg=_DIM)
+            # missing_channels may have changed, and it feeds a guardrail on
+            # the source line — repaint rather than leave the old verdict.
+            self._render_channel_bar()
+            self._notify(f"Channel index refreshed — {count} packages "
+                         f"from {len(channels)} channel(s).\n")
+            if self._search_source == "conda" and self._listing == "conda":
+                query = self._search_var.get().strip()
+                if query and query not in _ALL_HINTS:
+                    self._run_conda_search(query)
+
+        self._conda_index.ensure_loaded(channels, _done, force=True)
 
     def _open_channel_guide(self) -> None:
         from utils.conda_channels_guide import get_pages
@@ -646,6 +706,20 @@ class PackageManagerPanel(tk.Frame):
         self._chan_edit.bind("<Enter>", lambda _: self._chan_edit.config(fg=_FG))
         self._chan_edit.bind("<Leave>", lambda _: self._chan_edit.config(fg=_DIM))
         self._chan_edit.pack(side="right", padx=(0, 12))
+        # Search reads a channeldata.json cache that only expires weekly, so a
+        # package published today is unfindable until it ages out. This is the
+        # "look again" the backend has always been able to do.
+        self._chan_refresh = tk.Label(chan_top, text=_REFRESH_IDLE, bg=_BG,
+                                      fg=_DIM, font=(UI_FONT, 8),
+                                      cursor="hand2")
+        self._chan_refresh.bind("<ButtonRelease-1>",
+                                lambda _: self._refresh_channel_index())
+        self._chan_refresh.bind(
+            "<Enter>", lambda _: self._chan_refresh.config(
+                fg=_FG if not self._chan_refreshing else _DIM))
+        self._chan_refresh.bind("<Leave>",
+                                lambda _: self._chan_refresh.config(fg=_DIM))
+        self._chan_refresh.pack(side="right", padx=(0, 12))
         self._chan_prio = tk.Label(chan_top, text="", bg=_BG, fg=_DIM,
                                    font=(UI_FONT, 8))
         self._chan_prio.pack(side="right", padx=(0, 12))
@@ -756,10 +830,7 @@ class PackageManagerPanel(tk.Frame):
                 self._search_entry.delete(0, "end")
                 self._search_entry.insert(0, hints[self._hint_idx])
                 self._search_entry.config(fg=_DIM)
-        try:
-            self.after(3000, self._cycle_hint)
-        except Exception:
-            pass  # widget destroyed
+        rearm_after(self, 3000, self._cycle_hint)
 
     # ── Load installed packages ────────────────────────────────────────────────
 
@@ -850,6 +921,7 @@ class PackageManagerPanel(tk.Frame):
         return "" if origin == primary else f"  · {mask_channel(origin)}"
 
     def _populate_grouped(self) -> None:
+        self._listing = "installed"
         self._tree.delete(*self._tree.get_children())
         self._tree_label.config(text=f"INSTALLED  ({len(self._installed)})")
 
@@ -897,6 +969,7 @@ class PackageManagerPanel(tk.Frame):
     # ── Local filter (instant, no network) ────────────────────────────────────
 
     def _filter_installed(self) -> None:
+        self._listing = "installed"
         raw = self._search_var.get().strip()
         if not raw or raw in _ALL_HINTS:
             self._populate_grouped()
@@ -979,6 +1052,7 @@ class PackageManagerPanel(tk.Frame):
         self._run_conda_search(query)
 
     def _run_conda_search(self, query: str) -> None:
+        self._listing = "conda"
         scope = self._scope_channel or None
         results = self._conda_index.search(query, channel=scope)
         self._conda_results = {r["name"]: r for r in results}
@@ -1063,6 +1137,7 @@ class PackageManagerPanel(tk.Frame):
         self.after(0, lambda: self._populate_search(results))
 
     def _populate_search(self, results: list[str]) -> None:
+        self._listing = "pypi"
         self._tree.delete(*self._tree.get_children())
         if not results:
             self._tree_label.config(text="PYPI RESULTS  (none found)")
@@ -1104,7 +1179,10 @@ class PackageManagerPanel(tk.Frame):
             self._selected_src = "conda"
             self._detail.show(name, conda_data, self._installed.get(name))
             return
-        self._selected_src = "pypi"
+        # Only a search result expresses a source preference. A row picked out
+        # of the installed list expresses none, and recording "pypi" for it is
+        # what used to send a conda package's re-install through pip.
+        self._selected_src = "pypi" if self._listing == "pypi" else ""
         if name in self._pypi_cache:
             self._detail.show(name, self._pypi_cache[name],
                               self._installed.get(name))
@@ -1128,8 +1206,8 @@ class PackageManagerPanel(tk.Frame):
     # ── Install / Uninstall ────────────────────────────────────────────────────
 
     def _install_pkg(self, name: str) -> None:
-        if self._backend is self._conda and self._selected_src == "pypi":
-            # Explicit PyPI pick in a conda env → pip inside the env. Never
+        if self._backend is self._conda and self._wants_pip(name):
+            # PyPI pick in a conda env → pip inside the env. Never
             # conda-install a PyPI name (conda's `graphviz` is the C tool,
             # PyPI's is the Python bindings — same name, different product).
             self._notify(
@@ -1138,6 +1216,26 @@ class PackageManagerPanel(tk.Frame):
             self._run_backend_op("install", name, force_pip=True)
             return
         self._run_backend_op("install", name)
+
+    def _wants_pip(self, name: str) -> bool:
+        """Should this install go through pip rather than the conda backend?
+
+        Yes in exactly two cases: the user picked a PyPI search result, or the
+        package is installed and pip is where it came from (re-installing it
+        with conda would swap the product underneath them).
+
+        The third case is the point. A package selected from the *installed*
+        list carries no source choice, and `_selected_src` used to record
+        "pypi" for it anyway — so uninstalling a conda package and clicking
+        Install on the row still in front of you silently reinstalled it from
+        PyPI, warning included. With no choice and no origin on record, the
+        environment's own backend is the answer.
+        """
+        if self._selected_src == "pypi":
+            return True
+        if self._selected_src:
+            return False
+        return self._origins.get(name, "") == "pypi"
 
     def _uninstall_pkg(self, name: str) -> None:
         self._run_backend_op("uninstall", name)
@@ -1217,14 +1315,42 @@ class PackageManagerPanel(tk.Frame):
         if verb == "install":
             if backend is self._conda and self._scope_channel:
                 backend.install(name, on_line=_on_line,
-                                on_done=self._load_installed, on_error=on_error,
+                                on_done=self._op_done, on_error=on_error,
                                 only_channel=self._scope_channel)
             else:
                 backend.install(name, on_line=_on_line,
-                                on_done=self._load_installed, on_error=on_error)
+                                on_done=self._op_done, on_error=on_error)
         else:
             backend.uninstall(name, origin, on_line=_on_line,
-                              on_done=self._load_installed, on_error=on_error)
+                              on_done=self._op_done, on_error=on_error)
+
+    def _op_done(self) -> None:
+        """Announce that the environment moved; the hub refreshes us with it.
+
+        Deliberately fires on failure too — both backends call on_done whether
+        or not the operation succeeded, and the honest response to "we don't
+        know what happened" is to make every cached answer re-derive itself. A
+        needless re-probe costs a subprocess; a missed one is the bug this
+        callback exists for.
+
+        We do *not* refresh ourselves and then notify: `refresh_installed` is
+        one of the hub's consumers, so doing both would run `conda list` twice
+        for one operation. The fallback is for a panel with no host wired.
+        """
+        if self._on_packages_changed:
+            self._on_packages_changed()
+        else:
+            self.refresh_installed()
+
+    def refresh_installed(self) -> None:
+        """Re-read the installed set from the active backend.
+
+        Public because the app-level package-changed hub calls it: an install
+        started somewhere else — the Designer's install-Pillow row, `!pip` in
+        the command palette — leaves this panel's tree and its detail buttons
+        describing an environment that has moved.
+        """
+        self._load_installed()
 
     # ── Install preview (dry run) ─────────────────────────────────────────────
 

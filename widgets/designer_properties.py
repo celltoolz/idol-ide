@@ -107,6 +107,15 @@ class DesignerProperties(tk.Frame):
         self._on_ci_image_paths_needed    = on_ci_image_paths_needed
         self._active_python: str          = __import__("sys").executable
         self._pil_available: "bool | None" = None
+        #: One probe, many waiters. Every consumer of the package-changed hook
+        #: asks at once, and the probe is a subprocess — which is why the
+        #: answer is memoised in the first place.
+        self._pil_waiters: "list[Callable[[bool], None]]" = []
+        self._pil_probing: bool = False
+        #: Bumped on invalidation. A probe that started before the environment
+        #: changed is answering about a state that no longer exists; same
+        #: stale-async guard as `_ac_seq` in canvas_editor/autocomplete.py.
+        self._pil_gen: int = 0
         self._project_dir: str            = __import__("os").getcwd()
         self._current_widget: WidgetDescriptor | None  = None
         self._multi_widgets:  list[WidgetDescriptor]    = []
@@ -2117,7 +2126,38 @@ class DesignerProperties(tk.Frame):
 
     def set_active_python(self, exe: str) -> None:
         self._active_python = exe
+        self.invalidate_package_cache()
+
+    def invalidate_package_cache(self) -> None:
+        """Forget what we know about the interpreter's packages, and re-render.
+
+        The PIL probe is memoised — it costs a subprocess, and re-running it on
+        every widget selection would be absurd — so something has to say "ask
+        again" when the environment moves underneath us. It used to be cleared
+        on interpreter change and after a Pillow install from this panel, and
+        **nowhere else**: uninstalling Pillow from the Package Manager left the
+        cache saying True, image props rendering as healthy, and the run failing
+        with a bare ModuleNotFoundError.
+
+        Re-rendering is half the fix: a cleared cache alone leaves the stale
+        answer sitting on screen until the user happens to reselect the widget.
+        Only the widget and form views probe PIL on load, and only when
+        something actually carries an image, so nothing is re-rendered that has
+        no PIL row to correct.
+
+        Bumping the generation matters as much: an uninstall can land while a
+        probe is in flight, and that probe is about to report on the
+        environment as it was before.
+        """
         self._pil_available = None
+        self._pil_gen += 1
+        if self._comp_mode:
+            return
+        if self._current_widget is not None:
+            if self._current_widget.props.get("image"):
+                self.load_widget(self._current_widget)
+        elif self._form is not None and self._form.image:
+            self.load_form(self._form)
 
     def set_project_dir(self, path: str) -> None:
         self._project_dir = path
@@ -2126,7 +2166,24 @@ class DesignerProperties(tk.Frame):
         if self._pil_available is not None:
             on_result(self._pil_available)
             return
-        import threading, subprocess
+        self._pil_waiters.append(on_result)
+        self._start_pil_probe()
+
+    def _start_pil_probe(self) -> None:
+        """Ask the interpreter once, however many callers are waiting.
+
+        Fanning the package-changed hook out to several consumers means two or
+        three of them ask in the same tick — the re-render from an invalidation
+        and the caller that triggered it, typically. Without this they each
+        spawned their own subprocess and raced to write the same answer.
+        """
+        if self._pil_probing or not self._pil_waiters:
+            return
+        self._pil_probing = True
+        gen = self._pil_gen
+        import subprocess
+        import threading
+
         def _run():
             try:
                 r = subprocess.run(
@@ -2136,9 +2193,20 @@ class DesignerProperties(tk.Frame):
                 ok = (r.returncode == 0)
             except Exception:
                 ok = False
-            self._pil_available = ok
-            self.after(0, lambda: on_result(ok))
+            self.after(0, lambda: self._pil_probe_done(ok, gen))
         threading.Thread(target=_run, daemon=True).start()
+
+    def _pil_probe_done(self, ok: bool, gen: int) -> None:
+        self._pil_probing = False
+        if gen != self._pil_gen:
+            # The environment moved while we were asking. Discard the answer
+            # rather than cache it, and ask again for whoever is still waiting.
+            self._start_pil_probe()
+            return
+        self._pil_available = ok
+        waiters, self._pil_waiters = self._pil_waiters, []
+        for cb in waiters:
+            cb(ok)
 
     def _open_image_picker(self, row_iid: str) -> None:
         import os, shutil

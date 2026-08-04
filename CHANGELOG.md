@@ -5,6 +5,87 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-07-30] — The Designer Notices When You Remove a Package
+
+### Added
+- **⟳ Refresh index on the CHANNELS bar.** conda search reads a package index cached per
+  channel and refreshed weekly, which is what makes it instant and usable offline — but it also
+  meant a package published in the last few days simply couldn't be found, with no way to say
+  "look again". Now there is one. It re-downloads every channel you have listed, tells you how
+  many packages it found, and re-runs the search you had on screen so you see the new answer
+  without asking twice.
+- **A crash now shows up in the PROBLEMS panel.** The tab has always flashed amber when a run
+  failed — and the panel it was pointing at held whatever the linter last found, which for a
+  crash caused by a missing import is nothing at all. Now the failure is listed there, at the
+  top, with the exception's own message: `ModuleNotFoundError: No module named 'PIL'`. Click it
+  to jump to the line, the same as any other entry.
+  - It sits **alongside** your lint warnings rather than replacing them, and typing doesn't
+    sweep it away. It clears when you run again, open another project, or install the package
+    that was missing.
+  - Linting reads your code without running it, so a runtime failure is invisible to it. This
+    is the only way such a failure can reach the panel at all.
+- **A missing package now offers to install itself.** When a run stops with
+  `ModuleNotFoundError: No module named 'PIL'`, a clickable line appears under the traceback —
+  `⬇ Install 'pillow' with conda` — which installs into your active interpreter, conda or pip
+  as appropriate, ToS prompt included.
+  - **It knows that the name you import isn't the name you install.** `PIL` comes from
+    `pillow`, `cv2` from `opencv-python`, `yaml` from `PyYAML`; about thirty of the common
+    traps are translated, and where conda and PyPI disagree you get the right name for the
+    environment you're actually in. Anything unrecognised is offered under its own name.
+  - **Standard-library modules get an explanation instead of a bad offer.** A missing
+    `tkinter` means your Python was built without it, so no `pip install` can help, and IDOL
+    says so rather than sending you at a package that doesn't exist.
+  - It doesn't touch `requirements.txt` or `environment.yml` — one click in a log shouldn't
+    edit a file that goes into git.
+  - This was the only place such a failure *could* be caught: the PROBLEMS panel never sees
+    it, because linting doesn't resolve imports and a syntax check doesn't run them.
+
+### Fixed
+- **A crash inside a library sent you to the library, not to your code.** When a script failed,
+  IDOL jumped to the last file named in the traceback — which, whenever the exception was raised
+  inside a package you installed, was a file in `site-packages` you can't do anything about. It
+  now jumps to the innermost frame that is actually yours, skipping frames whose file no longer
+  exists, and falls back to the innermost real file when nothing in the traceback belongs to your
+  project. Chained tracebacks ("During handling of the above exception…") no longer land on the
+  wrong exception's frame either.
+  - Whether a run failed is now judged by its exit status rather than by searching the output
+    text for `exit code 0` — a program that merely printed that string suppressed the indicator
+    for its own crash.
+  - If IDOL can't open the location it found, it now says so in the OUTPUT panel instead of
+    doing nothing at all.
+- **Installing from the Designer left the Package Manager showing the old answer.** With the
+  Packages tab open beside the Designer in a split, clicking **⚠ click to install Pillow**
+  installed it — and the panel inches away carried on offering **Install**, with **Uninstall**
+  greyed out, for a package that now existed. Refreshing or reopening the tab fixed it. The
+  Package Manager was announcing its own installs to everything else but was not itself
+  listening, so anything installed from elsewhere went unnoticed. It now updates in place, for
+  the Designer's install row and for `!pip` in the command palette alike.
+- **Re-installing a conda package fetched it from PyPI instead.** In a conda environment, click a
+  package in your installed list, uninstall it, then click **Install** on the panel still showing
+  it — and it came back through `pip` from PyPI, along with IDOL's own warning that installing
+  with pip inside a conda environment can conflict with conda's resolver. IDOL thought you had
+  explicitly asked for PyPI. You hadn't: picking a row out of your installed list isn't a choice
+  of source at all, but it was being recorded as one. It now installs the way your environment
+  normally would — conda in a conda env — and only stays on pip when the package actually came
+  from pip, which the `· pip` badge already tells you. Choosing a result from a **PyPI** or
+  **conda** search still means exactly what it says.
+- **Uninstalling Pillow left the GUI Designer insisting it was still installed.** Remove Pillow
+  from the Package Manager and the Designer went on drawing image properties as perfectly healthy
+  — no **⚠ click to install Pillow** row — right up until you hit Run and got a bare
+  `ModuleNotFoundError: No module named 'PIL'` pointing at a line of generated code you can't
+  edit. The Designer only ever checks the interpreter once and remembers the answer, and that
+  memory was being cleared when you *installed* Pillow and never when you removed it. Installing
+  from the Designer had always worked, which is exactly why the whole thing looked wired up.
+  - The real gap was that the Package Manager never told anything it had finished. It refreshed
+    its own list and stopped there, so anything else remembering what you have installed was left
+    holding a stale answer. Install and uninstall now both announce themselves, and the Designer
+    re-checks and repaints on the spot rather than the next time you happen to click the widget.
+  - `!pip install` / `!pip uninstall` from the command palette announce themselves too, and so
+    does switching the active interpreter — point a project at an environment without Pillow and
+    the warning appears straight away instead of at the next run.
+
+---
+
 ## [2026-07-29] — Panels That Open Where You Can See Them
 
 ### Added

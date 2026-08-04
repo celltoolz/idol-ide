@@ -155,7 +155,7 @@ Shared appearance props (colours, font, border, relief) group under the same **A
 Label, Button, and Canvas widgets support an `image` property. Click the row to open a file picker — the selected file is automatically copied into `<project>/images/` so the generated app is self-contained. A live thumbnail scaled to the widget bounds appears on the canvas immediately.
 
 - **Compound** (Label and Button only) — positions the image relative to any text: `left`, `right`, `top`, `bottom`, `center`, `none`; when an image is set the canvas hides the text label to match runtime behaviour
-- **PIL warning row** — if Pillow is not installed in the active project interpreter, an amber **⚠ click to install Pillow** row appears below the `image` row; clicking it streams `pip install pillow` into the Output panel and removes the warning on success
+- **PIL warning row** — if Pillow is not installed in the active project interpreter, an amber **⚠ click to install Pillow** row appears below the `image` row; clicking it streams `pip install pillow` into the Output panel and removes the warning on success. The row also keeps up with changes made elsewhere: installing or removing Pillow from the Package Manager, or with `!pip` in the command palette, re-checks the interpreter and repaints the row. Switching the active interpreter does the same, so a project pointed at an environment without Pillow shows the warning immediately rather than at the next run
 - **Anchor-aware resize** — when the widget has a size-changing anchor (`all`, `top`, `bottom`, `left`, `right`), codegen emits a `<Configure>` binding that reloads the `PhotoImage` at the new widget dimensions so the image scales live with the window
 
 ### Canvas Widget Properties

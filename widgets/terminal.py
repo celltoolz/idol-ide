@@ -34,6 +34,7 @@ else:
 
 import pyte
 from utils import conda_env
+from utils.thread_safe_after import rearm_after
 from utils.ui_font import UI_FONT
 
 PTY_AVAILABLE = False
@@ -1679,7 +1680,7 @@ class TerminalPanel(ttk.Frame):
             self._scrollback.append([("[Process exited]", _DEFAULT_FG, _DEFAULT_BG, False)])
             self._redraw_full()
 
-        self.after(30, self._poll)
+        rearm_after(self, 30, self._poll)
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
@@ -2396,7 +2397,7 @@ class TerminalPanel(ttk.Frame):
                     self._refresh_venv_state()
         except Exception:
             pass
-        self.after(500, self._poll_state_file)
+        rearm_after(self, 500, self._poll_state_file)
 
     def _process_markers(self, raw: str) -> str:
         """Strip IDOL-private OSC sequences from raw PTY output and fire callbacks.

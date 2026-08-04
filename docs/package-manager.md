@@ -30,9 +30,10 @@ All operations use the **active interpreter** — the same one shown in the stat
 
 When the active interpreter is a **conda environment**, the panel switches to a conda backend automatically:
 
-- **Search follows the interpreter** — a `conda | PyPI` source toggle appears next to the search button, defaulting to **conda**: results come from the channels this project actually uses (its `environment.yml` when it has one, otherwise whatever your conda is configured with — see *The CHANNELS bar* below), so what you find is exactly what `conda install` can reach. Each channel's package index (`channeldata.json`) is cached locally in `~/.idol/conda_index/` and refreshed weekly, so search is instant and offline-friendly. The cache is per channel, so switching projects re-uses what it already has and only downloads channels it hasn't seen
+- **Search follows the interpreter** — a `conda | PyPI` source toggle appears next to the search button, defaulting to **conda**: results come from the channels this project actually uses (its `environment.yml` when it has one, otherwise whatever your conda is configured with — see *The CHANNELS bar* below), so what you find is exactly what `conda install` can reach. Each channel's package index (`channeldata.json`) is cached locally in `~/.idol/conda_index/` and refreshed weekly, so search is instant and offline-friendly. The cache is per channel, so switching projects re-uses what it already has and only downloads channels it hasn't seen. If a package was published more recently than that, **⟳ Refresh index** on the CHANNELS bar re-downloads every active channel right away and re-runs your search
 - **Names differ between conda and PyPI** — conda's `graphviz` is the Graphviz C tool while PyPI's `graphviz` is the Python bindings (`python-graphviz` on conda). Searching the namespace you'll install from shows both with their summaries, so you pick the right one
 - **Install routes by search source** — a conda result installs with `conda install` only (no silent pip fallback: swapping tools swaps *products* when names collide); a package picked with the **PyPI** toggle installs with pip inside the env, after a one-line warning that pip-in-conda can conflict with conda's dependency resolver
+- **A package picked out of the installed list is not a source choice.** It installs the way the environment normally would — conda in a conda env — unless it carries a `· pip` badge, in which case it stays on pip. Only a search result says "I want this one, from here"
 - **Installed list** comes from `conda list` — it honestly includes conda's non-Python packages (openssl, vc, ca-certificates, …), so a fresh env shows a few dozen entries grouped mostly under "Other"
 - Packages installed via pip show a **`· pip` badge** in the list
 - **Uninstall routes by origin** — pip-installed packages are removed with pip, conda packages with `conda remove`
@@ -46,7 +47,7 @@ No `conda activate` is needed for any of this — operations run with a synthesi
 Above the package list, conda environments get a two-line **CHANNELS** strip.
 
 ```
-CHANNELS   1 conda-forge   ·   2 pytorch    flexible priority   ✎ Edit   ?
+CHANNELS   1 conda-forge   ·   2 pytorch   flexible priority   ⟳ Refresh index   ✎ Edit   ?
            from environment.yml
 ```
 
@@ -69,6 +70,11 @@ CHANNELS   1 conda-forge   ·   2 pytorch    flexible priority   ✎ Edit   ?
   edited: it applies to your whole conda installation rather than one project, and IDOL does not
   write to `~/.condarc`. Change it with `conda config --set channel_priority strict`
 - Channel URLs containing a token are **masked** before display
+- **⟳ Refresh index** re-downloads the package index for every listed channel, ignoring the
+  weekly cache. Use it when you know something was published recently and search can't find it.
+  It reports how many packages it found and re-runs whatever conda search you had on screen, so
+  you see the new answer without searching again. It's the only thing here that goes to the
+  network on demand — everything else on this bar is read from files you already have
 - **?** opens the Conda Channels guide
 
 ### Editing the channel list

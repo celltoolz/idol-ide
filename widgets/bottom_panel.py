@@ -12,6 +12,7 @@ from .debug_panel import DebugPanel
 from .output import OutputPanel
 from .problems_panel import ProblemsPanel
 from .terminal import TerminalPanel
+from utils.thread_safe_after import rearm_after
 from utils.ui_font import UI_FONT
 
 
@@ -429,7 +430,7 @@ class BottomPanel(ttk.Frame):
         self._flash_state = not self._flash_state
         lbl = self._tabs["problems"]["label"]
         lbl.config(fg=self._FLASH_AMBER if self._flash_state else self._TAB_FG)
-        self._flash_job = self.after(self._FLASH_MS, self._tick_flash)
+        self._flash_job = rearm_after(self, self._FLASH_MS, self._tick_flash)
 
     def _set_active(self, key: str) -> None:
         # If debug is floating and we're asked to switch to it, skip — it's
