@@ -647,6 +647,34 @@ Each file in `docs/` maps to a feature area. When you change a feature, update t
 
 ---
 
+## The TODO Cycle
+
+**`TODO.md` drives the work.** It is not a scratchpad — it is the plan of record, and it is
+kept accurate as a first-class task rather than updated when convenient.
+
+1. **Raw notes** get taken while using IDOL. Symptoms, not diagnoses.
+2. **Audit before filing.** Confirm against the code that the symptom is real and the cause is
+   what it looks like. The filing rule at the top of `TODO.md` is the standard: what was seen,
+   what was expected instead, and whether the thing that failed was already known broken.
+3. **File it** — open work in **🚧 Active Work**, defects in **🐛 Bugs**, unscoped ideas in
+   **📌 Known, not yet scoped**, unresolved questions in **🗣️ Needs Discussion**.
+4. **Work through Active Work**, moving each item to **✅ Done** as it ships. Anything found on
+   the way gets *filed*, not fixed in passing — a fix that wanders is a fix nobody reviewed.
+5. **On release**, everything in Done moves to `RELEASE.md`, and `TODO.md` starts empty for the
+   next round of raw notes.
+
+**`RELEASE.md` is local and gitignored** — curated per-version working notes, the source the
+release notes are written from. `CHANGELOG.md` remains the tracked, dated, per-milestone
+record. Two files because they answer different questions: "what shipped in this version, in
+the words we would publish" versus "what changed, when".
+
+**Label towards what is coming, not what came.** Branches get conventional names (`feat/`,
+`fix/`) describing the work, never the release they land in. v1.2.0 was built on two branches
+both named for v1.1.2 — the version being *fixed* rather than the one being *shipped* — and the
+ledger read as the wrong release right up to publication.
+
+---
+
 ## Release Notes
 
 Published to GitHub Releases. **`CHANGELOG.md` is the dated, per-milestone detail; the release

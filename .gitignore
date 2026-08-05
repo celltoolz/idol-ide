@@ -14,3 +14,7 @@ __pycache__/
 
 # Session files
 ~/.notepad_ide/
+
+# Local release ledger — working notes for what shipped, migrated out of
+# TODO.md when a release is published. CHANGELOG.md is the tracked record.
+RELEASE.md
