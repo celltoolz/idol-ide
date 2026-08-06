@@ -40,12 +40,16 @@ entry contained a careful trace proving nothing was wrong, and got filed anyway.
 
 ## 🚧 Active Work
 
-Two rounds, terminal first. **Step 2 needs a scoping pass before any code** —
-the original conda work got one and it is why the four phases went in cleanly;
-the deferred list below is a pile of headings, not a plan.
+Four steps, in this order. Each gets its own branch, since they share no theme.
+**Step 4 needs a scoping pass before any code** — the original conda work got
+one and it is why the four phases went in cleanly; the deferred list under it is
+a pile of headings, not a plan.
 
-Each gets its own branch, since they share no theme: `feat/terminal-post-run-analysis`,
-then conda.
+Steps 2 and 3 are deliberately small and early. Step 2 is a *decision* that
+blocks a filed bug, and decisions are cheapest to settle while the reasoning is
+still fresh. Step 3 is infrastructure that makes the confirmed Linux bugs
+verifiable from this machine, which is why it comes before fixing them rather
+than after.
 
 - [ ] **Step 1 — post-run analysis for terminal runs.** Everything a failed run
       gets in OUTPUT, a failed run in the TERMINAL gets nothing: no
@@ -73,7 +77,33 @@ then conda.
       - Both run paths should feed the same PROBLEMS list — `_runtime_problems`
         and `_refresh_problems` already exist and are agnostic about where the
         failure came from, so this is a caller, not a new mechanism.
-- [ ] **Step 2 — conda config, round two.** The deferred list from the original
+- [ ] **Step 2 — settle the empty-split-pane boundary, then fix it.** The full
+      argument is under **Needs Discussion**; this is the slot for acting on it.
+      Decide *which paths may close a split* before writing anything, then
+      re-pin `tests/test_split_pane_policy.py` to the new rule rather than
+      deleting the allowlist entry. Branch: `fix/empty-split-pane`.
+      - Ordered second on purpose: it is the only open item blocked on a
+        decision rather than on work, and leaving it unsettled means it
+        surfaces mid-branch when something else is half-finished.
+- [ ] **Step 3 — Linux CI, and the two bugs it would have caught.**
+      `.github/workflows/ci.yml` already runs Linux and Windows on 3.11/3.13,
+      but nothing in the suite asserts on **platform-specific bindings**, which
+      is the entire shape of the confirmed Linux defects. Branch:
+      `test/linux-binding-coverage`.
+      - Ships with the two confirmed Linux bugs from **Bugs** as its first
+        tests, because CI with nothing to catch proves nothing: **Shift+Tab /
+        `ISO_Left_Tab`** and the **`<Button-4>`/`<Button-5>` gap** in the
+        Designer palette and properties panel.
+      - Both are assertable **headlessly against the binding table** — does
+        this widget bind the X11 wheel events, does the key handler accept
+        both Tab keysyms — rather than by driving a real X server. That is
+        what makes this cheap, and it generalises: an allowlist test that every
+        scrolling widget binds all three wheel events would have caught the
+        Designer pair before shipping.
+      - `ROADMAP.md` already lists macOS CI and test-suite expansion; this is
+        the Linux slice of that, pulled forward because there are now four
+        Linux-first entries in **Bugs** and no way to verify a fix from here.
+- [ ] **Step 4 — conda config, round two.** The deferred list from the original
       four phases, promoted to real work. **Scope it first**: these are five
       separate features sharing a config file, not one job, and at least two
       touch `~/.condarc`, which IDOL deliberately does not own today.
@@ -93,6 +123,9 @@ Python 3.11.2 (older, slower machine). Audited against the code before filing �
 split by how far that audit got, per the filing rule.
 
 ### Confirmed — cause identified
+
+*The first two are scheduled: they ship as the first tests of **Active Work
+step 3**, since a CI job with nothing to catch proves nothing.*
 
 - [ ] **Shift+Tab does not unindent on Linux.** `canvas_codeview.py:2264`
       dispatches on `ks == "Tab"` and reads Shift from the modifier state. **X11
@@ -194,8 +227,16 @@ not yet scoped** both turn on them.
 
 ## 🎨 UI/UX Polish
 
-*Small, mostly independent. Several are the same complaint from different
-angles: **you cannot tell that something is happening**.*
+### "I can't tell that anything is happening" — do these in one pass
+
+**Three notes, one complaint.** Each was written up separately, but they are the
+same missing thing: a long-running action starts and the UI gives no sign. Done
+separately they would get three different answers to one question — three
+flavours of busy state, three ways of saying "finished". Done together they get
+one vocabulary, which is the point of grouping them.
+
+Sequence within the pass: the amber flash first (it is the shared signal the
+other two lean on), then the button disabling, then the Designer row.
 
 - [ ] **The OUTPUT tab should flash amber when output arrives**, the way
       PROBLEMS already does — *except* for Run / Debug / Run Line / Run
@@ -205,13 +246,17 @@ angles: **you cannot tell that something is happening**.*
       `stop_flash_problems_tab` in `bottom_panel.py` are the pattern to copy.
 - [ ] **Package Manager buttons should disable while an operation runs.**
       Install / Uninstall / Preview stay live during the command, so it is easy
-      to click twice and not realise anything is happening. Same complaint as
-      the amber flash. `_op_done` already exists as the completion point, and
-      the `⟳ Refresh index` guard (`_chan_refreshing`) is the shape to follow.
+      to click twice and not realise anything is happening. `_op_done` already
+      exists as the completion point, and the `⟳ Refresh index` guard
+      (`_chan_refreshing`) is the shape to follow — it solved exactly this for
+      one button already, which is the argument for doing the rest the same way.
 - [ ] **The Designer's "click to install Pillow" row should say what it is
       doing** — become "Installing Pillow…" on click, then disappear when the
       probe confirms it. Today it sits unchanged while the install runs.
       `_on_pillow_install_done` is where the ending goes.
+
+### Independent
+
 - [ ] **DEBUG tab should carry a breakpoint count** — `DEBUG (3)`, plain
       `DEBUG` at zero. Mirrors the PROBLEMS badge, which already does this.
 - [ ] **Tab strip should scroll with the mouse wheel** when more tabs are open
@@ -226,6 +271,8 @@ angles: **you cannot tell that something is happening**.*
       bug above — both are about the project's name not reaching the UI.
 
 ## 🗣️ Needs Discussion
+
+*Scheduled as **Active Work step 2** — settle it there, then act on it.*
 
 - [ ] **An empty split pane should close itself — reversing a decision shipped
       in v1.2.0.** The auto-close removal went in deliberately (four paths used
